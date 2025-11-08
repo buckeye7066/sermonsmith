@@ -22,6 +22,7 @@ import PlanLibrary from './pages/PlanLibrary';
 import WorldviewExplorer from './pages/WorldviewExplorer';
 import ChristianEthics from './pages/ChristianEthics';
 import PrayerGenerator from './pages/PrayerGenerator';
+import SystemDiagnostics from './pages/SystemDiagnostics';
 import Layout from './Layout.jsx';
 
 
@@ -50,6 +51,7 @@ export const PAGES = {
     "WorldviewExplorer": WorldviewExplorer,
     "ChristianEthics": ChristianEthics,
     "PrayerGenerator": PrayerGenerator,
+    "SystemDiagnostics": SystemDiagnostics,
 }
 
 export const pagesConfig = {
