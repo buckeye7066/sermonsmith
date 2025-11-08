@@ -31,7 +31,7 @@ import {
   Globe,
   Download,
   Share2,
-  Settings // Added Settings icon for the new feature
+  Settings
 } from "lucide-react";
 import { motion } from "framer-motion";
 import VerseOfTheDay from "@/components/reader/VerseOfTheDay";

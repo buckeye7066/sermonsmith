@@ -39,7 +39,7 @@ import SermonViewer from "@/components/library/SermonViewer";
 import ShareSermonDialog from "@/components/library/ShareSermonDialog";
 import ForkSermonDialog from "@/components/library/ForkSermonDialog";
 import RatingDialog from "@/components/library/RatingDialog";
-import ThematicLinker from "@/components/library/ThematicLinker"; // New import
+import ThematicLinker from "@/components/discovery/ThematicLinker"; // New import
 
 export default function SermonLibrary() {
   const [user, setUser] = useState(null);
