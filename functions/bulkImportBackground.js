@@ -102,81 +102,119 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'No translations specified' }, { status: 400 });
     }
 
-    // Start background import (don't await it)
-    importInBackground(base44, translations);
+    // Start background import (don't await it - runs independently)
+    importInBackground(base44, translations).catch(error => {
+      console.error('[IMPORT] Background import crashed:', error);
+    });
 
     return Response.json({
       message: 'Import started in background',
       translations: translations,
-      status: 'processing'
+      status: 'processing',
+      note: 'Check server logs or Import Status page for progress'
     });
 
   } catch (error) {
-    console.error('Error starting background import:', error);
+    console.error('[IMPORT] Error starting background import:', error);
     return Response.json({ error: error.message }, { status: 500 });
   }
 });
 
 async function importInBackground(base44, translations) {
-  const stats = { success: 0, failed: 0, cached: 0 };
+  const stats = { success: 0, failed: 0, cached: 0, skipped: 0 };
+  const startTime = Date.now();
   
-  console.log(`[IMPORT] Starting background import for ${translations.length} translation(s)`);
+  console.log('═'.repeat(80));
+  console.log(`[IMPORT] 🚀 UNSTOPPABLE BACKGROUND IMPORT STARTED`);
+  console.log(`[IMPORT] Translations: ${translations.join(', ')}`);
+  console.log(`[IMPORT] Started: ${new Date().toISOString()}`);
+  console.log('═'.repeat(80));
 
   for (const translationId of translations) {
-    console.log(`[IMPORT] Starting ${translationId}...`);
-    let translationStats = { success: 0, failed: 0, cached: 0 };
+    console.log(`\n${'─'.repeat(80)}`);
+    console.log(`[IMPORT] 📖 Starting ${translationId}...`);
+    console.log('─'.repeat(80));
+    
+    let translationStats = { success: 0, failed: 0, cached: 0, skipped: 0 };
 
     for (const book of BIBLE_BOOKS) {
-      // Process multiple chapters concurrently for speed
-      const chapterPromises = [];
-      const batchSize = 5; // Process 5 chapters at a time
+      // Process chapters in small batches for reliability
+      const batchSize = 3; // Smaller batches = more reliable
+      
+      for (let startChapter = 1; startChapter <= book.chapters; startChapter += batchSize) {
+        const endChapter = Math.min(startChapter + batchSize - 1, book.chapters);
+        const chapterPromises = [];
 
-      for (let chapter = 1; chapter <= book.chapters; chapter++) {
-        chapterPromises.push(
-          importChapter(base44, translationId, book.name, chapter)
-        );
+        for (let chapter = startChapter; chapter <= endChapter; chapter++) {
+          chapterPromises.push(
+            importChapterWithRetry(base44, translationId, book.name, chapter)
+          );
+        }
 
-        // Process in batches
-        if (chapterPromises.length >= batchSize || chapter === book.chapters) {
-          const results = await Promise.allSettled(chapterPromises);
+        // Wait for batch to complete
+        const results = await Promise.allSettled(chapterPromises);
+        
+        for (let i = 0; i < results.length; i++) {
+          const chapter = startChapter + i;
+          const result = results[i];
           
-          for (const result of results) {
-            if (result.status === 'fulfilled') {
-              if (result.value.cached) {
-                translationStats.cached++;
-                stats.cached++;
-              } else if (result.value.success) {
-                translationStats.success++;
-                stats.success++;
-              } else {
-                translationStats.failed++;
-                stats.failed++;
-              }
+          if (result.status === 'fulfilled') {
+            if (result.value.cached) {
+              translationStats.cached++;
+              stats.cached++;
+              console.log(`[IMPORT]   ✓ ${book.name} ${chapter} (cached)`);
+            } else if (result.value.success) {
+              translationStats.success++;
+              stats.success++;
+              console.log(`[IMPORT]   ✓ ${book.name} ${chapter} (imported)`);
+            } else if (result.value.skipped) {
+              translationStats.skipped++;
+              stats.skipped++;
+              console.log(`[IMPORT]   ⊘ ${book.name} ${chapter} (not available)`);
             } else {
               translationStats.failed++;
               stats.failed++;
+              console.log(`[IMPORT]   ✗ ${book.name} ${chapter} (failed)`);
             }
+          } else {
+            translationStats.failed++;
+            stats.failed++;
+            console.log(`[IMPORT]   ✗ ${book.name} ${chapter} (error: ${result.reason?.message || 'unknown'})`);
           }
-
-          chapterPromises.length = 0; // Clear array
-          
-          // Small delay to avoid rate limiting
-          await new Promise(resolve => setTimeout(resolve, 100));
         }
+
+        // Small delay between batches to avoid overwhelming the API
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      console.log(`[IMPORT] ${translationId} - ${book.name} complete`);
+      console.log(`[IMPORT]   📚 ${book.name} complete`);
     }
 
-    console.log(`[IMPORT] Completed ${translationId}: Success=${translationStats.success}, Cached=${translationStats.cached}, Failed=${translationStats.failed}`);
+    console.log(`\n[IMPORT] ✅ Completed ${translationId}`);
+    console.log(`[IMPORT]    Success: ${translationStats.success}`);
+    console.log(`[IMPORT]    Cached: ${translationStats.cached}`);
+    console.log(`[IMPORT]    Skipped: ${translationStats.skipped}`);
+    console.log(`[IMPORT]    Failed: ${translationStats.failed}`);
   }
 
-  console.log(`[IMPORT] All imports complete! Total: Success=${stats.success}, Cached=${stats.cached}, Failed=${stats.failed}`);
+  const duration = Math.round((Date.now() - startTime) / 1000);
+  const minutes = Math.floor(duration / 60);
+  const seconds = duration % 60;
+
+  console.log('\n' + '═'.repeat(80));
+  console.log(`[IMPORT] 🎉 ALL IMPORTS COMPLETE!`);
+  console.log(`[IMPORT] Duration: ${minutes}m ${seconds}s`);
+  console.log(`[IMPORT] Total Success: ${stats.success}`);
+  console.log(`[IMPORT] Total Cached: ${stats.cached}`);
+  console.log(`[IMPORT] Total Skipped: ${stats.skipped}`);
+  console.log(`[IMPORT] Total Failed: ${stats.failed}`);
+  console.log(`[IMPORT] Success Rate: ${Math.round((stats.success + stats.cached) / (stats.success + stats.cached + stats.skipped + stats.failed) * 100)}%`);
+  console.log('═'.repeat(80));
 }
 
-async function importChapter(base44, translationId, bookName, chapter) {
+async function importChapterWithRetry(base44, translationId, bookName, chapter, maxRetries = 3) {
+  // Check if already cached
   try {
-    // Check cache first
     const cached = await base44.asServiceRole.entities.Verse.filter({
       translation_id: translationId,
       book_name: bookName,
@@ -186,42 +224,60 @@ async function importChapter(base44, translationId, bookName, chapter) {
     if (cached.length > 0) {
       return { success: true, cached: true };
     }
-
-    // Fetch from API
-    const verses = await fetchFromAPI(translationId, bookName, chapter);
-    
-    if (verses.length === 0) {
-      return { success: false, cached: false };
-    }
-
-    // Store in database
-    const verseRecords = verses.map(v => ({
-      translation_id: translationId,
-      book_name: bookName,
-      chapter: chapter,
-      verse: v.verse,
-      text: v.text,
-      source_hash: `${translationId}-${bookName}-${chapter}-${v.verse}`
-    }));
-
-    // Insert in batches
-    const batchSize = 10;
-    for (let i = 0; i < verseRecords.length; i += batchSize) {
-      const batch = verseRecords.slice(i, i + batchSize);
-      await base44.asServiceRole.entities.Verse.bulkCreate(batch);
-    }
-
-    return { success: true, cached: false };
-
   } catch (error) {
-    console.error(`[IMPORT] Error: ${translationId} ${bookName} ${chapter}:`, error.message);
-    return { success: false, cached: false };
+    console.error(`[IMPORT] Cache check error for ${bookName} ${chapter}:`, error.message);
   }
+
+  // Try to import with retries
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const verses = await fetchFromAPI(translationId, bookName, chapter);
+      
+      if (verses.length === 0) {
+        return { success: false, cached: false, skipped: true };
+      }
+
+      // Store in database
+      const verseRecords = verses.map(v => ({
+        translation_id: translationId,
+        book_name: bookName,
+        chapter: chapter,
+        verse: v.verse,
+        text: v.text,
+        source_hash: `${translationId}-${bookName}-${chapter}-${v.verse}`
+      }));
+
+      // Insert in batches
+      const batchSize = 10;
+      for (let i = 0; i < verseRecords.length; i += batchSize) {
+        const batch = verseRecords.slice(i, i + batchSize);
+        await base44.asServiceRole.entities.Verse.bulkCreate(batch);
+      }
+
+      return { success: true, cached: false };
+
+    } catch (error) {
+      if (error.message.includes('404') || error.message.includes('not found')) {
+        // This translation doesn't have this chapter
+        return { success: false, cached: false, skipped: true };
+      }
+
+      if (attempt < maxRetries) {
+        // Exponential backoff
+        const waitTime = Math.min(1000 * Math.pow(2, attempt), 8000);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      } else {
+        return { success: false, cached: false, skipped: false };
+      }
+    }
+  }
+
+  return { success: false, cached: false, skipped: false };
 }
 
 async function fetchFromAPI(translationId, bookName, chapter) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const timeout = setTimeout(() => controller.abort(), 12000); // 12 second timeout
 
   try {
     const encodedBook = encodeURIComponent(bookName);
@@ -230,13 +286,17 @@ async function fetchFromAPI(translationId, bookName, chapter) {
     const response = await fetch(url, { 
       signal: controller.signal,
       headers: {
-        'User-Agent': 'SermonSmith Bible App/1.0'
+        'User-Agent': 'SermonSmith Bible App/1.0',
+        'Accept': 'application/json'
       }
     });
 
     clearTimeout(timeout);
 
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('404 - Not found');
+      }
       throw new Error(`API returned ${response.status}`);
     }
 
@@ -264,6 +324,9 @@ async function fetchFromAPI(translationId, bookName, chapter) {
 
   } catch (error) {
     clearTimeout(timeout);
+    if (error.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
     throw error;
   }
 }
