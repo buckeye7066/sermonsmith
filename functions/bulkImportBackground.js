@@ -72,13 +72,27 @@ const BIBLE_BOOKS = [
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   
+  // Comprehensive logging at entry point
+  console.log('\n' + '═'.repeat(80));
+  console.log('[IMPORT] 📥 REQUEST RECEIVED');
+  console.log('[IMPORT] Time:', new Date().toISOString());
+  console.log('[IMPORT] Method:', req.method);
+  console.log('═'.repeat(80));
+  
   try {
+    // Step 1: Authenticate
+    console.log('[IMPORT] Step 1: Authenticating user...');
     const user = await base44.auth.me();
+    
     if (!user) {
+      console.log('[IMPORT] ❌ No authenticated user');
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    
+    console.log('[IMPORT] ✅ User authenticated:', user.email);
 
-    // Developer check
+    // Step 2: Check developer access
+    console.log('[IMPORT] Step 2: Checking developer access...');
     const devEmails = [
       'buckeye7066@gmail.com',
       'anyawhite@rocketmail.com',
@@ -92,31 +106,65 @@ Deno.serve(async (req) => {
       user.phone.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, ''))
     );
     
+    console.log('[IMPORT] Email check:', user.email, '→', emailMatch ? '✅' : '❌');
+    console.log('[IMPORT] Phone check:', user.phone, '→', phoneMatch ? '✅' : '❌');
+    
     if (!emailMatch && !phoneMatch) {
-      return Response.json({ error: 'Admin access required' }, { status: 403 });
+      console.log('[IMPORT] ❌ Access denied - not a developer');
+      return Response.json({ 
+        error: 'Admin access required',
+        hint: 'Only developer accounts can run bulk imports'
+      }, { status: 403 });
     }
+    
+    console.log('[IMPORT] ✅ Developer access confirmed');
 
+    // Step 3: Parse request body
+    console.log('[IMPORT] Step 3: Parsing request body...');
     const { translations } = await req.json();
+    console.log('[IMPORT] Translations requested:', translations);
     
     if (!translations || translations.length === 0) {
+      console.log('[IMPORT] ❌ No translations specified');
       return Response.json({ error: 'No translations specified' }, { status: 400 });
     }
+    
+    console.log('[IMPORT] ✅ Request valid -', translations.length, 'translation(s)');
 
-    // Start background import (don't await it - runs independently)
+    // Step 4: Start background task
+    console.log('[IMPORT] Step 4: Starting background import task...');
+    console.log('[IMPORT] Launching importInBackground() function...');
+    
+    // Launch background task WITHOUT awaiting it
     importInBackground(base44, translations).catch(error => {
-      console.error('[IMPORT] Background import crashed:', error);
+      console.error('[IMPORT] 💥 BACKGROUND TASK CRASHED:', error);
+      console.error('[IMPORT] Stack trace:', error.stack);
     });
+    
+    console.log('[IMPORT] ✅ Background task launched successfully');
+    console.log('[IMPORT] 📤 Returning success response to client');
+    console.log('═'.repeat(80) + '\n');
 
+    // Return immediately
     return Response.json({
+      success: true,
       message: 'Import started in background',
       translations: translations,
+      total_chapters: translations.length * 1189,
       status: 'processing',
-      note: 'Check server logs or Import Status page for progress'
+      note: 'Check server logs for progress'
     });
 
   } catch (error) {
-    console.error('[IMPORT] Error starting background import:', error);
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error('\n' + '═'.repeat(80));
+    console.error('[IMPORT] 💥 FATAL ERROR:', error.message);
+    console.error('[IMPORT] Stack:', error.stack);
+    console.error('═'.repeat(80) + '\n');
+    
+    return Response.json({ 
+      error: error.message,
+      stack: error.stack
+    }, { status: 500 });
   }
 });
 
@@ -124,22 +172,29 @@ async function importInBackground(base44, translations) {
   const stats = { success: 0, failed: 0, cached: 0, skipped: 0 };
   const startTime = Date.now();
   
-  console.log('═'.repeat(80));
-  console.log(`[IMPORT] 🚀 UNSTOPPABLE BACKGROUND IMPORT STARTED`);
-  console.log(`[IMPORT] Translations: ${translations.join(', ')}`);
-  console.log(`[IMPORT] Started: ${new Date().toISOString()}`);
-  console.log('═'.repeat(80));
+  console.log('\n' + '█'.repeat(80));
+  console.log('[BACKGROUND] 🚀 BACKGROUND IMPORT TASK STARTED');
+  console.log('[BACKGROUND] Time:', new Date().toISOString());
+  console.log('[BACKGROUND] Translations:', translations.join(', '));
+  console.log('[BACKGROUND] Total chapters:', translations.length * 1189);
+  console.log('█'.repeat(80));
 
-  for (const translationId of translations) {
-    console.log(`\n${'─'.repeat(80)}`);
-    console.log(`[IMPORT] 📖 Starting ${translationId}...`);
+  for (let transIndex = 0; transIndex < translations.length; transIndex++) {
+    const translationId = translations[transIndex];
+    
+    console.log('\n' + '─'.repeat(80));
+    console.log(`[BACKGROUND] 📖 [${transIndex + 1}/${translations.length}] Starting ${translationId}...`);
     console.log('─'.repeat(80));
     
     let translationStats = { success: 0, failed: 0, cached: 0, skipped: 0 };
 
-    for (const book of BIBLE_BOOKS) {
+    for (let bookIndex = 0; bookIndex < BIBLE_BOOKS.length; bookIndex++) {
+      const book = BIBLE_BOOKS[bookIndex];
+      
+      console.log(`[BACKGROUND]   📚 [${bookIndex + 1}/${BIBLE_BOOKS.length}] ${book.name} (${book.chapters} chapters)`);
+      
       // Process chapters in small batches for reliability
-      const batchSize = 3; // Smaller batches = more reliable
+      const batchSize = 3;
       
       for (let startChapter = 1; startChapter <= book.chapters; startChapter += batchSize) {
         const endChapter = Math.min(startChapter + batchSize - 1, book.chapters);
@@ -162,54 +217,50 @@ async function importInBackground(base44, translations) {
             if (result.value.cached) {
               translationStats.cached++;
               stats.cached++;
-              console.log(`[IMPORT]   ✓ ${book.name} ${chapter} (cached)`);
             } else if (result.value.success) {
               translationStats.success++;
               stats.success++;
-              console.log(`[IMPORT]   ✓ ${book.name} ${chapter} (imported)`);
+              console.log(`[BACKGROUND]      ✓ Ch ${chapter}`);
             } else if (result.value.skipped) {
               translationStats.skipped++;
               stats.skipped++;
-              console.log(`[IMPORT]   ⊘ ${book.name} ${chapter} (not available)`);
             } else {
               translationStats.failed++;
               stats.failed++;
-              console.log(`[IMPORT]   ✗ ${book.name} ${chapter} (failed)`);
+              console.log(`[BACKGROUND]      ✗ Ch ${chapter}`);
             }
           } else {
             translationStats.failed++;
             stats.failed++;
-            console.log(`[IMPORT]   ✗ ${book.name} ${chapter} (error: ${result.reason?.message || 'unknown'})`);
+            console.log(`[BACKGROUND]      ✗ Ch ${chapter} (${result.reason?.message})`);
           }
         }
 
-        // Small delay between batches to avoid overwhelming the API
+        // Small delay between batches
         await new Promise(resolve => setTimeout(resolve, 500));
       }
-
-      console.log(`[IMPORT]   📚 ${book.name} complete`);
     }
 
-    console.log(`\n[IMPORT] ✅ Completed ${translationId}`);
-    console.log(`[IMPORT]    Success: ${translationStats.success}`);
-    console.log(`[IMPORT]    Cached: ${translationStats.cached}`);
-    console.log(`[IMPORT]    Skipped: ${translationStats.skipped}`);
-    console.log(`[IMPORT]    Failed: ${translationStats.failed}`);
+    console.log(`\n[BACKGROUND] ✅ ${translationId} complete:`);
+    console.log(`[BACKGROUND]    Success: ${translationStats.success}`);
+    console.log(`[BACKGROUND]    Cached: ${translationStats.cached}`);
+    console.log(`[BACKGROUND]    Skipped: ${translationStats.skipped}`);
+    console.log(`[BACKGROUND]    Failed: ${translationStats.failed}`);
   }
 
   const duration = Math.round((Date.now() - startTime) / 1000);
   const minutes = Math.floor(duration / 60);
   const seconds = duration % 60;
 
-  console.log('\n' + '═'.repeat(80));
-  console.log(`[IMPORT] 🎉 ALL IMPORTS COMPLETE!`);
-  console.log(`[IMPORT] Duration: ${minutes}m ${seconds}s`);
-  console.log(`[IMPORT] Total Success: ${stats.success}`);
-  console.log(`[IMPORT] Total Cached: ${stats.cached}`);
-  console.log(`[IMPORT] Total Skipped: ${stats.skipped}`);
-  console.log(`[IMPORT] Total Failed: ${stats.failed}`);
-  console.log(`[IMPORT] Success Rate: ${Math.round((stats.success + stats.cached) / (stats.success + stats.cached + stats.skipped + stats.failed) * 100)}%`);
-  console.log('═'.repeat(80));
+  console.log('\n' + '█'.repeat(80));
+  console.log('[BACKGROUND] 🎉 ALL IMPORTS COMPLETE!');
+  console.log(`[BACKGROUND] Duration: ${minutes}m ${seconds}s`);
+  console.log(`[BACKGROUND] Total Success: ${stats.success}`);
+  console.log(`[BACKGROUND] Total Cached: ${stats.cached}`);
+  console.log(`[BACKGROUND] Total Skipped: ${stats.skipped}`);
+  console.log(`[BACKGROUND] Total Failed: ${stats.failed}`);
+  console.log(`[BACKGROUND] Success Rate: ${Math.round((stats.success + stats.cached) / (stats.success + stats.cached + stats.skipped + stats.failed) * 100)}%`);
+  console.log('█'.repeat(80) + '\n');
 }
 
 async function importChapterWithRetry(base44, translationId, bookName, chapter, maxRetries = 3) {
@@ -225,7 +276,7 @@ async function importChapterWithRetry(base44, translationId, bookName, chapter, 
       return { success: true, cached: true };
     }
   } catch (error) {
-    console.error(`[IMPORT] Cache check error for ${bookName} ${chapter}:`, error.message);
+    console.error(`[BACKGROUND] Cache check error for ${bookName} ${chapter}:`, error.message);
   }
 
   // Try to import with retries
@@ -258,12 +309,10 @@ async function importChapterWithRetry(base44, translationId, bookName, chapter, 
 
     } catch (error) {
       if (error.message.includes('404') || error.message.includes('not found')) {
-        // This translation doesn't have this chapter
         return { success: false, cached: false, skipped: true };
       }
 
       if (attempt < maxRetries) {
-        // Exponential backoff
         const waitTime = Math.min(1000 * Math.pow(2, attempt), 8000);
         await new Promise(resolve => setTimeout(resolve, waitTime));
       } else {
@@ -277,7 +326,7 @@ async function importChapterWithRetry(base44, translationId, bookName, chapter, 
 
 async function fetchFromAPI(translationId, bookName, chapter) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000); // 12 second timeout
+  const timeout = setTimeout(() => controller.abort(), 12000);
 
   try {
     const encodedBook = encodeURIComponent(bookName);
@@ -302,7 +351,6 @@ async function fetchFromAPI(translationId, bookName, chapter) {
 
     const data = await response.json();
     
-    // Handle both possible response formats
     let verses = [];
     
     if (data.verses && Array.isArray(data.verses)) {
