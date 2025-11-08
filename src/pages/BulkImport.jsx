@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, Database, Download, CheckCircle2, XCircle, BookOpen } from 'lucide-react';
+import { Loader2, Database, Download, CheckCircle2, XCircle, BookOpen, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 
@@ -78,32 +77,10 @@ const BIBLE_BOOKS = [
   { name: "Revelation", chapters: 22 }
 ];
 
-const AVAILABLE_TRANSLATIONS = [
-  { id: 'KJV', name: 'King James Version', language: 'en', group: 'English' },
-  { id: 'WEB', name: 'World English Bible', language: 'en', group: 'English' },
-  { id: 'NIV', name: 'New International Version', language: 'en', group: 'English' },
-  { id: 'ESV', name: 'English Standard Version', language: 'en', group: 'English' },
-  { id: 'NASB', name: 'New American Standard Bible', language: 'en', group: 'English' },
-  { id: 'NLT', name: 'New Living Translation', language: 'en', group: 'English' },
-  { id: 'NKJV', name: 'New King James Version', language: 'en', group: 'English' },
-  { id: 'NAB', name: 'New American Bible (Catholic)', language: 'en', group: 'Catholic' },
-  { id: 'NABRE', name: 'NAB Revised Edition (Catholic)', language: 'en', group: 'Catholic' },
-  { id: 'BHS', name: 'Biblia Hebraica (Hebrew OT)', language: 'he', group: 'Original Languages' },
-  { id: 'NA28', name: 'Nestle-Aland (Greek NT)', language: 'el', group: 'Original Languages' },
-  { id: 'RVR60', name: 'Reina-Valera 1960', language: 'es', group: 'Spanish' },
-  { id: 'NVI-ES', name: 'Nueva Versión Internacional', language: 'es', group: 'Spanish' },
-  { id: 'BPT', name: 'Bíblia Português (Almeida)', language: 'pt', group: 'European' },
-  { id: 'LUT', name: 'Luther Bibel 1984', language: 'de', group: 'European' },
-  { id: 'BDS', name: 'Bible du Semeur (French)', language: 'fr', group: 'European' },
-  { id: 'LSG', name: 'Louis Segond 1910 (French)', language: 'fr', group: 'European' },
-  { id: 'RST', name: 'Russian Synodal Translation', language: 'ru', group: 'Slavic' },
-  { id: 'CUV', name: 'Chinese Union Version', language: 'zh', group: 'Asian' },
-  { id: 'KRV', name: 'Korean Revised Version', language: 'ko', group: 'Asian' },
-  { id: 'AR-SVD', name: 'Arabic Smith & Van Dyke', language: 'ar', group: 'Middle East' }
-];
-
 export default function BulkImport() {
+  const [availableTranslations, setAvailableTranslations] = useState([]);
   const [selectedTranslations, setSelectedTranslations] = useState(['KJV']);
+  const [isLoading, setIsLoading] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentTranslation, setCurrentTranslation] = useState('');
@@ -120,10 +97,48 @@ export default function BulkImport() {
 
   useEffect(() => {
     isMountedRef.current = true;
+    loadTranslations();
     return () => {
       isMountedRef.current = false;
     };
   }, []);
+
+  const loadTranslations = async () => {
+    setIsLoading(true);
+    try {
+      const translations = await base44.entities.Translation.filter({ enabled: true }, 'id');
+      
+      // Group translations by language family
+      const grouped = translations.map(t => {
+        const lang = t.language;
+        let group = 'Other';
+        
+        if (lang === 'en') group = 'English';
+        else if (lang === 'es') group = 'Spanish';
+        else if (['fr', 'de', 'pt', 'it', 'sv', 'no'].includes(lang)) group = 'European';
+        else if (['ru', 'uk'].includes(lang)) group = 'Slavic';
+        else if (['zh', 'ja', 'ko', 'hi', 'bn', 'vi', 'th'].includes(lang)) group = 'Asian';
+        else if (['ar', 'he', 'arc'].includes(lang)) group = 'Original/Middle East';
+        
+        return {
+          id: t.id,
+          name: t.name,
+          language: lang,
+          year: t.year,
+          is_premium: t.is_premium,
+          group
+        };
+      });
+
+      setAvailableTranslations(grouped);
+      toast.success(`Loaded ${grouped.length} Bible translations from database`);
+    } catch (error) {
+      console.error('Error loading translations:', error);
+      toast.error('Failed to load translations from database');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const addLog = (message, type = 'info') => {
     setLogs(prev => [...prev, { message, type, timestamp: new Date().toISOString() }]);
@@ -140,11 +155,11 @@ export default function BulkImport() {
   };
 
   const selectAll = () => {
-    setSelectedTranslations(AVAILABLE_TRANSLATIONS.map(t => t.id));
+    setSelectedTranslations(availableTranslations.map(t => t.id));
   };
 
   const selectGroup = (group) => {
-    const groupTranslations = AVAILABLE_TRANSLATIONS.filter(t => t.group === group).map(t => t.id);
+    const groupTranslations = availableTranslations.filter(t => t.group === group).map(t => t.id);
     setSelectedTranslations(prev => {
       const hasAll = groupTranslations.every(id => prev.includes(id));
       if (hasAll) {
@@ -359,7 +374,7 @@ export default function BulkImport() {
   };
 
   // Group translations by category
-  const groupedTranslations = AVAILABLE_TRANSLATIONS.reduce((acc, translation) => {
+  const groupedTranslations = availableTranslations.reduce((acc, translation) => {
     if (!acc[translation.group]) {
       acc[translation.group] = [];
     }
@@ -371,28 +386,52 @@ export default function BulkImport() {
   const estimatedTotalSeconds = processedChapters > 0 ? (elapsedSeconds / processedChapters) * totalChapters : 0;
   const remainingSeconds = Math.max(0, estimatedTotalSeconds - elapsedSeconds);
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-indigo-600" />
+          <p className="text-lg">Loading translations from database...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
       <div className="max-w-6xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Unstoppable Bible Import</h1>
-          <p className="text-gray-600 dark:text-gray-400">Import {AVAILABLE_TRANSLATIONS.length} Bible translations</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">Unstoppable Bible Import</h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              {availableTranslations.length} translations available • 1,189 chapters each
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadTranslations}
+            disabled={isLoading || isImporting}
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh List
+          </Button>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Database className="w-5 h-5" />
-              Select Translations
+              Select Translations ({availableTranslations.length} available)
             </CardTitle>
             <CardDescription>
-              Import all 1,189 chapters per translation
+              All translations loaded from your database • Import 1,189 chapters per translation
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex gap-2 mb-4 flex-wrap">
               <Button variant="outline" size="sm" onClick={selectAll} disabled={isImporting}>
-                All ({AVAILABLE_TRANSLATIONS.length})
+                All ({availableTranslations.length})
               </Button>
               <Button variant="outline" size="sm" onClick={clearAll} disabled={isImporting}>
                 Clear
@@ -408,7 +447,7 @@ export default function BulkImport() {
                   {group} ({groupedTranslations[group].length})
                 </Button>
               ))}
-              <div className="ml-auto text-sm">
+              <div className="ml-auto text-sm font-medium">
                 {selectedTranslations.length} selected
               </div>
             </div>
@@ -416,8 +455,9 @@ export default function BulkImport() {
             <div className="max-h-96 overflow-y-auto p-2 border rounded">
               {Object.entries(groupedTranslations).map(([group, translations]) => (
                 <div key={group} className="mb-4">
-                  <h3 className="text-sm font-semibold mb-2 px-2">
+                  <h3 className="text-sm font-semibold mb-2 px-2 flex items-center gap-2">
                     {group}
+                    <Badge variant="secondary">{translations.length}</Badge>
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                     {translations.map((translation) => (
@@ -435,8 +475,15 @@ export default function BulkImport() {
                           htmlFor={translation.id}
                           className="text-sm cursor-pointer flex-1"
                         >
-                          <div>{translation.name}</div>
-                          <div className="text-xs text-gray-500">{translation.language.toUpperCase()}</div>
+                          <div className="flex items-center gap-2">
+                            <span>{translation.name}</span>
+                            {translation.is_premium && (
+                              <Badge variant="secondary" className="text-xs">Premium</Badge>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {translation.language.toUpperCase()} • {translation.year || 'Classic'}
+                          </div>
                         </label>
                       </div>
                     ))}
@@ -575,8 +622,9 @@ export default function BulkImport() {
             <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
               <li>• <strong>Background:</strong> Runs on server, close tab safely</li>
               <li>• <strong>Live:</strong> Real-time with pause/resume, keep tab open</li>
-              <li>• <strong>Auto-Retry:</strong> 3 attempts per failed chapter</li>
+              <li>• <strong>Auto-Retry:</strong> 5 attempts per failed chapter (unstoppable!)</li>
               <li>• <strong>Speed:</strong> ~30-60 sec per book</li>
+              <li>• <strong>Database-Driven:</strong> All {availableTranslations.length} translations from your Translation entity</li>
             </ul>
           </CardContent>
         </Card>
