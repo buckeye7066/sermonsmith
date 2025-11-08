@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { createPageUrl, getOfflineStorage, syncService } from "../utils";
+import { createPageUrl } from "../utils";
 
 import VerseCard from "../components/reader/VerseCard";
 import HighlightDrawer from "../components/reader/HighlightDrawer";
@@ -148,23 +148,16 @@ export default function Reader() {
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      toast.success("Back online - syncing data...");
-      if (syncService && syncService.syncAll) {
-        syncService.syncAll();
-      }
+      toast.success("Back online!");
     };
     
     const handleOffline = () => {
       setIsOnline(false);
-      toast.info("You're offline - using local data");
+      toast.info("You're offline");
     };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
-    if (syncService && syncService.startAutoSync) {
-      syncService.startAutoSync();
-    }
 
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -209,58 +202,25 @@ export default function Reader() {
     setIsOfflineMode(false);
 
     try {
-      // Handle offline mode first
-      if (!isOnline) {
-        const storage = await getOfflineStorage();
-        const offlineVerses = await storage.getVerses(currentTranslation, currentBook, currentChapter);
+      // Try database fetch
+      const dbVerses = await base44.entities.Verse.filter({
+        translation_id: currentTranslation,
+        book_name: currentBook,
+        chapter: currentChapter
+      }, 'verse');
+
+      if (dbVerses.length > 0) {
+        const formattedVerses = dbVerses.map(v => ({
+          id: v.id,
+          verse: v.verse,
+          text: v.text
+        }));
         
-        if (offlineVerses.length > 0) {
-          setVerses(offlineVerses);
-          setIsCached(true);
-          setIsOfflineMode(true);
-          setIsLoading(false);
-          return;
-        } else {
-          setError({
-            message: 'This chapter is not available offline. Connect to internet to download it.',
-            canRetry: false
-          });
-          setIsLoading(false);
-          return;
-        }
-      }
-
-      // ONLINE MODE: Try database first (this is the fix!)
-      try {
-        const dbVerses = await base44.entities.Verse.filter({
-          translation_id: currentTranslation,
-          book_name: currentBook,
-          chapter: currentChapter
-        }, 'verse');
-
-        if (dbVerses.length > 0) {
-          const formattedVerses = dbVerses.map(v => ({
-            id: v.id,
-            verse: v.verse,
-            text: v.text
-          }));
-          
-          setVerses(formattedVerses);
-          setIsCached(true);
-          setIsOfflineMode(false);
-          
-          // Cache in IndexedDB for offline use (fire and forget)
-          if (formattedVerses.length > 0) {
-            getOfflineStorage()
-              .then(storage => storage.saveVerses(formattedVerses, currentTranslation, currentBook, currentChapter))
-              .catch(e => console.warn('Cache skipped:', e.message));
-          }
-          
-          setIsLoading(false);
-          return;
-        }
-      } catch (dbError) {
-        console.warn('Database fetch failed:', dbError);
+        setVerses(formattedVerses);
+        setIsCached(true);
+        setIsOfflineMode(false);
+        setIsLoading(false);
+        return;
       }
 
       // If not in database, show message
@@ -269,35 +229,16 @@ export default function Reader() {
         canRetry: false
       });
       
-    } catch (error) { // This catch now handles initial offline errors, DB errors (if re-thrown), and API errors
+    } catch (error) {
       console.error("Error loading verses:", error);
-      
-      // Last resort: try offline storage (in case the online attempts failed catastrophically but we have some local data)
-      try {
-        const storage = await getOfflineStorage();
-        const offlineVerses = await storage.getVerses(currentTranslation, currentBook, currentChapter);
-        
-        if (offlineVerses.length > 0) {
-          setVerses(offlineVerses);
-          setIsCached(true);
-          setIsOfflineMode(true);
-          toast.info("Loaded from offline storage");
-        } else {
-          setError({
-            message: 'Failed to load verses. Please try again.',
-            canRetry: true
-          });
-        }
-      } catch (offlineError) {
-        setError({
-          message: 'Failed to load verses. Please try again.',
-          canRetry: true
-        });
-      }
+      setError({
+        message: 'Failed to load verses. Please try again.',
+        canRetry: true
+      });
     } finally {
       setIsLoading(false);
     }
-  }, [currentBook, currentChapter, currentTranslation, isOnline]);
+  }, [currentBook, currentChapter, currentTranslation]);
 
   const loadUserData = useCallback(async () => {
     if (user) {
@@ -372,28 +313,15 @@ export default function Reader() {
     if (!selectedVerse || !user) return;
     
     try {
-      if (isOnline) {
-        await base44.entities.Highlight.create({
-          user_id: user.id,
-          verse_id: selectedVerse.id,
-          color,
-          book_name: selectedVerse.book_name,
-          chapter: selectedVerse.chapter,
-          verse: selectedVerse.verse
-        });
-        toast.success("Highlight saved!");
-      } else {
-        const storage = await getOfflineStorage();
-        await storage.saveOfflineHighlight({
-          user_id: user.id,
-          verse_id: selectedVerse.id,
-          color,
-          book_name: selectedVerse.book_name,
-          chapter: selectedVerse.chapter,
-          verse: selectedVerse.verse
-        });
-        toast.success("Highlight saved offline - will sync when online");
-      }
+      await base44.entities.Highlight.create({
+        user_id: user.id,
+        verse_id: selectedVerse.id,
+        color,
+        book_name: selectedVerse.book_name,
+        chapter: selectedVerse.chapter,
+        verse: selectedVerse.verse
+      });
+      toast.success("Highlight saved!");
       
       setShowHighlightDrawer(false);
       loadUserData();
@@ -406,28 +334,15 @@ export default function Reader() {
     if (!selectedVerse || !user || !content.trim()) return;
     
     try {
-      if (isOnline) {
-        await base44.entities.Note.create({
-          user_id: user.id,
-          verse_id: selectedVerse.id,
-          content: content.trim(),
-          book_name: selectedVerse.book_name,
-          chapter: selectedVerse.chapter,
-          verse: selectedVerse.verse
-        });
-        toast.success("Note saved!");
-      } else {
-        const storage = await getOfflineStorage();
-        await storage.saveOfflineNote({
-          user_id: user.id,
-          verse_id: selectedVerse.id,
-          content: content.trim(),
-          book_name: selectedVerse.book_name,
-          chapter: selectedVerse.chapter,
-          verse: selectedVerse.verse
-        });
-        toast.success("Note saved offline - will sync when online");
-      }
+      await base44.entities.Note.create({
+        user_id: user.id,
+        verse_id: selectedVerse.id,
+        content: content.trim(),
+        book_name: selectedVerse.book_name,
+        chapter: selectedVerse.chapter,
+        verse: selectedVerse.verse
+      });
+      toast.success("Note saved!");
       
       setShowNoteDrawer(false);
       loadUserData();
