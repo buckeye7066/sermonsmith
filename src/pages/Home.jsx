@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import VerseOfTheDay from "@/components/reader/VerseOfTheDay";
-import OnboardingWizard from "@/components/OnboardingWizard"; // Assuming this component exists at this path
+import OnboardingWizard from "@/components/profile/OnboardingWizard"; // Updated import path
 
 export default function Home() {
   const [user, setUser] = useState(null);
