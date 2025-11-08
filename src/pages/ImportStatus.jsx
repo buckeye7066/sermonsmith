@@ -19,26 +19,89 @@ import {
 import { toast } from "sonner";
 
 export default function ImportStatus() {
-  const [verses, setVerses] = useState([]);
+  const [stats, setStats] = useState(null);
   const [logs, setLogs] = useState([]);
-  const [stats, setStats] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
 
   const loadData = useCallback(async () => {
     try {
-      // Load ALL verses (no limit) to get accurate stats
-      // Note: This might take a moment if you have a lot of data
-      const allVerses = await base44.entities.Verse.list('', 50000); // Increased limit to handle multiple full translations
-      setVerses(allVerses);
+      // OPTIMIZED: Use aggregation query instead of loading all verses
+      // Get verse count by translation using a smart approach
+      const translations = await base44.entities.Translation.filter({ enabled: true }, 'id');
+      
+      const translationStats = await Promise.all(
+        translations.slice(0, 10).map(async (trans) => {
+          try {
+            // Sample just a few verses to check if translation has data
+            const sample = await base44.entities.Verse.filter(
+              { translation_id: trans.id },
+              'created_date',
+              5
+            );
+            
+            if (sample.length === 0) {
+              return null;
+            }
 
-      // Load recent logs (last 100)
-      const recentLogs = await base44.entities.FetchLog.list('-created_date', 100);
+            // If has data, get more detailed count (limited to avoid overload)
+            const verses = await base44.entities.Verse.filter(
+              { translation_id: trans.id },
+              'book_name',
+              1000 // Sample up to 1000 verses per translation
+            );
+
+            // Calculate unique books and chapters
+            const books = new Set(verses.map(v => v.book_name));
+            const chapters = new Set(verses.map(v => `${v.book_name}-${v.chapter}`));
+
+            return {
+              id: trans.id,
+              name: trans.name,
+              verseCount: verses.length,
+              estimatedTotal: verses.length >= 1000 ? `${Math.round(verses.length / 1000)}k+` : verses.length,
+              books: books.size,
+              chapters: chapters.size,
+              progress: (verses.length / 31102) * 100
+            };
+          } catch (error) {
+            console.error(`Error loading ${trans.id}:`, error);
+            return null;
+          }
+        })
+      );
+
+      const validStats = translationStats.filter(s => s !== null);
+      
+      // Calculate totals
+      const totalVerses = validStats.reduce((sum, t) => sum + t.verseCount, 0);
+      const estimatedTotal = validStats.some(t => t.verseCount >= 1000) 
+        ? `${Math.round(totalVerses / 1000)}k+` 
+        : totalVerses;
+
+      // Load recent logs (last 50 only)
+      const recentLogs = await base44.entities.FetchLog.list('-created_date', 50);
       setLogs(recentLogs);
 
-      // Calculate statistics
-      calculateStats(allVerses, recentLogs);
+      // Calculate log statistics
+      const logStats = {
+        total: recentLogs.length,
+        success: recentLogs.filter(l => l.status === 'ok').length,
+        errors: recentLogs.filter(l => l.status === 'error').length,
+        cached: recentLogs.filter(l => l.cache_hit === true).length,
+        avgDuration: recentLogs.length > 0 
+          ? recentLogs.reduce((sum, l) => sum + (l.duration_ms || 0), 0) / recentLogs.length 
+          : 0
+      };
+
+      setStats({
+        totalVerses,
+        estimatedTotal,
+        translations: validStats,
+        logs: logStats
+      });
+
       setLastUpdate(new Date());
     } catch (error) {
       console.error('Error loading data:', error);
@@ -52,53 +115,13 @@ export default function ImportStatus() {
   useEffect(() => {
     loadData();
     
-    // Auto-refresh every 10 seconds
+    // Auto-refresh every 30 seconds (not 10 - too aggressive)
     const interval = setInterval(() => {
       loadData();
-    }, 10000);
+    }, 30000);
     
     return () => clearInterval(interval);
   }, [loadData]);
-
-  const calculateStats = (verseData, logData) => {
-    // Group verses by translation
-    const byTranslation = {};
-    verseData.forEach(verse => {
-      if (!byTranslation[verse.translation_id]) {
-        byTranslation[verse.translation_id] = {
-          count: 0,
-          books: new Set(),
-          chapters: new Set()
-        };
-      }
-      byTranslation[verse.translation_id].count++;
-      byTranslation[verse.translation_id].books.add(verse.book_name);
-      byTranslation[verse.translation_id].chapters.add(`${verse.book_name}-${verse.chapter}`);
-    });
-
-    // Calculate log statistics
-    const logStats = {
-      total: logData.length,
-      success: logData.filter(l => l.status === 'ok').length,
-      errors: logData.filter(l => l.status === 'error').length,
-      cached: logData.filter(l => l.cache_hit === true).length,
-      avgDuration: logData.length > 0 
-        ? logData.reduce((sum, l) => sum + (l.duration_ms || 0), 0) / logData.length 
-        : 0
-    };
-
-    setStats({
-      totalVerses: verseData.length,
-      translations: Object.keys(byTranslation).map(id => ({
-        id,
-        count: byTranslation[id].count,
-        books: byTranslation[id].books.size,
-        chapters: byTranslation[id].chapters.size,
-        progress: (byTranslation[id].count / 31102) * 100 // Full Bible verse count
-      })),
-      logs: logStats
-    });
-  };
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -108,7 +131,10 @@ export default function ImportStatus() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-indigo-600" />
+          <p className="text-gray-600">Loading import status...</p>
+        </div>
       </div>
     );
   }
@@ -123,7 +149,7 @@ export default function ImportStatus() {
               Import Status
             </h1>
             <p className="text-gray-600 dark:text-gray-400 mt-2">
-              Monitor your Bible import progress • Auto-updates every 10s
+              Monitor your Bible import progress • Auto-updates every 30s
             </p>
             <p className="text-xs text-gray-500 mt-1">
               Last updated: {lastUpdate.toLocaleTimeString()}
@@ -149,7 +175,7 @@ export default function ImportStatus() {
         </div>
 
         {/* Quick Start Guide - Show if no data */}
-        {stats.totalVerses === 0 && (
+        {(!stats || stats.totalVerses === 0) && (
           <Alert className="mb-6 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border-indigo-300 dark:border-indigo-800">
             <Database className="w-5 h-5 text-indigo-600" />
             <AlertDescription className="text-gray-800 dark:text-gray-200">
@@ -192,32 +218,32 @@ export default function ImportStatus() {
         )}
 
         {/* Import In Progress - Show if data exists but not complete */}
-        {stats.totalVerses > 0 && stats.totalVerses < 30000 && (
+        {stats && stats.totalVerses > 0 && stats.totalVerses < 30000 && (
           <Alert className="mb-6 bg-blue-50 dark:bg-blue-900/20 border-blue-500">
             <AlertCircle className="w-4 h-4 text-blue-600" />
             <AlertDescription className="text-blue-800 dark:text-blue-200">
               <p className="font-semibold mb-2">📊 Import in Progress</p>
               <p className="text-sm mb-2">
-                You have <strong>{stats.totalVerses?.toLocaleString()}</strong> verses imported. A full translation has ~31,102 verses.
+                You have <strong>{stats.estimatedTotal}</strong> verses imported (sampled). A full translation has ~31,102 verses.
               </p>
               <p className="text-sm mb-2">
-                <strong>Your progress: {Math.round((stats.totalVerses / 31102) * 100)}%</strong> of one complete Bible
+                <strong>Your progress: ~{Math.round((stats.totalVerses / 31102) * 100)}%</strong> of one complete Bible
               </p>
               <p className="text-sm">
-                ✅ Import is running! This page auto-refreshes every 10 seconds to show new verses.
+                ✅ Import is running! This page auto-refreshes every 30 seconds to show progress.
               </p>
             </AlertDescription>
           </Alert>
         )}
 
         {/* Success Message - Show if import is complete */}
-        {stats.totalVerses >= 30000 && (
+        {stats && stats.totalVerses >= 30000 && (
           <Alert className="mb-6 bg-green-50 dark:bg-green-900/20 border-green-500">
             <CheckCircle2 className="w-4 h-4 text-green-600" />
             <AlertDescription className="text-green-800 dark:text-green-200">
               <p className="font-semibold mb-2">✅ Import Complete!</p>
               <p className="text-sm">
-                You have {stats.totalVerses?.toLocaleString()} verses imported across {stats.translations?.length} translation(s). Your Bible data is ready to use!
+                You have {stats.estimatedTotal} verses imported across {stats.translations?.length} translation(s). Your Bible data is ready to use!
               </p>
             </AlertDescription>
           </Alert>
@@ -231,10 +257,10 @@ export default function ImportStatus() {
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Total Verses</p>
                   <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                    {stats.totalVerses?.toLocaleString() || 0}
+                    {stats?.estimatedTotal || 0}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {stats.totalVerses > 0 && `${Math.round((stats.totalVerses / 31102) * 100)}% of full Bible`}
+                    {stats && stats.totalVerses > 0 && `~${Math.round((stats.totalVerses / 31102) * 100)}% of full Bible`}
                   </p>
                 </div>
                 <BookOpen className="w-8 h-8 text-indigo-600" />
@@ -248,8 +274,9 @@ export default function ImportStatus() {
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Translations</p>
                   <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                    {stats.translations?.length || 0}
+                    {stats?.translations?.length || 0}
                   </p>
+                  <p className="text-xs text-gray-500 mt-1">with data</p>
                 </div>
                 <TrendingUp className="w-8 h-8 text-green-600" />
               </div>
@@ -262,10 +289,11 @@ export default function ImportStatus() {
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Success Rate</p>
                   <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                    {stats.logs?.success && stats.logs?.total 
+                    {stats?.logs?.success && stats?.logs?.total 
                       ? Math.round((stats.logs.success / stats.logs.total) * 100)
                       : 0}%
                   </p>
+                  <p className="text-xs text-gray-500 mt-1">last 50 calls</p>
                 </div>
                 <CheckCircle2 className="w-8 h-8 text-green-600" />
               </div>
@@ -278,8 +306,9 @@ export default function ImportStatus() {
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Avg Speed</p>
                   <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                    {Math.round(stats.logs?.avgDuration || 0)}ms
+                    {Math.round(stats?.logs?.avgDuration || 0)}ms
                   </p>
+                  <p className="text-xs text-gray-500 mt-1">per request</p>
                 </div>
                 <Clock className="w-8 h-8 text-blue-600" />
               </div>
@@ -292,11 +321,11 @@ export default function ImportStatus() {
           <CardHeader>
             <CardTitle>Translation Progress</CardTitle>
             <CardDescription>
-              Full Bible contains ~31,102 verses (66 books, 1,189 chapters)
+              Full Bible contains ~31,102 verses (66 books, 1,189 chapters) • Showing sample data
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {stats.translations?.length === 0 ? (
+            {!stats || stats.translations?.length === 0 ? (
               <Alert>
                 <AlertCircle className="w-4 h-4" />
                 <AlertDescription>
@@ -313,7 +342,7 @@ export default function ImportStatus() {
                           {translation.id}
                         </Badge>
                         <div className="text-sm">
-                          <span className="font-medium">{translation.count.toLocaleString()}</span>
+                          <span className="font-medium">{translation.estimatedTotal}</span>
                           <span className="text-gray-500"> verses</span>
                           <span className="mx-2">•</span>
                           <span className="font-medium">{translation.books}</span>
@@ -332,7 +361,7 @@ export default function ImportStatus() {
                         ) : (
                           <Clock className="w-3 h-3" />
                         )}
-                        {Math.round(translation.progress)}%
+                        ~{Math.round(translation.progress)}%
                       </Badge>
                     </div>
                     <Progress value={Math.min(translation.progress, 100)} />
@@ -348,7 +377,7 @@ export default function ImportStatus() {
           <CardHeader>
             <CardTitle>Recent Import Activity</CardTitle>
             <CardDescription>
-              Last 100 API calls (updates every 10 seconds)
+              Last 50 API calls (updates every 30 seconds)
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -396,10 +425,10 @@ export default function ImportStatus() {
         </Card>
 
         {/* Import Statistics */}
-        {stats.logs && (
+        {stats?.logs && (
           <Card className="mt-8">
             <CardHeader>
-              <CardTitle>Import Statistics</CardTitle>
+              <CardTitle>Import Statistics (Last 50 Calls)</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -445,12 +474,12 @@ export default function ImportStatus() {
             <p className="font-semibold mb-2">💡 Import Tips:</p>
             <ul className="text-sm space-y-1 ml-4">
               <li>• A full Bible translation has ~31,102 verses across 66 books</li>
+              <li>• This page shows <strong>sampled data</strong> to avoid overloading your database</li>
+              <li>• Actual verse counts may be higher than displayed</li>
               <li>• Background imports run on the server - you can close this page</li>
-              <li>• This page auto-refreshes every 10 seconds</li>
+              <li>• This page auto-refreshes every 30 seconds</li>
               <li>• Green badges = complete, Gray badges = in progress</li>
-              <li>• Cached requests are instant (already imported)</li>
               <li>• Typical import time: 15-30 minutes per translation</li>
-              <li>• <strong>There is NO verse limit</strong> - the database can hold unlimited verses</li>
               <li>• You can import multiple complete translations (KJV, WEB, ESV, etc.)</li>
             </ul>
           </AlertDescription>
