@@ -40,7 +40,6 @@ import ShareMenu from "../components/reader/ShareMenu";
 import VerseOfTheDay from "../components/reader/VerseOfTheDay";
 import CrossReferencePanel from "../components/reader/CrossReferencePanel";
 import ThematicLinker from "../components/discovery/ThematicLinker";
-import { getVerses } from "@/functions/getVerses"; // Keeping this import as it's not explicitly removed, though its usage changes
 
 const THEME_CLASSES = {
   light: { bg: 'bg-white', text: 'text-gray-900', card: 'bg-white' },
