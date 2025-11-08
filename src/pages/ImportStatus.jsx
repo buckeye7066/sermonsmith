@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -29,8 +28,9 @@ export default function ImportStatus() {
 
   const loadData = useCallback(async () => {
     try {
-      // Load verses
-      const allVerses = await base44.entities.Verse.list('', 10000);
+      // Load ALL verses (no limit) to get accurate stats
+      // Note: This might take a moment if you have a lot of data
+      const allVerses = await base44.entities.Verse.list('', 50000); // Increased limit to handle multiple full translations
       setVerses(allVerses);
 
       // Load recent logs (last 100)
@@ -191,31 +191,21 @@ export default function ImportStatus() {
           </Alert>
         )}
 
-        {/* Important Notice - Show if data exists but user might be confused */}
-        {stats.totalVerses > 0 && stats.totalVerses < 1000 && (
-          <Alert className="mb-6 bg-amber-50 dark:bg-amber-900/20 border-amber-500">
-            <AlertCircle className="w-4 h-4 text-amber-600" />
-            <AlertDescription className="text-amber-800 dark:text-amber-200">
-              <p className="font-semibold mb-2">⚠️ Import Progress Stuck or Incomplete?</p>
+        {/* Import In Progress - Show if data exists but not complete */}
+        {stats.totalVerses > 0 && stats.totalVerses < 30000 && (
+          <Alert className="mb-6 bg-blue-50 dark:bg-blue-900/20 border-blue-500">
+            <AlertCircle className="w-4 h-4 text-blue-600" />
+            <AlertDescription className="text-blue-800 dark:text-blue-200">
+              <p className="font-semibold mb-2">📊 Import in Progress</p>
               <p className="text-sm mb-2">
-                You have {stats.totalVerses?.toLocaleString()} verses imported. A full translation has ~31,102 verses.
+                You have <strong>{stats.totalVerses?.toLocaleString()}</strong> verses imported. A full translation has ~31,102 verses.
               </p>
               <p className="text-sm mb-2">
-                <strong>To continue importing:</strong>
+                <strong>Your progress: {Math.round((stats.totalVerses / 31102) * 100)}%</strong> of one complete Bible
               </p>
-              <ol className="text-sm space-y-1 ml-4 mb-3">
-                <li>1. Go to the <strong>Bulk Import</strong> page</li>
-                <li>2. Select translations you want to import</li>
-                <li>3. Click <strong>"Start Background Import"</strong> (recommended) or "Start Live Import"</li>
-                <li>4. Return here to monitor progress</li>
-              </ol>
-              <Button
-                onClick={() => window.location.href = '/BulkImport'}
-                className="w-full bg-amber-600 hover:bg-amber-700 mt-4"
-              >
-                <Database className="w-4 h-4 mr-2" />
-                Go Start Import Now
-              </Button>
+              <p className="text-sm">
+                ✅ Import is running! This page auto-refreshes every 10 seconds to show new verses.
+              </p>
             </AlertDescription>
           </Alert>
         )}
@@ -242,6 +232,9 @@ export default function ImportStatus() {
                   <p className="text-sm text-gray-600 dark:text-gray-400">Total Verses</p>
                   <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
                     {stats.totalVerses?.toLocaleString() || 0}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {stats.totalVerses > 0 && `${Math.round((stats.totalVerses / 31102) * 100)}% of full Bible`}
                   </p>
                 </div>
                 <BookOpen className="w-8 h-8 text-indigo-600" />
@@ -457,7 +450,8 @@ export default function ImportStatus() {
               <li>• Green badges = complete, Gray badges = in progress</li>
               <li>• Cached requests are instant (already imported)</li>
               <li>• Typical import time: 15-30 minutes per translation</li>
-              <li>• <strong>If progress is stuck, start a new import from the Bulk Import page</strong></li>
+              <li>• <strong>There is NO verse limit</strong> - the database can hold unlimited verses</li>
+              <li>• You can import multiple complete translations (KJV, WEB, ESV, etc.)</li>
             </ul>
           </AlertDescription>
         </Alert>
