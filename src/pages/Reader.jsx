@@ -549,6 +549,7 @@ export default function Reader() {
           chapter={currentChapter}
           isPremium={isPremium}
           isOnline={isOnline}
+          currentTranslation={currentTranslation}
         />
 
         <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
