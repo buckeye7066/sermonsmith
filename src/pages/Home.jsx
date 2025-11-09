@@ -825,7 +825,7 @@ export default function Home() {
               <div className="max-w-2xl mx-auto">
                 <p className="text-sm text-gray-500 leading-relaxed">
                   Dr. John White is a family man and father of two who has served in pastoral ministry. 
-                  He holds a doctorate in Molecular Genetics and earned his undergraduate degree from Lee University. 
+                  He holds a doctorate in Molecular Genetics. 
                   SermonSmith was created to empower pastors, teachers, and ministry leaders with AI-assisted tools for biblical teaching and study.
                 </p>
               </div>
