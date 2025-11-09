@@ -31,7 +31,8 @@ import {
   Globe,
   Download,
   Share2,
-  Settings
+  Settings,
+  Scale // Added Scale import
 } from "lucide-react";
 import { motion } from "framer-motion";
 import VerseOfTheDay from "@/components/reader/VerseOfTheDay";
@@ -65,8 +66,8 @@ export default function Home() {
   const features = [
     {
       icon: Bot,
-      title: "Larry - Sermon Assistant",
-      description: "Generate complete sermons in 30 seconds with exegesis, illustrations, and applications",
+      title: "Larry - Teaching & Sermon Assistant",
+      description: "Generate complete lessons and sermons for church, VBS, Sunday School, and Christian schools",
       color: "blue",
       link: "SermonBuilder"
     },
@@ -85,37 +86,60 @@ export default function Home() {
       link: "Reader"
     },
     {
-      icon: Presentation,
-      title: "Live Preaching Assistant",
-      description: "Real-time AI help, vocal feedback, and audience engagement suggestions while preaching",
+      icon: Users,
+      title: "Community & Sharing",
+      description: "Share sermons, studies, and insights with other believers and ministry leaders",
+      color: "indigo",
+      link: "Community"
+    },
+    {
+      icon: Scale,
+      title: "Christian Ethics",
+      description: "Explore ethical dilemmas from your denomination's theological perspective",
+      color: "orange",
+      link: "ChristianEthics"
+    },
+    {
+      icon: Globe,
+      title: "Worldview & Hot Topics",
+      description: "Biblical responses to current events and cultural issues from your tradition",
       color: "red",
-      link: "SermonBuilder"
+      link: "WorldviewExplorer"
     },
     {
       icon: GraduationCap,
       title: "Bible Study Generator",
       description: "Create comprehensive study guides for personal, group, youth, or children's studies",
-      color: "indigo",
+      color: "teal",
       link: "BibleStudy"
+    },
+    {
+      icon: Presentation,
+      title: "Live Teaching Assistant",
+      description: "Real-time AI help, vocal feedback, and engagement suggestions while teaching or preaching",
+      color: "pink",
+      link: "SermonBuilder"
     },
     {
       icon: Search,
       title: "Deep Exegesis",
       description: "Original language analysis, historical context, and theological interpretation",
-      color: "orange",
+      color: "amber",
       link: "SermonBuilder"
     }
   ];
 
   const aiCapabilities = [
-    { icon: Sparkles, text: "Full sermon generation in 30 seconds", highlight: true },
+    { icon: Sparkles, text: "Full sermon & lesson generation in 30 seconds", highlight: true },
     { icon: Lightbulb, text: "AI-powered illustrations and anecdotes" },
     { icon: BookOpen, text: "Scripture suggestions and cross-references" },
-    { icon: Users, text: "Audience adaptation (youth, adults, seniors)" },
+    { icon: Users, text: "Audience adaptation (youth, adults, seniors, children)" },
     { icon: Languages, text: "Multi-language translation (50+ languages)" },
     { icon: TrendingUp, text: "Theological trajectory planning" },
-    { icon: Mic, text: "Real-time vocal feedback while preaching" },
-    { icon: MessageSquare, text: "Counter-arguments and Q&A prep" }
+    { icon: Mic, text: "Real-time vocal feedback while teaching" },
+    { icon: MessageSquare, text: "Counter-arguments and Q&A prep" },
+    { icon: Scale, text: "Denominational ethics & worldview analysis" },
+    { icon: Globe, text: "Biblical responses to hot topics & culture" }
   ];
 
   const stats = [
@@ -149,13 +173,13 @@ export default function Home() {
             
             <p className="text-2xl md:text-3xl text-gray-600 dark:text-gray-300 mb-4">
               AI-Powered <span className="text-indigo-600 dark:text-indigo-400 font-semibold">Bible Study</span> & 
-              <span className="text-purple-600 dark:text-purple-400 font-semibold"> Sermon Builder</span>
+              <span className="text-purple-600 dark:text-purple-400 font-semibold"> Teaching Builder</span>
             </p>
             
             <p className="text-xl text-gray-500 dark:text-gray-400 max-w-3xl mx-auto mb-12">
               Meet <strong className="text-blue-600">Larry</strong> and <strong className="text-purple-600">Arlynn</strong> - 
-              your AI sermon assistants. Generate complete sermons in 30 seconds, create multi-week series, 
-              and get real-time help while preaching.
+              your AI teaching assistants. Perfect for pastors, Sunday School teachers, VBS leaders, and Christian educators. 
+              Generate complete lessons in 30 seconds, explore ethics and worldview topics, and share with your community.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -294,7 +318,7 @@ export default function Home() {
             Meet Your AI Team
           </h2>
           <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
-            Two specialized AI assistants designed to revolutionize your sermon preparation
+            Two specialized AI assistants for ministry, education, and spiritual growth
           </p>
         </motion.div>
 
@@ -314,51 +338,59 @@ export default function Home() {
                   </div>
                   <div>
                     <CardTitle className="text-3xl text-blue-900 dark:text-blue-100">Larry</CardTitle>
-                    <CardDescription className="text-lg">Sermon Assistant</CardDescription>
+                    <CardDescription className="text-lg">Teaching & Sermon Assistant</CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-gray-700 dark:text-gray-300 text-lg">
-                  Your personal sermon writer. Larry generates complete, biblical sermons in 30 seconds.
+                  Your personal teaching and preaching partner. Larry creates complete biblical lessons and sermons in 30 seconds - perfect for church services, Sunday School, VBS, and Christian schools.
                 </p>
                 
                 <div className="space-y-3">
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
                     <div>
-                      <div className="font-semibold text-gray-900 dark:text-white">Full Sermon Generation</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">3-4 points with exegesis, illustrations, applications</div>
+                      <div className="font-semibold text-gray-900 dark:text-white">Multi-Context Teaching</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Church, VBS, Sunday School, Christian schools - adapted for any setting</div>
                     </div>
                   </div>
                   
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
                     <div>
-                      <div className="font-semibold text-gray-900 dark:text-white">Live Preaching Help</div>
+                      <div className="font-semibold text-gray-900 dark:text-white">Age-Appropriate Content</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Lessons for children, youth, adults, and seniors</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
+                    <div>
+                      <div className="font-semibold text-gray-900 dark:text-white">Live Teaching Help</div>
                       <div className="text-sm text-gray-600 dark:text-gray-400">Real-time suggestions, vocal feedback, timing cues</div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
-                    <div>
-                      <div className="font-semibold text-gray-900 dark:text-white">Theological Depth</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">Original languages, context, denominational views</div>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
                     <div>
-                      <div className="font-semibold text-gray-900 dark:text-white">Enhancement Tools</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">Improve illustrations, add scriptures, adapt audiences</div>
+                      <div className="font-semibold text-gray-900 dark:text-white">Denominational Theology</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Content aligned with your tradition's teachings</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
+                    <div>
+                      <div className="font-semibold text-gray-900 dark:text-white">Ethics & Worldview Topics</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Biblical responses to current events and cultural issues</div>
                     </div>
                   </div>
                 </div>
 
                 <div className="pt-4">
-                  <Badge className="bg-blue-600 text-white">Perfect for Individual Sermons</Badge>
+                  <Badge className="bg-blue-600 text-white">Perfect for Teachers & Pastors</Badge>
                 </div>
               </CardContent>
             </Card>
@@ -502,7 +534,10 @@ export default function Home() {
               green: 'from-green-500 to-emerald-500',
               red: 'from-red-500 to-orange-500',
               indigo: 'from-indigo-500 to-purple-500',
-              orange: 'from-orange-500 to-yellow-500'
+              orange: 'from-orange-500 to-yellow-500',
+              teal: 'from-teal-500 to-cyan-500', // Added
+              pink: 'from-pink-550 to-fuchsia-500', // Added
+              amber: 'from-amber-500 to-yellow-500' // Added
             };
 
             return (
