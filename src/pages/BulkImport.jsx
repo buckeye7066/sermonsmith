@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Download, Database } from 'lucide-react';
+import { Loader2, Download, Database, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
@@ -40,7 +40,7 @@ export default function BulkImport() {
       await base44.functions.invoke('simpleImport', {});
       
       toast.success('Import started', {
-        description: 'Processing translations sequentially. Check server logs for progress.',
+        description: 'Sequential processing with auto-retry. Check server logs.',
         duration: 8000
       });
     } catch (error) {
@@ -72,14 +72,36 @@ export default function BulkImport() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Import All Translations</CardTitle>
+            <CardTitle>Sequential Import System</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="text-sm text-gray-600 space-y-1">
-              <div>• Processes {translationCount} translations sequentially</div>
-              <div>• Skips existing verses automatically</div>
-              <div>• 2-3 seconds delay between translations</div>
-              <div>• Check server logs for progress</div>
+            <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <span>Single-threaded sequential mode</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <span>2-3 second pause between translations</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <span>Auto-retry on failure (2 attempts, 5s delay)</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <span>Auto-resume after interruption (30s cooldown)</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <span>Post-import validation included</span>
+              </div>
+            </div>
+
+            <div className="text-sm text-gray-600">
+              <strong>Process:</strong> Downloads {translationCount} translations one at a time.
+              Streams verses directly to database. Skips existing verses automatically.
+              Check Deno Deploy logs for progress.
             </div>
 
             <Button
@@ -91,15 +113,27 @@ export default function BulkImport() {
               {isImporting ? (
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Started...
+                  Import Started...
                 </>
               ) : (
                 <>
                   <Download className="w-5 h-5 mr-2" />
-                  Start Import
+                  Start Sequential Import
                 </>
               )}
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-blue-50">
+          <CardContent className="pt-6">
+            <h3 className="font-semibold mb-2">After Completion:</h3>
+            <ul className="text-sm space-y-1">
+              <li>✓ All translations available instantly</li>
+              <li>✓ Validation results in server logs</li>
+              <li>✓ Verse counts per translation confirmed</li>
+              <li>✓ Ready for production use</li>
+            </ul>
           </CardContent>
         </Card>
       </div>

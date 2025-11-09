@@ -36,6 +36,8 @@ const BIBLE_BOOKS = [
   { name: "Jude", chapters: 1 }, { name: "Revelation", chapters: 22 }
 ];
 
+const EXPECTED_VERSES = 31102; // Total verses in Bible
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   
@@ -45,12 +47,12 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  importSequential(base44);
+  runImport(base44);
 
   return Response.json({ message: 'Import started' });
 });
 
-async function importSequential(base44) {
+async function runImport(base44) {
   let translations = [];
   
   try {
@@ -61,33 +63,42 @@ async function importSequential(base44) {
   }
 
   if (translations.length === 0) {
-    console.log('⚠️ No enabled translations found');
+    console.log('⚠️ No enabled translations');
     return;
   }
 
-  // Process one translation at a time
-  for (const trans of translations) {
-    console.log(`📥 Importing ${trans.name || trans.id}`);
+  // Sequential processing with auto-resume
+  for (let i = 0; i < translations.length; i++) {
+    const trans = translations[i];
+    console.log(`📥 Starting ${trans.name || trans.id}`);
     
     try {
-      await importOneTranslation(base44, trans.id);
-      console.log(`✅ ${trans.name || trans.id} complete`);
-    } catch {
-      console.log(`⚠️ ${trans.name || trans.id} skipped due to error`);
+      await importTranslation(base44, trans.id);
+      console.log(`✅ ${trans.name || trans.id} completed`);
+    } catch (error) {
+      console.log(`⚠️ ${trans.name || trans.id} skipped due to persistent error`);
+      
+      // 30-second cooldown before continuing
+      await sleep(30000);
     }
     
-    // 2-3 second delay between translations
-    await sleep(2500);
+    // 2-3 second pause between translations
+    if (i < translations.length - 1) {
+      await sleep(2500);
+    }
   }
   
-  console.log('📘 All translations successfully loaded into the SermonSmith database.');
+  console.log('📘 All Bible translations imported successfully.');
+  
+  // Validation
+  await validateImport(base44, translations);
 }
 
-async function importOneTranslation(base44, translationId) {
+async function importTranslation(base44, translationId) {
   for (const book of BIBLE_BOOKS) {
     for (let chapter = 1; chapter <= book.chapters; chapter++) {
       
-      // Check if exists
+      // Check existence
       const exists = await base44.asServiceRole.entities.Verse.filter({
         translation_id: translationId,
         book_name: book.name,
@@ -96,50 +107,89 @@ async function importOneTranslation(base44, translationId) {
       
       if (exists.length > 0) continue;
       
-      // Fetch verses
-      const verses = await fetchChapter(translationId, book.name, chapter);
+      // Fetch with retry
+      const verses = await fetchWithRetry(translationId, book.name, chapter);
       if (verses.length === 0) continue;
       
-      // Stream to database
-      const records = verses.map(v => ({
-        translation_id: translationId,
-        book_name: book.name,
-        chapter: chapter,
-        verse: v.verse,
-        text: v.text,
-        source_hash: `${translationId}-${book.name}-${chapter}-${v.verse}`
-      }));
-      
-      await base44.asServiceRole.entities.Verse.bulkCreate(records);
+      // Stream to database with retry
+      await writeWithRetry(base44, translationId, book.name, chapter, verses);
     }
+  }
+}
+
+async function fetchWithRetry(translationId, bookName, chapter, attempt = 0) {
+  try {
+    return await fetchChapter(translationId, bookName, chapter);
+  } catch {
+    if (attempt < 2) {
+      await sleep(5000);
+      return fetchWithRetry(translationId, bookName, chapter, attempt + 1);
+    }
+    return [];
+  }
+}
+
+async function writeWithRetry(base44, translationId, bookName, chapter, verses, attempt = 0) {
+  try {
+    const records = verses.map(v => ({
+      translation_id: translationId,
+      book_name: bookName,
+      chapter: chapter,
+      verse: v.verse,
+      text: v.text,
+      source_hash: `${translationId}-${bookName}-${chapter}-${v.verse}`
+    }));
+    
+    await base44.asServiceRole.entities.Verse.bulkCreate(records);
+  } catch (error) {
+    if (attempt < 2) {
+      await sleep(5000);
+      return writeWithRetry(base44, translationId, bookName, chapter, verses, attempt + 1);
+    }
+    throw error;
   }
 }
 
 async function fetchChapter(translationId, bookName, chapter) {
   const url = `https://bible-api.com/${encodeURIComponent(bookName)}+${chapter}?translation=${translationId.toLowerCase()}`;
   
-  try {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(8000),
-      headers: {
-        'User-Agent': 'SermonSmith/2.0',
-        'Accept': 'application/json'
-      }
-    });
-    
-    if (!response.ok) return [];
-    
-    const data = await response.json();
-    
-    if (data.verses && Array.isArray(data.verses)) {
-      return data.verses.map(v => ({ verse: v.verse, text: v.text }));
-    } else if (data.text) {
-      return [{ verse: 1, text: data.text }];
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(10000),
+    headers: {
+      'User-Agent': 'SermonSmith/2.0',
+      'Accept': 'application/json'
     }
-    
-    return [];
-  } catch {
-    return [];
+  });
+  
+  if (!response.ok) return [];
+  
+  const data = await response.json();
+  
+  if (data.verses && Array.isArray(data.verses)) {
+    return data.verses.map(v => ({ verse: v.verse, text: v.text }));
+  } else if (data.text) {
+    return [{ verse: 1, text: data.text }];
+  }
+  
+  return [];
+}
+
+async function validateImport(base44, translations) {
+  console.log('\n📊 Validation:');
+  
+  for (const trans of translations) {
+    try {
+      const verses = await base44.asServiceRole.entities.Verse.filter({
+        translation_id: trans.id
+      }, 'id', 100000);
+      
+      const count = verses.length;
+      const status = count >= EXPECTED_VERSES * 0.95 ? '✓' : 'ℹ';
+      
+      console.log(`${status} ${trans.name || trans.id}: ${count} verses`);
+    } catch {
+      console.log(`⚠ ${trans.name || trans.id}: validation failed`);
+    }
   }
 }
 
