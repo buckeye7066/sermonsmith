@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, Volume2, VolumeX, Loader2, Crown, Settings } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Loader2, Crown, Settings, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import {
@@ -22,7 +22,45 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
-export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline }) {
+// Language codes mapping
+const LANGUAGE_MAP = {
+  'en': 'English',
+  'es': 'Spanish',
+  'fr': 'French',
+  'de': 'German',
+  'it': 'Italian',
+  'pt': 'Portuguese',
+  'ru': 'Russian',
+  'ar': 'Arabic',
+  'he': 'Hebrew',
+  'zh': 'Chinese',
+  'ja': 'Japanese',
+  'ko': 'Korean',
+  'hi': 'Hindi',
+  'sv': 'Swedish',
+  'no': 'Norwegian',
+  'da': 'Danish',
+  'nl': 'Dutch',
+  'pl': 'Polish',
+  'cs': 'Czech',
+  'el': 'Greek'
+};
+
+// Translation language mapping
+const TRANSLATION_LANGUAGES = {
+  'KJV': 'en', 'ESV': 'en', 'NIV': 'en', 'NKJV': 'en', 'NLT': 'en', 'NASB': 'en',
+  'RVR1960': 'es', 'RVR1995': 'es', 'NVI': 'es', 'BTX': 'es',
+  'LSG': 'fr', 'S21': 'fr',
+  'LUTH1545': 'de', 'ELB': 'de',
+  'NR2006': 'it',
+  'ARC': 'pt', 'NVI-PT': 'pt',
+  'RUSV': 'ru', 'CARS': 'ru',
+  'SVL': 'ar',
+  'WLC': 'he', 'OHB': 'he',
+  'CUV': 'zh', 'CNVS': 'zh'
+};
+
+export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline, currentTranslation }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -30,11 +68,13 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState([80]);
   const [showSettings, setShowSettings] = useState(false);
+  const [allVoices, setAllVoices] = useState([]);
   const [availableVoices, setAvailableVoices] = useState([]);
   const [selectedVoice, setSelectedVoice] = useState(null);
   const [speechRate, setSpeechRate] = useState([0.9]);
   const [speechPitch, setSpeechPitch] = useState([1.0]);
   const [pauseBetweenVerses, setPauseBetweenVerses] = useState([800]);
+  const [translationLanguage, setTranslationLanguage] = useState('en');
   const audioRef = useRef(null);
   const utteranceRef = useRef(null);
 
@@ -42,10 +82,15 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
     // Load available voices
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
+      setAllVoices(voices);
       
-      // Filter and sort voices - prioritize high-quality ones
-      const sortedVoices = voices
-        .filter(voice => voice.lang.startsWith('en')) // English voices only
+      // Determine translation language
+      const transLang = TRANSLATION_LANGUAGES[currentTranslation] || 'en';
+      setTranslationLanguage(transLang);
+      
+      // Filter voices for current translation language
+      const filteredVoices = voices
+        .filter(voice => voice.lang.startsWith(transLang))
         .sort((a, b) => {
           // Prioritize: Google > Microsoft > Apple > Others
           const getPriority = (name) => {
@@ -57,18 +102,24 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
           return getPriority(b.name) - getPriority(a.name);
         });
       
-      setAvailableVoices(sortedVoices);
+      setAvailableVoices(filteredVoices);
       
-      // Auto-select the best voice if not already selected
-      if (!selectedVoice && sortedVoices.length > 0) {
-        // Try to find the best natural-sounding voice
-        const preferredVoice = sortedVoices.find(v => 
-          v.name.includes('Google') || 
-          v.name.includes('Natural') ||
-          v.name.includes('Enhanced')
-        ) || sortedVoices[0];
-        
-        setSelectedVoice(preferredVoice);
+      // Auto-select the best voice if not already selected or if translation changed
+      if (!selectedVoice || !selectedVoice.lang.startsWith(transLang)) {
+        if (filteredVoices.length > 0) {
+          // Try to find the best natural-sounding voice
+          const preferredVoice = filteredVoices.find(v => 
+            v.name.includes('Google') || 
+            v.name.includes('Natural') ||
+            v.name.includes('Enhanced')
+          ) || filteredVoices[0];
+          
+          setSelectedVoice(preferredVoice);
+          
+          if (preferredVoice) {
+            toast.success(`Voice changed to ${preferredVoice.name.split(' ')[0]} for ${LANGUAGE_MAP[transLang] || 'selected language'}`);
+          }
+        }
       }
     };
 
@@ -82,7 +133,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
         window.speechSynthesis.cancel();
       }
     };
-  }, []);
+  }, [currentTranslation]);
 
   // Load saved settings
   useEffect(() => {
@@ -94,15 +145,11 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
         if (settings.speechPitch) setSpeechPitch([settings.speechPitch]);
         if (settings.pauseBetweenVerses) setPauseBetweenVerses([settings.pauseBetweenVerses]);
         if (settings.volume) setVolume([settings.volume]);
-        if (settings.voiceName && availableVoices.length > 0) {
-          const voice = availableVoices.find(v => v.name === settings.voiceName);
-          if (voice) setSelectedVoice(voice);
-        }
       } catch (error) {
         console.error('Error loading audio settings:', error);
       }
     }
-  }, [availableVoices]);
+  }, []);
 
   // Save settings when they change
   useEffect(() => {
@@ -112,7 +159,8 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
         speechPitch: speechPitch[0],
         pauseBetweenVerses: pauseBetweenVerses[0],
         volume: volume[0],
-        voiceName: selectedVoice.name
+        voiceName: selectedVoice.name,
+        voiceLang: selectedVoice.lang
       };
       localStorage.setItem('audioPlayerSettings', JSON.stringify(settings));
     }
@@ -136,6 +184,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
       // Apply selected voice
       if (selectedVoice) {
         utterance.voice = selectedVoice;
+        utterance.lang = selectedVoice.lang;
       }
       
       // Apply custom settings
@@ -183,6 +232,11 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
       return;
     }
 
+    if (!selectedVoice) {
+      toast.error("No voice available for this language");
+      return;
+    }
+
     if (isPlaying) {
       window.speechSynthesis.cancel();
       setIsPlaying(false);
@@ -221,7 +275,18 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
         window.speechSynthesis.cancel();
         setTimeout(() => speakVerse(currentVerseIndex), 100);
       }
+      
+      toast.success(`Voice changed to ${voice.name.split(' ')[0]}`);
     }
+  };
+
+  const getVoiceLabel = (voice) => {
+    // Extract accent/region from voice name
+    const nameParts = voice.name.split(/[\(\)]/);
+    const mainName = nameParts[0].trim();
+    const region = nameParts[1] || '';
+    
+    return `${mainName} ${region ? `(${region})` : ''}`;
   };
 
   const progress = verses.length > 0 ? ((currentVerseIndex + 1) / verses.length) * 100 : 0;
@@ -236,7 +301,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
                 <Button
                   size="icon"
                   onClick={handlePlayPause}
-                  disabled={isGenerating || verses.length === 0}
+                  disabled={isGenerating || verses.length === 0 || !selectedVoice}
                   className="h-12 w-12 rounded-full bg-purple-600 hover:bg-purple-700"
                 >
                   {isGenerating ? (
@@ -262,6 +327,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
                   size="icon"
                   onClick={() => setShowSettings(true)}
                   className="h-8 w-8"
+                  title="Audio Settings"
                 >
                   <Settings className="w-4 h-4" />
                 </Button>
@@ -313,14 +379,23 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
             </div>
 
             {selectedVoice && (
-              <div className="text-xs text-center text-purple-700 dark:text-purple-300">
-                🎙️ Voice: {selectedVoice.name.split(' ')[0]} • Rate: {speechRate[0].toFixed(1)}x
+              <div className="flex items-center justify-center gap-2 text-xs text-purple-700 dark:text-purple-300">
+                <Globe className="w-3 h-3" />
+                <span>
+                  {LANGUAGE_MAP[translationLanguage] || 'Language'}: {selectedVoice.name.split(' ')[0]} • Rate: {speechRate[0].toFixed(1)}x
+                </span>
+              </div>
+            )}
+
+            {!selectedVoice && availableVoices.length === 0 && (
+              <div className="text-xs text-center text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
+                ⚠️ No voices available for {LANGUAGE_MAP[translationLanguage] || 'this language'}. Try English translations or install language voices on your device.
               </div>
             )}
 
             {!isPremium && (
               <p className="text-xs text-center text-purple-700 dark:text-purple-300">
-                ✨ Upgrade to Premium to listen to Bible chapters with natural text-to-speech
+                ✨ Upgrade to Premium to listen to Bible chapters in multiple languages with native voices
               </p>
             )}
           </div>
@@ -332,13 +407,18 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
           <DialogHeader>
             <DialogTitle>Audio Settings</DialogTitle>
             <DialogDescription>
-              Customize the voice, speed, and reading style
+              Customize voice, accent, speed, and reading style for {LANGUAGE_MAP[translationLanguage] || 'current language'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-6 py-4">
             <div className="space-y-2">
-              <Label>Voice</Label>
+              <div className="flex items-center gap-2">
+                <Label>Voice & Accent</Label>
+                <Badge variant="outline" className="text-xs">
+                  {LANGUAGE_MAP[translationLanguage] || translationLanguage.toUpperCase()}
+                </Badge>
+              </div>
               <Select
                 value={selectedVoice?.name}
                 onValueChange={handleVoiceChange}
@@ -349,16 +429,16 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
                 <SelectContent className="max-h-60">
                   {availableVoices.map((voice) => (
                     <SelectItem key={voice.name} value={voice.name}>
-                      {voice.name}
+                      {getVoiceLabel(voice)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-gray-500">
                 {availableVoices.length === 0 ? (
-                  'Loading voices...'
+                  `No voices found for ${LANGUAGE_MAP[translationLanguage] || 'this language'}. Install language voices in your OS settings.`
                 ) : (
-                  `${availableVoices.length} voices available. Google and Microsoft voices sound most natural.`
+                  `${availableVoices.length} voice${availableVoices.length > 1 ? 's' : ''} available. Different accents and regions shown in parentheses.`
                 )}
               </p>
             </div>
