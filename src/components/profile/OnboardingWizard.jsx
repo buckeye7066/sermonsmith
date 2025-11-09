@@ -28,7 +28,8 @@ import { toast } from "sonner";
 const DENOMINATIONS = [
   "Non-Denominational", "Baptist", "Methodist", "Presbyterian", 
   "Lutheran", "Pentecostal", "Anglican/Episcopal", "Catholic",
-  "Orthodox", "Assemblies of God", "Nazarene", "Reformed"
+  "Orthodox", "Assemblies of God", "Nazarene", "Reformed",
+  "Mennonite", "Amish"
 ];
 
 const SERMON_TONES = [
