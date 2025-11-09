@@ -45,17 +45,14 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Start import in background, return immediately
-  importAll(base44);
+  importSequential(base44);
 
   return Response.json({ message: 'Import started' });
 });
 
-async function importAll(base44) {
-  console.log('📘 Starting Bible import...');
-
-  // Get enabled translations
+async function importSequential(base44) {
   let translations = [];
+  
   try {
     translations = await base44.asServiceRole.entities.Translation.filter({ enabled: true });
   } catch {
@@ -64,62 +61,58 @@ async function importAll(base44) {
   }
 
   if (translations.length === 0) {
-    console.log('⚠️ No translations found');
+    console.log('⚠️ No enabled translations found');
     return;
   }
 
-  // Import each translation
+  // Process one translation at a time
   for (const trans of translations) {
-    console.log(`📖 Downloading ${trans.id}...`);
+    console.log(`📥 Importing ${trans.name || trans.id}`);
     
-    let success = 0;
-    let failed = 0;
-    
-    for (const book of BIBLE_BOOKS) {
-      for (let ch = 1; ch <= book.chapters; ch++) {
-        
-        // Check if exists
-        try {
-          const exists = await base44.asServiceRole.entities.Verse.filter({
-            translation_id: trans.id,
-            book_name: book.name,
-            chapter: ch
-          }, 'id', 1);
-          
-          if (exists.length > 0) continue;
-        } catch {}
-        
-        // Fetch and save
-        try {
-          const verses = await fetchChapter(trans.id, book.name, ch);
-          if (verses.length === 0) {
-            failed++;
-            continue;
-          }
-          
-          const records = verses.map(v => ({
-            translation_id: trans.id,
-            book_name: book.name,
-            chapter: ch,
-            verse: v.verse,
-            text: v.text,
-            source_hash: `${trans.id}-${book.name}-${ch}-${v.verse}`
-          }));
-          
-          await base44.asServiceRole.entities.Verse.bulkCreate(records);
-          success++;
-          
-          await sleep(100);
-        } catch {
-          failed++;
-        }
-      }
+    try {
+      await importOneTranslation(base44, trans.id);
+      console.log(`✅ ${trans.name || trans.id} complete`);
+    } catch {
+      console.log(`⚠️ ${trans.name || trans.id} skipped due to error`);
     }
     
-    console.log(`✅ ${trans.id} complete (${success} chapters, ${failed} failed)`);
+    // 2-3 second delay between translations
+    await sleep(2500);
   }
   
-  console.log('📘 All available Bible translations have been successfully imported.');
+  console.log('📘 All translations successfully loaded into the SermonSmith database.');
+}
+
+async function importOneTranslation(base44, translationId) {
+  for (const book of BIBLE_BOOKS) {
+    for (let chapter = 1; chapter <= book.chapters; chapter++) {
+      
+      // Check if exists
+      const exists = await base44.asServiceRole.entities.Verse.filter({
+        translation_id: translationId,
+        book_name: book.name,
+        chapter: chapter
+      }, 'id', 1);
+      
+      if (exists.length > 0) continue;
+      
+      // Fetch verses
+      const verses = await fetchChapter(translationId, book.name, chapter);
+      if (verses.length === 0) continue;
+      
+      // Stream to database
+      const records = verses.map(v => ({
+        translation_id: translationId,
+        book_name: book.name,
+        chapter: chapter,
+        verse: v.verse,
+        text: v.text,
+        source_hash: `${translationId}-${book.name}-${chapter}-${v.verse}`
+      }));
+      
+      await base44.asServiceRole.entities.Verse.bulkCreate(records);
+    }
+  }
 }
 
 async function fetchChapter(translationId, bookName, chapter) {
