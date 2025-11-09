@@ -294,9 +294,9 @@ export default function Reader() {
         return;
       }
 
-      // If not in database, show message
+      // If not in database, show friendly message
       setError({
-        message: `Chapter not imported yet. Go to Bulk Import to download ${currentBook} ${currentChapter}.`,
+        message: `This chapter isn't loaded yet. The free KJV Bible is being set up. Check back in 30 minutes or contact support.`,
         canRetry: false
       });
 
