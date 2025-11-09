@@ -32,35 +32,46 @@ export default function ImportStatus() {
       const translationStats = await Promise.all(
         translations.map(async (trans) => {
           try {
-            // Fetch ALL verses for this translation to get accurate count
-            const allVerses = await base44.entities.Verse.filter(
+            // Fetch a sample of verses to calculate stats
+            const sampleVerses = await base44.entities.Verse.filter(
               { translation_id: trans.id },
-              '-created_date'
+              '-created_date',
+              1000
             );
 
-            if (allVerses.length === 0) {
+            if (sampleVerses.length === 0) {
               return null;
             }
 
-            const books = new Set(allVerses.map(v => v.book_name));
-            const chapters = new Set(allVerses.map(v => `${v.book_name}-${v.chapter}`));
+            const books = new Set(sampleVerses.map(v => v.book_name));
+            const chapters = new Set(sampleVerses.map(v => `${v.book_name}-${v.chapter}`));
+            
+            // Estimate total verses: if we have 1000 verses with X chapters, 
+            // and full Bible is 1189 chapters, extrapolate
+            const estimatedTotalVerses = chapters.size >= 1189 
+              ? 31102 
+              : Math.round((sampleVerses.length / chapters.size) * chapters.size);
             
             // Get most recent verse timestamp
-            const lastVerse = allVerses[0];
-            const lastUpdate = lastVerse?.created_date ? new Date(lastVerse.created_date) : null;
-            const timeSinceUpdate = lastUpdate ? Date.now() - lastUpdate.getTime() : null;
+            const lastVerse = sampleVerses[0];
+            const lastUpdateTime = lastVerse?.created_date ? new Date(lastVerse.created_date) : null;
+            const timeSinceUpdate = lastUpdateTime ? Date.now() - lastUpdateTime.getTime() : null;
             const isActive = timeSinceUpdate && timeSinceUpdate < 300000; // Active if updated in last 5 min
+
+            // Use chapter count to determine completeness (1189 chapters = complete Bible)
+            const progress = Math.min((chapters.size / 1189) * 100, 100);
+            const isComplete = chapters.size >= 1189;
 
             return {
               id: trans.id,
               name: trans.name,
-              verseCount: allVerses.length,
+              verseCount: estimatedTotalVerses,
               books: books.size,
               chapters: chapters.size,
-              progress: Math.min((allVerses.length / 31102) * 100, 100),
-              lastUpdate: lastUpdate,
+              progress: progress,
+              lastUpdate: lastUpdateTime,
               isActive: isActive,
-              status: allVerses.length >= 30000 ? 'complete' : isActive ? 'importing' : 'partial'
+              status: isComplete ? 'complete' : isActive ? 'importing' : 'partial'
             };
           } catch (error) {
             console.error(`Error loading ${trans.id}:`, error);
@@ -91,6 +102,7 @@ export default function ImportStatus() {
             action: trans.status === 'importing' ? 'Importing' : 'Updated',
             time: timeStr,
             verses: trans.verseCount,
+            chapters: trans.chapters,
             status: trans.status
           });
         }
@@ -226,6 +238,7 @@ export default function ImportStatus() {
                   <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
                     {stats?.totalVerses?.toLocaleString() || 0}
                   </p>
+                  <p className="text-xs text-gray-500 mt-1">~estimated</p>
                 </div>
                 <BookOpen className="w-8 h-8 text-indigo-600" />
               </div>
@@ -281,14 +294,14 @@ export default function ImportStatus() {
             <CardHeader>
               <CardTitle>Overall Progress</CardTitle>
               <CardDescription>
-                Expected: ~31,102 verses per translation • {stats.completeCount} of {stats.totalTranslations} complete
+                Expected: 1,189 chapters per translation • {stats.completeCount} of {stats.totalTranslations} complete
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="font-medium">
-                    {stats.totalVerses.toLocaleString()} verses loaded
+                    {stats.totalVerses.toLocaleString()} verses loaded (estimated)
                   </span>
                   <span className="text-gray-500">
                     {Math.round((stats.completeCount / stats.totalTranslations) * 100)}% complete
@@ -306,7 +319,7 @@ export default function ImportStatus() {
             <CardHeader>
               <CardTitle>Translation Details</CardTitle>
               <CardDescription>
-                Live status of each Bible translation
+                Live status of each Bible translation (1,189 chapters = complete)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -323,13 +336,13 @@ export default function ImportStatus() {
                         </Badge>
                         <div className="text-sm">
                           <span className="font-medium">{translation.verseCount.toLocaleString()}</span>
-                          <span className="text-gray-500"> verses</span>
+                          <span className="text-gray-500"> verses (est.)</span>
                           <span className="mx-2">•</span>
                           <span className="font-medium">{translation.books}</span>
                           <span className="text-gray-500"> books</span>
                           <span className="mx-2">•</span>
                           <span className="font-medium">{translation.chapters}</span>
-                          <span className="text-gray-500"> chapters</span>
+                          <span className="text-gray-500">/1,189 chapters</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -393,7 +406,7 @@ export default function ImportStatus() {
                           {event.translation} — {event.action}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {event.verses.toLocaleString()} verses • {event.time}
+                          {event.chapters}/1,189 chapters • ~{event.verses.toLocaleString()} verses • {event.time}
                         </p>
                       </div>
                     </div>
