@@ -65,7 +65,7 @@ export default function Home() {
   const features = [
     {
       icon: Bot,
-      title: "Larry - AI Sermon Assistant",
+      title: "Larry - Sermon Assistant",
       description: "Generate complete sermons in 30 seconds with exegesis, illustrations, and applications",
       color: "blue",
       link: "SermonBuilder"
@@ -314,7 +314,7 @@ export default function Home() {
                   </div>
                   <div>
                     <CardTitle className="text-3xl text-blue-900 dark:text-blue-100">Larry</CardTitle>
-                    <CardDescription className="text-lg">The Sermon Assistant</CardDescription>
+                    <CardDescription className="text-lg">Sermon Assistant</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -379,7 +379,7 @@ export default function Home() {
                   </div>
                   <div>
                     <CardTitle className="text-3xl text-purple-900 dark:text-purple-100">Arlynn</CardTitle>
-                    <CardDescription className="text-lg">The Series Specialist</CardDescription>
+                    <CardDescription className="text-lg">Series Specialist</CardDescription>
                   </div>
                 </div>
               </CardHeader>
