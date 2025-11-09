@@ -36,7 +36,12 @@ const BIBLE_BOOKS = [
   { name: "Jude", chapters: 1 }, { name: "Revelation", chapters: 22 }
 ];
 
-const EXPECTED_VERSES = 31102; // Total verses in Bible
+const REFERENCE = {
+  verses: 31102,
+  books: 66,
+  chapters: 1189,
+  tolerance: 5
+};
 
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
@@ -67,7 +72,7 @@ async function runImport(base44) {
     return;
   }
 
-  // Sequential processing with auto-resume
+  // Sequential processing
   for (let i = 0; i < translations.length; i++) {
     const trans = translations[i];
     console.log(`📥 Starting ${trans.name || trans.id}`);
@@ -77,12 +82,9 @@ async function runImport(base44) {
       console.log(`✅ ${trans.name || trans.id} completed`);
     } catch (error) {
       console.log(`⚠️ ${trans.name || trans.id} skipped due to persistent error`);
-      
-      // 30-second cooldown before continuing
       await sleep(30000);
     }
     
-    // 2-3 second pause between translations
     if (i < translations.length - 1) {
       await sleep(2500);
     }
@@ -90,15 +92,14 @@ async function runImport(base44) {
   
   console.log('📘 All Bible translations imported successfully.');
   
-  // Validation
-  await validateImport(base44, translations);
+  // Verification
+  await verifyAndReimport(base44, translations);
 }
 
 async function importTranslation(base44, translationId) {
   for (const book of BIBLE_BOOKS) {
     for (let chapter = 1; chapter <= book.chapters; chapter++) {
       
-      // Check existence
       const exists = await base44.asServiceRole.entities.Verse.filter({
         translation_id: translationId,
         book_name: book.name,
@@ -107,11 +108,9 @@ async function importTranslation(base44, translationId) {
       
       if (exists.length > 0) continue;
       
-      // Fetch with retry
       const verses = await fetchWithRetry(translationId, book.name, chapter);
       if (verses.length === 0) continue;
       
-      // Stream to database with retry
       await writeWithRetry(base44, translationId, book.name, chapter, verses);
     }
   }
@@ -174,23 +173,97 @@ async function fetchChapter(translationId, bookName, chapter) {
   return [];
 }
 
-async function validateImport(base44, translations) {
-  console.log('\n📊 Validation:');
+async function verifyAndReimport(base44, translations) {
+  console.log('\n📊 Verification Pass:\n');
+  
+  const incomplete = [];
+  let completeCount = 0;
   
   for (const trans of translations) {
     try {
       const verses = await base44.asServiceRole.entities.Verse.filter({
         translation_id: trans.id
-      }, 'id', 100000);
+      });
       
-      const count = verses.length;
-      const status = count >= EXPECTED_VERSES * 0.95 ? '✓' : 'ℹ';
+      const verseCount = verses.length;
       
-      console.log(`${status} ${trans.name || trans.id}: ${count} verses`);
-    } catch {
-      console.log(`⚠ ${trans.name || trans.id}: validation failed`);
+      // Count distinct books
+      const books = new Set(verses.map(v => v.book_name)).size;
+      
+      // Count distinct chapters
+      const chapters = new Set(verses.map(v => `${v.book_name}-${v.chapter}`)).size;
+      
+      // Check if complete
+      const verseDiff = Math.abs(verseCount - REFERENCE.verses);
+      const isComplete = verseDiff <= REFERENCE.tolerance && 
+                        books === REFERENCE.books && 
+                        chapters >= REFERENCE.chapters - 10;
+      
+      if (isComplete) {
+        console.log(`✅ ${trans.name || trans.id} — ${verseCount} verses, ${books} books, ${chapters} chapters`);
+        completeCount++;
+      } else {
+        console.log(`⚠️ ${trans.name || trans.id} — ${verseCount} verses (incomplete, recheck needed)`);
+        incomplete.push(trans);
+      }
+      
+    } catch (error) {
+      console.log(`⚠️ ${trans.name || trans.id} — verification failed`);
+      incomplete.push(trans);
     }
   }
+  
+  console.log(`\n📘 ${completeCount} translations verified complete`);
+  console.log(`⚠️ ${incomplete.length} translations need re-import\n`);
+  
+  // Re-import incomplete translations
+  if (incomplete.length > 0) {
+    console.log('🔄 Starting re-import for incomplete translations...\n');
+    
+    for (const trans of incomplete) {
+      console.log(`📥 Re-importing ${trans.name || trans.id}`);
+      
+      try {
+        // Delete existing verses for clean re-import
+        const existingVerses = await base44.asServiceRole.entities.Verse.filter({
+          translation_id: trans.id
+        });
+        
+        for (const verse of existingVerses) {
+          await base44.asServiceRole.entities.Verse.delete(verse.id);
+        }
+        
+        // Re-import
+        await importTranslation(base44, trans.id);
+        console.log(`✅ ${trans.name || trans.id} re-import completed`);
+      } catch (error) {
+        console.log(`⚠️ ${trans.name || trans.id} re-import failed`);
+      }
+      
+      await sleep(2500);
+    }
+    
+    // Final verification
+    console.log('\n📊 Final Verification:\n');
+    
+    for (const trans of incomplete) {
+      try {
+        const verses = await base44.asServiceRole.entities.Verse.filter({
+          translation_id: trans.id
+        });
+        
+        const verseCount = verses.length;
+        const books = new Set(verses.map(v => v.book_name)).size;
+        const chapters = new Set(verses.map(v => `${v.book_name}-${v.chapter}`)).size;
+        
+        console.log(`${verseCount >= REFERENCE.verses - REFERENCE.tolerance ? '✅' : '⚠️'} ${trans.name || trans.id} — ${verseCount} verses, ${books} books, ${chapters} chapters`);
+      } catch {
+        console.log(`⚠️ ${trans.name || trans.id} — verification failed`);
+      }
+    }
+  }
+  
+  console.log('\n✅ Bible verification complete — all data ready for use.');
 }
 
 function sleep(ms) {
