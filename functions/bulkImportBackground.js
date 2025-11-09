@@ -69,9 +69,6 @@ const BIBLE_BOOKS = [
   { name: "Revelation", chapters: 22 }
 ];
 
-// ONLY import KJV - the only reliable translation in bible-api.com
-const SUPPORTED_TRANSLATIONS = ['KJV'];
-
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   
@@ -90,7 +87,6 @@ Deno.serve(async (req) => {
     
     console.log('[IMPORT] ✅ User authenticated:', user.email);
 
-    // Check developer access
     const devEmails = [
       'buckeye7066@gmail.com',
       'anyawhite@rocketmail.com',
@@ -105,11 +101,8 @@ Deno.serve(async (req) => {
     );
     
     if (!emailMatch && !phoneMatch) {
-      console.log('[IMPORT] ❌ Access denied - not a developer');
-      return Response.json({ 
-        error: 'Admin access required',
-        hint: 'Only developer accounts can run bulk imports'
-      }, { status: 403 });
+      console.log('[IMPORT] ❌ Access denied');
+      return Response.json({ error: 'Admin access required' }, { status: 403 });
     }
     
     console.log('[IMPORT] ✅ Developer access confirmed');
@@ -118,33 +111,13 @@ Deno.serve(async (req) => {
     console.log('[IMPORT] Translations requested:', translations);
     
     if (!translations || translations.length === 0) {
-      console.log('[IMPORT] ❌ No translations specified');
       return Response.json({ error: 'No translations specified' }, { status: 400 });
     }
     
-    // FILTER: Only import KJV
-    const supportedRequested = translations.filter(t => SUPPORTED_TRANSLATIONS.includes(t));
-    const unsupported = translations.filter(t => !SUPPORTED_TRANSLATIONS.includes(t));
+    console.log('[IMPORT] 🚀 Launching AGGRESSIVE IMPORT for ALL translations...');
     
-    if (unsupported.length > 0) {
-      console.log('[IMPORT] ⚠️ Skipping unsupported translations:', unsupported.join(', '));
-    }
-    
-    if (supportedRequested.length === 0) {
-      return Response.json({
-        error: 'No supported translations requested',
-        hint: 'Currently only KJV is available via bible-api.com',
-        unsupported: unsupported
-      }, { status: 400 });
-    }
-    
-    console.log('[IMPORT] ✅ Request valid -', supportedRequested.length, 'translation(s)');
-    console.log('[IMPORT] 🚀 Launching FAST BATCH import...');
-    
-    // Launch FAST background task
-    importInBackgroundFast(base44, supportedRequested).catch(error => {
-      console.error('[IMPORT] 💥 BACKGROUND TASK CRASHED:', error);
-      console.error('[IMPORT] Stack trace:', error.stack);
+    importAllTranslationsAggressive(base44, translations).catch(error => {
+      console.error('[IMPORT] 💥 FATAL:', error);
     });
     
     console.log('[IMPORT] ✅ Background task launched');
@@ -152,113 +125,74 @@ Deno.serve(async (req) => {
 
     return Response.json({
       success: true,
-      message: 'Fast batch import started (KJV only)',
-      translations: supportedRequested,
-      skipped: unsupported,
-      total_chapters: supportedRequested.length * 1189,
-      status: 'processing',
-      optimization: 'Fast parallel batching - 10 chapters at once',
-      note: 'Check server logs for progress'
+      message: 'Aggressive import started for ALL translations',
+      translations: translations,
+      total_chapters: translations.length * 1189,
+      status: 'processing'
     });
 
   } catch (error) {
-    console.error('\n' + '═'.repeat(80));
-    console.error('[IMPORT] 💥 FATAL ERROR:', error.message);
-    console.error('[IMPORT] Stack:', error.stack);
-    console.error('═'.repeat(80) + '\n');
-    
-    return Response.json({ 
-      error: error.message,
-      stack: error.stack
-    }, { status: 500 });
+    console.error('[IMPORT] 💥 ERROR:', error.message);
+    return Response.json({ error: error.message }, { status: 500 });
   }
 });
 
-async function importInBackgroundFast(base44, translations) {
-  const stats = { success: 0, failed: 0, cached: 0, skipped: 0 };
+async function importAllTranslationsAggressive(base44, translations) {
   const startTime = Date.now();
   
   console.log('\n' + '█'.repeat(80));
-  console.log('[FAST] 🚀 FAST PARALLEL IMPORT STARTED');
-  console.log('[FAST] Time:', new Date().toISOString());
-  console.log('[FAST] Translations:', translations.join(', '));
-  console.log('[FAST] Total chapters:', translations.length * 1189);
-  console.log('[FAST] Mode: PARALLEL (10 chapters at once)');
+  console.log('[AGGRESSIVE] 🚀 STARTING IMPORT FOR ALL TRANSLATIONS');
+  console.log('[AGGRESSIVE] Translations:', translations.join(', '));
+  console.log('[AGGRESSIVE] Total chapters:', translations.length * 1189);
   console.log('█'.repeat(80));
 
   for (const translationId of translations) {
-    console.log(`\n[TRANSLATION] 📖 Starting ${translationId}...`);
+    console.log(`\n[TRANS] 📖 ${translationId} - STARTING...`);
     
-    try {
-      const result = await importTranslationParallel(base44, translationId);
-      stats.success += result.success;
-      stats.cached += result.cached;
-      stats.skipped += result.skipped;
-      stats.failed += result.failed;
+    const transStats = { success: 0, cached: 0, failed: 0 };
+    
+    // Process 5 books in parallel
+    for (let bookIndex = 0; bookIndex < BIBLE_BOOKS.length; bookIndex += 5) {
+      const bookBatch = BIBLE_BOOKS.slice(bookIndex, bookIndex + 5);
       
-      console.log(`[TRANSLATION] ✅ ${translationId} complete: ✓${result.success} 💾${result.cached} ⊘${result.skipped} ✗${result.failed}`);
-    } catch (error) {
-      console.error(`[TRANSLATION] ❌ ${translationId} failed:`, error.message);
+      await Promise.all(bookBatch.map(async (book) => {
+        // Process 10 chapters in parallel per book
+        for (let chapterStart = 1; chapterStart <= book.chapters; chapterStart += 10) {
+          const chapterEnd = Math.min(chapterStart + 9, book.chapters);
+          const chapterPromises = [];
+          
+          for (let chapter = chapterStart; chapter <= chapterEnd; chapter++) {
+            chapterPromises.push(
+              importChapter(base44, translationId, book.name, chapter)
+                .then(result => {
+                  if (result.cached) transStats.cached++;
+                  else if (result.success) transStats.success++;
+                  else transStats.failed++;
+                })
+                .catch(() => transStats.failed++)
+            );
+          }
+          
+          await Promise.all(chapterPromises);
+          console.log(`[BATCH] ${translationId}: ${book.name} ${chapterStart}-${chapterEnd} (✓${transStats.success} 💾${transStats.cached} ✗${transStats.failed})`);
+          
+          await new Promise(r => setTimeout(r, 300));
+        }
+      }));
     }
+    
+    console.log(`[TRANS] ✅ ${translationId} COMPLETE: ✓${transStats.success} 💾${transStats.cached} ✗${transStats.failed}`);
   }
 
   const duration = Math.round((Date.now() - startTime) / 1000);
-  const minutes = Math.floor(duration / 60);
-  const seconds = duration % 60;
-
   console.log('\n' + '█'.repeat(80));
-  console.log('[FAST] 🎉 ALL IMPORTS COMPLETE!');
-  console.log(`[FAST] Duration: ${minutes}m ${seconds}s`);
-  console.log(`[FAST] Total Success: ${stats.success}`);
-  console.log(`[FAST] Total Cached: ${stats.cached}`);
-  console.log(`[FAST] Total Skipped: ${stats.skipped}`);
-  console.log(`[FAST] Total Failed: ${stats.failed}`);
-  console.log(`[FAST] Success Rate: ${Math.round((stats.success + stats.cached) / (stats.success + stats.cached + stats.skipped + stats.failed) * 100)}%`);
+  console.log('[AGGRESSIVE] 🎉 ALL IMPORTS COMPLETE!');
+  console.log(`[AGGRESSIVE] Duration: ${Math.floor(duration / 60)}m ${duration % 60}s`);
   console.log('█'.repeat(80) + '\n');
 }
 
-async function importTranslationParallel(base44, translationId) {
-  const stats = { success: 0, failed: 0, cached: 0, skipped: 0 };
-  
-  // Process books in parallel batches
-  for (const book of BIBLE_BOOKS) {
-    const batchSize = 10; // 10 chapters at once
-    
-    for (let startChapter = 1; startChapter <= book.chapters; startChapter += batchSize) {
-      const endChapter = Math.min(startChapter + batchSize - 1, book.chapters);
-      const chapterPromises = [];
-      
-      for (let chapter = startChapter; chapter <= endChapter; chapter++) {
-        chapterPromises.push(
-          importChapterSmart(base44, translationId, book.name, chapter)
-            .then(result => {
-              if (result.cached) stats.cached++;
-              else if (result.success) stats.success++;
-              else if (result.skipped) stats.skipped++;
-              else stats.failed++;
-              return result;
-            })
-            .catch(error => {
-              stats.failed++;
-              console.error(`[ERROR] ${translationId} ${book.name} ${chapter}:`, error.message);
-              return { success: false, cached: false, skipped: false };
-            })
-        );
-      }
-      
-      await Promise.all(chapterPromises);
-      console.log(`[BATCH] ${translationId}: ${book.name} ${startChapter}-${endChapter} done (✓${stats.success} 💾${stats.cached} ⊘${stats.skipped} ✗${stats.failed})`);
-      
-      // Small delay between batches
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  }
-
-  return stats;
-}
-
-async function importChapterSmart(base44, translationId, bookName, chapter) {
-  // Quick cache check
+async function importChapter(base44, translationId, bookName, chapter) {
+  // Check cache
   try {
     const cached = await base44.asServiceRole.entities.Verse.filter({
       translation_id: translationId,
@@ -269,41 +203,26 @@ async function importChapterSmart(base44, translationId, bookName, chapter) {
     if (cached.length > 0) {
       return { success: true, cached: true };
     }
-  } catch (error) {
-    // Continue to fetch if cache check fails
-  }
+  } catch (e) {}
 
-  // Fetch with 1 retry only
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const verses = await fetchFromAPIWithRetry(translationId, bookName, chapter, attempt);
-      
-      if (verses.length === 0) {
-        return { success: false, cached: false, skipped: true };
-      }
-
-      // Store verses
-      await storeBatch(base44, verses, translationId, bookName, chapter);
-      return { success: true, cached: false };
-
-    } catch (error) {
-      // Don't retry 404s
-      if (error.message.includes('404') || error.message.includes('not found')) {
-        return { success: false, cached: false, skipped: true };
-      }
-
-      // Only 1 retry
-      if (attempt < 2) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+  // Try to fetch
+  try {
+    const verses = await fetchFromAPI(translationId, bookName, chapter);
+    
+    if (verses.length === 0) {
+      return { success: false, cached: false };
     }
-  }
 
-  return { success: false, cached: false, skipped: false };
+    await storeBatch(base44, verses, translationId, bookName, chapter);
+    return { success: true, cached: false };
+
+  } catch (error) {
+    return { success: false, cached: false };
+  }
 }
 
 async function storeBatch(base44, verses, translationId, bookName, chapter) {
-  const verseRecords = verses.map(v => ({
+  const records = verses.map(v => ({
     translation_id: translationId,
     book_name: bookName,
     chapter: chapter,
@@ -312,26 +231,23 @@ async function storeBatch(base44, verses, translationId, bookName, chapter) {
     source_hash: `${translationId}-${bookName}-${chapter}-${v.verse}`
   }));
 
-  // Insert in batches
   const batchSize = 20;
-  for (let i = 0; i < verseRecords.length; i += batchSize) {
-    const batch = verseRecords.slice(i, i + batchSize);
-    await base44.asServiceRole.entities.Verse.bulkCreate(batch);
+  for (let i = 0; i < records.length; i += batchSize) {
+    await base44.asServiceRole.entities.Verse.bulkCreate(records.slice(i, i + batchSize));
   }
 }
 
-async function fetchFromAPIWithRetry(translationId, bookName, chapter, attempt) {
+async function fetchFromAPI(translationId, bookName, chapter) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
   try {
-    const encodedBook = encodeURIComponent(bookName);
-    const url = `https://bible-api.com/${encodedBook}+${chapter}?translation=${translationId.toLowerCase()}`;
+    const url = `https://bible-api.com/${encodeURIComponent(bookName)}+${chapter}?translation=${translationId.toLowerCase()}`;
     
     const response = await fetch(url, { 
       signal: controller.signal,
       headers: {
-        'User-Agent': 'SermonSmith Bible App/2.0',
+        'User-Agent': 'SermonSmith/2.0',
         'Accept': 'application/json'
       }
     });
@@ -339,38 +255,22 @@ async function fetchFromAPIWithRetry(translationId, bookName, chapter, attempt) 
     clearTimeout(timeout);
 
     if (!response.ok) {
-      if (response.status === 404) {
-        throw new Error('404 - Not found');
-      }
-      throw new Error(`API returned ${response.status}`);
+      throw new Error(`API: ${response.status}`);
     }
 
     const data = await response.json();
     
-    let verses = [];
-    
     if (data.verses && Array.isArray(data.verses)) {
-      verses = data.verses.map(v => ({
-        verse: v.verse,
-        text: v.text
-      }));
+      return data.verses.map(v => ({ verse: v.verse, text: v.text }));
     } else if (data.text) {
       const verseMatch = data.reference?.match(/:(\d+)/);
-      const verseNumber = verseMatch ? parseInt(verseMatch[1]) : 1;
-      
-      verses = [{
-        verse: verseNumber,
-        text: data.text
-      }];
+      return [{ verse: verseMatch ? parseInt(verseMatch[1]) : 1, text: data.text }];
     }
 
-    return verses;
+    return [];
 
   } catch (error) {
     clearTimeout(timeout);
-    if (error.name === 'AbortError') {
-      throw new Error('Request timed out after 10 seconds');
-    }
     throw error;
   }
 }

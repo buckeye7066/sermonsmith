@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
 
     const { translationId, book, chapter } = await req.json();
 
-    // FAST: Cache check first
+    // Check cache
     try {
       const verses = await base44.asServiceRole.entities.Verse.filter({
         translation_id: translationId,
@@ -20,71 +20,39 @@ Deno.serve(async (req) => {
       }, 'verse');
 
       if (verses.length > 0) {
-        return Response.json({ 
-          verses, 
-          cached: true,
-          source: 'database'
-        });
+        return Response.json({ verses, cached: true, source: 'database' });
       }
-    } catch (e) {
-      console.error('[CACHE] Error:', e);
-    }
+    } catch (e) {}
 
-    // Not cached - try to fetch
-    console.log(`[FETCH] ${translationId} ${book} ${chapter} - Fetching...`);
-    
-    // CRITICAL: Only bible-api.com supports KJV and WEB reliably
-    const supportedTranslations = ['KJV', 'WEB'];
-    
-    if (!supportedTranslations.includes(translationId.toUpperCase())) {
-      return Response.json({ 
-        error: `Translation ${translationId} not yet available`,
-        details: 'This translation requires manual upload. Currently only KJV and WEB are available for auto-import.',
-        verses: [],
-        cached: false,
-        source: 'unavailable'
-      }, { status: 200 });
-    }
+    // Not cached - try API
+    console.log(`[FETCH] ${translationId} ${book} ${chapter}`);
     
     try {
       const verses = await fetchFromBibleAPI(translationId, book, chapter);
       
       if (verses.length > 0) {
-        // Cache for next time (fire and forget)
-        cacheVersesAsync(base44, verses, translationId, book, chapter);
+        cacheAsync(base44, verses, translationId, book, chapter);
       }
 
-      return Response.json({ 
-        verses, 
-        cached: false,
-        source: 'api'
-      });
+      return Response.json({ verses, cached: false, source: 'api' });
       
-    } catch (fetchError) {
-      console.error('[FETCH] Failed:', fetchError.message);
-      
+    } catch (error) {
+      console.error('[FETCH] Failed:', error.message);
       return Response.json({ 
-        error: 'Failed to fetch verses',
-        details: fetchError.message,
+        error: 'Not available',
         verses: [],
-        cached: false,
-        source: 'error'
+        cached: false
       }, { status: 200 });
     }
 
   } catch (error) {
-    console.error('[ERROR]:', error);
-    return Response.json({ 
-      error: error.message || 'Internal error',
-      verses: [],
-      cached: false
-    }, { status: 200 });
+    return Response.json({ error: error.message, verses: [] }, { status: 200 });
   }
 });
 
-async function cacheVersesAsync(base44, verses, translationId, book, chapter) {
+async function cacheAsync(base44, verses, translationId, book, chapter) {
   try {
-    const verseRecords = verses.map(v => ({
+    const records = verses.map(v => ({
       translation_id: translationId,
       book_name: book,
       chapter: chapter,
@@ -94,31 +62,23 @@ async function cacheVersesAsync(base44, verses, translationId, book, chapter) {
     }));
 
     const batchSize = 20;
-    for (let i = 0; i < verseRecords.length; i += batchSize) {
-      const batch = verseRecords.slice(i, i + batchSize);
-      await base44.asServiceRole.entities.Verse.bulkCreate(batch);
+    for (let i = 0; i < records.length; i += batchSize) {
+      await base44.asServiceRole.entities.Verse.bulkCreate(records.slice(i, i + batchSize));
     }
-
-    console.log(`[CACHE] ✓ Stored ${verses.length} verses`);
-  } catch (e) {
-    console.error('[CACHE] Error:', e.message);
-  }
+  } catch (e) {}
 }
 
 async function fetchFromBibleAPI(translationId, book, chapter) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
   try {
-    const encodedBook = encodeURIComponent(book);
-    const url = `https://bible-api.com/${encodedBook}+${chapter}?translation=${translationId.toLowerCase()}`;
-    
-    console.log(`[API] Fetching: ${url}`);
+    const url = `https://bible-api.com/${encodeURIComponent(book)}+${chapter}?translation=${translationId.toLowerCase()}`;
     
     const response = await fetch(url, { 
       signal: controller.signal,
       headers: {
-        'User-Agent': 'SermonSmith Bible App/2.0',
+        'User-Agent': 'SermonSmith/2.0',
         'Accept': 'application/json'
       }
     });
@@ -126,28 +86,22 @@ async function fetchFromBibleAPI(translationId, book, chapter) {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      throw new Error(`API returned ${response.status}`);
+      throw new Error(`API ${response.status}`);
     }
 
     const data = await response.json();
     
-    let verses = [];
-    
     if (data.verses && Array.isArray(data.verses)) {
-      verses = data.verses.map(v => ({ verse: v.verse, text: v.text }));
+      return data.verses.map(v => ({ verse: v.verse, text: v.text }));
     } else if (data.text) {
       const verseMatch = data.reference?.match(/:(\d+)/);
-      verses = [{ verse: verseMatch ? parseInt(verseMatch[1]) : 1, text: data.text }];
+      return [{ verse: verseMatch ? parseInt(verseMatch[1]) : 1, text: data.text }];
     }
 
-    console.log(`[API] ✓ Got ${verses.length} verses`);
-    return verses;
+    return [];
 
   } catch (error) {
     clearTimeout(timeout);
-    if (error.name === 'AbortError') {
-      throw new Error('Request timed out');
-    }
     throw error;
   }
 }
