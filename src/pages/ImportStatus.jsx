@@ -32,21 +32,21 @@ export default function ImportStatus() {
       const translationStats = await Promise.all(
         translations.map(async (trans) => {
           try {
-            const verses = await base44.entities.Verse.filter(
+            // Fetch ALL verses for this translation to get accurate count
+            const allVerses = await base44.entities.Verse.filter(
               { translation_id: trans.id },
-              '-created_date',
-              100
+              '-created_date'
             );
 
-            if (verses.length === 0) {
+            if (allVerses.length === 0) {
               return null;
             }
 
-            const books = new Set(verses.map(v => v.book_name));
-            const chapters = new Set(verses.map(v => `${v.book_name}-${v.chapter}`));
+            const books = new Set(allVerses.map(v => v.book_name));
+            const chapters = new Set(allVerses.map(v => `${v.book_name}-${v.chapter}`));
             
             // Get most recent verse timestamp
-            const lastVerse = verses[0];
+            const lastVerse = allVerses[0];
             const lastUpdate = lastVerse?.created_date ? new Date(lastVerse.created_date) : null;
             const timeSinceUpdate = lastUpdate ? Date.now() - lastUpdate.getTime() : null;
             const isActive = timeSinceUpdate && timeSinceUpdate < 300000; // Active if updated in last 5 min
@@ -54,15 +54,16 @@ export default function ImportStatus() {
             return {
               id: trans.id,
               name: trans.name,
-              verseCount: verses.length,
+              verseCount: allVerses.length,
               books: books.size,
               chapters: chapters.size,
-              progress: Math.min((verses.length / 31102) * 100, 100),
+              progress: Math.min((allVerses.length / 31102) * 100, 100),
               lastUpdate: lastUpdate,
               isActive: isActive,
-              status: verses.length >= 30000 ? 'complete' : isActive ? 'importing' : 'partial'
+              status: allVerses.length >= 30000 ? 'complete' : isActive ? 'importing' : 'partial'
             };
           } catch (error) {
+            console.error(`Error loading ${trans.id}:`, error);
             return null;
           }
         })
@@ -153,10 +154,10 @@ export default function ImportStatus() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
+        {/* Live Import Monitor Card */}
         <Card className="mb-6 bg-gradient-to-r from-indigo-500 to-purple-600 text-white border-0">
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <h1 className="text-3xl font-bold flex items-center gap-2">
                   <Database className="w-8 h-8" />
@@ -182,7 +183,7 @@ export default function ImportStatus() {
           </CardContent>
         </Card>
 
-        {/* Status Alert */}
+        {/* Dynamic Status Alerts */}
         {!hasData ? (
           <Alert className="mb-6 bg-blue-50 dark:bg-blue-900/20 border-blue-500">
             <AlertCircle className="w-4 h-4 text-blue-600" />
@@ -215,7 +216,7 @@ export default function ImportStatus() {
           </Alert>
         )}
 
-        {/* Summary Cards */}
+        {/* Real-Time Dashboard - Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <Card>
             <CardContent className="pt-6">
@@ -363,7 +364,7 @@ export default function ImportStatus() {
           </Card>
         )}
 
-        {/* Recent Activity */}
+        {/* Recent Events */}
         {recentActivity.length > 0 && (
           <Card>
             <CardHeader>
