@@ -24,71 +24,84 @@ export default function ImportStatus() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [recentActivity, setRecentActivity] = useState([]);
+  const [loadError, setLoadError] = useState(null);
 
   const loadData = useCallback(async () => {
     try {
-      const translations = await base44.entities.Translation.filter({ enabled: true }, 'id');
+      setLoadError(null);
       
-      const translationStats = await Promise.all(
-        translations.map(async (trans) => {
-          try {
-            // Fetch a sample of verses to calculate stats
-            const sampleVerses = await base44.entities.Verse.filter(
-              { translation_id: trans.id },
-              '-created_date',
-              1000
-            );
+      // Get enabled translations
+      const translations = await base44.entities.Translation.filter({ enabled: true });
+      console.log('Found translations:', translations.length);
+      
+      if (translations.length === 0) {
+        setStats({ totalVerses: 0, translations: [], completeCount: 0, activeCount: 0, totalTranslations: 0 });
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
 
-            if (sampleVerses.length === 0) {
-              return null;
-            }
+      const translationStats = [];
+      
+      // Process each translation
+      for (const trans of translations) {
+        try {
+          // Count total verses for this translation
+          const allVerses = await base44.entities.Verse.filter(
+            { translation_id: trans.id }
+          );
+          
+          console.log(`${trans.id}: ${allVerses.length} verses`);
 
-            const books = new Set(sampleVerses.map(v => v.book_name));
-            const chapters = new Set(sampleVerses.map(v => `${v.book_name}-${v.chapter}`));
-            
-            // Estimate total verses: if we have 1000 verses with X chapters, 
-            // and full Bible is 1189 chapters, extrapolate
-            const estimatedTotalVerses = chapters.size >= 1189 
-              ? 31102 
-              : Math.round((sampleVerses.length / chapters.size) * chapters.size);
-            
-            // Get most recent verse timestamp
-            const lastVerse = sampleVerses[0];
-            const lastUpdateTime = lastVerse?.created_date ? new Date(lastVerse.created_date) : null;
-            const timeSinceUpdate = lastUpdateTime ? Date.now() - lastUpdateTime.getTime() : null;
-            const isActive = timeSinceUpdate && timeSinceUpdate < 300000; // Active if updated in last 5 min
-
-            // Use chapter count to determine completeness (1189 chapters = complete Bible)
-            const progress = Math.min((chapters.size / 1189) * 100, 100);
-            const isComplete = chapters.size >= 1189;
-
-            return {
-              id: trans.id,
-              name: trans.name,
-              verseCount: estimatedTotalVerses,
-              books: books.size,
-              chapters: chapters.size,
-              progress: progress,
-              lastUpdate: lastUpdateTime,
-              isActive: isActive,
-              status: isComplete ? 'complete' : isActive ? 'importing' : 'partial'
-            };
-          } catch (error) {
-            console.error(`Error loading ${trans.id}:`, error);
-            return null;
+          if (allVerses.length === 0) {
+            continue; // Skip translations with no data
           }
-        })
-      );
 
-      const validStats = translationStats.filter(s => s !== null);
-      
-      const totalVerses = validStats.reduce((sum, t) => sum + t.verseCount, 0);
-      const completeCount = validStats.filter(t => t.status === 'complete').length;
-      const activeCount = validStats.filter(t => t.status === 'importing').length;
+          // Calculate stats from actual data
+          const books = new Set(allVerses.map(v => v.book_name));
+          const chapters = new Set(allVerses.map(v => `${v.book_name}-${v.chapter}`));
+          
+          // Find most recent verse by created_date
+          const sortedVerses = [...allVerses].sort((a, b) => {
+            const dateA = new Date(a.created_date || 0);
+            const dateB = new Date(b.created_date || 0);
+            return dateB - dateA;
+          });
+          
+          const lastVerse = sortedVerses[0];
+          const lastUpdateTime = lastVerse?.created_date ? new Date(lastVerse.created_date) : null;
+          const timeSinceUpdate = lastUpdateTime ? Date.now() - lastUpdateTime.getTime() : null;
+          const isActive = timeSinceUpdate !== null && timeSinceUpdate < 300000; // Active if updated in last 5 min
+
+          // Progress based on chapter count (1189 chapters = complete Bible)
+          const progress = Math.min((chapters.size / 1189) * 100, 100);
+          const isComplete = chapters.size >= 1189;
+
+          translationStats.push({
+            id: trans.id,
+            name: trans.name || trans.id,
+            verseCount: allVerses.length,
+            books: books.size,
+            chapters: chapters.size,
+            progress: progress,
+            lastUpdate: lastUpdateTime,
+            isActive: isActive,
+            status: isComplete ? 'complete' : isActive ? 'importing' : 'partial'
+          });
+        } catch (error) {
+          console.error(`Error loading ${trans.id}:`, error);
+        }
+      }
+
+      console.log('Translation stats:', translationStats);
+
+      const totalVerses = translationStats.reduce((sum, t) => sum + t.verseCount, 0);
+      const completeCount = translationStats.filter(t => t.status === 'complete').length;
+      const activeCount = translationStats.filter(t => t.status === 'importing').length;
       
       // Generate recent activity log
       const activity = [];
-      validStats.forEach(trans => {
+      translationStats.forEach(trans => {
         if (trans.lastUpdate) {
           const timeDiff = Date.now() - trans.lastUpdate.getTime();
           const timeStr = timeDiff < 60000 
@@ -98,8 +111,8 @@ export default function ImportStatus() {
             : `${Math.floor(timeDiff / 3600000)}h ago`;
           
           activity.push({
-            translation: trans.name || trans.id,
-            action: trans.status === 'importing' ? 'Importing' : 'Updated',
+            translation: trans.name,
+            action: trans.status === 'importing' ? 'Importing' : trans.status === 'complete' ? 'Completed' : 'Updated',
             time: timeStr,
             verses: trans.verseCount,
             chapters: trans.chapters,
@@ -109,29 +122,33 @@ export default function ImportStatus() {
       });
       
       activity.sort((a, b) => {
-        const timeA = a.time.includes('s') ? parseInt(a.time) : 
-                     a.time.includes('m') ? parseInt(a.time) * 60 :
-                     parseInt(a.time) * 3600;
-        const timeB = b.time.includes('s') ? parseInt(b.time) : 
-                     b.time.includes('m') ? parseInt(b.time) * 60 :
-                     parseInt(b.time) * 3600;
-        return timeA - timeB;
+        const getSeconds = (timeStr) => {
+          const num = parseInt(timeStr);
+          if (timeStr.includes('s')) return num;
+          if (timeStr.includes('m')) return num * 60;
+          if (timeStr.includes('h')) return num * 3600;
+          return 0;
+        };
+        return getSeconds(a.time) - getSeconds(b.time);
       });
 
       setRecentActivity(activity.slice(0, 10));
       
       setStats({
         totalVerses,
-        translations: validStats,
+        translations: translationStats,
         completeCount,
         activeCount,
-        totalTranslations: validStats.length
+        totalTranslations: translationStats.length
       });
 
       setLastUpdate(new Date());
+      console.log('Stats updated:', { totalVerses, completeCount, activeCount });
+      
     } catch (error) {
       console.error('Error loading data:', error);
-      toast.error("Failed to load import data");
+      setLoadError(error.message);
+      toast.error("Failed to load import data: " + error.message);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -140,11 +157,15 @@ export default function ImportStatus() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000);
+    const interval = setInterval(() => {
+      console.log('Auto-refreshing import status...');
+      loadData();
+    }, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 
   const handleRefresh = () => {
+    console.log('Manual refresh triggered');
     setIsRefreshing(true);
     loadData();
   };
@@ -189,20 +210,31 @@ export default function ImportStatus() {
                 size="lg"
               >
                 <RefreshCw className={`w-5 h-5 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                🔄 Refresh Now
+                {isRefreshing ? 'Refreshing...' : 'Refresh Now'}
               </Button>
             </div>
           </CardContent>
         </Card>
+
+        {/* Error Display */}
+        {loadError && (
+          <Alert className="mb-6 bg-red-50 border-red-500">
+            <AlertCircle className="w-4 h-4 text-red-600" />
+            <AlertDescription className="text-red-800">
+              <p className="font-semibold">Error loading import status</p>
+              <p className="text-sm mt-1">{loadError}</p>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Dynamic Status Alerts */}
         {!hasData ? (
           <Alert className="mb-6 bg-blue-50 dark:bg-blue-900/20 border-blue-500">
             <AlertCircle className="w-4 h-4 text-blue-600" />
             <AlertDescription className="text-blue-800 dark:text-blue-200">
-              <p className="font-semibold">No active imports — all translations are up to date.</p>
+              <p className="font-semibold">No Bible data found in database</p>
               <p className="text-sm mt-1">
-                Start a new import from the <a href="/BulkImport" className="underline font-medium">Bulk Import</a> page.
+                Start an import from the <a href="/BulkImport" className="underline font-medium">Bulk Import</a> page to begin loading translations.
               </p>
             </AlertDescription>
           </Alert>
@@ -212,7 +244,7 @@ export default function ImportStatus() {
             <AlertDescription className="text-green-800 dark:text-green-200">
               <p className="font-semibold">✅ Import in progress!</p>
               <p className="text-sm mt-1">
-                {stats.activeCount} translation(s) currently importing. This page will update automatically.
+                {stats.activeCount} translation(s) currently importing. This page auto-updates every 30 seconds.
               </p>
             </AlertDescription>
           </Alert>
@@ -229,192 +261,191 @@ export default function ImportStatus() {
         )}
 
         {/* Real-Time Dashboard - Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Total Verses</p>
-                  <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                    {stats?.totalVerses?.toLocaleString() || 0}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">~estimated</p>
-                </div>
-                <BookOpen className="w-8 h-8 text-indigo-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">✅ Completed</p>
-                  <p className="text-3xl font-bold text-green-600 mt-1">
-                    {stats?.completeCount || 0}
-                  </p>
-                </div>
-                <CheckCircle2 className="w-8 h-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">⏳ Importing</p>
-                  <p className="text-3xl font-bold text-blue-600 mt-1">
-                    {stats?.activeCount || 0}
-                  </p>
-                </div>
-                <TrendingUp className={`w-8 h-8 text-blue-600 ${hasActiveImports ? 'animate-pulse' : ''}`} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Translations</p>
-                  <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                    {stats?.totalTranslations || 0}
-                  </p>
-                </div>
-                <Database className="w-8 h-8 text-purple-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Overall Progress Bar */}
         {hasData && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Overall Progress</CardTitle>
-              <CardDescription>
-                Expected: 1,189 chapters per translation • {stats.completeCount} of {stats.totalTranslations} complete
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="font-medium">
-                    {stats.totalVerses.toLocaleString()} verses loaded (estimated)
-                  </span>
-                  <span className="text-gray-500">
-                    {Math.round((stats.completeCount / stats.totalTranslations) * 100)}% complete
-                  </span>
-                </div>
-                <Progress value={(stats.completeCount / stats.totalTranslations) * 100} className="h-3" />
-              </div>
-            </CardContent>
-          </Card>
-        )}
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Total Verses</p>
+                      <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
+                        {stats.totalVerses.toLocaleString()}
+                      </p>
+                    </div>
+                    <BookOpen className="w-8 h-8 text-indigo-600" />
+                  </div>
+                </CardContent>
+              </Card>
 
-        {/* Translation Details */}
-        {hasData && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Translation Details</CardTitle>
-              <CardDescription>
-                Live status of each Bible translation (1,189 chapters = complete)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {stats.translations?.map((translation) => (
-                  <div key={translation.id} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Badge 
-                          variant={translation.status === 'complete' ? 'default' : 'secondary'}
-                          className="font-mono"
-                        >
-                          {translation.id}
-                        </Badge>
-                        <div className="text-sm">
-                          <span className="font-medium">{translation.verseCount.toLocaleString()}</span>
-                          <span className="text-gray-500"> verses (est.)</span>
-                          <span className="mx-2">•</span>
-                          <span className="font-medium">{translation.books}</span>
-                          <span className="text-gray-500"> books</span>
-                          <span className="mx-2">•</span>
-                          <span className="font-medium">{translation.chapters}</span>
-                          <span className="text-gray-500">/1,189 chapters</span>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">✅ Completed</p>
+                      <p className="text-3xl font-bold text-green-600 mt-1">
+                        {stats.completeCount}
+                      </p>
+                    </div>
+                    <CheckCircle2 className="w-8 h-8 text-green-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">⏳ Importing</p>
+                      <p className="text-3xl font-bold text-blue-600 mt-1">
+                        {stats.activeCount}
+                      </p>
+                    </div>
+                    <TrendingUp className={`w-8 h-8 text-blue-600 ${hasActiveImports ? 'animate-pulse' : ''}`} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Translations</p>
+                      <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
+                        {stats.totalTranslations}
+                      </p>
+                    </div>
+                    <Database className="w-8 h-8 text-purple-600" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Overall Progress Bar */}
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle>Overall Progress</CardTitle>
+                <CardDescription>
+                  Expected: 1,189 chapters per translation • {stats.completeCount} of {stats.totalTranslations} complete
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium">
+                      {stats.totalVerses.toLocaleString()} total verses
+                    </span>
+                    <span className="text-gray-500">
+                      {Math.round((stats.completeCount / stats.totalTranslations) * 100)}% complete
+                    </span>
+                  </div>
+                  <Progress value={(stats.completeCount / stats.totalTranslations) * 100} className="h-3" />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Translation Details */}
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle>Translation Details</CardTitle>
+                <CardDescription>
+                  Live status of each Bible translation (1,189 chapters = complete)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {stats.translations?.map((translation) => (
+                    <div key={translation.id} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Badge 
+                            variant={translation.status === 'complete' ? 'default' : 'secondary'}
+                            className="font-mono"
+                          >
+                            {translation.id}
+                          </Badge>
+                          <div className="text-sm">
+                            <span className="font-medium">{translation.verseCount.toLocaleString()}</span>
+                            <span className="text-gray-500"> verses</span>
+                            <span className="mx-2">•</span>
+                            <span className="font-medium">{translation.books}</span>
+                            <span className="text-gray-500"> books</span>
+                            <span className="mx-2">•</span>
+                            <span className="font-medium">{translation.chapters}</span>
+                            <span className="text-gray-500">/1,189 chapters</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {translation.status === 'complete' && (
+                            <Badge variant="default" className="bg-green-600">
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Complete
+                            </Badge>
+                          )}
+                          {translation.status === 'importing' && (
+                            <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                              <Clock className="w-3 h-3 mr-1 animate-pulse" />
+                              Importing
+                            </Badge>
+                          )}
+                          {translation.status === 'partial' && (
+                            <Badge variant="outline">
+                              <Clock className="w-3 h-3 mr-1" />
+                              Partial
+                            </Badge>
+                          )}
+                          <span className="text-sm font-medium text-gray-600">
+                            {Math.round(translation.progress)}%
+                          </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {translation.status === 'complete' && (
-                          <Badge variant="default" className="bg-green-600">
-                            <CheckCircle2 className="w-3 h-3 mr-1" />
-                            Complete
-                          </Badge>
-                        )}
-                        {translation.status === 'importing' && (
-                          <Badge variant="secondary" className="bg-blue-100 text-blue-700">
-                            <Clock className="w-3 h-3 mr-1 animate-pulse" />
-                            Importing
-                          </Badge>
-                        )}
-                        {translation.status === 'partial' && (
-                          <Badge variant="outline">
-                            <Clock className="w-3 h-3 mr-1" />
-                            Partial
-                          </Badge>
-                        )}
-                        <span className="text-sm font-medium text-gray-600">
-                          {Math.round(translation.progress)}%
-                        </span>
-                      </div>
+                      <Progress value={translation.progress} className="h-2" />
                     </div>
-                    <Progress value={translation.progress} className="h-2" />
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Recent Events */}
-        {recentActivity.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Events</CardTitle>
-              <CardDescription>
-                Last 10 status updates from import logs
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {recentActivity.map((event, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      {event.status === 'importing' ? (
-                        <Activity className="w-4 h-4 text-blue-500 animate-pulse" />
-                      ) : event.status === 'complete' ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-500" />
-                      ) : (
-                        <Clock className="w-4 h-4 text-gray-500" />
-                      )}
-                      <div>
-                        <p className="text-sm font-medium">
-                          {event.translation} — {event.action}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {event.chapters}/1,189 chapters • ~{event.verses.toLocaleString()} verses • {event.time}
-                        </p>
+            {/* Recent Events */}
+            {recentActivity.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent Events</CardTitle>
+                  <CardDescription>
+                    Last 10 status updates from import logs
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {recentActivity.map((event, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          {event.status === 'importing' ? (
+                            <Activity className="w-4 h-4 text-blue-500 animate-pulse" />
+                          ) : event.status === 'complete' ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <Clock className="w-4 h-4 text-gray-500" />
+                          )}
+                          <div>
+                            <p className="text-sm font-medium">
+                              {event.translation} — {event.action}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {event.chapters}/1,189 chapters • {event.verses.toLocaleString()} verses • {event.time}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
       </div>
     </div>
