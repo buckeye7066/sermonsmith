@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -183,9 +184,9 @@ export default function BulkImport() {
     setIsImporting(true);
 
     try {
-      addLog(`Starting background import for: ${selectedTranslations.join(', ')}`, 'info');
+      addLog(`Starting SIMPLE background import for: ${selectedTranslations.join(', ')}`, 'info');
       
-      const response = await base44.functions.invoke('bulkImportBackground', {
+      const response = await base44.functions.invoke('simpleBackgroundImport', {
         translations: selectedTranslations
       });
 
@@ -193,12 +194,12 @@ export default function BulkImport() {
         throw new Error(response.data.error);
       }
 
-      toast.success(`Background import started for ${selectedTranslations.length} translation(s)!`, {
-        description: 'Check Import Status page for progress.'
+      toast.success(`Simple background import started for ${selectedTranslations.length} translation(s)!`, {
+        description: 'Check browser console F12 for "IMPORT" logs or wait 5 minutes and check Reader page'
       });
 
-      addLog(`✓ Background import initiated`, 'success');
-      addLog('Import is running on the server - will complete even if you close this page', 'info');
+      addLog(`✓ Simple background import initiated`, 'success');
+      addLog('Import is running on the server - check verse database in 5 minutes', 'info');
 
     } catch (error) {
       toast.error('Failed to start background import', {
