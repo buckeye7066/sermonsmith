@@ -1,113 +1,60 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Progress } from '@/components/ui/progress';
-import { Loader2, Database, Download, CheckCircle2, XCircle, BookOpen, RefreshCw, Zap, Crown } from 'lucide-react';
+import { Loader2, Database, CheckCircle2, XCircle, BookOpen, RefreshCw, Zap, Crown, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
-const BIBLE_BOOKS = [
-  { name: "Genesis", chapters: 50 },
-  { name: "Exodus", chapters: 40 },
-  { name: "Leviticus", chapters: 27 },
-  { name: "Numbers", chapters: 36 },
-  { name: "Deuteronomy", chapters: 34 },
-  { name: "Joshua", chapters: 24 },
-  { name: "Judges", chapters: 21 },
-  { name: "Ruth", chapters: 4 },
-  { name: "1 Samuel", chapters: 31 },
-  { name: "2 Samuel", chapters: 24 },
-  { name: "1 Kings", chapters: 22 },
-  { name: "2 Kings", chapters: 25 },
-  { name: "1 Chronicles", chapters: 29 },
-  { name: "2 Chronicles", chapters: 36 },
-  { name: "Ezra", chapters: 10 },
-  { name: "Nehemiah", chapters: 13 },
-  { name: "Esther", chapters: 10 },
-  { name: "Job", chapters: 42 },
-  { name: "Psalms", chapters: 150 },
-  { name: "Proverbs", chapters: 31 },
-  { name: "Ecclesiastes", chapters: 12 },
-  { name: "Song of Solomon", chapters: 8 },
-  { name: "Isaiah", chapters: 66 },
-  { name: "Jeremiah", chapters: 52 },
-  { name: "Lamentations", chapters: 5 },
-  { name: "Ezekiel", chapters: 48 },
-  { name: "Daniel", chapters: 12 },
-  { name: "Hosea", chapters: 14 },
-  { name: "Joel", chapters: 3 },
-  { name: "Amos", chapters: 9 },
-  { name: "Obadiah", chapters: 1 },
-  { name: "Jonah", chapters: 4 },
-  { name: "Micah", chapters: 7 },
-  { name: "Nahum", chapters: 3 },
-  { name: "Habakkuk", chapters: 3 },
-  { name: "Zephaniah", chapters: 3 },
-  { name: "Haggai", chapters: 2 },
-  { name: "Zechariah", chapters: 14 },
-  { name: "Malachi", chapters: 4 },
-  { name: "Matthew", chapters: 28 },
-  { name: "Mark", chapters: 16 },
-  { name: "Luke", chapters: 24 },
-  { name: "John", chapters: 21 },
-  { name: "Acts", chapters: 28 },
-  { name: "Romans", chapters: 16 },
-  { name: "1 Corinthians", chapters: 16 },
-  { name: "2 Corinthians", chapters: 13 },
-  { name: "Galatians", chapters: 6 },
-  { name: "Ephesians", chapters: 6 },
-  { name: "Philippians", chapters: 4 },
-  { name: "Colossians", chapters: 4 },
-  { name: "1 Thessalonians", chapters: 5 },
-  { name: "2 Thessalonians", chapters: 3 },
-  { name: "1 Timothy", chapters: 6 },
-  { name: "2 Timothy", chapters: 4 },
-  { name: "Titus", chapters: 3 },
-  { name: "Philemon", chapters: 1 },
-  { name: "Hebrews", chapters: 13 },
-  { name: "James", chapters: 5 },
-  { name: "1 Peter", chapters: 5 },
-  { name: "2 Peter", chapters: 3 },
-  { name: "1 John", chapters: 5 },
-  { name: "2 John", chapters: 1 },
-  { name: "3 John", chapters: 1 },
-  { name: "Jude", chapters: 1 },
-  { name: "Revelation", chapters: 22 }
-];
-
 export default function BulkImport() {
-  const [availableTranslations, setAvailableTranslations] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSeeding, setIsSeeding] = useState(false);
   const [verseCount, setVerseCount] = useState(0);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResults, setTestResults] = useState(null);
 
   useEffect(() => {
-    loadTranslations();
     checkVerseCount();
   }, []);
 
-  const loadTranslations = async () => {
+  const checkVerseCount = async () => {
     setIsLoading(true);
     try {
-      const translations = await base44.entities.Translation.filter({ enabled: true }, 'id');
-      setAvailableTranslations(translations);
+      const verses = await base44.entities.Verse.filter({}, 'id', 100);
+      setVerseCount(verses.length);
     } catch (error) {
-      console.error('Error loading translations:', error);
-      toast.error('Failed to load translations');
+      console.error('Error checking verses:', error);
+      setVerseCount(0);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const checkVerseCount = async () => {
+  const handleRunTests = async () => {
+    setIsTesting(true);
+    setTestResults(null);
+    
     try {
-      const verses = await base44.entities.Verse.filter({}, 'id', 1);
-      setVerseCount(verses.length > 0 ? 'Data exists' : 0);
+      toast.info('Running system tests...');
+      
+      const response = await base44.functions.invoke('testSeed', {});
+      
+      console.log('Test results:', response.data);
+      setTestResults(response.data);
+      
+      if (response.data?.ready_to_seed) {
+        toast.success('✅ System ready for seeding!');
+      } else {
+        toast.error('❌ System not ready - check test results');
+      }
+      
     } catch (error) {
-      setVerseCount(0);
+      console.error('Test error:', error);
+      toast.error('Test failed: ' + error.message);
+      setTestResults({ error: error.message });
+    } finally {
+      setIsTesting(false);
     }
   };
 
@@ -118,7 +65,11 @@ export default function BulkImport() {
 
     setIsSeeding(true);
     try {
+      toast.info('Starting Bible data seeding...', { duration: 5000 });
+      
       const response = await base44.functions.invoke('seedBibleData', { mode: 'free' });
+      
+      console.log('Seed response:', response.data);
       
       if (response.data?.error) {
         throw new Error(response.data.error);
@@ -130,9 +81,8 @@ export default function BulkImport() {
       });
 
     } catch (error) {
-      toast.error('Failed to start seeding', {
-        description: error.message
-      });
+      console.error('Seed error:', error);
+      toast.error('Failed to start seeding: ' + error.message);
     } finally {
       setIsSeeding(false);
     }
@@ -145,7 +95,11 @@ export default function BulkImport() {
 
     setIsSeeding(true);
     try {
+      toast.info('Starting full Bible data seeding...', { duration: 5000 });
+      
       const response = await base44.functions.invoke('seedBibleData', { mode: 'all' });
+      
+      console.log('Seed response:', response.data);
       
       if (response.data?.error) {
         throw new Error(response.data.error);
@@ -157,9 +111,8 @@ export default function BulkImport() {
       });
 
     } catch (error) {
-      toast.error('Failed to start seeding', {
-        description: error.message
-      });
+      console.error('Seed error:', error);
+      toast.error('Failed to start seeding: ' + error.message);
     } finally {
       setIsSeeding(false);
     }
@@ -199,15 +152,88 @@ export default function BulkImport() {
         <Alert>
           <Database className="h-4 w-4" />
           <AlertDescription>
-            <strong>Current Status:</strong> {verseCount === 0 ? 'No verses in database' : `${verseCount} verses available`}
+            <strong>Current Status:</strong> {verseCount === 0 ? 'No verses in database yet' : `${verseCount} verses loaded`}
           </AlertDescription>
         </Alert>
+
+        {verseCount === 0 && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Action Required:</strong> Run the system test below, then seed the Bible data.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <Card className="border-2 border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-yellow-600" />
+              Step 1: Run System Test
+            </CardTitle>
+            <CardDescription>
+              Test that all systems are working before seeding data
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button
+              onClick={handleRunTests}
+              disabled={isTesting}
+              className="w-full"
+              variant="outline"
+              size="lg"
+            >
+              {isTesting ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Running Tests...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-5 h-5 mr-2" />
+                  Run System Tests
+                </>
+              )}
+            </Button>
+
+            {testResults && (
+              <div className="space-y-2 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                <h4 className="font-semibold mb-2">Test Results:</h4>
+                {testResults.error ? (
+                  <div className="text-red-600">❌ Error: {testResults.error}</div>
+                ) : (
+                  <>
+                    {Object.entries(testResults.tests || {}).map(([name, result]) => (
+                      <div key={name} className="flex items-center gap-2 text-sm">
+                        {result.passed ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-600" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-red-600" />
+                        )}
+                        <span className="font-mono">{name}</span>
+                        {result.error && <span className="text-red-600 text-xs">({result.error})</span>}
+                        {result.count !== undefined && <span className="text-gray-600">({result.count})</span>}
+                      </div>
+                    ))}
+                    <div className="mt-3 pt-3 border-t">
+                      {testResults.ready_to_seed ? (
+                        <div className="text-green-600 font-semibold">✅ Ready to seed!</div>
+                      ) : (
+                        <div className="text-red-600 font-semibold">❌ Fix issues before seeding</div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-blue-500" />
-              FREE Tier - KJV Bible
+              Step 2: Seed FREE Tier - KJV Bible
             </CardTitle>
             <CardDescription>
               31,102 verses • Complete Bible • Free for all users
@@ -227,7 +253,7 @@ export default function BulkImport() {
 
             <Button
               onClick={handleSeedFree}
-              disabled={isSeeding}
+              disabled={isSeeding || !testResults?.ready_to_seed}
               className="w-full bg-blue-600 hover:bg-blue-700"
               size="lg"
             >
@@ -243,6 +269,12 @@ export default function BulkImport() {
                 </>
               )}
             </Button>
+            
+            {!testResults?.ready_to_seed && (
+              <p className="text-sm text-gray-500 text-center">
+                Run system tests first ↑
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -250,7 +282,7 @@ export default function BulkImport() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Crown className="w-5 h-5 text-purple-500" />
-              PREMIUM Tier - All Translations
+              Step 3: Seed PREMIUM Tier (Optional)
             </CardTitle>
             <CardDescription>
               150,000+ verses • Multiple translations • Premium users only
@@ -270,7 +302,7 @@ export default function BulkImport() {
 
             <Button
               onClick={handleSeedAll}
-              disabled={isSeeding}
+              disabled={isSeeding || !testResults?.ready_to_seed}
               className="w-full bg-purple-600 hover:bg-purple-700"
               size="lg"
             >
@@ -286,6 +318,12 @@ export default function BulkImport() {
                 </>
               )}
             </Button>
+            
+            {!testResults?.ready_to_seed && (
+              <p className="text-sm text-gray-500 text-center">
+                Run system tests first ↑
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -298,19 +336,6 @@ export default function BulkImport() {
               <li>• Sermon builder has full Bible access</li>
               <li>• Study tools work with complete verse data</li>
               <li>• Premium features unlock additional translations</li>
-            </ul>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
-          <CardContent className="pt-6">
-            <h3 className="font-semibold text-amber-900 dark:text-amber-100 mb-2">⚠️ Important Notes</h3>
-            <ul className="text-sm text-amber-800 dark:text-amber-200 space-y-1">
-              <li>• This is a ONE-TIME setup process</li>
-              <li>• Keep this tab open or check back later</li>
-              <li>• Data is cached - no re-downloads needed</li>
-              <li>• The process runs in the background on the server</li>
-              <li>• You can close this page after starting the seed</li>
             </ul>
           </CardContent>
         </Card>
