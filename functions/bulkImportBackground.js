@@ -120,10 +120,10 @@ Deno.serve(async (req) => {
     }
     
     console.log('[IMPORT] ✅ Request valid -', translations.length, 'translation(s)');
-    console.log('[IMPORT] 🚀 Launching OPTIMIZED parallel import...');
+    console.log('[IMPORT] 🚀 Launching SEQUENTIAL import (API-friendly)...');
     
-    // Launch PARALLEL background task
-    importInBackgroundParallel(base44, translations).catch(error => {
+    // Launch SEQUENTIAL background task (more reliable)
+    importInBackgroundSequential(base44, translations).catch(error => {
       console.error('[IMPORT] 💥 BACKGROUND TASK CRASHED:', error);
       console.error('[IMPORT] Stack trace:', error.stack);
     });
@@ -133,12 +133,12 @@ Deno.serve(async (req) => {
 
     return Response.json({
       success: true,
-      message: 'OPTIMIZED parallel import started',
+      message: 'Reliable sequential import started',
       translations: translations,
       total_chapters: translations.length * 1189,
       status: 'processing',
-      optimization: 'Parallel processing enabled - 3x faster!',
-      note: 'Check server logs for progress'
+      optimization: 'API-friendly sequential processing with smart retry',
+      note: 'Check server logs for progress or use Import Status page'
     });
 
   } catch (error) {
@@ -154,34 +154,38 @@ Deno.serve(async (req) => {
   }
 });
 
-async function importInBackgroundParallel(base44, translations) {
+async function importInBackgroundSequential(base44, translations) {
   const stats = { success: 0, failed: 0, cached: 0, skipped: 0 };
   const startTime = Date.now();
   
   console.log('\n' + '█'.repeat(80));
-  console.log('[PARALLEL] 🚀 OPTIMIZED PARALLEL IMPORT STARTED');
-  console.log('[PARALLEL] Time:', new Date().toISOString());
-  console.log('[PARALLEL] Translations:', translations.join(', '));
-  console.log('[PARALLEL] Total chapters:', translations.length * 1189);
-  console.log('[PARALLEL] Mode: PARALLEL (3x faster)');
+  console.log('[SEQUENTIAL] 🚀 RELIABLE SEQUENTIAL IMPORT STARTED');
+  console.log('[SEQUENTIAL] Time:', new Date().toISOString());
+  console.log('[SEQUENTIAL] Translations:', translations.join(', '));
+  console.log('[SEQUENTIAL] Total chapters:', translations.length * 1189);
+  console.log('[SEQUENTIAL] Mode: SEQUENTIAL (more reliable, API-friendly)');
   console.log('█'.repeat(80));
 
-  // Process ALL translations in parallel
-  const translationPromises = translations.map((translationId, index) => 
-    importTranslationParallel(base44, translationId, index + 1, translations.length)
-  );
+  // Process translations one at a time
+  for (let i = 0; i < translations.length; i++) {
+    const translationId = translations[i];
+    console.log(`\n[TRANSLATION ${i + 1}/${translations.length}] 📖 Starting ${translationId}...`);
+    
+    try {
+      const result = await importTranslationSequential(base44, translationId);
+      stats.success += result.success;
+      stats.cached += result.cached;
+      stats.skipped += result.skipped;
+      stats.failed += result.failed;
+      
+      console.log(`[TRANSLATION ${i + 1}/${translations.length}] ✅ ${translationId} complete: ✓${result.success} 💾${result.cached} ⊘${result.skipped} ✗${result.failed}`);
+    } catch (error) {
+      console.error(`[TRANSLATION ${i + 1}/${translations.length}] ❌ ${translationId} failed:`, error.message);
+    }
 
-  const results = await Promise.allSettled(translationPromises);
-
-  // Aggregate results
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      stats.success += result.value.success;
-      stats.cached += result.value.cached;
-      stats.skipped += result.value.skipped;
-      stats.failed += result.value.failed;
-    } else {
-      console.error('[PARALLEL] Translation failed:', result.reason?.message);
+    // Delay between translations
+    if (i < translations.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 
@@ -190,86 +194,41 @@ async function importInBackgroundParallel(base44, translations) {
   const seconds = duration % 60;
 
   console.log('\n' + '█'.repeat(80));
-  console.log('[PARALLEL] 🎉 ALL IMPORTS COMPLETE!');
-  console.log(`[PARALLEL] Duration: ${minutes}m ${seconds}s`);
-  console.log(`[PARALLEL] Total Success: ${stats.success}`);
-  console.log(`[PARALLEL] Total Cached: ${stats.cached}`);
-  console.log(`[PARALLEL] Total Skipped: ${stats.skipped}`);
-  console.log(`[PARALLEL] Total Failed: ${stats.failed}`);
-  console.log(`[PARALLEL] Success Rate: ${Math.round((stats.success + stats.cached) / (stats.success + stats.cached + stats.skipped + stats.failed) * 100)}%`);
+  console.log('[SEQUENTIAL] 🎉 ALL IMPORTS COMPLETE!');
+  console.log(`[SEQUENTIAL] Duration: ${minutes}m ${seconds}s`);
+  console.log(`[SEQUENTIAL] Total Success: ${stats.success}`);
+  console.log(`[SEQUENTIAL] Total Cached: ${stats.cached}`);
+  console.log(`[SEQUENTIAL] Total Skipped: ${stats.skipped}`);
+  console.log(`[SEQUENTIAL] Total Failed: ${stats.failed}`);
+  console.log(`[SEQUENTIAL] Success Rate: ${Math.round((stats.success + stats.cached) / (stats.success + stats.cached + stats.skipped + stats.failed) * 100)}%`);
   console.log('█'.repeat(80) + '\n');
 }
 
-async function importTranslationParallel(base44, translationId, index, total) {
+async function importTranslationSequential(base44, translationId) {
   const stats = { success: 0, failed: 0, cached: 0, skipped: 0 };
   
-  console.log(`\n[T${index}/${total}] 📖 Starting ${translationId}...`);
-
-  // Process books in parallel batches
-  const booksPerBatch = 5;
-  
-  for (let i = 0; i < BIBLE_BOOKS.length; i += booksPerBatch) {
-    const bookBatch = BIBLE_BOOKS.slice(i, i + booksPerBatch);
-    
-    const bookPromises = bookBatch.map(book => 
-      importBookParallel(base44, translationId, book)
-    );
-
-    const results = await Promise.allSettled(bookPromises);
-
-    for (let j = 0; j < results.length; j++) {
-      const book = bookBatch[j];
-      const result = results[j];
-      
-      if (result.status === 'fulfilled') {
-        stats.success += result.value.success;
-        stats.cached += result.value.cached;
-        stats.skipped += result.value.skipped;
-        stats.failed += result.value.failed;
+  // Process books sequentially
+  for (const book of BIBLE_BOOKS) {
+    // Process chapters sequentially
+    for (let chapter = 1; chapter <= book.chapters; chapter++) {
+      try {
+        const result = await importChapterSmart(base44, translationId, book.name, chapter);
         
-        console.log(`[T${index}/${total}] ✓ ${book.name} (✓${result.value.success} 💾${result.value.cached} ⊘${result.value.skipped} ✗${result.value.failed})`);
-      } else {
-        stats.failed += book.chapters;
-        console.log(`[T${index}/${total}] ✗ ${book.name} failed`);
-      }
-    }
-  }
-
-  console.log(`[T${index}/${total}] ✅ ${translationId} complete: ✓${stats.success} 💾${stats.cached} ⊘${stats.skipped} ✗${stats.failed}`);
-  return stats;
-}
-
-async function importBookParallel(base44, translationId, book) {
-  const stats = { success: 0, failed: 0, cached: 0, skipped: 0 };
-  
-  // Process chapters in smaller batches to avoid overwhelming the API
-  const chaptersPerBatch = 5;
-  
-  for (let chapter = 1; chapter <= book.chapters; chapter += chaptersPerBatch) {
-    const endChapter = Math.min(chapter + chaptersPerBatch - 1, book.chapters);
-    const chapterPromises = [];
-
-    for (let ch = chapter; ch <= endChapter; ch++) {
-      chapterPromises.push(
-        importChapterSmart(base44, translationId, book.name, ch)
-      );
-    }
-
-    const results = await Promise.allSettled(chapterPromises);
-    
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        if (result.value.cached) stats.cached++;
-        else if (result.value.success) stats.success++;
-        else if (result.value.skipped) stats.skipped++;
+        if (result.cached) stats.cached++;
+        else if (result.success) stats.success++;
+        else if (result.skipped) stats.skipped++;
         else stats.failed++;
-      } else {
+
+        // Small delay between chapters
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+      } catch (error) {
         stats.failed++;
+        console.error(`[ERROR] ${translationId} ${book.name} ${chapter}:`, error.message);
       }
     }
-
-    // Minimal delay to prevent API rate limiting
-    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    console.log(`[BOOK] ${translationId}: ${book.name} complete (✓${stats.success} 💾${stats.cached} ⊘${stats.skipped} ✗${stats.failed})`);
   }
 
   return stats;
@@ -291,16 +250,16 @@ async function importChapterSmart(base44, translationId, bookName, chapter) {
     // Continue to fetch if cache check fails
   }
 
-  // Smart retry with exponential backoff (max 2 retries instead of 3)
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Smart retry with exponential backoff
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const verses = await fetchFromAPIFast(translationId, bookName, chapter);
+      const verses = await fetchFromAPIWithRetry(translationId, bookName, chapter, attempt);
       
       if (verses.length === 0) {
         return { success: false, cached: false, skipped: true };
       }
 
-      // Optimized batch insert
+      // Store verses
       await storeBatch(base44, verses, translationId, bookName, chapter);
       return { success: true, cached: false };
 
@@ -310,9 +269,11 @@ async function importChapterSmart(base44, translationId, bookName, chapter) {
         return { success: false, cached: false, skipped: true };
       }
 
-      // Only retry once with shorter delay
-      if (attempt < 2) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      // Retry with exponential backoff
+      if (attempt < 3) {
+        const waitTime = 1000 * Math.pow(2, attempt); // 2s, 4s, 8s
+        console.log(`[RETRY] ${translationId} ${bookName} ${chapter} - Attempt ${attempt + 1}/3 after ${waitTime}ms`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
       }
     }
   }
@@ -330,7 +291,7 @@ async function storeBatch(base44, verses, translationId, bookName, chapter) {
     source_hash: `${translationId}-${bookName}-${chapter}-${v.verse}`
   }));
 
-  // Optimized: larger batches for faster inserts
+  // Insert in batches
   const batchSize = 20;
   for (let i = 0; i < verseRecords.length; i += batchSize) {
     const batch = verseRecords.slice(i, i + batchSize);
@@ -338,20 +299,21 @@ async function storeBatch(base44, verses, translationId, bookName, chapter) {
   }
 }
 
-async function fetchFromAPIFast(translationId, bookName, chapter) {
+async function fetchFromAPIWithRetry(translationId, bookName, chapter, attempt) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000); // Reduced to 10s
+  const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
   try {
     const encodedBook = encodeURIComponent(bookName);
     const url = `https://bible-api.com/${encodedBook}+${chapter}?translation=${translationId.toLowerCase()}`;
     
+    console.log(`[API] Fetching ${translationId} ${bookName} ${chapter} (attempt ${attempt}/3)`);
+    
     const response = await fetch(url, { 
       signal: controller.signal,
       headers: {
         'User-Agent': 'SermonSmith Bible App/2.0',
-        'Accept': 'application/json',
-        'Connection': 'keep-alive'
+        'Accept': 'application/json'
       }
     });
 
@@ -383,12 +345,16 @@ async function fetchFromAPIFast(translationId, bookName, chapter) {
       }];
     }
 
+    if (verses.length > 0) {
+      console.log(`[API] ✓ Got ${verses.length} verses for ${translationId} ${bookName} ${chapter}`);
+    }
+
     return verses;
 
   } catch (error) {
     clearTimeout(timeout);
     if (error.name === 'AbortError') {
-      throw new Error('Request timed out');
+      throw new Error('Request timed out after 15 seconds');
     }
     throw error;
   }
