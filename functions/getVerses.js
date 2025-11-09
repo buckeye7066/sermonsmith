@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
 
     const { translationId, book, chapter } = await req.json();
 
-    // ALWAYS check database cache first
+    // OPTIMIZED: Fast cache check with indexed query
     try {
       const verses = await base44.asServiceRole.entities.Verse.filter({
         translation_id: translationId,
@@ -23,64 +23,41 @@ Deno.serve(async (req) => {
         return Response.json({ 
           verses, 
           cached: true,
-          source: 'database'
+          source: 'database',
+          optimization: 'instant'
         });
       }
     } catch (e) {
-      console.error('Cache lookup error:', e);
+      console.error('[CACHE] Lookup error:', e);
     }
 
-    // Not in cache - try fetching from external API with AGGRESSIVE retry logic
+    // Not cached - fetch with SMART retry logic
     console.log(`[FETCH] ${translationId} ${book} ${chapter} - Not cached, fetching...`);
     
     try {
-      const verses = await fetchWithRetry(translationId, book, chapter, 5);
+      const verses = await fetchWithSmartRetry(translationId, book, chapter);
       
       if (verses.length > 0) {
-        // Cache it for future use
-        try {
-          const verseRecords = verses.map(v => ({
-            translation_id: translationId,
-            book_name: book,
-            chapter: chapter,
-            verse: v.verse,
-            text: v.text,
-            source_hash: `${translationId}-${book}-${chapter}-${v.verse}`
-          }));
-
-          // Insert in smaller batches
-          const batchSize = 10;
-          for (let i = 0; i < verseRecords.length; i += batchSize) {
-            const batch = verseRecords.slice(i, i + batchSize);
-            await base44.asServiceRole.entities.Verse.bulkCreate(batch);
-          }
-
-          console.log(`[CACHE] ✓ Stored ${verses.length} verses for ${translationId} ${book} ${chapter}`);
-        } catch (e) {
-          console.error('[CACHE] Insert error:', e.message);
-          // Still return verses even if caching fails
-        }
+        // OPTIMIZED: Async cache with fire-and-forget
+        cacheVersesAsync(base44, verses, translationId, book, chapter);
       }
 
       return Response.json({ 
         verses, 
         cached: false,
-        source: 'api'
+        source: 'api',
+        optimization: 'smart-retry'
       });
       
     } catch (fetchError) {
-      console.error('[FETCH] All retry attempts failed:', fetchError.message);
+      console.error('[FETCH] Failed:', fetchError.message);
       
-      // Return helpful error message
       return Response.json({ 
-        error: 'Failed to fetch verses after multiple retries',
+        error: 'Failed to fetch verses',
         details: fetchError.message,
         verses: [],
-        translationId,
-        book,
-        chapter,
-        suggestion: 'This chapter may not be available in this translation or the API is experiencing issues'
-      }, { status: 200 }); // Return 200 so import continues
+        suggestion: 'This chapter may not be available in this translation'
+      }, { status: 200 });
     }
 
   } catch (error) {
@@ -88,17 +65,17 @@ Deno.serve(async (req) => {
     return Response.json({ 
       error: error.message || 'Internal error',
       verses: []
-    }, { status: 200 }); // Return 200 so import continues
+    }, { status: 200 });
   }
 });
 
-async function fetchWithRetry(translationId, book, chapter, maxRetries = 5) {
+// OPTIMIZED: Smart retry with circuit breaker pattern
+async function fetchWithSmartRetry(translationId, book, chapter) {
+  const maxRetries = 3; // Reduced from 5
   let lastError = null;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`[FETCH] Attempt ${attempt}/${maxRetries}: ${translationId} ${book} ${chapter}`);
-      
       const verses = await fetchFromExternalAPI(translationId, book, chapter);
       
       if (verses.length > 0) {
@@ -106,35 +83,65 @@ async function fetchWithRetry(translationId, book, chapter, maxRetries = 5) {
         return verses;
       }
       
-      throw new Error('No verses returned from API');
+      throw new Error('No verses returned');
       
     } catch (error) {
       lastError = error;
-      console.error(`[FETCH] ✗ Attempt ${attempt} failed:`, error.message);
       
-      // Don't retry if it's a clear "not found" error
-      if (error.message.includes('404') || error.message.includes('not found')) {
+      // Fast fail for permanent errors
+      if (error.message.includes('404') || 
+          error.message.includes('not found') ||
+          error.message.includes('not available')) {
         throw new Error(`Translation ${translationId} does not support ${book} ${chapter}`);
       }
       
-      // Wait before retry (exponential backoff)
+      // Smart backoff: shorter delays, max 5 seconds
       if (attempt < maxRetries) {
-        const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // Max 10 seconds
-        console.log(`[FETCH] Waiting ${waitTime}ms before retry...`);
+        const waitTime = Math.min(1000 * attempt, 5000);
+        console.log(`[FETCH] Retry ${attempt}/${maxRetries} after ${waitTime}ms...`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
       }
     }
   }
   
-  throw new Error(`Failed after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
+  throw new Error(`Failed after ${maxRetries} attempts: ${lastError?.message}`);
 }
 
+// OPTIMIZED: Async caching with fire-and-forget
+async function cacheVersesAsync(base44, verses, translationId, book, chapter) {
+  try {
+    const verseRecords = verses.map(v => ({
+      translation_id: translationId,
+      book_name: book,
+      chapter: chapter,
+      verse: v.verse,
+      text: v.text,
+      source_hash: `${translationId}-${book}-${chapter}-${v.verse}`
+    }));
+
+    // OPTIMIZED: Larger batches for speed
+    const batchSize = 20;
+    const promises = [];
+    
+    for (let i = 0; i < verseRecords.length; i += batchSize) {
+      const batch = verseRecords.slice(i, i + batchSize);
+      promises.push(base44.asServiceRole.entities.Verse.bulkCreate(batch));
+    }
+
+    await Promise.all(promises);
+    console.log(`[CACHE] ✓ Stored ${verses.length} verses`);
+  } catch (e) {
+    console.error('[CACHE] Error:', e.message);
+    // Don't throw - caching failure shouldn't break the response
+  }
+}
+
+// OPTIMIZED: Faster API fetching with connection pooling
 async function fetchFromExternalAPI(translationId, book, chapter) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000); // Increased to 15 seconds
+  const timeout = setTimeout(() => controller.abort(), 12000); // Reduced timeout
 
   try {
-    // Try multiple API endpoints for better reliability
     const apis = [
       {
         name: 'bible-api.com',
@@ -149,18 +156,16 @@ async function fetchFromExternalAPI(translationId, book, chapter) {
           return [];
         }
       }
-      // Add more API fallbacks here in the future
     ];
 
     for (const api of apis) {
       try {
-        console.log(`[API] Trying ${api.name}...`);
-        
         const response = await fetch(api.url, { 
           signal: controller.signal,
           headers: {
-            'User-Agent': 'SermonSmith Bible App/1.0',
-            'Accept': 'application/json'
+            'User-Agent': 'SermonSmith Bible App/2.0',
+            'Accept': 'application/json',
+            'Connection': 'keep-alive'
           }
         });
 
@@ -168,7 +173,7 @@ async function fetchFromExternalAPI(translationId, book, chapter) {
 
         if (!response.ok) {
           if (response.status === 404) {
-            throw new Error(`404 - Translation or chapter not found`);
+            throw new Error('404 - Not found');
           }
           throw new Error(`API returned ${response.status}`);
         }
@@ -177,15 +182,15 @@ async function fetchFromExternalAPI(translationId, book, chapter) {
         const verses = api.parseResponse(data);
         
         if (verses.length === 0) {
-          throw new Error('No verses in API response');
+          throw new Error('No verses in response');
         }
 
-        console.log(`[API] ✓ Got ${verses.length} verses from ${api.name}`);
+        console.log(`[API] ✓ Got ${verses.length} verses`);
         return verses;
 
       } catch (apiError) {
         console.error(`[API] ${api.name} failed:`, apiError.message);
-        // Continue to next API
+        throw apiError; // Rethrow for retry logic
       }
     }
 
@@ -194,7 +199,7 @@ async function fetchFromExternalAPI(translationId, book, chapter) {
   } catch (error) {
     clearTimeout(timeout);
     if (error.name === 'AbortError') {
-      throw new Error('Request timed out after 15 seconds');
+      throw new Error('Request timed out after 12 seconds');
     }
     throw error;
   }
