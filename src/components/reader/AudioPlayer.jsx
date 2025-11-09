@@ -3,7 +3,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, Volume2, VolumeX, Loader2, Crown, Settings, Globe } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Play, Pause, Volume2, VolumeX, Loader2, Crown, Settings, Globe, AlertTriangle, Info, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import {
@@ -60,6 +61,29 @@ const TRANSLATION_LANGUAGES = {
   'CUV': 'zh', 'CNVS': 'zh'
 };
 
+// Detect user's OS
+const getOS = () => {
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  if (userAgent.includes('win')) return 'Windows';
+  if (userAgent.includes('mac')) return 'macOS';
+  if (userAgent.includes('iphone') || userAgent.includes('ipad')) return 'iOS';
+  if (userAgent.includes('android')) return 'Android';
+  if (userAgent.includes('linux')) return 'Linux';
+  return 'Unknown';
+};
+
+// Get installation instructions based on OS
+const getInstallInstructions = (os, language) => {
+  const instructions = {
+    'Windows': `Settings → Time & Language → Language → Add a language → Search for "${language}" → Install`,
+    'macOS': `System Preferences → Accessibility → Spoken Content → System Voice → Manage Voices → Download "${language}" voices`,
+    'iOS': `Settings → Accessibility → Spoken Content → Voices → Select Language → Download`,
+    'Android': `Settings → System → Languages & input → Text-to-speech → Language → Download "${language}"`,
+    'Linux': `Install espeak or festival: sudo apt-get install espeak`
+  };
+  return instructions[os] || 'Check your system settings to install additional language packs';
+};
+
 export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline, currentTranslation }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
@@ -75,14 +99,24 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
   const [speechPitch, setSpeechPitch] = useState([1.0]);
   const [pauseBetweenVerses, setPauseBetweenVerses] = useState([800]);
   const [translationLanguage, setTranslationLanguage] = useState('en');
+  const [availableLanguages, setAvailableLanguages] = useState([]);
+  const [showLanguageHelp, setShowLanguageHelp] = useState(false);
+  const [userOS, setUserOS] = useState('');
   const audioRef = useRef(null);
   const utteranceRef = useRef(null);
 
   useEffect(() => {
+    // Detect OS
+    setUserOS(getOS());
+
     // Load available voices
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
       setAllVoices(voices);
+      
+      // Get unique languages available
+      const uniqueLangs = [...new Set(voices.map(v => v.lang.split('-')[0]))];
+      setAvailableLanguages(uniqueLangs);
       
       // Determine translation language
       const transLang = TRANSLATION_LANGUAGES[currentTranslation] || 'en';
@@ -115,9 +149,11 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
           ) || filteredVoices[0];
           
           setSelectedVoice(preferredVoice);
-          
-          if (preferredVoice) {
-            toast.success(`Voice changed to ${preferredVoice.name.split(' ')[0]} for ${LANGUAGE_MAP[transLang] || 'selected language'}`);
+        } else {
+          setSelectedVoice(null);
+          // Show help message for missing language
+          if (isPremium) {
+            setTimeout(() => setShowLanguageHelp(true), 500);
           }
         }
       }
@@ -133,7 +169,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
         window.speechSynthesis.cancel();
       }
     };
-  }, [currentTranslation]);
+  }, [currentTranslation, isPremium]);
 
   // Load saved settings
   useEffect(() => {
@@ -233,7 +269,10 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
     }
 
     if (!selectedVoice) {
-      toast.error("No voice available for this language");
+      toast.error("No voice available for this language", {
+        description: "Click 'Install Voice' for instructions"
+      });
+      setShowLanguageHelp(true);
       return;
     }
 
@@ -289,6 +328,16 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
     return `${mainName} ${region ? `(${region})` : ''}`;
   };
 
+  const getInstallLink = () => {
+    const links = {
+      'Windows': 'ms-settings:regionlanguage',
+      'macOS': 'x-apple.systempreferences:com.apple.preference.universalaccess',
+      'iOS': 'App-Prefs:',
+      'Android': 'settings://settings/language'
+    };
+    return links[userOS];
+  };
+
   const progress = verses.length > 0 ? ((currentVerseIndex + 1) / verses.length) * 100 : 0;
 
   return (
@@ -301,7 +350,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
                 <Button
                   size="icon"
                   onClick={handlePlayPause}
-                  disabled={isGenerating || verses.length === 0 || !selectedVoice}
+                  disabled={isGenerating || verses.length === 0 || (!selectedVoice && isPremium)}
                   className="h-12 w-12 rounded-full bg-purple-600 hover:bg-purple-700"
                 >
                   {isGenerating ? (
@@ -387,10 +436,27 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
               </div>
             )}
 
-            {!selectedVoice && availableVoices.length === 0 && (
-              <div className="text-xs text-center text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
-                ⚠️ No voices available for {LANGUAGE_MAP[translationLanguage] || 'this language'}. Try English translations or install language voices on your device.
-              </div>
+            {!selectedVoice && isPremium && availableVoices.length === 0 && (
+              <Alert className="bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <AlertTitle className="text-amber-900 dark:text-amber-100 mb-2">
+                  {LANGUAGE_MAP[translationLanguage] || translationLanguage.toUpperCase()} Voice Not Installed
+                </AlertTitle>
+                <AlertDescription className="text-amber-800 dark:text-amber-200 space-y-2">
+                  <p className="text-sm">
+                    Your device doesn't have {LANGUAGE_MAP[translationLanguage] || 'this language'} text-to-speech installed.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowLanguageHelp(true)}
+                    className="w-full"
+                  >
+                    <Info className="w-4 h-4 mr-2" />
+                    How to Install {LANGUAGE_MAP[translationLanguage]} Voice
+                  </Button>
+                </AlertDescription>
+              </Alert>
             )}
 
             {!isPremium && (
@@ -402,6 +468,126 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
         </CardContent>
       </Card>
 
+      {/* Language Help Dialog */}
+      <Dialog open={showLanguageHelp} onOpenChange={setShowLanguageHelp}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Globe className="w-5 h-5" />
+              Install {LANGUAGE_MAP[translationLanguage]} Voice
+            </DialogTitle>
+            <DialogDescription>
+              Follow these steps to enable {LANGUAGE_MAP[translationLanguage]} audio on your device
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            <Alert>
+              <Info className="w-4 h-4" />
+              <AlertTitle>Your System: {userOS}</AlertTitle>
+              <AlertDescription>
+                {getInstallInstructions(userOS, LANGUAGE_MAP[translationLanguage])}
+              </AlertDescription>
+            </Alert>
+
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-semibold mb-2">Step-by-Step Instructions:</h4>
+                {userOS === 'Windows' && (
+                  <ol className="list-decimal list-inside space-y-2 text-sm">
+                    <li>Open Settings → Time & Language → Language & region</li>
+                    <li>Click "Add a language"</li>
+                    <li>Search for and select "{LANGUAGE_MAP[translationLanguage]}"</li>
+                    <li>Click "Next" and check "Text-to-speech"</li>
+                    <li>Click "Install" and wait for download to complete</li>
+                    <li>Refresh this page to use the new voice</li>
+                  </ol>
+                )}
+                {userOS === 'macOS' && (
+                  <ol className="list-decimal list-inside space-y-2 text-sm">
+                    <li>Open System Preferences → Accessibility</li>
+                    <li>Select "Spoken Content" from the left sidebar</li>
+                    <li>Click "System Voice" dropdown → "Manage Voices..."</li>
+                    <li>Find "{LANGUAGE_MAP[translationLanguage]}" in the list</li>
+                    <li>Click the download icon next to your preferred voice</li>
+                    <li>Wait for download, then refresh this page</li>
+                  </ol>
+                )}
+                {userOS === 'iOS' && (
+                  <ol className="list-decimal list-inside space-y-2 text-sm">
+                    <li>Open Settings → Accessibility → Spoken Content</li>
+                    <li>Tap "Voices"</li>
+                    <li>Tap your language (e.g., "{LANGUAGE_MAP[translationLanguage]}")</li>
+                    <li>Download a high-quality voice (Enhanced or Premium)</li>
+                    <li>Return to SermonSmith and refresh</li>
+                  </ol>
+                )}
+                {userOS === 'Android' && (
+                  <ol className="list-decimal list-inside space-y-2 text-sm">
+                    <li>Open Settings → System → Languages & input</li>
+                    <li>Tap "Text-to-speech output"</li>
+                    <li>Tap the gear icon next to your TTS engine</li>
+                    <li>Select "Install voice data"</li>
+                    <li>Download "{LANGUAGE_MAP[translationLanguage]}" voice</li>
+                    <li>Restart your browser and refresh SermonSmith</li>
+                  </ol>
+                )}
+              </div>
+
+              <Alert className="bg-blue-50 dark:bg-blue-900/20 border-blue-300">
+                <Info className="w-4 h-4 text-blue-600" />
+                <AlertTitle className="text-blue-900 dark:text-blue-100">
+                  Languages Currently Available on Your Device
+                </AlertTitle>
+                <AlertDescription className="text-blue-800 dark:text-blue-200">
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {availableLanguages.map(lang => (
+                      <Badge key={lang} variant="secondary">
+                        {LANGUAGE_MAP[lang] || lang.toUpperCase()}
+                      </Badge>
+                    ))}
+                  </div>
+                  {availableLanguages.length === 0 && (
+                    <p className="text-sm">No voices detected. Install language packs to enable audio.</p>
+                  )}
+                </AlertDescription>
+              </Alert>
+
+              {availableLanguages.length > 0 && !availableLanguages.includes(translationLanguage) && (
+                <Alert>
+                  <Info className="w-4 h-4" />
+                  <AlertDescription>
+                    <strong>Tip:</strong> You can temporarily use an English translation (KJV, ESV, NIV) while you install {LANGUAGE_MAP[translationLanguage]} voices.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              {getInstallLink() && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    try {
+                      window.location.href = getInstallLink();
+                    } catch (error) {
+                      toast.info("Please open your system settings manually");
+                    }
+                  }}
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Open Settings
+                </Button>
+              )}
+              <Button onClick={() => setShowLanguageHelp(false)}>
+                Got It
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Audio Settings Dialog */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -413,18 +599,34 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
 
           <div className="space-y-6 py-4">
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Label>Voice & Accent</Label>
-                <Badge variant="outline" className="text-xs">
-                  {LANGUAGE_MAP[translationLanguage] || translationLanguage.toUpperCase()}
-                </Badge>
+              <div className="flex items-center gap-2 justify-between">
+                <div className="flex items-center gap-2">
+                  <Label>Voice & Accent</Label>
+                  <Badge variant="outline" className="text-xs">
+                    {LANGUAGE_MAP[translationLanguage] || translationLanguage.toUpperCase()}
+                  </Badge>
+                </div>
+                {availableVoices.length === 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowSettings(false);
+                      setShowLanguageHelp(true);
+                    }}
+                  >
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    Install
+                  </Button>
+                )}
               </div>
               <Select
                 value={selectedVoice?.name}
                 onValueChange={handleVoiceChange}
+                disabled={availableVoices.length === 0}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a voice" />
+                  <SelectValue placeholder={availableVoices.length === 0 ? "No voices installed" : "Select a voice"} />
                 </SelectTrigger>
                 <SelectContent className="max-h-60">
                   {availableVoices.map((voice) => (
@@ -436,7 +638,9 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
               </Select>
               <p className="text-xs text-gray-500">
                 {availableVoices.length === 0 ? (
-                  `No voices found for ${LANGUAGE_MAP[translationLanguage] || 'this language'}. Install language voices in your OS settings.`
+                  <span className="text-amber-600">
+                    ⚠️ No {LANGUAGE_MAP[translationLanguage]} voices installed. Click "Install" above.
+                  </span>
                 ) : (
                   `${availableVoices.length} voice${availableVoices.length > 1 ? 's' : ''} available. Different accents and regions shown in parentheses.`
                 )}
