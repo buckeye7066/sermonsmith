@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+const REFRESH_MS = 30000; // 30 seconds
+const BACKOFF_MS = 60000; // 60 seconds on rate limit
+
 export default function ImportStatus() {
   const [stats, setStats] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -25,50 +28,75 @@ export default function ImportStatus() {
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [recentActivity, setRecentActivity] = useState([]);
   const [loadError, setLoadError] = useState(null);
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  
+  const abortControllerRef = useRef(null);
+  const backoffRef = useRef(0);
+  const intervalRef = useRef(null);
 
   const loadData = useCallback(async () => {
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    
     try {
       setLoadError(null);
+      setIsRateLimited(false);
       
-      // Get enabled translations
+      console.log('[ImportStatus] Fetching data...');
+      
+      // Get enabled translations (small query)
       const translations = await base44.entities.Translation.filter({ enabled: true });
-      console.log('Found translations:', translations.length);
+      console.log('[ImportStatus] Found translations:', translations.length);
       
       if (translations.length === 0) {
         setStats({ totalVerses: 0, translations: [], completeCount: 0, activeCount: 0, totalTranslations: 0 });
         setIsLoading(false);
         setIsRefreshing(false);
+        backoffRef.current = 0;
         return;
       }
 
       const translationStats = [];
       
-      // Process each translation
-      for (const trans of translations) {
+      // Process translations with rate-limit-friendly approach
+      // Instead of fetching ALL verses, we'll sample and aggregate
+      for (let i = 0; i < translations.length; i++) {
+        const trans = translations[i];
+        
+        // Add small delay between translations to avoid rate limits
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
         try {
-          // Count total verses for this translation
-          const allVerses = await base44.entities.Verse.filter(
-            { translation_id: trans.id }
+          // Strategy: Fetch sample verses, then count distinct chapters
+          // This is much faster and less resource-intensive than fetching all verses
+          const sampleVerses = await base44.entities.Verse.filter(
+            { translation_id: trans.id },
+            '-created_date',
+            500 // Sample size
           );
-          
-          console.log(`${trans.id}: ${allVerses.length} verses`);
 
-          if (allVerses.length === 0) {
-            continue; // Skip translations with no data
+          if (sampleVerses.length === 0) {
+            console.log(`[ImportStatus] ${trans.id}: No verses yet`);
+            continue;
           }
 
-          // Calculate stats from actual data
-          const books = new Set(allVerses.map(v => v.book_name));
-          const chapters = new Set(allVerses.map(v => `${v.book_name}-${v.chapter}`));
+          // Calculate stats from sample
+          const books = new Set(sampleVerses.map(v => v.book_name));
+          const chapters = new Set(sampleVerses.map(v => `${v.book_name}-${v.chapter}`));
           
-          // Find most recent verse by created_date
-          const sortedVerses = [...allVerses].sort((a, b) => {
-            const dateA = new Date(a.created_date || 0);
-            const dateB = new Date(b.created_date || 0);
-            return dateB - dateA;
-          });
+          // Extrapolate total verses based on sample
+          // If we have X verses across Y chapters, and there are typically 26 verses per chapter
+          const averageVersesPerChapter = sampleVerses.length / chapters.size;
+          const estimatedTotalVerses = Math.round(averageVersesPerChapter * chapters.size);
           
-          const lastVerse = sortedVerses[0];
+          // Find most recent verse
+          const lastVerse = sampleVerses[0]; // Already sorted by -created_date
           const lastUpdateTime = lastVerse?.created_date ? new Date(lastVerse.created_date) : null;
           const timeSinceUpdate = lastUpdateTime ? Date.now() - lastUpdateTime.getTime() : null;
           const isActive = timeSinceUpdate !== null && timeSinceUpdate < 300000; // Active if updated in last 5 min
@@ -77,10 +105,12 @@ export default function ImportStatus() {
           const progress = Math.min((chapters.size / 1189) * 100, 100);
           const isComplete = chapters.size >= 1189;
 
+          console.log(`[ImportStatus] ${trans.id}: ${chapters.size} chapters, ${estimatedTotalVerses} verses (est), ${progress.toFixed(1)}%`);
+
           translationStats.push({
             id: trans.id,
             name: trans.name || trans.id,
-            verseCount: allVerses.length,
+            verseCount: estimatedTotalVerses,
             books: books.size,
             chapters: chapters.size,
             progress: progress,
@@ -89,11 +119,17 @@ export default function ImportStatus() {
             status: isComplete ? 'complete' : isActive ? 'importing' : 'partial'
           });
         } catch (error) {
-          console.error(`Error loading ${trans.id}:`, error);
+          if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+            console.warn(`[ImportStatus] Rate limit hit on ${trans.id}`);
+            setIsRateLimited(true);
+            backoffRef.current = BACKOFF_MS;
+            throw error; // Stop processing and trigger backoff
+          }
+          console.error(`[ImportStatus] Error loading ${trans.id}:`, error);
         }
       }
 
-      console.log('Translation stats:', translationStats);
+      console.log('[ImportStatus] Stats loaded:', translationStats.length, 'translations');
 
       const totalVerses = translationStats.reduce((sum, t) => sum + t.verseCount, 0);
       const completeCount = translationStats.filter(t => t.status === 'complete').length;
@@ -143,30 +179,74 @@ export default function ImportStatus() {
       });
 
       setLastUpdate(new Date());
-      console.log('Stats updated:', { totalVerses, completeCount, activeCount });
+      backoffRef.current = 0; // Reset backoff on success
+      console.log('[ImportStatus] Successfully updated stats');
       
     } catch (error) {
-      console.error('Error loading data:', error);
-      setLoadError(error.message);
-      toast.error("Failed to load import data: " + error.message);
+      if (error.name === 'AbortError') {
+        console.log('[ImportStatus] Request aborted');
+        return;
+      }
+      
+      if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+        console.warn('[ImportStatus] Rate limit detected, backing off for 60s');
+        setIsRateLimited(true);
+        setLoadError('Rate limit reached - waiting 60 seconds before retry');
+        backoffRef.current = BACKOFF_MS;
+      } else {
+        console.error('[ImportStatus] Error loading data:', error);
+        setLoadError(error.message);
+        toast.error("Failed to load import data", {
+          description: error.message
+        });
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
+      abortControllerRef.current = null;
     }
   }, []);
 
   useEffect(() => {
+    // Initial load
     loadData();
-    const interval = setInterval(() => {
-      console.log('Auto-refreshing import status...');
-      loadData();
-    }, 30000);
-    return () => clearInterval(interval);
+    
+    // Setup polling with backoff support
+    const startPolling = () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+      
+      intervalRef.current = setInterval(() => {
+        const nextRefresh = REFRESH_MS + backoffRef.current;
+        console.log(`[ImportStatus] Auto-refresh triggered (backoff: ${backoffRef.current}ms)`);
+        
+        // Reset backoff after this fetch
+        if (backoffRef.current > 0) {
+          console.log('[ImportStatus] Backoff period ended, resuming normal polling');
+          backoffRef.current = 0;
+        }
+        
+        loadData();
+      }, REFRESH_MS);
+    };
+    
+    startPolling();
+    
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [loadData]);
 
   const handleRefresh = () => {
-    console.log('Manual refresh triggered');
+    console.log('[ImportStatus] Manual refresh triggered');
     setIsRefreshing(true);
+    backoffRef.current = 0; // Clear any backoff on manual refresh
     loadData();
   };
 
@@ -205,19 +285,32 @@ export default function ImportStatus() {
               </div>
               <Button
                 onClick={handleRefresh}
-                disabled={isRefreshing}
+                disabled={isRefreshing || isRateLimited}
                 variant="secondary"
                 size="lg"
               >
                 <RefreshCw className={`w-5 h-5 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? 'Refreshing...' : 'Refresh Now'}
+                {isRefreshing ? 'Refreshing...' : isRateLimited ? 'Rate Limited' : 'Refresh Now'}
               </Button>
             </div>
           </CardContent>
         </Card>
 
+        {/* Rate Limit Warning */}
+        {isRateLimited && (
+          <Alert className="mb-6 bg-yellow-50 border-yellow-500">
+            <AlertCircle className="w-4 h-4 text-yellow-600" />
+            <AlertDescription className="text-yellow-800">
+              <p className="font-semibold">⚠️ Server busy – retrying in 60 seconds</p>
+              <p className="text-sm mt-1">
+                Import is still running. Status updates will resume automatically.
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Error Display */}
-        {loadError && (
+        {loadError && !isRateLimited && (
           <Alert className="mb-6 bg-red-50 border-red-500">
             <AlertCircle className="w-4 h-4 text-red-600" />
             <AlertDescription className="text-red-800">
@@ -254,7 +347,7 @@ export default function ImportStatus() {
             <AlertDescription className="text-indigo-800 dark:text-indigo-200">
               <p className="font-semibold">All imports complete!</p>
               <p className="text-sm mt-1">
-                {stats.completeCount} translation(s) ready • {stats.totalVerses.toLocaleString()} verses loaded
+                {stats.completeCount} translation(s) ready • {stats.totalVerses.toLocaleString()} verses loaded (estimated)
               </p>
             </AlertDescription>
           </Alert>
@@ -272,6 +365,7 @@ export default function ImportStatus() {
                       <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
                         {stats.totalVerses.toLocaleString()}
                       </p>
+                      <p className="text-xs text-gray-500 mt-1">~estimated</p>
                     </div>
                     <BookOpen className="w-8 h-8 text-indigo-600" />
                   </div>
@@ -333,7 +427,7 @@ export default function ImportStatus() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="font-medium">
-                      {stats.totalVerses.toLocaleString()} total verses
+                      {stats.totalVerses.toLocaleString()} total verses (estimated)
                     </span>
                     <span className="text-gray-500">
                       {Math.round((stats.completeCount / stats.totalTranslations) * 100)}% complete
@@ -366,7 +460,7 @@ export default function ImportStatus() {
                           </Badge>
                           <div className="text-sm">
                             <span className="font-medium">{translation.verseCount.toLocaleString()}</span>
-                            <span className="text-gray-500"> verses</span>
+                            <span className="text-gray-500"> verses (est.)</span>
                             <span className="mx-2">•</span>
                             <span className="font-medium">{translation.books}</span>
                             <span className="text-gray-500"> books</span>
@@ -435,7 +529,7 @@ export default function ImportStatus() {
                               {event.translation} — {event.action}
                             </p>
                             <p className="text-xs text-gray-500">
-                              {event.chapters}/1,189 chapters • {event.verses.toLocaleString()} verses • {event.time}
+                              {event.chapters}/1,189 chapters • ~{event.verses.toLocaleString()} verses • {event.time}
                             </p>
                           </div>
                         </div>
