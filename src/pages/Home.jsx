@@ -819,8 +819,17 @@ export default function Home() {
             </div>
           </div>
           
-          <div className="border-t border-gray-800 mt-12 pt-8 text-center text-gray-400">
-            <p>© 2024 SermonSmith. Created by Dr. John White. All rights reserved.</p>
+          <div className="border-t border-gray-800 mt-12 pt-8">
+            <div className="text-center">
+              <p className="text-gray-400 mb-4">© 2024 SermonSmith. Created by Dr. John White. All rights reserved.</p>
+              <div className="max-w-2xl mx-auto">
+                <p className="text-sm text-gray-500 leading-relaxed">
+                  Dr. John White is a family man and father of two who has served in pastoral ministry. 
+                  He holds a doctorate in Molecular Genetics and earned his undergraduate degree from Lee University. 
+                  SermonSmith was created to empower pastors, teachers, and ministry leaders with AI-assisted tools for biblical teaching and study.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
