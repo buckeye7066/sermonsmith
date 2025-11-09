@@ -226,7 +226,7 @@ export default function Pricing() {
                     />
                     <PlanCard 
                         title="Premium"
-                        price="$4.99"
+                        price="$9.99"
                         description="The complete toolkit for pastors, teachers, and serious students."
                         features={premiumFeatures}
                         isPremiumPlan
