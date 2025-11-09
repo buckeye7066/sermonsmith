@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { 
-  BookOpen, 
+import {
+  BookOpen,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Languages,
   Crown,
   Loader2,
@@ -49,6 +51,75 @@ const THEME_CLASSES = {
   blue: { bg: 'bg-blue-50', text: 'text-blue-900', card: 'bg-blue-100' }
 };
 
+const BIBLE_BOOKS = [
+  { name: "Genesis", chapters: 50 },
+  { name: "Exodus", chapters: 40 },
+  { name: "Leviticus", chapters: 27 },
+  { name: "Numbers", chapters: 36 },
+  { name: "Deuteronomy", chapters: 34 },
+  { name: "Joshua", chapters: 24 },
+  { name: "Judges", chapters: 21 },
+  { name: "Ruth", chapters: 4 },
+  { name: "1 Samuel", chapters: 31 },
+  { name: "2 Samuel", chapters: 24 },
+  { name: "1 Kings", chapters: 22 },
+  { name: "2 Kings", chapters: 25 },
+  { name: "1 Chronicles", chapters: 29 },
+  { name: "2 Chronicles", chapters: 36 },
+  { name: "Ezra", chapters: 10 },
+  { name: "Nehemiah", chapters: 13 },
+  { name: "Esther", chapters: 10 },
+  { name: "Job", chapters: 42 },
+  { name: "Psalms", chapters: 150 },
+  { name: "Proverbs", chapters: 31 },
+  { name: "Ecclesiastes", chapters: 12 },
+  { name: "Song of Solomon", chapters: 8 },
+  { name: "Isaiah", chapters: 66 },
+  { name: "Jeremiah", chapters: 52 },
+  { name: "Lamentations", chapters: 5 },
+  { name: "Ezekiel", chapters: 48 },
+  { name: "Daniel", chapters: 12 },
+  { name: "Hosea", chapters: 14 },
+  { name: "Joel", chapters: 3 },
+  { name: "Amos", chapters: 9 },
+  { name: "Obadiah", chapters: 1 },
+  { name: "Jonah", chapters: 4 },
+  { name: "Micah", chapters: 7 },
+  { name: "Nahum", chapters: 3 },
+  { name: "Habakkuk", chapters: 3 },
+  { name: "Zephaniah", chapters: 3 },
+  { name: "Haggai", chapters: 2 },
+  { name: "Zechariah", chapters: 14 },
+  { name: "Malachi", chapters: 4 },
+  { name: "Matthew", chapters: 28 },
+  { name: "Mark", chapters: 16 },
+  { name: "Luke", chapters: 24 },
+  { name: "John", chapters: 21 },
+  { name: "Acts", chapters: 28 },
+  { name: "Romans", chapters: 16 },
+  { name: "1 Corinthians", chapters: 16 },
+  { name: "2 Corinthians", chapters: 13 },
+  { name: "Galatians", chapters: 6 },
+  { name: "Ephesians", chapters: 6 },
+  { name: "Philippians", chapters: 4 },
+  { name: "Colossians", chapters: 4 },
+  { name: "1 Thessalonians", chapters: 5 },
+  { name: "2 Thessalonians", chapters: 3 },
+  { name: "1 Timothy", chapters: 6 },
+  { name: "2 Timothy", chapters: 4 },
+  { name: "Titus", chapters: 3 },
+  { name: "Philemon", chapters: 1 },
+  { name: "Hebrews", chapters: 13 },
+  { name: "James", chapters: 5 },
+  { name: "1 Peter", chapters: 5 },
+  { name: "2 Peter", chapters: 3 },
+  { name: "1 John", chapters: 5 },
+  { name: "2 John", chapters: 1 },
+  { name: "3 John", chapters: 1 },
+  { name: "Jude", chapters: 1 },
+  { name: "Revelation", chapters: 22 }
+];
+
 export default function Reader() {
   const [verses, setVerses] = useState([]);
   const [currentBook, setCurrentBook] = useState("Genesis");
@@ -71,13 +142,13 @@ export default function Reader() {
   const [isPremium, setIsPremium] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
-  
+
   const [readerSettings, setReaderSettings] = useState({
     fontSize: 18,
     lineHeight: 1.8,
     theme: 'light'
   });
-  
+
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [contentToShare, setContentToShare] = useState(null);
   const [showCrossRefs, setShowCrossRefs] = useState(false);
@@ -98,7 +169,7 @@ export default function Reader() {
             lineHeight: userData.reading_preferences.lineHeight || 1.8,
             theme: userData.reading_preferences.theme || 'light'
           });
-          
+
           // Set default translation if available
           if (userData.reading_preferences.defaultTranslation) {
             setCurrentTranslation(userData.reading_preferences.defaultTranslation);
@@ -117,7 +188,7 @@ export default function Reader() {
         }
       }
     };
-    
+
     loadReaderSettings();
   }, [setCurrentTranslation]);
 
@@ -125,7 +196,7 @@ export default function Reader() {
     // Save to both user profile and localStorage
     const saveSettings = async () => {
       localStorage.setItem('readerSettings', JSON.stringify(readerSettings));
-      
+
       if (user) {
         try {
           await base44.auth.updateMe({
@@ -141,7 +212,7 @@ export default function Reader() {
         }
       }
     };
-    
+
     saveSettings();
   }, [readerSettings, user]);
 
@@ -150,7 +221,7 @@ export default function Reader() {
       setIsOnline(true);
       toast.success("Back online!");
     };
-    
+
     const handleOffline = () => {
       setIsOnline(false);
       toast.info("You're offline");
@@ -176,20 +247,20 @@ export default function Reader() {
         'whiterobert1201@icloud.com',
         'tishka1201@icloud.com'
       ];
-      
+
       const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
-      
+
       const emailMatch = userData.email && devEmails.includes(userData.email.toLowerCase());
-      const phoneMatch = userData.phone && devPhones.some(p => 
+      const phoneMatch = userData.phone && devPhones.some(p =>
         userData.phone.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, ''))
       );
-      
-      const premium = userData.subscription_tier === 'premium' || 
+
+      const premium = userData.subscription_tier === 'premium' ||
                       userData.premium_override === true ||
                       emailMatch ||
                       phoneMatch ||
                       (userData.premium_until && new Date(userData.premium_until) > new Date());
-      
+
       setIsPremium(premium);
     } catch (error) {
       console.log("User not logged in");
@@ -215,7 +286,7 @@ export default function Reader() {
           verse: v.verse,
           text: v.text
         }));
-        
+
         setVerses(formattedVerses);
         setIsCached(true);
         setIsOfflineMode(false);
@@ -228,7 +299,7 @@ export default function Reader() {
         message: `Chapter not imported yet. Go to Bulk Import to download ${currentBook} ${currentChapter}.`,
         canRetry: false
       });
-      
+
     } catch (error) {
       console.error("Error loading verses:", error);
       setError({
@@ -266,17 +337,34 @@ export default function Reader() {
   }, [loadUserData]);
 
   const navigateChapter = (direction) => {
+    const currentBookInfo = BIBLE_BOOKS.find(b => b.name === currentBook);
+    if (!currentBookInfo) return; // Should ideally not happen if BIBLE_BOOKS is complete
+
     if (direction === 'prev' && currentChapter > 1) {
       setCurrentChapter(currentChapter - 1);
-    } else if (direction === 'next') {
+    } else if (direction === 'next' && currentChapter < currentBookInfo.chapters) {
       setCurrentChapter(currentChapter + 1);
+    }
+  };
+
+  const navigateBook = (direction) => {
+    const currentBookIndex = BIBLE_BOOKS.findIndex(b => b.name === currentBook);
+
+    if (direction === 'prev' && currentBookIndex > 0) {
+      const prevBook = BIBLE_BOOKS[currentBookIndex - 1];
+      setCurrentBook(prevBook.name);
+      setCurrentChapter(1); // Start at chapter 1 of the new book
+    } else if (direction === 'next' && currentBookIndex < BIBLE_BOOKS.length - 1) {
+      const nextBook = BIBLE_BOOKS[currentBookIndex + 1];
+      setCurrentBook(nextBook.name);
+      setCurrentChapter(1); // Start at chapter 1 of the new book
     }
   };
 
   const handleJumpToVerse = (book, chapter, verse) => {
     setCurrentBook(book);
     setCurrentChapter(chapter);
-    
+
     if (verse) {
       setTimeout(() => {
         const verseElement = verseRefs.current[verse];
@@ -311,7 +399,7 @@ export default function Reader() {
 
   const saveHighlight = async (color) => {
     if (!selectedVerse || !user) return;
-    
+
     try {
       await base44.entities.Highlight.create({
         user_id: user.id,
@@ -322,7 +410,7 @@ export default function Reader() {
         verse: selectedVerse.verse
       });
       toast.success("Highlight saved!");
-      
+
       setShowHighlightDrawer(false);
       loadUserData();
     } catch (error) {
@@ -332,7 +420,7 @@ export default function Reader() {
 
   const saveNote = async (content) => {
     if (!selectedVerse || !user || !content.trim()) return;
-    
+
     try {
       await base44.entities.Note.create({
         user_id: user.id,
@@ -343,7 +431,7 @@ export default function Reader() {
         verse: selectedVerse.verse
       });
       toast.success("Note saved!");
-      
+
       setShowNoteDrawer(false);
       loadUserData();
     } catch (error) {
@@ -356,14 +444,14 @@ export default function Reader() {
       toast.error("Please log in to use translation");
       return;
     }
-    
+
     if (!isPremium) {
       toast.error("Translation is a Premium feature", {
         description: "Upgrade to translate verses into any language"
       });
       return;
     }
-    
+
     setSelectedVerse(verse);
     setShowTranslationPanel(true);
   };
@@ -390,7 +478,7 @@ export default function Reader() {
       toast.error("Please log in to share to community");
       return;
     }
-    
+
     setContentToShare({
       ...verse,
       content: verse.text,
@@ -432,6 +520,8 @@ export default function Reader() {
   };
 
   const themeClasses = THEME_CLASSES[readerSettings.theme];
+  const currentBookIndex = BIBLE_BOOKS.findIndex(b => b.name === currentBook);
+  const currentBookInfo = BIBLE_BOOKS[currentBookIndex];
 
   return (
     <div className={`min-h-screen ${themeClasses.bg} ${themeClasses.text}`}>
@@ -483,6 +573,34 @@ export default function Reader() {
           </div>
         </div>
 
+        {/* Book Navigation */}
+        <div className="flex items-center gap-3 mb-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigateBook('prev')}
+            disabled={currentBookIndex <= 0 || isLoading}
+            className="flex items-center gap-1"
+          >
+            <ChevronsLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">Previous Book</span>
+          </Button>
+          <Badge variant="secondary" className="px-4 py-2 flex-1 text-center">
+            {currentBook}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigateBook('next')}
+            disabled={currentBookIndex >= BIBLE_BOOKS.length - 1 || isLoading}
+            className="flex items-center gap-1"
+          >
+            <span className="hidden sm:inline">Next Book</span>
+            <ChevronsRight className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* Chapter Navigation */}
         <div className="flex items-center gap-3 mb-6">
           <Button
             variant="outline"
@@ -499,7 +617,7 @@ export default function Reader() {
             variant="outline"
             size="icon"
             onClick={() => navigateChapter('next')}
-            disabled={isLoading}
+            disabled={currentChapter >= currentBookInfo?.chapters || isLoading}
           >
             <ChevronRight className="w-4 h-4" />
           </Button>
@@ -509,7 +627,7 @@ export default function Reader() {
           <Alert className="mb-6 bg-amber-50 border-amber-200">
             <WifiOff className="w-4 h-4 text-amber-600" />
             <AlertDescription className="text-amber-800">
-              You're offline. Reading from local storage. 
+              You're offline. Reading from local storage.
               <Link to={createPageUrl('Downloads')} className="ml-2 underline font-medium">
                 Manage Downloads
               </Link>
@@ -543,7 +661,7 @@ export default function Reader() {
           </Card>
         )}
 
-        <AudioPlayer 
+        <AudioPlayer
           verses={verses}
           book={currentBook}
           chapter={currentChapter}
@@ -553,14 +671,14 @@ export default function Reader() {
         />
 
         <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <TranslationSelector 
+          <TranslationSelector
             currentTranslation={currentTranslation}
             onTranslationChange={handleTranslationChange}
             user={user}
             isPremium={isPremium}
           />
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={() => setShowVersionComparison(true)}
             className="flex items-center gap-2"
             disabled={!isOnline}
@@ -662,7 +780,7 @@ export default function Reader() {
 
         {showThematicLinker && thematicVerse && (
           <div className="mb-6">
-            <ThematicLinker 
+            <ThematicLinker
               sourceType="verse"
               sourceData={thematicVerse}
               user={user}
@@ -700,7 +818,7 @@ export default function Reader() {
         />
 
         {showVersionComparison && (
-          <VersionComparison 
+          <VersionComparison
             book={currentBook}
             chapter={currentChapter}
             onClose={() => setShowVersionComparison(false)}
@@ -708,7 +826,7 @@ export default function Reader() {
         )}
 
         {showTranslationPanel && selectedVerse && (
-          <TranslationPanel 
+          <TranslationPanel
             verse={selectedVerse}
             onClose={() => {
               setShowTranslationPanel(false);
