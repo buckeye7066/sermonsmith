@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Rocket, CheckCircle2, Activity, ArrowRight } from 'lucide-react';
+import { Loader2, Rocket, CheckCircle2, Activity, ArrowRight, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Link } from 'react-router-dom';
@@ -30,16 +30,16 @@ export default function BulkImport() {
     }
   };
 
-  const handleBatchImport = async () => {
+  const handleStartWorkers = async () => {
     setIsImporting(true);
 
     try {
-      console.log('[BulkImport] Starting batch import...');
-      const response = await base44.functions.invoke('importAllTranslationsBatch', {});
+      console.log('[BulkImport] Starting all 5 parallel workers...');
+      const response = await base44.functions.invoke('startAllWorkers', {});
       console.log('[BulkImport] Response:', response);
       
-      toast.success('🚀 Batch import started!', {
-        description: `Importing all ${response.data.translations.length} translations in parallel. Check back in 20-30 minutes.`,
+      toast.success('🚀 All 5 Workers Launched!', {
+        description: '51 translations importing in parallel. Check back in 20-30 minutes.',
         duration: 10000
       });
 
@@ -68,7 +68,7 @@ export default function BulkImport() {
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-3xl font-bold">🚀 Parallel Bible Import</h1>
+        <h1 className="text-3xl font-bold">⚡ Multi-Worker Bible Import</h1>
 
         <Alert className="bg-indigo-50 border-indigo-200">
           <Activity className="h-4 w-4 text-indigo-600" />
@@ -94,15 +94,16 @@ export default function BulkImport() {
           <Card className="border-2 border-green-200 bg-green-50">
             <CardContent className="pt-6">
               <div className="flex items-start gap-3">
-                <Rocket className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
+                <Zap className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
                 <div className="flex-1">
-                  <h3 className="font-bold text-green-900 text-lg mb-2">✨ Parallel Import System</h3>
+                  <h3 className="font-bold text-green-900 text-lg mb-2">⚡ 5 Parallel Workers</h3>
                   <ul className="text-green-800 text-sm space-y-1">
-                    <li>✅ Imports all {total} translations simultaneously</li>
-                    <li>✅ Each translation imports independently</li>
-                    <li>✅ Completes in 20-30 minutes total</li>
-                    <li>✅ You can close the browser - it keeps running</li>
-                    <li>✅ Refresh this page to check progress</li>
+                    <li>✅ Worker 1: 10 translations (KJV, ASV, BBE, etc.)</li>
+                    <li>✅ Worker 2: 10 translations (NLT, MSG, AMP, etc.)</li>
+                    <li>✅ Worker 3: 10 translations (GW, TLB, ERV, etc.)</li>
+                    <li>✅ Worker 4: 10 translations (TPT, TLV, JUB, etc.)</li>
+                    <li>✅ Worker 5: 11 translations (DRA, AKJV, LEB, etc.)</li>
+                    <li className="pt-2 font-semibold">🚀 All 51 translations import simultaneously in 20-30 min!</li>
                   </ul>
                 </div>
               </div>
@@ -119,23 +120,23 @@ export default function BulkImport() {
             {completed === 0 && (
               <>
                 <p className="text-sm text-gray-600 mb-4">
-                  Click below to start importing all {total} Bible translations in parallel. Each translation imports independently, so this completes in ~20-30 minutes instead of hours.
+                  Launch 5 parallel workers that each handle 10-11 translations simultaneously. Each worker operates independently and stays under the 15-minute limit. Total completion time: ~20-30 minutes.
                 </p>
                 <Button
-                  onClick={handleBatchImport}
+                  onClick={handleStartWorkers}
                   disabled={isImporting}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700"
+                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
                   size="lg"
                 >
                   {isImporting ? (
                     <>
                       <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Starting Parallel Import...
+                      Launching Workers...
                     </>
                   ) : (
                     <>
-                      <Rocket className="w-5 h-5 mr-2" />
-                      Start Parallel Import
+                      <Zap className="w-5 h-5 mr-2" />
+                      Launch 5 Parallel Workers
                     </>
                   )}
                 </Button>
@@ -147,7 +148,7 @@ export default function BulkImport() {
                 <Alert className="bg-blue-50 border-blue-200">
                   <Activity className="h-4 w-4 text-blue-600 animate-pulse" />
                   <AlertDescription className="text-blue-800">
-                    <p className="font-semibold">Import in progress...</p>
+                    <p className="font-semibold">Workers importing...</p>
                     <p className="text-sm mt-1">
                       {completed} of {total} translations complete ({percentComplete}%)
                     </p>
@@ -175,9 +176,9 @@ export default function BulkImport() {
               <Alert className="bg-indigo-50 border-indigo-200">
                 <CheckCircle2 className="h-4 w-4 text-indigo-600" />
                 <AlertDescription className="text-indigo-800">
-                  <p className="font-semibold">🎉 Import Complete!</p>
+                  <p className="font-semibold">🎉 All Workers Complete!</p>
                   <p className="text-sm mt-1">
-                    All {total} translations imported • {totalVerses.toLocaleString()} verses ready to use
+                    All {total} translations imported • {totalVerses.toLocaleString()} verses ready
                   </p>
                 </AlertDescription>
               </Alert>
@@ -187,11 +188,13 @@ export default function BulkImport() {
 
         <Card className="bg-blue-50">
           <CardContent className="pt-6">
-            <h3 className="font-semibold mb-2">Current Status:</h3>
+            <h3 className="font-semibold mb-2">How It Works:</h3>
             <ul className="text-sm space-y-1">
-              <li>✓ {total} translations available</li>
-              <li>✓ {completed} translations imported ({percentComplete}%)</li>
-              <li>✓ {totalVerses.toLocaleString()} total verses</li>
+              <li>🚀 5 independent workers run simultaneously</li>
+              <li>⚡ Each worker imports 10-11 translations</li>
+              <li>⏱️ Each worker completes in ~10-12 minutes</li>
+              <li>🔄 All 51 translations done in 20-30 minutes total</li>
+              <li>💻 You can close the browser - keeps running!</li>
             </ul>
           </CardContent>
         </Card>
