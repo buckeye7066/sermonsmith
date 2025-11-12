@@ -31,30 +31,35 @@ Deno.serve(async (req) => {
     
     console.log(`[getImportStatus] Total verses fetched: ${allVerses.length}`);
     
-    // Group by translation
+    // Group by translation - FIX: Access .data fields
     const byTranslation = {};
     for (const verse of allVerses) {
-      if (!byTranslation[verse.translation_id]) {
-        byTranslation[verse.translation_id] = {
+      const translationId = verse.data.translation_id;
+      const bookName = verse.data.book_name;
+      const chapter = verse.data.chapter;
+      
+      if (!byTranslation[translationId]) {
+        byTranslation[translationId] = {
           verses: 0,
           chapters: new Set(),
           books: new Set()
         };
       }
-      byTranslation[verse.translation_id].verses++;
-      byTranslation[verse.translation_id].chapters.add(`${verse.book_name}-${verse.chapter}`);
-      byTranslation[verse.translation_id].books.add(verse.book_name);
+      byTranslation[translationId].verses++;
+      byTranslation[translationId].chapters.add(`${bookName}-${chapter}`);
+      byTranslation[translationId].books.add(bookName);
     }
     
     console.log(`[getImportStatus] Processing ${Object.keys(byTranslation).length} translations with data`);
     
-    // Format results
+    // Format results - FIX: Access trans.data.id
     const results = [];
     for (const trans of translations) {
-      const data = byTranslation[trans.id] || { verses: 0, chapters: new Set(), books: new Set() };
+      const transId = trans.data.id;
+      const data = byTranslation[transId] || { verses: 0, chapters: new Set(), books: new Set() };
       results.push({
-        id: trans.id,
-        name: trans.name,
+        id: transId,
+        name: trans.data.name,
         verses: data.verses,
         chapters: data.chapters.size,
         books: data.books.size,
