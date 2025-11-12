@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -45,10 +46,13 @@ export default function BulkImport() {
   };
 
   const handleStartImport = async () => {
+    console.log('[BulkImport] Initialize button clicked');
     setIsStarting(true);
 
     try {
+      console.log('[BulkImport] Calling startImportWorker...');
       const response = await base44.functions.invoke('startImportWorker', {});
+      console.log('[BulkImport] Response:', response);
       
       toast.success('Import system initialized!', {
         description: 'Jobs created. Now start the auto-runner.',
@@ -57,6 +61,7 @@ export default function BulkImport() {
 
       setTimeout(checkStatus, 2000);
     } catch (error) {
+      console.error('[BulkImport] Error:', error);
       toast.error('Failed to start import: ' + error.message);
     } finally {
       setIsStarting(false);
