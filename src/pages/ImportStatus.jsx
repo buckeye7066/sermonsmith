@@ -14,239 +14,51 @@ import {
   AlertCircle,
   BookOpen,
   Loader2,
-  Activity
+  Activity,
+  XCircle
 } from "lucide-react";
-import { toast } from "sonner";
 
-const REFRESH_MS = 30000; // 30 seconds
-const BACKOFF_MS = 60000; // 60 seconds on rate limit
+const REFRESH_MS = 10000; // 10 seconds for import jobs
 
 export default function ImportStatus() {
-  const [stats, setStats] = useState(null);
+  const [jobs, setJobs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
-  const [recentActivity, setRecentActivity] = useState([]);
-  const [loadError, setLoadError] = useState(null);
-  const [isRateLimited, setIsRateLimited] = useState(false);
-  
-  const abortControllerRef = useRef(null);
-  const backoffRef = useRef(0);
   const intervalRef = useRef(null);
 
   const loadData = useCallback(async () => {
-    // Cancel any in-flight request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    abortControllerRef.current = new AbortController();
-    
     try {
-      setLoadError(null);
-      setIsRateLimited(false);
-      
-      console.log('[ImportStatus] Fetching data...');
-      
-      // Get enabled translations (small query)
-      const translations = await base44.entities.Translation.filter({ enabled: true });
-      console.log('[ImportStatus] Found translations:', translations.length);
-      
-      if (translations.length === 0) {
-        setStats({ totalVerses: 0, translations: [], completeCount: 0, activeCount: 0, totalTranslations: 0 });
-        setIsLoading(false);
-        setIsRefreshing(false);
-        backoffRef.current = 0;
-        return;
-      }
-
-      const translationStats = [];
-      
-      // Process translations with rate-limit-friendly approach
-      // Instead of fetching ALL verses, we'll sample and aggregate
-      for (let i = 0; i < translations.length; i++) {
-        const trans = translations[i];
-        
-        // Add small delay between translations to avoid rate limits
-        if (i > 0) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-        
-        try {
-          // Strategy: Fetch sample verses, then count distinct chapters
-          // This is much faster and less resource-intensive than fetching all verses
-          const sampleVerses = await base44.entities.Verse.filter(
-            { translation_id: trans.id },
-            '-created_date',
-            500 // Sample size
-          );
-
-          if (sampleVerses.length === 0) {
-            console.log(`[ImportStatus] ${trans.id}: No verses yet`);
-            continue;
-          }
-
-          // Calculate stats from sample
-          const books = new Set(sampleVerses.map(v => v.book_name));
-          const chapters = new Set(sampleVerses.map(v => `${v.book_name}-${v.chapter}`));
-          
-          // Extrapolate total verses based on sample
-          // If we have X verses across Y chapters, and there are typically 26 verses per chapter
-          const averageVersesPerChapter = sampleVerses.length / chapters.size;
-          const estimatedTotalVerses = Math.round(averageVersesPerChapter * chapters.size);
-          
-          // Find most recent verse
-          const lastVerse = sampleVerses[0]; // Already sorted by -created_date
-          const lastUpdateTime = lastVerse?.created_date ? new Date(lastVerse.created_date) : null;
-          const timeSinceUpdate = lastUpdateTime ? Date.now() - lastUpdateTime.getTime() : null;
-          const isActive = timeSinceUpdate !== null && timeSinceUpdate < 300000; // Active if updated in last 5 min
-
-          // Progress based on chapter count (1189 chapters = complete Bible)
-          const progress = Math.min((chapters.size / 1189) * 100, 100);
-          const isComplete = chapters.size >= 1189;
-
-          console.log(`[ImportStatus] ${trans.id}: ${chapters.size} chapters, ${estimatedTotalVerses} verses (est), ${progress.toFixed(1)}%`);
-
-          translationStats.push({
-            id: trans.id,
-            name: trans.name || trans.id,
-            verseCount: estimatedTotalVerses,
-            books: books.size,
-            chapters: chapters.size,
-            progress: progress,
-            lastUpdate: lastUpdateTime,
-            isActive: isActive,
-            status: isComplete ? 'complete' : isActive ? 'importing' : 'partial'
-          });
-        } catch (error) {
-          if (error.message?.includes('429') || error.message?.includes('rate limit')) {
-            console.warn(`[ImportStatus] Rate limit hit on ${trans.id}`);
-            setIsRateLimited(true);
-            backoffRef.current = BACKOFF_MS;
-            throw error; // Stop processing and trigger backoff
-          }
-          console.error(`[ImportStatus] Error loading ${trans.id}:`, error);
-        }
-      }
-
-      console.log('[ImportStatus] Stats loaded:', translationStats.length, 'translations');
-
-      const totalVerses = translationStats.reduce((sum, t) => sum + t.verseCount, 0);
-      const completeCount = translationStats.filter(t => t.status === 'complete').length;
-      const activeCount = translationStats.filter(t => t.status === 'importing').length;
-      
-      // Generate recent activity log
-      const activity = [];
-      translationStats.forEach(trans => {
-        if (trans.lastUpdate) {
-          const timeDiff = Date.now() - trans.lastUpdate.getTime();
-          const timeStr = timeDiff < 60000 
-            ? `${Math.floor(timeDiff / 1000)}s ago`
-            : timeDiff < 3600000
-            ? `${Math.floor(timeDiff / 60000)}m ago`
-            : `${Math.floor(timeDiff / 3600000)}h ago`;
-          
-          activity.push({
-            translation: trans.name,
-            action: trans.status === 'importing' ? 'Importing' : trans.status === 'complete' ? 'Completed' : 'Updated',
-            time: timeStr,
-            verses: trans.verseCount,
-            chapters: trans.chapters,
-            status: trans.status
-          });
-        }
-      });
-      
-      activity.sort((a, b) => {
-        const getSeconds = (timeStr) => {
-          const num = parseInt(timeStr);
-          if (timeStr.includes('s')) return num;
-          if (timeStr.includes('m')) return num * 60;
-          if (timeStr.includes('h')) return num * 3600;
-          return 0;
-        };
-        return getSeconds(a.time) - getSeconds(b.time);
-      });
-
-      setRecentActivity(activity.slice(0, 10));
-      
-      setStats({
-        totalVerses,
-        translations: translationStats,
-        completeCount,
-        activeCount,
-        totalTranslations: translationStats.length
-      });
-
+      const importJobs = await base44.entities.ImportJob.filter({}, '-updated_date');
+      console.log('[ImportStatus] Loaded', importJobs.length, 'jobs');
+      setJobs(importJobs);
       setLastUpdate(new Date());
-      backoffRef.current = 0; // Reset backoff on success
-      console.log('[ImportStatus] Successfully updated stats');
-      
     } catch (error) {
-      if (error.name === 'AbortError') {
-        console.log('[ImportStatus] Request aborted');
-        return;
-      }
-      
-      if (error.message?.includes('429') || error.message?.includes('rate limit')) {
-        console.warn('[ImportStatus] Rate limit detected, backing off for 60s');
-        setIsRateLimited(true);
-        setLoadError('Rate limit reached - waiting 60 seconds before retry');
-        backoffRef.current = BACKOFF_MS;
-      } else {
-        console.error('[ImportStatus] Error loading data:', error);
-        setLoadError(error.message);
-        toast.error("Failed to load import data", {
-          description: error.message
-        });
-      }
+      console.error('[ImportStatus] Error loading data:', error);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
-      abortControllerRef.current = null;
     }
   }, []);
 
   useEffect(() => {
-    // Initial load
     loadData();
     
-    // Setup polling with backoff support
-    const startPolling = () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-      
-      intervalRef.current = setInterval(() => {
-        const nextRefresh = REFRESH_MS + backoffRef.current;
-        console.log(`[ImportStatus] Auto-refresh triggered (backoff: ${backoffRef.current}ms)`);
-        
-        // Reset backoff after this fetch
-        if (backoffRef.current > 0) {
-          console.log('[ImportStatus] Backoff period ended, resuming normal polling');
-          backoffRef.current = 0;
-        }
-        
-        loadData();
-      }, REFRESH_MS);
-    };
-    
-    startPolling();
+    intervalRef.current = setInterval(() => {
+      console.log('[ImportStatus] Auto-refresh...');
+      loadData();
+    }, REFRESH_MS);
     
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
     };
   }, [loadData]);
 
   const handleRefresh = () => {
-    console.log('[ImportStatus] Manual refresh triggered');
+    console.log('[ImportStatus] Manual refresh');
     setIsRefreshing(true);
-    backoffRef.current = 0; // Clear any backoff on manual refresh
     loadData();
   };
 
@@ -261,8 +73,13 @@ export default function ImportStatus() {
     );
   }
 
-  const hasActiveImports = stats?.activeCount > 0;
-  const hasData = stats?.totalVerses > 0;
+  const completedJobs = jobs.filter(j => j.status === 'completed');
+  const activeJobs = jobs.filter(j => j.status === 'in_progress' || j.status === 'retrying');
+  const pendingJobs = jobs.filter(j => j.status === 'pending');
+  const failedJobs = jobs.filter(j => j.status === 'failed');
+
+  const totalVerses = completedJobs.reduce((sum, j) => sum + (j.progress?.total_verses_imported || 0), 0);
+  const totalChapters = completedJobs.reduce((sum, j) => sum + (j.progress?.total_chapters_imported || 0), 0);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
@@ -274,10 +91,10 @@ export default function ImportStatus() {
               <div>
                 <h1 className="text-3xl font-bold flex items-center gap-2">
                   <Database className="w-8 h-8" />
-                  📘 Live Import Status
+                  🚀 Resilient Import Monitor
                 </h1>
                 <p className="mt-2 opacity-90">
-                  Real-time Bible import progress • Auto-refreshes every 30s
+                  Worker-based persistent import queue • Auto-refreshes every 10s
                 </p>
                 <p className="text-xs opacity-75 mt-1">
                   Last updated: {lastUpdate.toLocaleTimeString()}
@@ -285,100 +102,71 @@ export default function ImportStatus() {
               </div>
               <Button
                 onClick={handleRefresh}
-                disabled={isRefreshing || isRateLimited}
+                disabled={isRefreshing}
                 variant="secondary"
                 size="lg"
               >
                 <RefreshCw className={`w-5 h-5 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? 'Refreshing...' : isRateLimited ? 'Rate Limited' : 'Refresh Now'}
+                {isRefreshing ? 'Refreshing...' : 'Refresh Now'}
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* Rate Limit Warning */}
-        {isRateLimited && (
-          <Alert className="mb-6 bg-yellow-50 border-yellow-500">
-            <AlertCircle className="w-4 h-4 text-yellow-600" />
-            <AlertDescription className="text-yellow-800">
-              <p className="font-semibold">⚠️ Server busy – retrying in 60 seconds</p>
-              <p className="text-sm mt-1">
-                Import is still running. Status updates will resume automatically.
-              </p>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Error Display */}
-        {loadError && !isRateLimited && (
-          <Alert className="mb-6 bg-red-50 border-red-500">
-            <AlertCircle className="w-4 h-4 text-red-600" />
-            <AlertDescription className="text-red-800">
-              <p className="font-semibold">Error loading import status</p>
-              <p className="text-sm mt-1">{loadError}</p>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Dynamic Status Alerts */}
-        {!hasData ? (
-          <Alert className="mb-6 bg-blue-50 dark:bg-blue-900/20 border-blue-500">
-            <AlertCircle className="w-4 h-4 text-blue-600" />
-            <AlertDescription className="text-blue-800 dark:text-blue-200">
-              <p className="font-semibold">No Bible data found in database</p>
-              <p className="text-sm mt-1">
-                Start an import from the <a href="/BulkImport" className="underline font-medium">Bulk Import</a> page to begin loading translations.
-              </p>
-            </AlertDescription>
-          </Alert>
-        ) : hasActiveImports ? (
+        {/* Status Alerts */}
+        {activeJobs.length > 0 ? (
           <Alert className="mb-6 bg-green-50 dark:bg-green-900/20 border-green-500">
             <Activity className="w-4 h-4 text-green-600 animate-pulse" />
             <AlertDescription className="text-green-800 dark:text-green-200">
-              <p className="font-semibold">✅ Import in progress!</p>
+              <p className="font-semibold">✅ Worker processing translations!</p>
               <p className="text-sm mt-1">
-                {stats.activeCount} translation(s) currently importing. This page auto-updates every 30 seconds.
+                {activeJobs.length} translation(s) currently importing. Worker runs independently.
               </p>
             </AlertDescription>
           </Alert>
-        ) : (
+        ) : jobs.length === 0 ? (
+          <Alert className="mb-6 bg-blue-50 dark:bg-blue-900/20 border-blue-500">
+            <AlertCircle className="w-4 h-4 text-blue-600" />
+            <AlertDescription className="text-blue-800 dark:text-blue-200">
+              <p className="font-semibold">No import jobs found</p>
+              <p className="text-sm mt-1">
+                Start an import from the <a href="/BulkImport" className="underline font-medium">Bulk Import</a> page.
+              </p>
+            </AlertDescription>
+          </Alert>
+        ) : completedJobs.length === jobs.length ? (
           <Alert className="mb-6 bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500">
             <CheckCircle2 className="w-4 h-4 text-indigo-600" />
             <AlertDescription className="text-indigo-800 dark:text-indigo-200">
-              <p className="font-semibold">All imports complete!</p>
+              <p className="font-semibold">🎉 All imports complete!</p>
               <p className="text-sm mt-1">
-                {stats.completeCount} translation(s) ready • {stats.totalVerses.toLocaleString()} verses loaded (estimated)
+                {completedJobs.length} translation(s) ready • {totalVerses.toLocaleString()} verses • {totalChapters} chapters
               </p>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {failedJobs.length > 0 && (
+          <Alert className="mb-6 bg-red-50 border-red-500">
+            <XCircle className="w-4 h-4 text-red-600" />
+            <AlertDescription className="text-red-800">
+              <p className="font-semibold">⚠️ {failedJobs.length} translation(s) failed after 5 retries</p>
+              <p className="text-sm mt-1">Check detailed error logs below.</p>
             </AlertDescription>
           </Alert>
         )}
 
-        {/* Real-Time Dashboard - Summary Cards */}
-        {hasData && (
+        {/* Summary Cards */}
+        {jobs.length > 0 && (
           <>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               <Card>
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Total Verses</p>
-                      <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                        {stats.totalVerses.toLocaleString()}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">~estimated</p>
-                    </div>
-                    <BookOpen className="w-8 h-8 text-indigo-600" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
                       <p className="text-sm text-gray-600 dark:text-gray-400">✅ Completed</p>
                       <p className="text-3xl font-bold text-green-600 mt-1">
-                        {stats.completeCount}
+                        {completedJobs.length}
                       </p>
                     </div>
                     <CheckCircle2 className="w-8 h-8 text-green-600" />
@@ -390,12 +178,12 @@ export default function ImportStatus() {
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">⏳ Importing</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">⏳ Active</p>
                       <p className="text-3xl font-bold text-blue-600 mt-1">
-                        {stats.activeCount}
+                        {activeJobs.length}
                       </p>
                     </div>
-                    <TrendingUp className={`w-8 h-8 text-blue-600 ${hasActiveImports ? 'animate-pulse' : ''}`} />
+                    <TrendingUp className={`w-8 h-8 text-blue-600 ${activeJobs.length > 0 ? 'animate-pulse' : ''}`} />
                   </div>
                 </CardContent>
               </Card>
@@ -404,141 +192,151 @@ export default function ImportStatus() {
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Translations</p>
-                      <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                        {stats.totalTranslations}
+                      <p className="text-sm text-gray-600 dark:text-gray-400">📋 Pending</p>
+                      <p className="text-3xl font-bold text-gray-600 mt-1">
+                        {pendingJobs.length}
                       </p>
                     </div>
-                    <Database className="w-8 h-8 text-purple-600" />
+                    <Clock className="w-8 h-8 text-gray-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">❌ Failed</p>
+                      <p className="text-3xl font-bold text-red-600 mt-1">
+                        {failedJobs.length}
+                      </p>
+                    </div>
+                    <XCircle className="w-8 h-8 text-red-600" />
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Overall Progress Bar */}
+            {/* Overall Progress */}
             <Card className="mb-6">
               <CardHeader>
                 <CardTitle>Overall Progress</CardTitle>
                 <CardDescription>
-                  Expected: 1,189 chapters per translation • {stats.completeCount} of {stats.totalTranslations} complete
+                  {completedJobs.length} of {jobs.length} translations complete
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="font-medium">
-                      {stats.totalVerses.toLocaleString()} total verses (estimated)
+                      {totalVerses.toLocaleString()} verses • {totalChapters} chapters
                     </span>
                     <span className="text-gray-500">
-                      {Math.round((stats.completeCount / stats.totalTranslations) * 100)}% complete
+                      {Math.round((completedJobs.length / jobs.length) * 100)}% complete
                     </span>
                   </div>
-                  <Progress value={(stats.completeCount / stats.totalTranslations) * 100} className="h-3" />
+                  <Progress value={(completedJobs.length / jobs.length) * 100} className="h-3" />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Translation Details */}
-            <Card className="mb-6">
+            {/* Job Details */}
+            <Card>
               <CardHeader>
-                <CardTitle>Translation Details</CardTitle>
+                <CardTitle>Translation Import Jobs</CardTitle>
                 <CardDescription>
-                  Live status of each Bible translation (1,189 chapters = complete)
+                  Detailed status of each translation (1,189 chapters = complete Bible)
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {stats.translations?.map((translation) => (
-                    <div key={translation.id} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Badge 
-                            variant={translation.status === 'complete' ? 'default' : 'secondary'}
-                            className="font-mono"
-                          >
-                            {translation.id}
-                          </Badge>
-                          <div className="text-sm">
-                            <span className="font-medium">{translation.verseCount.toLocaleString()}</span>
-                            <span className="text-gray-500"> verses (est.)</span>
-                            <span className="mx-2">•</span>
-                            <span className="font-medium">{translation.books}</span>
-                            <span className="text-gray-500"> books</span>
-                            <span className="mx-2">•</span>
-                            <span className="font-medium">{translation.chapters}</span>
-                            <span className="text-gray-500">/1,189 chapters</span>
+                  {jobs.map((job) => {
+                    const chaptersProgress = job.progress?.total_chapters_imported || 0;
+                    const progressPercent = Math.min((chaptersProgress / 1189) * 100, 100);
+
+                    return (
+                      <div key={job.id} className="space-y-2 p-4 border rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <Badge 
+                              variant={job.status === 'completed' ? 'default' : job.status === 'failed' ? 'destructive' : 'secondary'}
+                              className="font-mono"
+                            >
+                              {job.translation_id}
+                            </Badge>
+                            {job.status === 'completed' && (
+                              <Badge variant="default" className="bg-green-600">
+                                <CheckCircle2 className="w-3 h-3 mr-1" />
+                                Complete
+                              </Badge>
+                            )}
+                            {job.status === 'in_progress' && (
+                              <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                                <Activity className="w-3 h-3 mr-1 animate-pulse" />
+                                Importing
+                              </Badge>
+                            )}
+                            {job.status === 'retrying' && (
+                              <Badge variant="secondary" className="bg-yellow-100 text-yellow-700">
+                                <RefreshCw className="w-3 h-3 mr-1" />
+                                Retry {job.retries}/5
+                              </Badge>
+                            )}
+                            {job.status === 'pending' && (
+                              <Badge variant="outline">
+                                <Clock className="w-3 h-3 mr-1" />
+                                Queued
+                              </Badge>
+                            )}
+                            {job.status === 'failed' && (
+                              <Badge variant="destructive">
+                                <XCircle className="w-3 h-3 mr-1" />
+                                Failed
+                              </Badge>
+                            )}
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {translation.status === 'complete' && (
-                            <Badge variant="default" className="bg-green-600">
-                              <CheckCircle2 className="w-3 h-3 mr-1" />
-                              Complete
-                            </Badge>
-                          )}
-                          {translation.status === 'importing' && (
-                            <Badge variant="secondary" className="bg-blue-100 text-blue-700">
-                              <Clock className="w-3 h-3 mr-1 animate-pulse" />
-                              Importing
-                            </Badge>
-                          )}
-                          {translation.status === 'partial' && (
-                            <Badge variant="outline">
-                              <Clock className="w-3 h-3 mr-1" />
-                              Partial
-                            </Badge>
-                          )}
                           <span className="text-sm font-medium text-gray-600">
-                            {Math.round(translation.progress)}%
+                            {Math.round(progressPercent)}%
                           </span>
                         </div>
+
+                        <div className="text-sm text-gray-600">
+                          <span className="font-medium">{job.progress?.total_verses_imported || 0}</span> verses • 
+                          <span className="font-medium ml-1">{chaptersProgress}/1,189</span> chapters
+                          {job.progress?.current_book && (
+                            <span className="ml-2">• Currently: {job.progress.current_book} {job.progress.current_chapter}</span>
+                          )}
+                        </div>
+
+                        <Progress value={progressPercent} className="h-2" />
+
+                        {job.validation && (
+                          <div className="text-xs text-gray-500 mt-2">
+                            Validated: {job.validation.actual_verses} verses, {job.validation.actual_chapters} chapters
+                          </div>
+                        )}
+
+                        {job.error_log && job.error_log.length > 0 && (
+                          <details className="text-xs text-red-600 mt-2">
+                            <summary className="cursor-pointer font-medium">
+                              View error log ({job.error_log.length} errors)
+                            </summary>
+                            <div className="mt-2 space-y-1 pl-4">
+                              {job.error_log.slice(-5).map((err, idx) => (
+                                <div key={idx} className="font-mono">
+                                  {err.timestamp}: {err.error}
+                                  {err.book && ` (${err.book} ${err.chapter})`}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
                       </div>
-                      <Progress value={translation.progress} className="h-2" />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
-
-            {/* Recent Events */}
-            {recentActivity.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recent Events</CardTitle>
-                  <CardDescription>
-                    Last 10 status updates from import logs
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {recentActivity.map((event, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          {event.status === 'importing' ? (
-                            <Activity className="w-4 h-4 text-blue-500 animate-pulse" />
-                          ) : event.status === 'complete' ? (
-                            <CheckCircle2 className="w-4 h-4 text-green-500" />
-                          ) : (
-                            <Clock className="w-4 h-4 text-gray-500" />
-                          )}
-                          <div>
-                            <p className="text-sm font-medium">
-                              {event.translation} — {event.action}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {event.chapters}/1,189 chapters • ~{event.verses.toLocaleString()} verses • {event.time}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </>
         )}
       </div>

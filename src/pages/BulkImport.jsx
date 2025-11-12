@@ -2,31 +2,32 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Download, Database, CheckCircle2, Activity, ArrowRight } from 'lucide-react';
+import { Loader2, Download, Database, CheckCircle2, Activity, ArrowRight, Rocket } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '../utils';
 
 export default function BulkImport() {
-  const [verseCount, setVerseCount] = useState(0);
+  const [importJobs, setImportJobs] = useState([]);
   const [translationCount, setTranslationCount] = useState(0);
-  const [isImporting, setIsImporting] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     checkStatus();
-    const interval = setInterval(checkStatus, 30000);
+    const interval = setInterval(checkStatus, 10000);
     return () => clearInterval(interval);
   }, []);
 
   const checkStatus = async () => {
     try {
-      const [verses, translations] = await Promise.all([
-        base44.entities.Verse.filter({}, 'id', 100),
+      const [jobs, translations] = await Promise.all([
+        base44.entities.ImportJob.filter({}),
         base44.entities.Translation.filter({ enabled: true })
       ]);
-      setVerseCount(verses.length);
+      
+      setImportJobs(jobs);
       setTranslationCount(translations.length);
     } catch (error) {
       console.error(error);
@@ -35,13 +36,13 @@ export default function BulkImport() {
     }
   };
 
-  const handleImport = async () => {
-    setIsImporting(true);
+  const handleStartImport = async () => {
+    setIsStarting(true);
 
     try {
-      await base44.functions.invoke('simpleImport', {});
+      const response = await base44.functions.invoke('startImportWorker', {});
       
-      toast.success('Import started', {
+      toast.success('Resilient import worker started!', {
         description: 'Check Import Status page for live progress.',
         duration: 8000,
         action: {
@@ -51,10 +52,12 @@ export default function BulkImport() {
           }
         }
       });
+
+      setTimeout(checkStatus, 2000);
     } catch (error) {
-      toast.error('Failed: ' + error.message);
+      toast.error('Failed to start import: ' + error.message);
     } finally {
-      setIsImporting(false);
+      setIsStarting(false);
     }
   };
 
@@ -66,18 +69,26 @@ export default function BulkImport() {
     );
   }
 
+  const completedJobs = importJobs.filter(j => j.status === 'completed').length;
+  const activeJobs = importJobs.filter(j => j.status === 'in_progress' || j.status === 'retrying').length;
+  const pendingJobs = importJobs.filter(j => j.status === 'pending').length;
+  const failedJobs = importJobs.filter(j => j.status === 'failed').length;
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-3xl font-bold">Bible Import</h1>
+        <h1 className="text-3xl font-bold">🚀 Resilient Bible Import System</h1>
 
         <Alert className="bg-indigo-50 border-indigo-200">
           <Activity className="h-4 w-4 text-indigo-600" />
           <AlertDescription>
             <div className="flex items-center justify-between">
-              <span className="text-indigo-900">
-                {verseCount > 0 ? `${verseCount} verses loaded` : 'No verses yet'} • {translationCount} translations enabled
-              </span>
+              <div>
+                <p className="font-semibold text-indigo-900">Production-Grade Import Worker</p>
+                <p className="text-sm text-indigo-700 mt-1">
+                  {completedJobs}/{translationCount} complete • {activeJobs} active • {pendingJobs} pending
+                </p>
+              </div>
               <Link to={createPageUrl('ImportStatus')}>
                 <Button variant="ghost" size="sm" className="text-indigo-600 hover:text-indigo-700">
                   View Live Status
@@ -91,19 +102,17 @@ export default function BulkImport() {
         <Card className="border-2 border-green-200 bg-green-50">
           <CardContent className="pt-6">
             <div className="flex items-start gap-3">
-              <Activity className="w-6 h-6 text-green-600 flex-shrink-0 mt-1 animate-pulse" />
+              <Rocket className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
               <div className="flex-1">
-                <h3 className="font-bold text-green-900 text-lg mb-2">📊 Real-Time Import Monitoring Available!</h3>
-                <p className="text-green-800 text-sm mb-3">
-                  Track your import progress live with auto-refreshing stats, completion percentages, and event logs.
-                </p>
-                <Link to={createPageUrl('ImportStatus')}>
-                  <Button className="bg-green-600 hover:bg-green-700 w-full">
-                    <Activity className="w-4 h-4 mr-2" />
-                    Open Import Status Dashboard
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </Link>
+                <h3 className="font-bold text-green-900 text-lg mb-2">💪 Enterprise-Grade Features</h3>
+                <ul className="text-green-800 text-sm space-y-1">
+                  <li>✅ Persistent queue survives disconnects</li>
+                  <li>✅ Auto-retry with exponential backoff (up to 5 attempts)</li>
+                  <li>✅ Watchdog timer detects stalled imports</li>
+                  <li>✅ Heartbeat monitoring every 10 chapters</li>
+                  <li>✅ Post-import validation & verification</li>
+                  <li>✅ Delta-based resume from any failure</li>
+                </ul>
               </div>
             </div>
           </CardContent>
@@ -111,63 +120,68 @@ export default function BulkImport() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Sequential Import System</CardTitle>
+            <CardTitle>Import System Architecture</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="bg-gray-50 p-4 rounded-lg space-y-2">
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>Single-threaded sequential mode</span>
+                <span>Background worker processes queue independently</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>2-3 second pause between translations</span>
+                <span>Database-backed status tracking (ImportJob entity)</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>Auto-retry on failure (2 attempts, 5s delay)</span>
+                <span>Smart retry: 2s → 5s → 15s → 30s → 60s backoff</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>Auto-resume after interruption (30s cooldown)</span>
+                <span>Watchdog restarts stalled jobs after 10 minutes</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>Post-import validation included</span>
+                <span>Automatic validation pass after completion</span>
               </div>
             </div>
 
             <div className="text-sm text-gray-600">
-              <strong>Process:</strong> Downloads {translationCount} translations one at a time.
-              Streams verses directly to database. Skips existing verses automatically.
+              <strong>How it works:</strong> The worker runs continuously in the background, processing one translation at a time. 
+              If the browser closes, the worker continues. If the server restarts, the worker resumes from the last saved state.
             </div>
 
             <Button
-              onClick={handleImport}
-              disabled={isImporting}
+              onClick={handleStartImport}
+              disabled={isStarting || activeJobs > 0}
               className="w-full"
               size="lg"
             >
-              {isImporting ? (
+              {isStarting ? (
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Import Started...
+                  Starting Worker...
+                </>
+              ) : activeJobs > 0 ? (
+                <>
+                  <Activity className="w-5 h-5 mr-2 animate-pulse" />
+                  Worker Running ({activeJobs} active)
                 </>
               ) : (
                 <>
-                  <Download className="w-5 h-5 mr-2" />
-                  Start Sequential Import
+                  <Rocket className="w-5 h-5 mr-2" />
+                  Start Resilient Import Worker
                 </>
               )}
             </Button>
 
-            {isImporting && (
+            {(isStarting || activeJobs > 0) && (
               <div className="text-center">
-                <p className="text-sm text-gray-600 mb-2">Import running in background...</p>
+                <p className="text-sm text-gray-600 mb-2">Worker running in background...</p>
                 <Link to={createPageUrl('ImportStatus')}>
                   <Button variant="outline" className="w-full">
                     <Activity className="w-4 h-4 mr-2 animate-pulse" />
-                    Monitor Progress Live
+                    Monitor Live Progress
                   </Button>
                 </Link>
               </div>
@@ -175,14 +189,27 @@ export default function BulkImport() {
           </CardContent>
         </Card>
 
+        {failedJobs > 0 && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="pt-6">
+              <h3 className="font-semibold mb-2 text-red-900">⚠️ Failed Imports</h3>
+              <p className="text-sm text-red-800">
+                {failedJobs} translation(s) failed after 5 retry attempts. 
+                Check the Import Status page for detailed error logs.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="bg-blue-50">
           <CardContent className="pt-6">
-            <h3 className="font-semibold mb-2">After Completion:</h3>
+            <h3 className="font-semibold mb-2">System Status:</h3>
             <ul className="text-sm space-y-1">
-              <li>✓ All translations available instantly</li>
-              <li>✓ Validation results in Import Status page</li>
-              <li>✓ Verse counts per translation confirmed</li>
-              <li>✓ Ready for production use</li>
+              <li>✓ {translationCount} translations enabled</li>
+              <li>✓ {completedJobs} imports completed</li>
+              <li>✓ {activeJobs} currently processing</li>
+              <li>✓ {pendingJobs} queued for import</li>
+              {failedJobs > 0 && <li className="text-red-600">✗ {failedJobs} failed (see logs)</li>}
             </ul>
           </CardContent>
         </Card>
