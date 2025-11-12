@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Download, Database, CheckCircle2, Activity, ArrowRight, Rocket } from 'lucide-react';
+import { Loader2, Download, Database, CheckCircle2, Activity, ArrowRight, Rocket, Clock, Play, Pause } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Link } from 'react-router-dom';
@@ -13,11 +13,19 @@ export default function BulkImport() {
   const [translationCount, setTranslationCount] = useState(0);
   const [isStarting, setIsStarting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAutoRunning, setIsAutoRunning] = useState(false);
+  const [tickStatus, setTickStatus] = useState('');
+  const autoRunRef = useRef(null);
 
   useEffect(() => {
     checkStatus();
     const interval = setInterval(checkStatus, 10000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (autoRunRef.current) {
+        clearTimeout(autoRunRef.current);
+      }
+    };
   }, []);
 
   const checkStatus = async () => {
@@ -42,15 +50,9 @@ export default function BulkImport() {
     try {
       const response = await base44.functions.invoke('startImportWorker', {});
       
-      toast.success('Resilient import worker started!', {
-        description: 'Check Import Status page for live progress.',
-        duration: 8000,
-        action: {
-          label: 'View Status',
-          onClick: () => {
-            window.location.href = createPageUrl('ImportStatus');
-          }
-        }
+      toast.success('Import system initialized!', {
+        description: 'Jobs created. Now start the auto-runner.',
+        duration: 5000
       });
 
       setTimeout(checkStatus, 2000);
@@ -59,6 +61,83 @@ export default function BulkImport() {
     } finally {
       setIsStarting(false);
     }
+  };
+
+  const runTick = async () => {
+    if (!isAutoRunning) return;
+
+    try {
+      console.log('[AUTO] Running tick...');
+      const response = await base44.functions.invoke('tickImportWorker', {});
+      const result = response.data;
+      
+      console.log('[AUTO] Tick result:', result);
+      setTickStatus(result.status);
+
+      if (result.status === 'completed') {
+        toast.success(`✅ ${result.translation} completed!`, {
+          description: `${result.verses} verses imported`
+        });
+        await checkStatus();
+        // Continue to next translation
+        if (isAutoRunning) {
+          autoRunRef.current = setTimeout(runTick, 2000);
+        }
+      } else if (result.status === 'complete') {
+        toast.success('🎉 All translations imported!', {
+          description: `${result.completed}/${result.total} completed`,
+          duration: 10000
+        });
+        setIsAutoRunning(false);
+        await checkStatus();
+      } else if (result.status === 'retry') {
+        toast.warning(`Retrying ${result.translation}`, {
+          description: `Attempt ${result.retries}/5`
+        });
+        await checkStatus();
+        if (isAutoRunning) {
+          autoRunRef.current = setTimeout(runTick, result.backoff_seconds * 1000);
+        }
+      } else if (result.status === 'failed') {
+        toast.error(`Failed: ${result.translation}`, {
+          description: 'Moving to next translation'
+        });
+        await checkStatus();
+        if (isAutoRunning) {
+          autoRunRef.current = setTimeout(runTick, 2000);
+        }
+      } else {
+        // waiting, stalled_reset, etc.
+        await checkStatus();
+        if (isAutoRunning) {
+          autoRunRef.current = setTimeout(runTick, 5000);
+        }
+      }
+
+    } catch (error) {
+      console.error('[AUTO] Tick error:', error);
+      toast.error('Tick failed: ' + error.message);
+      if (isAutoRunning) {
+        autoRunRef.current = setTimeout(runTick, 10000);
+      }
+    }
+  };
+
+  const handleStartAutoRun = () => {
+    setIsAutoRunning(true);
+    toast.info('🚀 Auto-runner started', {
+      description: 'Imports will continue automatically'
+    });
+    setTimeout(runTick, 1000);
+  };
+
+  const handleStopAutoRun = () => {
+    setIsAutoRunning(false);
+    if (autoRunRef.current) {
+      clearTimeout(autoRunRef.current);
+      autoRunRef.current = null;
+    }
+    toast.info('Auto-runner stopped');
   };
 
   if (isLoading) {
@@ -77,14 +156,14 @@ export default function BulkImport() {
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-3xl font-bold">🚀 Resilient Bible Import System</h1>
+        <h1 className="text-3xl font-bold">🚀 Tick-Based Bible Import System</h1>
 
         <Alert className="bg-indigo-50 border-indigo-200">
           <Activity className="h-4 w-4 text-indigo-600" />
           <AlertDescription>
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-semibold text-indigo-900">Production-Grade Import Worker</p>
+                <p className="font-semibold text-indigo-900">Cron-Style Import Worker</p>
                 <p className="text-sm text-indigo-700 mt-1">
                   {completedJobs}/{translationCount} complete • {activeJobs} active • {pendingJobs} pending
                 </p>
@@ -102,16 +181,16 @@ export default function BulkImport() {
         <Card className="border-2 border-green-200 bg-green-50">
           <CardContent className="pt-6">
             <div className="flex items-start gap-3">
-              <Rocket className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
+              <Clock className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
               <div className="flex-1">
-                <h3 className="font-bold text-green-900 text-lg mb-2">💪 Enterprise-Grade Features</h3>
+                <h3 className="font-bold text-green-900 text-lg mb-2">⏰ How This Works</h3>
                 <ul className="text-green-800 text-sm space-y-1">
-                  <li>✅ Persistent queue survives disconnects</li>
-                  <li>✅ Auto-retry with exponential backoff (up to 5 attempts)</li>
-                  <li>✅ Watchdog timer detects stalled imports</li>
-                  <li>✅ Heartbeat monitoring every 10 chapters</li>
-                  <li>✅ Post-import validation & verification</li>
-                  <li>✅ Delta-based resume from any failure</li>
+                  <li>✅ Each "tick" processes one complete translation (~3-5 min)</li>
+                  <li>✅ Auto-runner calls tick repeatedly until all translations complete</li>
+                  <li>✅ Can pause/resume anytime without losing progress</li>
+                  <li>✅ Each translation completes fully before moving to next</li>
+                  <li>✅ Automatic retry with exponential backoff</li>
+                  <li>✅ Browser can close - just restart auto-runner when you return</li>
                 </ul>
               </div>
             </div>
@@ -120,71 +199,99 @@ export default function BulkImport() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Import System Architecture</CardTitle>
+            <CardTitle>Import Control Panel</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>Background worker processes queue independently</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>Database-backed status tracking (ImportJob entity)</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>Smart retry: 2s → 5s → 15s → 30s → 60s backoff</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>Watchdog restarts stalled jobs after 10 minutes</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span>Automatic validation pass after completion</span>
-              </div>
-            </div>
+            
+            {importJobs.length === 0 && (
+              <>
+                <p className="text-sm text-gray-600 mb-4">
+                  Step 1: Initialize the import system (creates jobs for all translations)
+                </p>
+                <Button
+                  onClick={handleStartImport}
+                  disabled={isStarting}
+                  className="w-full"
+                  size="lg"
+                >
+                  {isStarting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Initializing...
+                    </>
+                  ) : (
+                    <>
+                      <Database className="w-5 h-5 mr-2" />
+                      Step 1: Initialize Import Jobs
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
 
-            <div className="text-sm text-gray-600">
-              <strong>How it works:</strong> The worker runs continuously in the background, processing one translation at a time. 
-              If the browser closes, the worker continues. If the server restarts, the worker resumes from the last saved state.
-            </div>
+            {importJobs.length > 0 && completedJobs < translationCount && (
+              <>
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <p className="text-sm font-medium text-blue-900 mb-2">Import Status:</p>
+                  <p className="text-xs text-blue-700">
+                    ✓ {completedJobs} completed • ⏳ {pendingJobs + activeJobs} remaining • ✗ {failedJobs} failed
+                  </p>
+                  {tickStatus && (
+                    <p className="text-xs text-blue-600 mt-2">
+                      Last tick: {tickStatus}
+                    </p>
+                  )}
+                </div>
 
-            <Button
-              onClick={handleStartImport}
-              disabled={isStarting || activeJobs > 0}
-              className="w-full"
-              size="lg"
-            >
-              {isStarting ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Starting Worker...
-                </>
-              ) : activeJobs > 0 ? (
-                <>
-                  <Activity className="w-5 h-5 mr-2 animate-pulse" />
-                  Worker Running ({activeJobs} active)
-                </>
-              ) : (
-                <>
-                  <Rocket className="w-5 h-5 mr-2" />
-                  Start Resilient Import Worker
-                </>
-              )}
-            </Button>
-
-            {(isStarting || activeJobs > 0) && (
-              <div className="text-center">
-                <p className="text-sm text-gray-600 mb-2">Worker running in background...</p>
-                <Link to={createPageUrl('ImportStatus')}>
-                  <Button variant="outline" className="w-full">
-                    <Activity className="w-4 h-4 mr-2 animate-pulse" />
-                    Monitor Live Progress
+                {!isAutoRunning ? (
+                  <Button
+                    onClick={handleStartAutoRun}
+                    className="w-full bg-green-600 hover:bg-green-700"
+                    size="lg"
+                  >
+                    <Play className="w-5 h-5 mr-2" />
+                    Start Auto-Runner
                   </Button>
-                </Link>
-              </div>
+                ) : (
+                  <Button
+                    onClick={handleStopAutoRun}
+                    className="w-full bg-red-600 hover:bg-red-700"
+                    size="lg"
+                  >
+                    <Pause className="w-5 h-5 mr-2" />
+                    Stop Auto-Runner
+                  </Button>
+                )}
+
+                {isAutoRunning && (
+                  <Alert className="bg-green-50 border-green-200">
+                    <Activity className="h-4 w-4 text-green-600 animate-pulse" />
+                    <AlertDescription className="text-green-800">
+                      <p className="font-semibold">Auto-runner active</p>
+                      <p className="text-xs mt-1">Processing translations automatically. You can close this page - just come back and restart the runner later.</p>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="text-center">
+                  <Link to={createPageUrl('ImportStatus')}>
+                    <Button variant="outline" className="w-full">
+                      <Activity className="w-4 h-4 mr-2" />
+                      Monitor Detailed Progress
+                    </Button>
+                  </Link>
+                </div>
+              </>
+            )}
+
+            {completedJobs === translationCount && translationCount > 0 && (
+              <Alert className="bg-indigo-50 border-indigo-200">
+                <CheckCircle2 className="h-4 w-4 text-indigo-600" />
+                <AlertDescription className="text-indigo-800">
+                  <p className="font-semibold">🎉 All translations imported!</p>
+                  <p className="text-sm mt-1">{translationCount} translations ready to use</p>
+                </AlertDescription>
+              </Alert>
             )}
           </CardContent>
         </Card>
@@ -207,9 +314,21 @@ export default function BulkImport() {
             <ul className="text-sm space-y-1">
               <li>✓ {translationCount} translations enabled</li>
               <li>✓ {completedJobs} imports completed</li>
-              <li>✓ {activeJobs} currently processing</li>
-              <li>✓ {pendingJobs} queued for import</li>
+              <li>✓ {pendingJobs + activeJobs} remaining</li>
               {failedJobs > 0 && <li className="text-red-600">✗ {failedJobs} failed (see logs)</li>}
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gray-50 border-dashed">
+          <CardContent className="pt-6">
+            <h3 className="font-semibold mb-2 text-xs text-gray-600">💡 Pro Tips:</h3>
+            <ul className="text-xs text-gray-600 space-y-1">
+              <li>• Each translation takes 3-5 minutes to import completely</li>
+              <li>• Total time for 51 translations: ~3-4 hours</li>
+              <li>• You can pause and resume anytime without losing progress</li>
+              <li>• Browser can close - progress is saved in database</li>
+              <li>• Check Import Status page for real-time chapter/verse counts</li>
             </ul>
           </CardContent>
         </Card>
