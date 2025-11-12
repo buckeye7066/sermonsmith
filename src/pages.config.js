@@ -23,6 +23,7 @@ import WorldviewExplorer from './pages/WorldviewExplorer';
 import ChristianEthics from './pages/ChristianEthics';
 import PrayerGenerator from './pages/PrayerGenerator';
 import SystemDiagnostics from './pages/SystemDiagnostics';
+import WorkerMonitoring from './pages/WorkerMonitoring';
 import Layout from './Layout.jsx';
 
 
@@ -52,6 +53,7 @@ export const PAGES = {
     "ChristianEthics": ChristianEthics,
     "PrayerGenerator": PrayerGenerator,
     "SystemDiagnostics": SystemDiagnostics,
+    "WorkerMonitoring": WorkerMonitoring,
 }
 
 export const pagesConfig = {
