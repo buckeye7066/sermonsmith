@@ -36,7 +36,7 @@ const BIBLE_BOOKS = [
   { name: "Jude", chapters: 1 }, { name: "Revelation", chapters: 22 }
 ];
 
-// Worker 4: Next 10 translations
+const WORKER_ID = 4;
 const ASSIGNED_TRANSLATIONS = ['TPT', 'TLV', 'JUB', 'NOG', 'MEV', 'CSB', 'EASY', 'NIVUK', 'RV1885', 'WE'];
 
 Deno.serve(async (req) => {
@@ -48,28 +48,93 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  console.log(`[WORKER 4] Starting import for: ${ASSIGNED_TRANSLATIONS.join(', ')}`);
+  console.log(`[WORKER ${WORKER_ID}] Starting import for: ${ASSIGNED_TRANSLATIONS.join(', ')}`);
   
-  importTranslations(base44, ASSIGNED_TRANSLATIONS);
+  await initWorkerStatus(base44, WORKER_ID, ASSIGNED_TRANSLATIONS);
+  importTranslations(base44, WORKER_ID, ASSIGNED_TRANSLATIONS);
 
   return Response.json({
     success: true,
-    worker: 4,
+    worker: WORKER_ID,
     translations: ASSIGNED_TRANSLATIONS,
     message: 'Import started in background'
   });
 });
 
-async function importTranslations(base44, translationIds) {
+async function initWorkerStatus(base44, workerId, translations) {
+  try {
+    const existing = await base44.asServiceRole.entities.WorkerStatus.filter({ worker_id: workerId });
+    
+    if (existing.length > 0) {
+      await base44.asServiceRole.entities.WorkerStatus.update(existing[0].id, {
+        status: 'running',
+        translations_assigned: translations,
+        started_at: new Date().toISOString(),
+        last_update: new Date().toISOString(),
+        total_verses_imported: 0,
+        total_chapters_imported: 0,
+        translations_completed: []
+      });
+    } else {
+      await base44.asServiceRole.entities.WorkerStatus.create({
+        worker_id: workerId,
+        status: 'running',
+        translations_assigned: translations,
+        started_at: new Date().toISOString(),
+        last_update: new Date().toISOString(),
+        total_verses_imported: 0,
+        total_chapters_imported: 0,
+        translations_completed: []
+      });
+    }
+  } catch (error) {
+    console.error(`[WORKER ${workerId}] Error initializing status:`, error);
+  }
+}
+
+async function updateWorkerStatus(base44, workerId, updates) {
+  try {
+    const existing = await base44.asServiceRole.entities.WorkerStatus.filter({ worker_id: workerId });
+    if (existing.length > 0) {
+      await base44.asServiceRole.entities.WorkerStatus.update(existing[0].id, {
+        ...updates,
+        last_update: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error(`[WORKER ${workerId}] Error updating status:`, error);
+  }
+}
+
+async function importTranslations(base44, workerId, translationIds) {
+  let totalVerses = 0;
+  let totalChapters = 0;
+  const completedTranslations = [];
+
   for (const translationId of translationIds) {
-    console.log(`[WORKER 4] Starting ${translationId}...`);
+    console.log(`[WORKER ${workerId}] Starting ${translationId}...`);
     
     try {
-      let totalVerses = 0;
-      let totalChapters = 0;
+      await updateWorkerStatus(base44, workerId, {
+        status: 'running',
+        current_translation: translationId,
+        current_book: null,
+        current_chapter: null
+      });
+
+      let translationVerses = 0;
+      let translationChapters = 0;
 
       for (const book of BIBLE_BOOKS) {
+        await updateWorkerStatus(base44, workerId, {
+          current_book: book.name,
+          current_chapter: null
+        });
+
         for (let chapter = 1; chapter <= book.chapters; chapter++) {
+          await updateWorkerStatus(base44, workerId, {
+            current_chapter: chapter
+          });
           
           const exists = await base44.asServiceRole.entities.Verse.filter({
             translation_id: translationId,
@@ -78,6 +143,7 @@ async function importTranslations(base44, translationIds) {
           }, 'id', 1);
 
           if (exists.length > 0) {
+            translationChapters++;
             totalChapters++;
             continue;
           }
@@ -100,23 +166,55 @@ async function importTranslations(base44, translationIds) {
 
           await base44.asServiceRole.entities.Verse.bulkCreate(records);
           
+          translationChapters++;
           totalChapters++;
+          translationVerses += verses.length;
           totalVerses += verses.length;
+
+          if (translationChapters % 10 === 0) {
+            const progress = Math.round((completedTranslations.length / translationIds.length) * 100);
+            await updateWorkerStatus(base44, workerId, {
+              total_verses_imported: totalVerses,
+              total_chapters_imported: totalChapters,
+              progress_percentage: progress
+            });
+          }
 
           await sleep(100);
         }
       }
 
-      console.log(`[WORKER 4] ✅ ${translationId} complete: ${totalVerses} verses`);
+      completedTranslations.push(translationId);
+      const progress = Math.round((completedTranslations.length / translationIds.length) * 100);
+      
+      await updateWorkerStatus(base44, workerId, {
+        translations_completed: completedTranslations,
+        total_verses_imported: totalVerses,
+        total_chapters_imported: totalChapters,
+        progress_percentage: progress
+      });
+
+      console.log(`[WORKER ${workerId}] ✅ ${translationId} complete: ${translationVerses} verses`);
 
     } catch (error) {
-      console.error(`[WORKER 4] ❌ ${translationId} failed:`, error.message);
+      console.error(`[WORKER ${workerId}] ❌ ${translationId} failed:`, error.message);
+      await updateWorkerStatus(base44, workerId, {
+        status: 'error',
+        error_message: `Failed on ${translationId}: ${error.message}`
+      });
     }
 
     await sleep(2000);
   }
 
-  console.log('[WORKER 4] 🎉 All assigned translations complete!');
+  console.log(`[WORKER ${workerId}] 🎉 All assigned translations complete!`);
+  await updateWorkerStatus(base44, workerId, {
+    status: 'completed',
+    current_translation: null,
+    current_book: null,
+    current_chapter: null,
+    progress_percentage: 100
+  });
 }
 
 async function fetchChapter(translationId, bookName, chapter) {
