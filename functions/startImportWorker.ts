@@ -24,16 +24,17 @@ Deno.serve(async (req) => {
     const existingJobs = await base44.asServiceRole.entities.ImportJob.filter({});
     
     // Create jobs for any missing translations
+    // FIX: Use translation.data.id (the code like "BBE") not translation.id (entity ID)
     const existingTranslationIds = new Set(existingJobs.map(j => j.translation_id));
     const newJobs = [];
     
     for (const trans of translations) {
-      // FIX: Use trans.id (the translation code like "KJV") not the entity ID
-      const translationCode = trans.id;
+      // CRITICAL FIX: Use trans.data.id (the translation code) not trans.id
+      const translationCode = trans.data.id; // e.g., "BBE", "KJV", "ESV"
       
       if (!existingTranslationIds.has(translationCode)) {
         newJobs.push({
-          translation_id: translationCode,  // This is now "KJV", "ESV", etc.
+          translation_id: translationCode,  // This is now "BBE", "ESV", etc.
           status: 'pending',
           retries: 0,
           progress: {
