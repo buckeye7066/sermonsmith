@@ -1,12 +1,10 @@
 /**
- * BibleDataService - DEPRECATED
- * This service has been replaced with on-demand API fetching
- * Use the usePassage hook from components/bible/usePassage.js instead
- * 
- * @deprecated Use components/bible/usePassage.js instead
+ * BibleDataService - Handles loading Bible data from static JSON files
+ * This replaces the old database-based system with fast, local JSON files
+ * Data is hosted on GitHub and fetched as needed
  */
 
-// This file is kept for backward compatibility but should not be used for new code
+const GITHUB_BASE_URL = 'https://buckeye7066.github.io/Bible-app';
 
 const BIBLE_BOOKS = [
   { name: "Genesis", chapters: 50 },
