@@ -26,6 +26,7 @@ import {
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "../utils";
+import { bibleDataService } from "../components/reader/BibleDataService";
 
 import VerseCard from "../components/reader/VerseCard";
 import HighlightDrawer from "../components/reader/HighlightDrawer";
@@ -272,39 +273,39 @@ export default function Reader() {
     setIsOfflineMode(false);
 
     try {
-      // Try database fetch
-      const dbVerses = await base44.entities.Verse.filter({
-        translation_id: currentTranslation,
-        book_name: currentBook,
-        chapter: currentChapter
-      }, 'verse');
+      // Load from static Bible JSON files
+      const verses = await bibleDataService.getVerses(
+        currentTranslation,
+        currentBook,
+        currentChapter
+      );
 
-      if (dbVerses.length > 0) {
-        const formattedVerses = dbVerses.map(v => ({
-          id: v.id,
+      if (verses && verses.length > 0) {
+        const formattedVerses = verses.map((v, index) => ({
+          id: `${currentBook}-${currentChapter}-${v.verse}`,
           verse: v.verse,
-          text: v.text
+          text: v.text,
+          book_name: currentBook,
+          chapter: currentChapter
         }));
 
         setVerses(formattedVerses);
         setIsCached(true);
         setIsOfflineMode(false);
-        setIsLoading(false);
-        return;
+      } else {
+        setError({
+          message: `${currentBook} ${currentChapter} is not available in ${currentTranslation} yet. Try KJV or check back later.`,
+          canRetry: false
+        });
+        setVerses([]);
       }
-
-      // If not in database, show friendly message
-      setError({
-        message: `This chapter isn't loaded yet. The free KJV Bible is being set up. Check back in 30 minutes or contact support.`,
-        canRetry: false
-      });
-
     } catch (error) {
       console.error("Error loading verses:", error);
       setError({
         message: 'Failed to load verses. Please try again.',
         canRetry: true
       });
+      setVerses([]);
     } finally {
       setIsLoading(false);
     }
