@@ -22,6 +22,7 @@ import ChristianEthics from './pages/ChristianEthics';
 import PrayerGenerator from './pages/PrayerGenerator';
 import SystemDiagnostics from './pages/SystemDiagnostics';
 import ImportStatus from './pages/ImportStatus';
+import BibleAPITest from './pages/BibleAPITest';
 import Layout from './Layout.jsx';
 
 
@@ -50,6 +51,7 @@ export const PAGES = {
     "PrayerGenerator": PrayerGenerator,
     "SystemDiagnostics": SystemDiagnostics,
     "ImportStatus": ImportStatus,
+    "BibleAPITest": BibleAPITest,
 }
 
 export const pagesConfig = {
