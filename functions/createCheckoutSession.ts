@@ -13,22 +13,63 @@ Deno.serve(async (req) => {
   }
 
   const base44 = createClientFromRequest(req);
-  const user = await req.json();
+  
+  // 🔒 SECURITY: Get user from authenticated session, NOT request body
+  try {
+    const user = await base44.auth.me();
+    
+    if (!user) {
+      return new Response(JSON.stringify({ 
+        error: "Authentication required",
+        message: "Please log in to create a checkout session"
+      }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    line_items: [
-      {
-        price: Deno.env.get("STRIPE_PRICE_ID"),
-        quantity: 1,
-      },
-    ],
-    success_url: user.success_url,
-    cancel_url: user.cancel_url,
-    client_reference_id: user.userId,
-  });
+    // Get app URL for redirect URLs
+    const appUrl = req.headers.get("origin") || "https://sermon-smith-0150c183.base44.app";
+    
+    // Read optional redirect URLs from request body (if provided)
+    const body = await req.json().catch(() => ({}));
+    const successUrl = body.success_url || `${appUrl}/pages/Settings?payment=success`;
+    const cancelUrl = body.cancel_url || `${appUrl}/pages/Pricing?payment=cancelled`;
 
-  return new Response(JSON.stringify({ url: session.url }), {
-    headers: { "Content-Type": "application/json" },
-  });
+    // Create Stripe checkout session
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [
+        {
+          price: "price_1SHpNkIZTZppGBxIvXfyvfNc", // SermonSmith Premium $4.99/month
+          quantity: 1,
+        },
+      ],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      client_reference_id: user.id, // ✅ Use authenticated user ID
+      customer_email: user.email,
+      metadata: {
+        user_id: user.id,
+        user_email: user.email
+      }
+    });
+
+    return new Response(JSON.stringify({ 
+      url: session.url,
+      sessionId: session.id
+    }), {
+      headers: { "Content-Type": "application/json" },
+    });
+
+  } catch (error) {
+    console.error("Checkout session error:", error);
+    return new Response(JSON.stringify({ 
+      error: "Failed to create checkout session",
+      message: error.message
+    }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
 });
