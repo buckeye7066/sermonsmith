@@ -319,8 +319,102 @@ export default function Home() {
             Meet Your AI Team
           </h2>
           <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
-            Two specialized AI assistants for ministry, education, and spiritual growth
+            Two specialized AI assistants having a conversation about what they do
           </p>
+        </motion.div>
+
+        {/* Conversation Introduction */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          viewport={{ once: true }}
+          className="max-w-4xl mx-auto mb-12"
+        >
+          <Card className="bg-gradient-to-br from-gray-50 to-blue-50 dark:from-gray-800 dark:to-blue-900/20 border-2">
+            <CardContent className="p-8 space-y-6">
+              {/* Larry's Introduction */}
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-blue-600 rounded-full flex-shrink-0">
+                  <Bot className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex-1">
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-tl-none p-4 shadow-md">
+                    <p className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                      👋 Hi! I'm Larry, your Teaching & Sermon Assistant.
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-300">
+                      I help pastors and teachers create complete biblical lessons in just 30 seconds! Whether you're preparing for Sunday service, VBS, Sunday School, or Christian schools, I'll generate sermons with illustrations, applications, and supporting scriptures. I can even adapt content for children, youth, or adults, and provide real-time coaching while you're teaching. Think of me as your personal ministry partner who knows theology, understands your denomination, and helps you address tough ethical questions and current events from a biblical perspective.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Arlynn's Introduction */}
+              <div className="flex items-start gap-4 flex-row-reverse">
+                <div className="p-3 bg-purple-600 rounded-full flex-shrink-0">
+                  <Layers className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex-1">
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-tr-none p-4 shadow-md">
+                    <p className="text-lg font-semibold text-purple-900 dark:text-purple-100 mb-2 text-right">
+                      👋 Hey there! I'm Arlynn, the Series Specialist.
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-300 text-right">
+                      While Larry is perfect for individual sermons, I'm your go-to for multi-week sermon series! I create comprehensive 3-12 week teaching series where each sermon builds on the previous one. I'll map out the theological trajectory, ensure your series has a powerful culmination, and provide small group discussion questions for each week. Perfect when you want to do an in-depth book study, topical series, or seasonal teaching plan. I make sure your congregation experiences a cohesive spiritual journey, not just disconnected messages.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Larry's Response */}
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-blue-600 rounded-full flex-shrink-0">
+                  <Bot className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex-1">
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-tl-none p-4 shadow-md">
+                    <p className="text-gray-700 dark:text-gray-300">
+                      Exactly! And together, we help with the entire SermonSmith platform. The app also has a powerful Bible Reader with 50+ translations, instant scripture search, verse highlighting, and personal note-taking. Plus there's a Community feature where you can share your sermons and studies with other ministry leaders, discover what's working in churches around the world, and even adapt other people's content for your congregation.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Arlynn's Response */}
+              <div className="flex items-start gap-4 flex-row-reverse">
+                <div className="p-3 bg-purple-600 rounded-full flex-shrink-0">
+                  <Layers className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex-1">
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-tr-none p-4 shadow-md">
+                    <p className="text-gray-700 dark:text-gray-300 text-right">
+                      Right! And don't forget the Christian Ethics and Worldview Explorer features - where pastors can get biblical responses to tough topics like AI ethics, gender issues, political questions, and cultural challenges. Everything is filtered through your chosen denomination's theology, so you're not just getting generic answers. SermonSmith understands the nuances between Reformed, Wesleyan, Catholic, Pentecostal, and other traditions.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Joint Closing */}
+              <div className="text-center pt-6 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-center gap-4 mb-3">
+                  <div className="p-2 bg-blue-600 rounded-full">
+                    <Bot className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">+</p>
+                  <div className="p-2 bg-purple-600 rounded-full">
+                    <Layers className="w-5 h-5 text-white" />
+                  </div>
+                </div>
+                <p className="text-lg text-gray-700 dark:text-gray-300 font-medium">
+                  <strong className="text-blue-600">Larry</strong> + <strong className="text-purple-600">Arlynn</strong> = Your complete ministry team
+                </p>
+                <p className="text-gray-600 dark:text-gray-400 mt-2">
+                  We're here to save you 95% of your prep time so you can focus on shepherding your flock! 🎉
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </motion.div>
 
         <div className="grid md:grid-cols-2 gap-8">
