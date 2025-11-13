@@ -20,9 +20,10 @@ export default function VerseOfTheDay({ user }) {
   const loadVerseOfDay = async () => {
     setIsLoading(true);
     
+    // Get today's date as seed for consistency
+    const today = new Date().toISOString().split('T')[0];
+    
     try {
-      // Get today's date as seed for consistency
-      const today = new Date().toISOString().split('T')[0];
       const cached = localStorage.getItem(`votd-${today}`);
       
       if (cached) {
