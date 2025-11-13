@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
@@ -226,7 +225,7 @@ export default function Pricing() {
                     />
                     <PlanCard 
                         title="Premium"
-                        price="$9.99"
+                        price="$4.99"
                         description="The complete toolkit for pastors, teachers, and serious students."
                         features={premiumFeatures}
                         isPremiumPlan
