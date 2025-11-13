@@ -403,11 +403,11 @@ Be detailed and descriptive for creating a visual representation.`;
                             Locations ({searchResult.data.locations.length})
                           </h4>
                           {searchResult.data.locations.map((location, index) => (
-                            <div key={index} className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                              <div className="font-medium text-sm">{location.name}</div>
-                              <div className="text-xs text-gray-600 dark:text-gray-400">{location.description}</div>
+                            <div key={index} className="p-2 bg-gray-50 dark:bg-gray-800 rounded break-words">
+                              <div className="font-medium text-sm break-words">{location.name}</div>
+                              <div className="text-xs text-gray-600 dark:text-gray-400 break-words">{location.description}</div>
                               {location.scripture && (
-                                <Badge variant="outline" className="text-xs mt-1">
+                                <Badge variant="outline" className="text-xs mt-1 break-words">
                                   {location.scripture}
                                 </Badge>
                               )}
