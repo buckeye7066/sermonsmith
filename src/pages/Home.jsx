@@ -272,7 +272,7 @@ export default function Home() {
                     {user.denomination} • {user.study_preferences?.preferredAudience || 'General'} Ministry
                   </p>
                 )}
-                {user.content_preferences?.favoriteTopics?.length > 0 && (
+                {user.content_preferences?.favoriteTopics && user.content_preferences.favoriteTopics.length > 0 && (
                   <div className="flex flex-wrap justify-center gap-2 mt-3">
                     <span className="text-sm text-gray-600 dark:text-gray-400">Your topics:</span>
                     {user.content_preferences.favoriteTopics.slice(0, 5).map((topic, index) => (
