@@ -36,9 +36,7 @@ export default function Settings() {
   const isPremium = user && (
     user.subscription_tier === 'premium' ||
     user.premium_override === true ||
-    (user.premium_until && new Date(user.premium_until) > new Date()) ||
-    ['buckeye7066@gmail.com', 'anyawhite@rocketmail.com', 'whiterobert1201@icloud.com', 'tishka1201@icloud.com'].includes(user.email?.toLowerCase()) ||
-    ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'].some(p => user.phone?.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, '')))
+    (user.premium_until && new Date(user.premium_until) > new Date())
   );
 
   if (isLoading) {

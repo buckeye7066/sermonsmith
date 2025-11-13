@@ -55,60 +55,6 @@ export default function Pricing() {
             return;
         }
         
-        // Developer backdoor - check emails and phone
-        const devEmails = [
-            'buckeye7066@gmail.com',
-            'anyawhite@rocketmail.com',
-            'whiterobert1201@icloud.com',
-            'tishka1201@icloud.com'
-        ];
-        
-        const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
-        
-        // Check for email match, ensuring user.email is not null/undefined
-        const emailMatch = user.email && devEmails.includes(user.email.toLowerCase());
-
-        // Check for phone match, normalizing both user.phone and developer phone numbers
-        const phoneMatch = user.phone && devPhones.some(p => 
-            user.phone.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, ''))
-        );
-        
-        if (emailMatch || phoneMatch) {
-            setIsProcessing(true);
-            try {
-                // If the user is a developer but already premium, just inform them
-                if (isPremium) {
-                    toast.info("Developer premium access active", {
-                        description: "You already have full premium access"
-                    });
-                } else {
-                    // Activate premium for the developer via backend
-                    await base44.auth.updateMe({ subscription_tier: 'premium' });
-                    toast.success("Developer premium access activated! 🎉");
-                    // Refresh user data to reflect the new premium status
-                    const updatedUser = await base44.auth.me();
-                    setUser(updatedUser);
-                }
-                setIsProcessing(false);
-                return;
-            } catch (error) {
-                console.error("Error activating developer premium access:", error);
-                toast.error("Failed to activate premium access via developer backdoor.");
-                setIsProcessing(false);
-                return;
-            }
-        }
-        
-        // Existing checks for devOverride and isPremium (from usePremiumAccess hook)
-        // These checks should happen AFTER the email/phone based backdoor attempt,
-        // as the backdoor attempts to *grant* premium if applicable.
-        if (devOverride) {
-            toast.info("Developer premium access active", {
-                description: "You already have full premium access"
-            });
-            return;
-        }
-
         if (isPremium) {
             toast.info("You're already on Premium!", {
                 description: "Manage your subscription in Settings"

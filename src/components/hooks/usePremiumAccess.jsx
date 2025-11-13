@@ -30,22 +30,8 @@ export function usePremiumAccess() {
           return;
         }
 
-        // Developer allowlist - emails and phone numbers
-        const devEmails = [
-          'buckeye7066@gmail.com',
-          'anyawhite@rocketmail.com',
-          'whiterobert1201@icloud.com',
-          'tishka1201@icloud.com'
-        ];
-        
-        const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
-        
-        const emailMatch = user.email && devEmails.includes(user.email.toLowerCase());
-        const phoneMatch = user.phone && devPhones.some(p => 
-          user.phone.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, ''))
-        );
-        
-        const devOverride = emailMatch || phoneMatch || user.premium_override === true;
+        // Check for premium override (set by admins)
+        const devOverride = user.premium_override === true;
 
         // Check premium status
         let isPremium = false;
