@@ -496,12 +496,12 @@ Be detailed and descriptive for creating a visual representation.`;
                       <Button
                         key={journey.id}
                         variant={selectedJourney.id === journey.id ? "default" : "outline"}
-                        className="w-full justify-start h-auto p-3"
+                        className="w-full justify-start h-auto p-3 text-left"
                         onClick={() => setSelectedJourney(journey)}
                       >
-                        <div className="text-left">
-                          <div className="font-medium">{journey.title}</div>
-                          <div className="text-xs opacity-70">{journey.description}</div>
+                        <div className="flex flex-col gap-1 min-w-0 flex-1">
+                          <div className="font-medium truncate">{journey.title}</div>
+                          <div className="text-xs opacity-70 break-words whitespace-normal">{journey.description}</div>
                         </div>
                       </Button>
                     ))}
