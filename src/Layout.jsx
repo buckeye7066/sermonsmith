@@ -4,7 +4,7 @@ import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { Book, FileText, Settings, PlusCircle, MapPin, GraduationCap, Crown, LogOut, Home, Brain, BookOpen, Database, Users, Globe, Scale, Heart, Activity } from 'lucide-react';
+import { Book, FileText, Settings, PlusCircle, MapPin, GraduationCap, Crown, LogOut, Home, Brain, BookOpen, Users, Globe, Scale, Heart } from 'lucide-react';
 import { SafeImg } from '@/components/ui/SafeImg';
 import { toast } from 'sonner';
 import { usePremiumAccess } from './components/hooks/usePremiumAccess';
@@ -162,9 +162,6 @@ export default function Layout({ children, currentPageName }) {
     { name: 'Christian Ethics', icon: Scale, page: 'ChristianEthics' },
     { name: 'Community', icon: Users, page: 'Community', premium: true },
     { name: 'Worldview Explorer', icon: Globe, page: 'WorldviewExplorer', premium: true },
-    { name: 'Downloads', icon: BookOpen, page: 'Downloads' },
-    { name: 'Bulk Import', icon: Database, page: 'BulkImport', devOnly: true },
-    { name: 'Worker Monitoring', icon: Activity, page: 'WorkerMonitoring', devOnly: true },
     { name: 'Settings', icon: Settings, page: 'Settings' }
   ];
 
