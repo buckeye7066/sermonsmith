@@ -10,14 +10,6 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized - Please log in' }, { status: 401 });
     }
 
-    if (user.role !== 'admin') {
-      return Response.json({ 
-        error: 'Forbidden - Admin access required',
-        user_email: user.email,
-        user_role: user.role
-      }, { status: 403 });
-    }
-
     console.log('\n' + '='.repeat(80));
     console.log('🚀 PRODUCTION-READY DIAGNOSTIC & VALIDATION SUITE');
     console.log('='.repeat(80));
