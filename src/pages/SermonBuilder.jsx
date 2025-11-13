@@ -186,11 +186,13 @@ Create a sermon that includes:
 
 Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblically accurate, engaging, and practical.`;
 
+      console.log('[SermonBuilder] Calling InvokeLLM...');
       const response = await base44.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: sermonGenerationSchema
       });
 
+      console.log('[SermonBuilder] Got response:', response);
       setGeneratedSermon({
         ...response,
         topic,
