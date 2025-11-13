@@ -21,8 +21,32 @@ export default function BulkImport() {
 
   const checkStatus = async () => {
     try {
-      const response = await base44.functions.invoke('getImportStatus', {});
-      setStatus(response.data);
+      // Use quick status check instead
+      const response = await base44.functions.invoke('quickStatusCheck', {});
+      console.log('[BulkImport] Status:', response.data);
+      
+      if (response.data.success) {
+        setStatus({
+          completedTranslations: response.data.isComplete ? 1 : 0,
+          totalTranslations: 1,
+          totalVerses: response.data.totalVerses,
+          translations: [{
+            id: 'KJV',
+            name: 'King James Version',
+            verses: response.data.totalVerses,
+            chapters: response.data.totalChapters,
+            books: response.data.totalBooks,
+            complete: response.data.isComplete
+          }]
+        });
+        
+        if (response.data.isComplete) {
+          toast.success('✅ KJV Bible import complete!', {
+            description: `${response.data.totalVerses.toLocaleString()} verses ready`,
+            duration: 5000
+          });
+        }
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -56,28 +80,36 @@ export default function BulkImport() {
     setIsImporting(true);
 
     try {
-      toast.info('Starting KJV Bible import...', {
-        description: 'This will take about 10-15 minutes. You can close this page.',
-        duration: 5000
+      toast.info('🚀 Starting KJV Bible import...', {
+        description: 'Import running in background. Check status below every 30 seconds.',
+        duration: 8000
       });
 
       console.log('[BulkImport] Starting simple KJV import...');
-      const response = await base44.functions.invoke('simpleBibleImport', {});
-      console.log('[BulkImport] Response:', response.data);
       
-      if (response.data.success) {
-        toast.success('✅ Bible Import Complete!', {
-          description: `Imported ${response.data.totalVerses} verses in ${response.data.duration}`,
-          duration: 10000
-        });
-      } else {
-        toast.error('Import failed: ' + response.data.error);
-      }
+      // Start the import (don't wait for it - it returns immediately)
+      base44.functions.invoke('simpleBibleImport', {}).then(response => {
+        console.log('[BulkImport] Import finished:', response.data);
+        if (response.data.success) {
+          toast.success('✅ Bible Import Complete!', {
+            description: `Imported ${response.data.totalVerses} verses in ${response.data.duration}`,
+            duration: 10000
+          });
+        }
+      }).catch(error => {
+        console.error('[BulkImport] Import error:', error);
+      });
 
-      setTimeout(checkStatus, 2000);
+      // Start checking status immediately
+      setTimeout(checkStatus, 5000);
+      
+      toast.success('Import started! Refresh status below to see progress.', {
+        duration: 5000
+      });
+      
     } catch (error) {
       console.error('[BulkImport] Error:', error);
-      toast.error('Failed to import: ' + error.message);
+      toast.error('Failed to start import: ' + error.message);
     } finally {
       setIsImporting(false);
     }
@@ -241,14 +273,32 @@ export default function BulkImport() {
 
         <Card className="bg-blue-50">
           <CardContent className="pt-6">
-            <h3 className="font-semibold mb-2">How It Works:</h3>
-            <ul className="text-sm space-y-1">
-              <li>🚀 5 independent workers run simultaneously</li>
-              <li>⚡ Each worker imports 10-11 translations</li>
-              <li>⏱️ Each worker completes in ~10-12 minutes</li>
-              <li>🔄 All 51 translations done in 20-30 minutes total</li>
-              <li>💻 You can close the browser - keeps running!</li>
-            </ul>
+            <h3 className="font-semibold mb-2 flex items-center justify-between">
+              <span>Import Progress</span>
+              <Button 
+                onClick={checkStatus} 
+                variant="ghost" 
+                size="sm"
+                className="h-8"
+              >
+                <Activity className="w-4 h-4 mr-1" />
+                Refresh Status
+              </Button>
+            </h3>
+            <p className="text-sm text-gray-600 mb-2">
+              Click "Refresh Status" every 30 seconds to see import progress. 
+              The import runs in the background - you can close this page and come back later.
+            </p>
+            {completed > 0 && (
+              <div className="mt-3 p-3 bg-green-100 rounded-lg">
+                <p className="text-sm font-semibold text-green-900">
+                  ✅ {totalVerses.toLocaleString()} verses imported so far!
+                </p>
+                <p className="text-xs text-green-700 mt-1">
+                  {completed}/{total} translations complete
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
