@@ -1,10 +1,11 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.7.1';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 import Stripe from 'npm:stripe@17.4.0';
 
 const stripe = new Stripe(Deno.env.get("STRIPE_API_KEY"), {
   apiVersion: "2024-06-20",
 });
 
+// Using the "Sermon Smith" product - $4.99/month
 const PREMIUM_PRICE_ID = 'price_1SHpNkIZTZppGBxIvXfyvfNc';
 
 Deno.serve(async (req) => {
