@@ -63,13 +63,15 @@ function getBibleSource(id) {
   return bibleSources.find((s) => s.id === id);
 }
 
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
+
 Deno.serve(async (req) => {
   // CORS headers
   const headers = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 
   // Handle OPTIONS preflight
@@ -78,11 +80,39 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Authenticate user
+    const base44 = createClientFromRequest(req);
+    const user = await base44.auth.me();
+    
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: "Authentication required" }),
+        { status: 401, headers }
+      );
+    }
+
     const url = new URL(req.url);
     const translationId = url.searchParams.get("translationId") || "en-kjv";
     const bookCode = url.searchParams.get("bookCode") || "JHN";
     const chapterStr = url.searchParams.get("chapter") || "3";
     const versesParam = url.searchParams.get("verses"); // e.g., "16" or "1-5"
+    
+    // Check premium access for non-free translations
+    const freeSources = ["en-kjv", "en-web"];
+    const isPremium = user.subscription_tier === 'premium' || 
+                      user.premium_override === true ||
+                      (user.premium_until && new Date(user.premium_until) > new Date());
+    
+    if (!freeSources.includes(translationId) && !isPremium) {
+      return new Response(
+        JSON.stringify({ 
+          error: "Premium subscription required for this translation",
+          translationId,
+          requiresPremium: true
+        }),
+        { status: 403, headers }
+      );
+    }
 
     const chapter = Number(chapterStr);
     if (Number.isNaN(chapter) || chapter <= 0) {
