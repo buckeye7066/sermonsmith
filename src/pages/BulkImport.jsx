@@ -52,6 +52,37 @@ export default function BulkImport() {
     }
   };
 
+  const handleSimpleImport = async () => {
+    setIsImporting(true);
+
+    try {
+      toast.info('Starting KJV Bible import...', {
+        description: 'This will take about 10-15 minutes. You can close this page.',
+        duration: 5000
+      });
+
+      console.log('[BulkImport] Starting simple KJV import...');
+      const response = await base44.functions.invoke('simpleBibleImport', {});
+      console.log('[BulkImport] Response:', response.data);
+      
+      if (response.data.success) {
+        toast.success('✅ Bible Import Complete!', {
+          description: `Imported ${response.data.totalVerses} verses in ${response.data.duration}`,
+          duration: 10000
+        });
+      } else {
+        toast.error('Import failed: ' + response.data.error);
+      }
+
+      setTimeout(checkStatus, 2000);
+    } catch (error) {
+      console.error('[BulkImport] Error:', error);
+      toast.error('Failed to import: ' + error.message);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -119,27 +150,49 @@ export default function BulkImport() {
             
             {completed === 0 && (
               <>
-                <p className="text-sm text-gray-600 mb-4">
-                  Launch 5 parallel workers that each handle 10-11 translations simultaneously. Each worker operates independently and stays under the 15-minute limit. Total completion time: ~20-30 minutes.
-                </p>
-                <Button
-                  onClick={handleStartWorkers}
-                  disabled={isImporting}
-                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
-                  size="lg"
-                >
-                  {isImporting ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Launching Workers...
-                    </>
-                  ) : (
-                    <>
+                <div className="space-y-4">
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <h3 className="font-semibold text-green-900 mb-2">✅ Recommended: Simple Import</h3>
+                    <p className="text-sm text-green-800 mb-3">
+                      Import KJV Bible (31,102 verses) reliably in about 10-15 minutes. Straightforward and tested.
+                    </p>
+                    <Button
+                      onClick={handleSimpleImport}
+                      disabled={isImporting}
+                      className="w-full bg-green-600 hover:bg-green-700"
+                      size="lg"
+                    >
+                      {isImporting ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          Importing KJV Bible...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-5 h-5 mr-2" />
+                          Import KJV Bible Now
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <h3 className="font-semibold text-blue-900 mb-2">⚡ Advanced: 51 Translations</h3>
+                    <p className="text-sm text-blue-800 mb-3">
+                      Launch 5 parallel workers for all 51 translations. Takes 20-30 minutes. More experimental.
+                    </p>
+                    <Button
+                      onClick={handleStartWorkers}
+                      disabled={isImporting}
+                      variant="outline"
+                      className="w-full border-blue-300"
+                      size="lg"
+                    >
                       <Zap className="w-5 h-5 mr-2" />
                       Launch 5 Parallel Workers
-                    </>
-                  )}
-                </Button>
+                    </Button>
+                  </div>
+                </div>
               </>
             )}
 
