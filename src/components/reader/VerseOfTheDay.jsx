@@ -6,49 +6,48 @@ import { Loader2, Sparkles, Share2, Copy, RefreshCw, Heart } from "lucide-react"
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { useRandomVerse } from "../bible/usePassage";
 
 export default function VerseOfTheDay({ user }) {
-  const [verse, setVerse] = useState(null);
   const [devotional, setDevotional] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadVerseOfDay();
-  }, []);
+  // Use the new useRandomVerse hook
+  const { loading: isLoading, error, verses, reference, retry } = useRandomVerse("en-kjv");
+  
+  const verse = verses.length > 0 ? {
+    reference,
+    text: verses.map(v => v.text).join(" ")
+  } : null;
 
-  const loadVerseOfDay = async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    if (verse && !devotional) {
+      loadDevotional();
+    }
+  }, [verse]);
+
+  const loadDevotional = async () => {
+    if (!verse) return;
     
     try {
       // Get today's date as seed for consistency
       const today = new Date().toISOString().split('T')[0];
-      const cached = localStorage.getItem(`votd-${today}`);
+      const cached = localStorage.getItem(`votd-devotional-${today}`);
       
       if (cached) {
         const data = JSON.parse(cached);
-        setVerse(data.verse);
-        setDevotional(data.devotional);
-        setIsLoading(false);
+        setDevotional(data);
         return;
       }
 
-      // Generate AI-selected verse with devotional
-      const prompt = `Select an inspiring, encouraging Bible verse for today (${today}) and create a brief devotional.
-
-Choose a verse that:
-- Offers hope and encouragement
-- Is practical for daily life
-- Different from yesterday
-- Accessible to all believers
-- Memorable and shareable
+      // Generate AI devotional for the verse
+      const prompt = `Create a brief devotional for this Bible verse: "${verse.text}" (${verse.reference}).
 
 Create:
-1. Selected verse with reference
-2. Why this verse today (1-2 sentences)
-3. Devotional reflection (2-3 paragraphs)
-4. Practical application (specific action for today)
-5. Prayer starter (one sentence)
+1. Why this verse today (1-2 sentences)
+2. Devotional reflection (2-3 paragraphs)
+3. Practical application (specific action for today)
+4. Prayer starter (one sentence)
 
 Make it warm, personal, and actionable.`;
 
@@ -57,8 +56,6 @@ Make it warm, personal, and actionable.`;
         response_json_schema: {
           type: "object",
           properties: {
-            reference: { type: "string" },
-            text: { type: "string" },
             why_today: { type: "string" },
             reflection: { type: "string" },
             application: { type: "string" },
@@ -68,43 +65,23 @@ Make it warm, personal, and actionable.`;
       });
 
       // Cache for today
-      localStorage.setItem(`votd-${today}`, JSON.stringify({
-        verse: {
-          reference: response.reference,
-          text: response.text
-        },
-        devotional: {
-          why_today: response.why_today,
-          reflection: response.reflection,
-          application: response.application,
-          prayer_starter: response.prayer_starter
-        }
-      }));
+      const today = new Date().toISOString().split('T')[0];
+      localStorage.setItem(`votd-devotional-${today}`, JSON.stringify(response));
 
-      setVerse({
-        reference: response.reference,
-        text: response.text
-      });
-      setDevotional({
-        why_today: response.why_today,
-        reflection: response.reflection,
-        application: response.application,
-        prayer_starter: response.prayer_starter
-      });
+      setDevotional(response);
     } catch (error) {
-      console.error('Error loading verse of day:', error);
-      toast.error("Failed to load verse of the day");
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      console.error('Error loading devotional:', error);
+      toast.error("Failed to load devotional");
     }
   };
 
   const handleRefresh = () => {
     const today = new Date().toISOString().split('T')[0];
-    localStorage.removeItem(`votd-${today}`);
+    localStorage.removeItem(`votd-devotional-${today}`);
+    setDevotional(null);
     setIsRefreshing(true);
-    loadVerseOfDay();
+    retry();
+    setTimeout(() => setIsRefreshing(false), 1000);
   };
 
   const handleShare = () => {
@@ -121,7 +98,7 @@ Make it warm, personal, and actionable.`;
     }
   };
 
-  if (isLoading) {
+  if (isLoading || !verse) {
     return (
       <Card className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20">
         <CardContent className="pt-6 text-center py-12">
@@ -132,7 +109,19 @@ Make it warm, personal, and actionable.`;
     );
   }
 
-  if (!verse || !devotional) return null;
+  if (error) {
+    return (
+      <Card className="bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20">
+        <CardContent className="pt-6 text-center py-12">
+          <p className="text-red-600 dark:text-red-400">Failed to load verse</p>
+          <Button onClick={retry} variant="outline" size="sm" className="mt-3">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <motion.div
