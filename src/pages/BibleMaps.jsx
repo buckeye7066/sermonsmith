@@ -508,8 +508,27 @@ Be detailed and descriptive for creating a visual representation.`;
                   </div>
                 </CardContent>
               </Card>
+            </div>
 
-              <Card className="shadow-lg mt-6">
+            <div className="lg:col-span-3 space-y-6">
+              <Card className="shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-5 h-5 text-blue-500" />
+                      {selectedJourney.title}
+                    </div>
+                    <Badge variant="outline" style={{ color: selectedJourney.color }}>
+                      {selectedJourney.locations.length} locations
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <InteractiveMap journey={selectedJourney} />
+                </CardContent>
+              </Card>
+
+              <Card className="shadow-lg">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-lg">
                     <Book className="w-5 h-5 text-purple-500" />
@@ -535,25 +554,6 @@ Be detailed and descriptive for creating a visual representation.`;
                       ))}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="lg:col-span-3">
-              <Card className="shadow-lg h-full">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-5 h-5 text-blue-500" />
-                      {selectedJourney.title}
-                    </div>
-                    <Badge variant="outline" style={{ color: selectedJourney.color }}>
-                      {selectedJourney.locations.length} locations
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <InteractiveMap journey={selectedJourney} />
                 </CardContent>
               </Card>
             </div>
