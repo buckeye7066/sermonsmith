@@ -111,10 +111,10 @@ class BibleDataService {
   }
 
   /**
-   * Load a translation's Bible data
+   * Load a specific book from a translation
    */
-  async loadTranslation(translationId) {
-    const cacheKey = translationId;
+  async loadBook(translationId, bookName) {
+    const cacheKey = `${translationId}-${bookName}`;
     
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey);
@@ -128,16 +128,20 @@ class BibleDataService {
         throw new Error(`Translation ${translationId} not found`);
       }
 
-      const response = await fetch(`${GITHUB_BASE_URL}/${translation.filename}`);
+      // Convert book name to lowercase filename (e.g., "Genesis" -> "genesis.json")
+      const bookFilename = bookName.toLowerCase().replace(/\s+/g, '-') + '.json';
+      const url = `${GITHUB_BASE_URL}/${translationId.toLowerCase()}/${bookFilename}`;
+      
+      const response = await fetch(url);
       if (!response.ok) {
-        throw new Error(`Failed to load ${translationId}`);
+        throw new Error(`Failed to load ${bookName} from ${translationId}`);
       }
 
       const data = await response.json();
       this.cache.set(cacheKey, data);
       return data;
     } catch (error) {
-      console.error(`Error loading translation ${translationId}:`, error);
+      console.error(`Error loading ${bookName} from ${translationId}:`, error);
       throw error;
     }
   }
@@ -147,14 +151,13 @@ class BibleDataService {
    */
   async getVerses(translationId, bookName, chapter) {
     try {
-      const bibleData = await this.loadTranslation(translationId);
+      const bookData = await this.loadBook(translationId, bookName);
       
-      if (!bibleData.books[bookName]) {
+      if (!bookData || !bookData.chapters) {
         throw new Error(`Book ${bookName} not found in ${translationId}`);
       }
 
-      const bookData = bibleData.books[bookName];
-      const chapterData = bookData.data?.[chapter.toString()];
+      const chapterData = bookData.chapters[chapter.toString()];
 
       if (!chapterData) {
         return [];
@@ -178,28 +181,36 @@ class BibleDataService {
 
   /**
    * Search across all verses (for search functionality)
+   * Note: This will load all books, so it may be slow for first search
    */
   async searchVerses(translationId, query) {
     try {
-      const bibleData = await this.loadTranslation(translationId);
       const results = [];
       const searchLower = query.toLowerCase();
 
-      for (const [bookName, bookData] of Object.entries(bibleData.books)) {
-        if (!bookData.data) continue;
+      // Search through all books
+      for (const book of BIBLE_BOOKS) {
+        try {
+          const bookData = await this.loadBook(translationId, book.name);
+          
+          if (!bookData || !bookData.chapters) continue;
 
-        for (const [chapterNum, chapterData] of Object.entries(bookData.data)) {
-          for (const [verseNum, text] of Object.entries(chapterData)) {
-            if (text.toLowerCase().includes(searchLower)) {
-              results.push({
-                book_name: bookName,
-                chapter: parseInt(chapterNum),
-                verse: parseInt(verseNum),
-                text: text,
-                translation_id: translationId
-              });
+          for (const [chapterNum, chapterData] of Object.entries(bookData.chapters)) {
+            for (const [verseNum, text] of Object.entries(chapterData)) {
+              if (text.toLowerCase().includes(searchLower)) {
+                results.push({
+                  book_name: book.name,
+                  chapter: parseInt(chapterNum),
+                  verse: parseInt(verseNum),
+                  text: text,
+                  translation_id: translationId
+                });
+              }
             }
           }
+        } catch (bookError) {
+          console.log(`Could not search ${book.name}:`, bookError.message);
+          continue;
         }
       }
 
@@ -215,8 +226,19 @@ class BibleDataService {
    */
   async getVerse(translationId, bookName, chapter, verse) {
     try {
-      const verses = await this.getVerses(translationId, bookName, chapter);
-      return verses.find(v => v.verse === verse);
+      const bookData = await this.loadBook(translationId, bookName);
+      const chapterData = bookData?.chapters?.[chapter.toString()];
+      const text = chapterData?.[verse.toString()];
+      
+      if (!text) return null;
+      
+      return {
+        book_name: bookName,
+        chapter: parseInt(chapter),
+        verse: parseInt(verse),
+        text: text,
+        translation_id: translationId
+      };
     } catch (error) {
       console.error('Error getting verse:', error);
       return null;
