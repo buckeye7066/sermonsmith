@@ -9,7 +9,6 @@ import Settings from './pages/Settings';
 import MyStudies from './pages/MyStudies';
 import MyQuizzes from './pages/MyQuizzes';
 import AdminImport from './pages/AdminImport';
-import BulkImport from './pages/BulkImport';
 import Community from './pages/Community';
 import Forum from './pages/Forum';
 import StudyGroups from './pages/StudyGroups';
@@ -22,7 +21,6 @@ import WorldviewExplorer from './pages/WorldviewExplorer';
 import ChristianEthics from './pages/ChristianEthics';
 import PrayerGenerator from './pages/PrayerGenerator';
 import SystemDiagnostics from './pages/SystemDiagnostics';
-import WorkerMonitoring from './pages/WorkerMonitoring';
 import ImportStatus from './pages/ImportStatus';
 import Layout from './Layout.jsx';
 
@@ -39,7 +37,6 @@ export const PAGES = {
     "MyStudies": MyStudies,
     "MyQuizzes": MyQuizzes,
     "AdminImport": AdminImport,
-    "BulkImport": BulkImport,
     "Community": Community,
     "Forum": Forum,
     "StudyGroups": StudyGroups,
@@ -52,7 +49,6 @@ export const PAGES = {
     "ChristianEthics": ChristianEthics,
     "PrayerGenerator": PrayerGenerator,
     "SystemDiagnostics": SystemDiagnostics,
-    "WorkerMonitoring": WorkerMonitoring,
     "ImportStatus": ImportStatus,
 }
 
