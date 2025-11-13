@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
@@ -149,6 +148,7 @@ Return as JSON array of objects with "reference" and "reason" fields.`;
     }
 
     setIsGenerating(true);
+    console.log('[SermonBuilder] Generating sermon with topic:', topic, 'passage:', passage);
     try {
       const denomination = user?.denomination || "Non-Denominational";
       
@@ -202,8 +202,9 @@ Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblica
       
       toast.success("Larry created your sermon! 🎉");
     } catch (error) {
-      console.error("Error generating sermon:", error);
-      toast.error("Failed to generate sermon. Please try again.");
+      console.error('[SermonBuilder] Error generating sermon:', error);
+      console.error('[SermonBuilder] Error details:', error.message, error.stack);
+      toast.error("Failed to generate sermon: " + (error.message || "Please try again"));
     } finally {
       setIsGenerating(false);
     }
