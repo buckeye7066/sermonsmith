@@ -9,6 +9,14 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    if (user.role !== 'admin') {
+      return Response.json({ 
+        error: 'Forbidden - Admin access required',
+        user_email: user.email,
+        user_role: user.role
+      }, { status: 403 });
+    }
+
     console.log('📊 Checking import status...');
 
     // Count total verses
