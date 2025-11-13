@@ -395,12 +395,7 @@ export default function WorkerMonitoring() {
         </div>
 
         {/* Footer Actions */}
-        <div className="mt-6 flex justify-center gap-4">
-          <Link to={createPageUrl('ImportStatus')}>
-            <Button variant="outline">
-              View Import Status
-            </Button>
-          </Link>
+        <div className="mt-6 flex justify-center">
           <Link to={createPageUrl('BulkImport')}>
             <Button variant="outline">
               Back to Import Control

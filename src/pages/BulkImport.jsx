@@ -80,7 +80,7 @@ export default function BulkImport() {
                   {completed}/{total} translations • {totalVerses.toLocaleString()} verses imported
                 </p>
               </div>
-              <Link to={createPageUrl('ImportStatus')}>
+              <Link to={createPageUrl('WorkerMonitoring')}>
                 <Button variant="ghost" size="sm" className="text-indigo-600 hover:text-indigo-700">
                   View Details
                   <ArrowRight className="w-4 h-4 ml-1" />

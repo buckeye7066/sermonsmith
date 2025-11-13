@@ -15,7 +15,6 @@ import Forum from './pages/Forum';
 import StudyGroups from './pages/StudyGroups';
 import SharedContent from './pages/SharedContent';
 import Downloads from './pages/Downloads';
-import ImportStatus from './pages/ImportStatus';
 import Home from './pages/Home';
 import SermonLibrary from './pages/SermonLibrary';
 import PlanLibrary from './pages/PlanLibrary';
@@ -45,7 +44,6 @@ export const PAGES = {
     "StudyGroups": StudyGroups,
     "SharedContent": SharedContent,
     "Downloads": Downloads,
-    "ImportStatus": ImportStatus,
     "Home": Home,
     "SermonLibrary": SermonLibrary,
     "PlanLibrary": PlanLibrary,

@@ -164,7 +164,6 @@ export default function Layout({ children, currentPageName }) {
     { name: 'Worldview Explorer', icon: Globe, page: 'WorldviewExplorer', premium: true },
     { name: 'Downloads', icon: BookOpen, page: 'Downloads' },
     { name: 'Bulk Import', icon: Database, page: 'BulkImport', devOnly: true },
-    { name: 'Import Status', icon: Database, page: 'ImportStatus', devOnly: true },
     { name: 'Worker Monitoring', icon: Activity, page: 'WorkerMonitoring', devOnly: true },
     { name: 'Settings', icon: Settings, page: 'Settings' }
   ];
