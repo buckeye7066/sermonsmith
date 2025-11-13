@@ -26,7 +26,8 @@ import {
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "../utils";
-import { bibleDataService } from "../components/reader/BibleDataService";
+import { bookNameToOsis } from "../components/bible/bibleSources";
+import { usePassage } from "../components/bible/usePassage";
 
 import VerseCard from "../components/reader/VerseCard";
 import HighlightDrawer from "../components/reader/HighlightDrawer";
@@ -121,10 +122,9 @@ const BIBLE_BOOKS = [
 ];
 
 export default function Reader() {
-  const [verses, setVerses] = useState([]);
   const [currentBook, setCurrentBook] = useState("Genesis");
   const [currentChapter, setCurrentChapter] = useState(1);
-  const [currentTranslation, setCurrentTranslation] = useState("KJV");
+  const [currentTranslation, setCurrentTranslation] = useState("en-kjv");
   const [highlights, setHighlights] = useState([]);
   const [notes, setNotes] = useState([]);
   const [user, setUser] = useState(null);
@@ -136,12 +136,23 @@ export default function Reader() {
   const [showSettings, setShowSettings] = useState(false);
   const [showJumpToVerse, setShowJumpToVerse] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [isCached, setIsCached] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
+
+  // Use the new usePassage hook to fetch verses
+  const bookCode = bookNameToOsis(currentBook) || "GEN";
+  const { 
+    loading: isLoading, 
+    error: passageError, 
+    verses = [],
+    retry: retryPassage 
+  } = usePassage({
+    translationId: currentTranslation,
+    bookCode,
+    chapter: currentChapter,
+  });
+
+  const error = passageError ? { message: passageError, canRetry: true } : null;
 
   const [readerSettings, setReaderSettings] = useState({
     fontSize: 18,
@@ -267,49 +278,14 @@ export default function Reader() {
     }
   }, []);
 
-  const loadCurrentChapter = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    setIsOfflineMode(false);
-
-    try {
-      // Load from static Bible JSON files
-      const verses = await bibleDataService.getVerses(
-        currentTranslation,
-        currentBook,
-        currentChapter
-      );
-
-      if (verses && verses.length > 0) {
-        const formattedVerses = verses.map((v, index) => ({
-          id: `${currentBook}-${currentChapter}-${v.verse}`,
-          verse: v.verse,
-          text: v.text,
-          book_name: currentBook,
-          chapter: currentChapter
-        }));
-
-        setVerses(formattedVerses);
-        setIsCached(true);
-        setIsOfflineMode(false);
-      } else {
-        setError({
-          message: `${currentBook} ${currentChapter} is not available in ${currentTranslation} yet. Try KJV or check back later.`,
-          canRetry: false
-        });
-        setVerses([]);
-      }
-    } catch (error) {
-      console.error("Error loading verses:", error);
-      setError({
-        message: 'Failed to load verses. Please try again.',
-        canRetry: true
-      });
-      setVerses([]);
-    } finally {
-      setIsLoading(false);
+  // This function is no longer needed - the usePassage hook handles loading
+  // Keeping it for backward compatibility with other code that might call it
+  const loadCurrentChapter = useCallback(() => {
+    // The usePassage hook automatically refetches when dependencies change
+    if (passageError) {
+      retryPassage();
     }
-  }, [currentBook, currentChapter, currentTranslation]);
+  }, [passageError, retryPassage]);
 
   const loadUserData = useCallback(async () => {
     if (user) {
@@ -327,10 +303,6 @@ export default function Reader() {
   useEffect(() => {
     loadUser();
   }, [loadUser]);
-
-  useEffect(() => {
-    loadCurrentChapter();
-  }, [loadCurrentChapter]);
 
   useEffect(() => {
     loadUserData();
@@ -692,11 +664,11 @@ export default function Reader() {
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-xl">
               <BookOpen className="w-5 h-5 text-blue-600" />
-              {currentBook} {currentChapter} ({currentTranslation})
-              {isCached && (
+              {currentBook} {currentChapter} ({currentTranslation.toUpperCase()})
+              {!isLoading && verses.length > 0 && (
                 <Badge variant="secondary" className="ml-2">
                   <CheckCircle2 className="w-3 h-3 mr-1" />
-                  {isOfflineMode ? 'Offline' : 'Cached'}
+                  Loaded
                 </Badge>
               )}
             </CardTitle>
@@ -726,7 +698,7 @@ export default function Reader() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={loadCurrentChapter}
+                      onClick={retryPassage}
                       className="ml-4"
                     >
                       <RefreshCw className="w-4 h-4 mr-2" />
