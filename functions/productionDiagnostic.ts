@@ -1,4 +1,4 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.7.1';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 import Stripe from 'npm:stripe@17.4.0';
 
 Deno.serve(async (req) => {
@@ -8,6 +8,14 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     if (!user) {
       return Response.json({ error: 'Unauthorized - Please log in' }, { status: 401 });
+    }
+
+    if (user.role !== 'admin') {
+      return Response.json({ 
+        error: 'Forbidden - Admin access required',
+        user_email: user.email,
+        user_role: user.role
+      }, { status: 403 });
     }
 
     console.log('\n' + '='.repeat(80));
