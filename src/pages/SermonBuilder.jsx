@@ -597,7 +597,12 @@ Return the full adapted sermon in the same JSON format.`;
               )}
 
               <Button
-                onClick={generateSermon}
+                onClick={() => {
+                  console.log('[SermonBuilder] Button clicked! Topic:', topic, 'Passage:', passage);
+                  console.log('[SermonBuilder] Topic length:', topic?.length, 'Passage length:', passage?.length);
+                  console.log('[SermonBuilder] isGenerating:', isGenerating);
+                  generateSermon();
+                }}
                 disabled={isGenerating || !topic.trim() || !passage.trim()}
                 className="w-full"
                 size="lg"
@@ -614,6 +619,13 @@ Return the full adapted sermon in the same JSON format.`;
                   </>
                 )}
               </Button>
+              
+              {/* Debug info */}
+              <div className="text-xs text-gray-500 mt-2 p-2 bg-gray-100 rounded">
+                <div>Topic: {topic ? `"${topic}"` : 'empty'}</div>
+                <div>Passage: {passage ? `"${passage}"` : 'empty'}</div>
+                <div>Button enabled: {(!isGenerating && topic.trim() && passage.trim()).toString()}</div>
+              </div>
             </CardContent>
           </Card>
         ) : (
