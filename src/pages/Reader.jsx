@@ -241,24 +241,8 @@ export default function Reader() {
       const userData = await base44.auth.me();
       setUser(userData);
 
-      const devEmails = [
-        'buckeye7066@gmail.com',
-        'anyawhite@rocketmail.com',
-        'whiterobert1201@icloud.com',
-        'tishka1201@icloud.com'
-      ];
-
-      const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
-
-      const emailMatch = userData.email && devEmails.includes(userData.email.toLowerCase());
-      const phoneMatch = userData.phone && devPhones.some(p =>
-        userData.phone.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, ''))
-      );
-
       const premium = userData.subscription_tier === 'premium' ||
                       userData.premium_override === true ||
-                      emailMatch ||
-                      phoneMatch ||
                       (userData.premium_until && new Date(userData.premium_until) > new Date());
 
       setIsPremium(premium);

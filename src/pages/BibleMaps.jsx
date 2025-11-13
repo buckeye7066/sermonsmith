@@ -86,24 +86,8 @@ export default function BibleMaps() {
     fetchUser();
   }, []);
 
-  const devEmails = [
-    'buckeye7066@gmail.com',
-    'anyawhite@rocketmail.com',
-    'whiterobert1201@icloud.com',
-    'tishka1201@icloud.com'
-  ];
-  
-  const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
-  
-  const emailMatch = user?.email && devEmails.includes(user.email.toLowerCase());
-  const phoneMatch = user?.phone && devPhones.some(p => 
-    user.phone.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, ''))
-  );
-  
   const isPremium = user?.subscription_tier === 'premium' || 
                     user?.premium_override === true ||
-                    emailMatch ||
-                    phoneMatch ||
                     (user?.premium_until && new Date(user.premium_until) > new Date());
 
   const handleSearch = async () => {
