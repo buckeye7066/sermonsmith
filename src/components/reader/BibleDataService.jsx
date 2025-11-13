@@ -1,7 +1,10 @@
 /**
  * BibleDataService - Handles loading Bible data from static JSON files
  * This replaces the old database-based system with fast, local JSON files
+ * Data is hosted on GitHub and fetched as needed
  */
+
+const GITHUB_BASE_URL = 'https://buckeye7066.github.io/Bible-app';
 
 const BIBLE_BOOKS = [
   { name: "Genesis", chapters: 50 },
@@ -87,7 +90,7 @@ class BibleDataService {
     }
 
     try {
-      const response = await fetch('/bible/translations.json');
+      const response = await fetch(`${GITHUB_BASE_URL}/translations.json`);
       if (!response.ok) {
         throw new Error('Failed to load translations');
       }
@@ -102,7 +105,7 @@ class BibleDataService {
         name: "King James Version",
         language: "en",
         premium: false,
-        filename: "kjv-sample.json"
+        filename: "kjv.json"
       }];
     }
   }
@@ -125,7 +128,7 @@ class BibleDataService {
         throw new Error(`Translation ${translationId} not found`);
       }
 
-      const response = await fetch(`/bible/${translation.filename}`);
+      const response = await fetch(`${GITHUB_BASE_URL}/${translation.filename}`);
       if (!response.ok) {
         throw new Error(`Failed to load ${translationId}`);
       }
