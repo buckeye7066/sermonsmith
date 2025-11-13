@@ -23,6 +23,7 @@ import ChristianEthics from './pages/ChristianEthics';
 import PrayerGenerator from './pages/PrayerGenerator';
 import SystemDiagnostics from './pages/SystemDiagnostics';
 import WorkerMonitoring from './pages/WorkerMonitoring';
+import ImportStatus from './pages/ImportStatus';
 import Layout from './Layout.jsx';
 
 
@@ -52,6 +53,7 @@ export const PAGES = {
     "PrayerGenerator": PrayerGenerator,
     "SystemDiagnostics": SystemDiagnostics,
     "WorkerMonitoring": WorkerMonitoring,
+    "ImportStatus": ImportStatus,
 }
 
 export const pagesConfig = {
