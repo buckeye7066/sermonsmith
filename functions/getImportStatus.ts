@@ -31,12 +31,12 @@ Deno.serve(async (req) => {
     
     console.log(`[getImportStatus] Total verses fetched: ${allVerses.length}`);
     
-    // Group by translation - FIX: Access .data fields
+    // Group by translation
     const byTranslation = {};
     for (const verse of allVerses) {
-      const translationId = verse.data.translation_id;
-      const bookName = verse.data.book_name;
-      const chapter = verse.data.chapter;
+      const translationId = verse.translation_id;
+      const bookName = verse.book_name;
+      const chapter = verse.chapter;
       
       if (!byTranslation[translationId]) {
         byTranslation[translationId] = {
@@ -52,14 +52,14 @@ Deno.serve(async (req) => {
     
     console.log(`[getImportStatus] Processing ${Object.keys(byTranslation).length} translations with data`);
     
-    // Format results - FIX: Access trans.data.id
+    // Format results
     const results = [];
     for (const trans of translations) {
-      const transId = trans.data.id;
+      const transId = trans.id;
       const data = byTranslation[transId] || { verses: 0, chapters: new Set(), books: new Set() };
       results.push({
         id: transId,
-        name: trans.data.name,
+        name: trans.name,
         verses: data.verses,
         chapters: data.chapters.size,
         books: data.books.size,

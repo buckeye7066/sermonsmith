@@ -17,23 +17,23 @@ Deno.serve(async (req) => {
     // Format worker data
     const workerData = [];
     for (let i = 1; i <= 5; i++) {
-      const worker = workers.find(w => w.data.worker_id === i);
+      const worker = workers.find(w => w.worker_id === i);
       
       if (worker) {
         workerData.push({
-          workerId: worker.data.worker_id,
-          status: worker.data.status,
-          currentTranslation: worker.data.current_translation || null,
-          currentBook: worker.data.current_book || null,
-          currentChapter: worker.data.current_chapter || null,
-          translationsAssigned: worker.data.translations_assigned || [],
-          translationsCompleted: worker.data.translations_completed || [],
-          totalVerses: worker.data.total_verses_imported || 0,
-          totalChapters: worker.data.total_chapters_imported || 0,
-          startedAt: worker.data.started_at,
-          lastUpdate: worker.data.last_update,
-          errorMessage: worker.data.error_message || null,
-          progressPercentage: worker.data.progress_percentage || 0,
+          workerId: worker.worker_id,
+          status: worker.status,
+          currentTranslation: worker.current_translation || null,
+          currentBook: worker.current_book || null,
+          currentChapter: worker.current_chapter || null,
+          translationsAssigned: worker.translations_assigned || [],
+          translationsCompleted: worker.translations_completed || [],
+          totalVerses: worker.total_verses_imported || 0,
+          totalChapters: worker.total_chapters_imported || 0,
+          startedAt: worker.started_at,
+          lastUpdate: worker.last_update,
+          errorMessage: worker.error_message || null,
+          progressPercentage: worker.progress_percentage || 0,
           statusId: worker.id
         });
       } else {
