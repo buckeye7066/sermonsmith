@@ -100,6 +100,31 @@ export default function WorkerMonitoring() {
     );
   }
 
+  if (!status || !status.workers || !status.summary) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-8">
+        <Alert className="max-w-2xl mx-auto border-yellow-200 bg-yellow-50">
+          <AlertTriangle className="h-4 w-4 text-yellow-600" />
+          <AlertDescription className="text-yellow-800">
+            <p className="font-semibold">No worker data available</p>
+            <p className="text-sm mt-1">Workers haven't been started yet or data is loading.</p>
+            <div className="flex gap-2 mt-3">
+              <Button onClick={handleRefresh} variant="outline" size="sm">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh
+              </Button>
+              <Link to={createPageUrl('BulkImport')}>
+                <Button size="sm">
+                  Go to Bulk Import
+                </Button>
+              </Link>
+            </div>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   const { workers, summary } = status;
 
   return (
