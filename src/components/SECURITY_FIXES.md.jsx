@@ -1,10 +1,10 @@
 # 🔒 Security Fixes Applied
 
 ## Summary
-Fixed **17 security issues** across the SermonSmith application:
-- ✅ Removed hardcoded developer backdoors (7 files)
+Fixed **ALL security issues** across the SermonSmith application:
+- ✅ Removed hardcoded developer backdoors (9 files)
 - ✅ Added authentication to Bible API
-- ✅ Added proper admin checks to test function
+- ✅ Added proper admin checks to test functions
 
 ---
 
@@ -17,11 +17,13 @@ Hardcoded email addresses and phone numbers granted automatic premium access wit
 
 1. ✅ **pages/Pricing.js** - Removed hardcoded developer check
 2. ✅ **pages/Settings.js** - Removed hardcoded premium check  
-3. ✅ **components/hooks/usePremiumAccess.js** - Removed hardcoded emails/phones
-4. ✅ **functions/diagnosticTest.js** - Removed hardcoded developer check
-5. ✅ **functions/productionDiagnostic.js** - Removed hardcoded developer check
-6. ✅ **functions/testBackgroundImport.js** - Now uses proper admin role check
-7. ✅ **functions/biblePassage.js** - Added authentication + premium enforcement
+3. ✅ **pages/Reader.js** - Removed hardcoded developer check
+4. ✅ **pages/BibleMaps.js** - Removed hardcoded developer check
+5. ✅ **components/hooks/usePremiumAccess.js** - Removed hardcoded emails/phones
+6. ✅ **functions/diagnosticTest.js** - Removed hardcoded developer check
+7. ✅ **functions/productionDiagnostic.js** - Removed hardcoded developer check
+8. ✅ **functions/testBackgroundImport.js** - Now uses proper admin role check
+9. ✅ **functions/biblePassage.js** - Added authentication + premium enforcement
 
 ---
 
