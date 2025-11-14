@@ -23,6 +23,7 @@ import PrayerGenerator from './pages/PrayerGenerator';
 import SystemDiagnostics from './pages/SystemDiagnostics';
 import ImportStatus from './pages/ImportStatus';
 import BibleAPITest from './pages/BibleAPITest';
+import GrantAccess from './pages/GrantAccess';
 import Layout from './Layout.jsx';
 
 
@@ -52,6 +53,7 @@ export const PAGES = {
     "SystemDiagnostics": SystemDiagnostics,
     "ImportStatus": ImportStatus,
     "BibleAPITest": BibleAPITest,
+    "GrantAccess": GrantAccess,
 }
 
 export const pagesConfig = {
