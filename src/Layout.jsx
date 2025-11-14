@@ -200,12 +200,14 @@ export default function Layout({ children, currentPageName }) {
           </p>
         </div>
         <PWAInstallPrompt />
+        <EmbeddedBrowserDetector />
       </div>
     );
   }
 
   return (
     <SidebarProvider>
+      <EmbeddedBrowserDetector />
       <div className="flex h-screen bg-gray-50">
         <Sidebar className="border-r border-gray-200 hidden md:block">
           <SidebarHeader className="p-6 border-b border-gray-200">
@@ -278,6 +280,7 @@ export default function Layout({ children, currentPageName }) {
         </main>
       </div>
       <PWAInstallPrompt />
+      <EmbeddedBrowserDetector />
       <OnboardingWizard
         open={showOnboarding}
         onClose={() => {
