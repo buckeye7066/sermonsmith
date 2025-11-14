@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { usePremiumAccess } from './components/hooks/usePremiumAccess';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import OnboardingWizard from './components/profile/OnboardingWizard';
+import EmbeddedBrowserDetector from './components/EmbeddedBrowserDetector';
 
 export default function Layout({ children, currentPageName }) {
   const [user, setUser] = useState(null);
