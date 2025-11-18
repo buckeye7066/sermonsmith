@@ -21,6 +21,28 @@ Deno.serve(async (req) => {
 
     const results = [];
 
+    // Also grant access to Hailee Hopkins (troubleshooting helper - 423 315 9124)
+    try {
+      const haileeUsers = await base44.asServiceRole.entities.User.filter({ 
+        full_name: { $regex: "Hailee Hopkins", $options: "i" }
+      });
+      
+      for (const haileeUser of haileeUsers) {
+        await base44.asServiceRole.entities.User.update(haileeUser.id, {
+          premium_override: true,
+          subscription_tier: "premium"
+        });
+        results.push({
+          email: haileeUser.email,
+          status: "success",
+          message: "Premium access granted (Hailee Hopkins - 423 315 9124)",
+          user_id: haileeUser.id
+        });
+      }
+    } catch (e) {
+      console.log("Could not find/update Hailee Hopkins:", e.message);
+    }
+
     for (const email of familyEmails) {
       try {
         // Find user by email (case-insensitive)
