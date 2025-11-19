@@ -8,7 +8,7 @@ import { Loader2, Languages, BookOpen, X } from "lucide-react";
 import { toast } from "sonner";
 
 export default function VersionComparison({ book, chapter, onClose }) {
-  const [selectedVersions, setSelectedVersions] = useState(['KJV', 'ESV']);
+  const [selectedVersions, setSelectedVersions] = useState(['en-kjv', 'en-web']);
   const [availableTranslations, setAvailableTranslations] = useState([]);
   const [comparisonData, setComparisonData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -38,10 +38,19 @@ export default function VersionComparison({ book, chapter, onClose }) {
   const loadComparisonData = async () => {
     setIsLoading(true);
     try {
+      const { BOOK_NAME_TO_OSIS } = await import("../bible/bibleSources");
+      const bookCode = BOOK_NAME_TO_OSIS[book];
+      
+      if (!bookCode) {
+        toast.error('Invalid book name');
+        setIsLoading(false);
+        return;
+      }
+
       const dataPromises = selectedVersions.map(async (translationId) => {
-        const response = await base44.functions.invoke('getVerses', {
+        const response = await base44.functions.invoke('biblePassage', {
           translationId,
-          book,
+          bookCode,
           chapter
         });
         return {
