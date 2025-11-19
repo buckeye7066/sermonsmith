@@ -163,7 +163,8 @@ export default function Layout({ children, currentPageName }) {
     { name: 'Christian Ethics', icon: Scale, page: 'ChristianEthics' },
     { name: 'Community', icon: Users, page: 'Community', premium: true },
     { name: 'Worldview Explorer', icon: Globe, page: 'WorldviewExplorer', premium: true },
-    { name: 'Settings', icon: Settings, page: 'Settings' }
+    { name: 'Settings', icon: Settings, page: 'Settings' },
+    { name: 'Admin Users', icon: Users, page: 'AdminUsers', devOnly: true }
   ];
 
   if (loading || accessLoading) {

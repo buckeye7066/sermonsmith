@@ -362,27 +362,34 @@ Return the full adapted sermon in the same JSON format.`;
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (sermonToSave) => {
     if (!user) {
       toast.error("Please log in to save your sermon");
       return;
     }
 
+    const sermon = sermonToSave || generatedSermon;
+
     try {
       await base44.entities.Sermon.create({
         user_id: user.id,
-        title: generatedSermon.title,
-        topic: generatedSermon.topic,
-        anchor_passage: generatedSermon.anchor_passage,
-        big_idea: generatedSermon.big_idea,
-        points: generatedSermon.points,
+        title: sermon.title,
+        topic: sermon.topic,
+        anchor_passage: sermon.anchor_passage,
+        big_idea: sermon.big_idea,
+        points: sermon.points,
+        conclusion: sermon.conclusion,
+        theological_notes: sermon.theological_notes,
+        tone: sermon.tone,
+        audience: sermon.audience,
+        denomination: sermon.denomination,
         status: "draft"
       });
 
       toast.success("Sermon saved successfully!");
     } catch (error) {
       console.error("Save error:", error);
-      toast.error("Failed to save sermon");
+      toast.error("Failed to save sermon: " + (error.message || "Please try again"));
     }
   };
 
