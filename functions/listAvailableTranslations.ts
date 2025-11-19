@@ -16,14 +16,16 @@ Deno.serve(async (req) => {
 
     const translations = [
       {
-        id: "KJV",
+        id: "en-kjv",
         name: "King James Version",
+        language: "English",
         is_premium: false,
         available: true
       },
       {
-        id: "WEB",
+        id: "en-web",
         name: "World English Bible",
+        language: "English",
         is_premium: false,
         available: true
       }
@@ -31,7 +33,6 @@ Deno.serve(async (req) => {
 
     return Response.json({
       translations: translations,
-      isPremium,
       is_developer: user.premium_override === true
     });
 
