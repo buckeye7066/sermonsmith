@@ -25,6 +25,7 @@ import ImportStatus from './pages/ImportStatus';
 import BibleAPITest from './pages/BibleAPITest';
 import GrantAccess from './pages/GrantAccess';
 import GroupDetail from './pages/GroupDetail';
+import AdminUsers from './pages/AdminUsers';
 import __Layout from './Layout.jsx';
 
 
@@ -56,6 +57,7 @@ export const PAGES = {
     "BibleAPITest": BibleAPITest,
     "GrantAccess": GrantAccess,
     "GroupDetail": GroupDetail,
+    "AdminUsers": AdminUsers,
 }
 
 export const pagesConfig = {
