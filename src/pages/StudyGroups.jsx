@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Users, Plus, Calendar, BookOpen, Lock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
 
 export default function StudyGroups() {
   const [user, setUser] = useState(null);
@@ -268,7 +270,9 @@ export default function StudyGroups() {
                         <span>{group.member_count} members</span>
                       </div>
                     </div>
-                    <Button className="w-full mt-4" variant="outline">View Group</Button>
+                    <Link to={createPageUrl('GroupDetail') + '?id=' + group.id}>
+                      <Button className="w-full mt-4" variant="outline">View Group</Button>
+                    </Link>
                   </CardContent>
                 </Card>
               ))}
@@ -330,7 +334,9 @@ export default function StudyGroups() {
                       </div>
                     </div>
                     {isMember(group.id) ? (
-                      <Button className="w-full" variant="outline">View Group</Button>
+                      <Link to={createPageUrl('GroupDetail') + '?id=' + group.id}>
+                        <Button className="w-full" variant="outline">View Group</Button>
+                      </Link>
                     ) : (
                       <Button className="w-full" onClick={() => handleJoinGroup(group)}>
                         Join Group
