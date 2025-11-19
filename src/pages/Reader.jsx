@@ -26,7 +26,6 @@ import {
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "../utils";
-import { usePassage } from "../components/bible/usePassage";
 import { BOOK_NAME_TO_OSIS } from "../components/bible/bibleSources";
 
 import VerseCard from "../components/reader/VerseCard";
@@ -125,7 +124,7 @@ export default function Reader() {
   const [verses, setVerses] = useState([]);
   const [currentBook, setCurrentBook] = useState("Genesis");
   const [currentChapter, setCurrentChapter] = useState(1);
-  const [currentTranslation, setCurrentTranslation] = useState("KJV");
+  const [currentTranslation, setCurrentTranslation] = useState("en-kjv");
   const [highlights, setHighlights] = useState([]);
   const [notes, setNotes] = useState([]);
   const [user, setUser] = useState(null);
@@ -258,13 +257,15 @@ export default function Reader() {
     setIsOfflineMode(false);
 
     try {
+      // Get OSIS code for the book
       const bookCode = BOOK_NAME_TO_OSIS[currentBook];
       if (!bookCode) {
-        throw new Error(`Unknown book: ${currentBook}`);
+        throw new Error(`Book code not found for ${currentBook}`);
       }
 
+      // Call the new biblePassage backend function
       const response = await base44.functions.invoke('biblePassage', {
-        translationId: currentTranslation.toLowerCase() === 'kjv' ? 'en-kjv' : `en-${currentTranslation.toLowerCase()}`,
+        translationId: currentTranslation,
         bookCode: bookCode,
         chapter: currentChapter
       });
@@ -289,7 +290,7 @@ export default function Reader() {
         setIsOfflineMode(false);
       } else {
         setError({
-          message: `${currentBook} ${currentChapter} is not available in ${currentTranslation} yet. Try KJV or check back later.`,
+          message: `${currentBook} ${currentChapter} is not available in ${currentTranslation} yet.`,
           canRetry: false
         });
         setVerses([]);
