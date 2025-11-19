@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import PreferencesManager from "@/components/profile/PreferencesManager";
 import OnboardingWizard from "@/components/profile/OnboardingWizard";
+import ProfileEditor from "@/components/profile/ProfileEditor";
 
 export default function Settings() {
   const [user, setUser] = useState(null);
@@ -122,52 +123,7 @@ export default function Settings() {
           </TabsContent>
 
           <TabsContent value="profile">
-            <Card>
-              <CardHeader>
-                <CardTitle>Profile Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Name</p>
-                  <p className="text-lg font-medium mt-1">{user.full_name || 'Not set'}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Email</p>
-                  <p className="text-lg font-medium mt-1">{user.email}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Denomination</p>
-                  <p className="text-lg font-medium mt-1">{user.denomination || 'Not set'}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Member Since</p>
-                  <p className="text-lg font-medium mt-1">
-                    {new Date(user.created_date).toLocaleDateString('en-US', { 
-                      month: 'long', 
-                      year: 'numeric' 
-                    })}
-                  </p>
-                </div>
-
-                {user.study_preferences?.preferredAudience && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Primary Ministry</p>
-                    <Badge className="mt-1">{user.study_preferences.preferredAudience}</Badge>
-                  </div>
-                )}
-
-                {user.content_preferences?.favoriteTopics?.length > 0 && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Favorite Topics</p>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {user.content_preferences.favoriteTopics.slice(0, 10).map((topic, index) => (
-                        <Badge key={index} variant="secondary">{topic}</Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <ProfileEditor user={user} onUpdate={loadUser} />
           </TabsContent>
 
           <TabsContent value="subscription">
