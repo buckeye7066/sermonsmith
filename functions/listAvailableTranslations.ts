@@ -16,26 +16,23 @@ Deno.serve(async (req) => {
 
     const translations = [
       {
-        id: "en-kjv",
-        label: "King James Version (KJV)",
-        premium: false,
-        default: true
+        id: "KJV",
+        name: "King James Version",
+        is_premium: false,
+        available: true
       },
       {
-        id: "en-web",
-        label: "World English Bible (WEB)",
-        premium: false
+        id: "WEB",
+        name: "World English Bible",
+        is_premium: false,
+        available: true
       }
     ];
 
-    // Filter out premium translations if user is not premium
-    const availableTranslations = isPremium 
-      ? translations 
-      : translations.filter(t => !t.premium);
-
     return Response.json({
-      translations: availableTranslations,
-      isPremium
+      translations: translations,
+      isPremium,
+      is_developer: user.premium_override === true
     });
 
   } catch (error) {

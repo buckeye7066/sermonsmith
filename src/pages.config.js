@@ -24,7 +24,7 @@ import SystemDiagnostics from './pages/SystemDiagnostics';
 import ImportStatus from './pages/ImportStatus';
 import BibleAPITest from './pages/BibleAPITest';
 import GrantAccess from './pages/GrantAccess';
-import Layout from './Layout.jsx';
+import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
@@ -59,5 +59,5 @@ export const PAGES = {
 export const pagesConfig = {
     mainPage: "Reader",
     Pages: PAGES,
-    Layout: Layout,
+    Layout: __Layout,
 };

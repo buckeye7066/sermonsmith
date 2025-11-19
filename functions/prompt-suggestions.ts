@@ -9,7 +9,13 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { type } = await req.json();
+    let type = 'sermon';
+    try {
+      const body = await req.json();
+      type = body.type || 'sermon';
+    } catch (e) {
+      // If JSON parsing fails, use default
+    }
 
     const suggestions = {
       sermon: [

@@ -26,7 +26,8 @@ import {
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "../utils";
-import { bibleDataService } from "../components/reader/BibleDataService";
+import { usePassage } from "../components/bible/usePassage";
+import { BOOK_NAME_TO_OSIS } from "../components/bible/bibleSources";
 
 import VerseCard from "../components/reader/VerseCard";
 import HighlightDrawer from "../components/reader/HighlightDrawer";
@@ -257,15 +258,25 @@ export default function Reader() {
     setIsOfflineMode(false);
 
     try {
-      // Load from static Bible JSON files
-      const verses = await bibleDataService.getVerses(
-        currentTranslation,
-        currentBook,
-        currentChapter
-      );
+      const bookCode = BOOK_NAME_TO_OSIS[currentBook];
+      if (!bookCode) {
+        throw new Error(`Unknown book: ${currentBook}`);
+      }
+
+      const response = await base44.functions.invoke('biblePassage', {
+        translationId: currentTranslation.toLowerCase() === 'kjv' ? 'en-kjv' : `en-${currentTranslation.toLowerCase()}`,
+        bookCode: bookCode,
+        chapter: currentChapter
+      });
+
+      if (response.data.error) {
+        throw new Error(response.data.error);
+      }
+
+      const verses = response.data.verses || [];
 
       if (verses && verses.length > 0) {
-        const formattedVerses = verses.map((v, index) => ({
+        const formattedVerses = verses.map((v) => ({
           id: `${currentBook}-${currentChapter}-${v.verse}`,
           verse: v.verse,
           text: v.text,
@@ -286,7 +297,7 @@ export default function Reader() {
     } catch (error) {
       console.error("Error loading verses:", error);
       setError({
-        message: 'Failed to load verses. Please try again.',
+        message: error.message || 'Failed to load verses. Please try again.',
         canRetry: true
       });
       setVerses([]);
