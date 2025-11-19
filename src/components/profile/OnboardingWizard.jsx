@@ -25,12 +25,99 @@ import {
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 
-const DENOMINATIONS = [
-  "Non-Denominational", "Baptist", "Methodist", "Presbyterian", 
-  "Lutheran", "Pentecostal", "Anglican/Episcopal", "Catholic",
-  "Orthodox", "Assemblies of God", "Nazarene", "Reformed",
-  "Mennonite", "Amish"
-];
+const DENOMINATION_CATEGORIES = {
+  "Pentecostal": [
+    "Assemblies of God",
+    "Church of God (Cleveland, TN)",
+    "Church of God of Prophecy",
+    "Church of God in Christ (COGIC)",
+    "International Pentecostal Holiness Church",
+    "Pentecostal Assemblies of the World",
+    "United Pentecostal Church International",
+    "Foursquare Church",
+    "Other Pentecostal"
+  ],
+  "Baptist": [
+    "Southern Baptist",
+    "American Baptist",
+    "National Baptist",
+    "Progressive National Baptist",
+    "Freewill Baptist",
+    "Primitive Baptist",
+    "Independent Baptist",
+    "Missionary Baptist",
+    "Other Baptist"
+  ],
+  "Methodist": [
+    "United Methodist",
+    "African Methodist Episcopal (AME)",
+    "African Methodist Episcopal Zion (AME Zion)",
+    "Christian Methodist Episcopal (CME)",
+    "Free Methodist",
+    "Wesleyan",
+    "Other Methodist"
+  ],
+  "Church of Christ": [
+    "Church of Christ (a cappella)",
+    "Church of Christ (instrumental)",
+    "International Church of Christ",
+    "United Church of Christ",
+    "Other Church of Christ"
+  ],
+  "Presbyterian": [
+    "Presbyterian Church (USA)",
+    "Presbyterian Church in America (PCA)",
+    "Orthodox Presbyterian Church",
+    "Cumberland Presbyterian",
+    "Other Presbyterian"
+  ],
+  "Lutheran": [
+    "Evangelical Lutheran Church in America (ELCA)",
+    "Lutheran Church-Missouri Synod",
+    "Wisconsin Evangelical Lutheran Synod",
+    "Other Lutheran"
+  ],
+  "Anglican/Episcopal": [
+    "Episcopal Church",
+    "Anglican Church in North America (ACNA)",
+    "Other Anglican"
+  ],
+  "Catholic": [
+    "Roman Catholic",
+    "Eastern Catholic",
+    "Other Catholic"
+  ],
+  "Orthodox": [
+    "Eastern Orthodox",
+    "Greek Orthodox",
+    "Russian Orthodox",
+    "Other Orthodox"
+  ],
+  "Reformed": [
+    "Christian Reformed Church",
+    "Reformed Church in America",
+    "Dutch Reformed",
+    "Other Reformed"
+  ],
+  "Holiness": [
+    "Church of the Nazarene",
+    "Church of God (Anderson, IN)",
+    "Salvation Army",
+    "Pilgrim Holiness Church",
+    "Other Holiness"
+  ],
+  "Other": [
+    "Non-Denominational",
+    "Interdenominational",
+    "Seventh-day Adventist",
+    "Mennonite",
+    "Amish",
+    "Brethren",
+    "Church of the Brethren",
+    "Quaker (Friends)",
+    "Moravian"
+  ]
+};
 
 const SERMON_TONES = [
   { value: "teaching", label: "Teaching", icon: "📖", description: "Deep, expository" },
@@ -55,12 +142,13 @@ const POPULAR_TOPICS = [
 
 export default function OnboardingWizard({ open, onClose, user }) {
   const [step, setStep] = useState(1);
+  const [selectedCategory, setSelectedCategory] = useState("");
   const [preferences, setPreferences] = useState({
     denomination: user?.denomination || "",
     preferredSermonTone: "teaching",
     preferredAudience: "general",
     favoriteTopics: [],
-    defaultTranslation: "KJV"
+    defaultTranslation: "en-kjv"
   });
 
   const handleTopicToggle = (topic) => {
@@ -128,25 +216,67 @@ export default function OnboardingWizard({ open, onClose, user }) {
                   This helps us align AI content with your theological perspective
                 </p>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {DENOMINATIONS.map((denom) => (
-                  <Button
-                    key={denom}
-                    variant={preferences.denomination === denom ? 'default' : 'outline'}
-                    className="h-auto py-3"
-                    onClick={() => setPreferences(prev => ({ ...prev, denomination: denom }))}
-                  >
-                    {denom}
-                  </Button>
-                ))}
-              </div>
-              <div>
+              
+              {!selectedCategory ? (
+                // Step 1a: Category Selection
+                <>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Select your denomination family:</p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {Object.keys(DENOMINATION_CATEGORIES).map((category) => (
+                      <Button
+                        key={category}
+                        variant="outline"
+                        className="h-auto py-3"
+                        onClick={() => setSelectedCategory(category)}
+                      >
+                        {category}
+                      </Button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                // Step 1b: Specific Denomination Selection
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {selectedCategory} Denominations:
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedCategory("");
+                        setPreferences(prev => ({ ...prev, denomination: "" }));
+                      }}
+                    >
+                      ← Back to Categories
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                    {DENOMINATION_CATEGORIES[selectedCategory].map((denom) => (
+                      <Button
+                        key={denom}
+                        variant={preferences.denomination === denom ? 'default' : 'outline'}
+                        className="h-auto py-3 justify-start"
+                        onClick={() => setPreferences(prev => ({ ...prev, denomination: denom }))}
+                      >
+                        {denom}
+                      </Button>
+                    ))}
+                  </div>
+                </>
+              )}
+              
+              <div className="pt-4 border-t">
                 <Label htmlFor="custom-denom" className="text-sm">Or enter your own:</Label>
                 <Input
                   id="custom-denom"
                   placeholder="Type your denomination..."
                   value={preferences.denomination}
-                  onChange={(e) => setPreferences(prev => ({ ...prev, denomination: e.target.value }))}
+                  onChange={(e) => {
+                    setPreferences(prev => ({ ...prev, denomination: e.target.value }));
+                    setSelectedCategory("");
+                  }}
                 />
               </div>
             </div>
