@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -39,7 +38,9 @@ import SermonViewer from "@/components/library/SermonViewer";
 import ShareSermonDialog from "@/components/library/ShareSermonDialog";
 import ForkSermonDialog from "@/components/library/ForkSermonDialog";
 import RatingDialog from "@/components/library/RatingDialog";
-import ThematicLinker from "@/components/discovery/ThematicLinker"; // New import
+import ThematicLinker from "@/components/discovery/ThematicLinker";
+import SermonTagsNotesDialog from "@/components/library/SermonTagsNotesDialog";
+import SeriesManager from "@/components/library/SeriesManager";
 
 export default function SermonLibrary() {
   const [user, setUser] = useState(null);
@@ -51,6 +52,8 @@ export default function SermonLibrary() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState([]);
   const [selectedDenomination, setSelectedDenomination] = useState("all");
+  const [selectedSeries, setSelectedSeries] = useState("all");
+  const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [sortBy, setSortBy] = useState("popular");
   const [viewMode, setViewMode] = useState("sermons"); // sermons or series
   const [selectedSermon, setSelectedSermon] = useState(null); // Used for viewing, sharing, forking, rating
@@ -64,6 +67,8 @@ export default function SermonLibrary() {
   const [allTags, setAllTags] = useState([]);
   const [showThematicLinks, setShowThematicLinks] = useState(false);
   const [selectedForThematic, setSelectedForThematic] = useState(null);
+  const [showTagsNotesDialog, setShowTagsNotesDialog] = useState(false);
+  const [showSeriesManager, setShowSeriesManager] = useState(false);
 
   // Effect for initial user load
   useEffect(() => {
@@ -99,7 +104,7 @@ export default function SermonLibrary() {
   // Effect for filtering content locally
   useEffect(() => {
     filterContent();
-  }, [sermons, sharedSeries, searchQuery, selectedTags, selectedDenomination, viewMode]); // Removed sortBy because loadData now handles sort order for sermons
+  }, [sermons, sharedSeries, searchQuery, selectedTags, selectedDenomination, selectedSeries, dateRange, viewMode]); // Removed sortBy because loadData now handles sort order for sermons
 
   const loadUser = async () => {
     try {
@@ -153,23 +158,27 @@ export default function SermonLibrary() {
   const filterContent = () => {
     let results = viewMode === 'sermons' ? [...sermons] : [...sharedSeries]; // Use `sermons` state
 
-    // Search filter
+    // Search filter - enhanced with keywords
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       results = results.filter(item =>
         item.title?.toLowerCase().includes(query) ||
-        (item.series_title && item.series_title.toLowerCase().includes(query)) || // Check for series_title existence
+        (item.series_title && item.series_title.toLowerCase().includes(query)) ||
         item.topic?.toLowerCase().includes(query) ||
         item.big_idea?.toLowerCase().includes(query) ||
-        item.anchor_passage?.toLowerCase().includes(query)
+        item.anchor_passage?.toLowerCase().includes(query) ||
+        item.user_notes?.toLowerCase().includes(query) ||
+        item.user_tags?.some(tag => tag.toLowerCase().includes(query))
       );
     }
 
-    // Tags filter
+    // Tags filter - now includes user tags
     if (selectedTags.length > 0) {
       results = results.filter(item =>
         selectedTags.some(tag =>
-          item.ai_tags?.includes(tag) || item.style_tags?.includes(tag)
+          item.ai_tags?.includes(tag) || 
+          item.style_tags?.includes(tag) ||
+          item.user_tags?.includes(tag)
         )
       );
     }
@@ -177,6 +186,19 @@ export default function SermonLibrary() {
     // Denomination filter
     if (selectedDenomination !== 'all') {
       results = results.filter(item => item.denomination === selectedDenomination);
+    }
+
+    // Series filter
+    if (selectedSeries !== 'all') {
+      results = results.filter(item => item.series_id === selectedSeries);
+    }
+
+    // Date range filter
+    if (dateRange.start) {
+      results = results.filter(item => new Date(item.created_date) >= new Date(dateRange.start));
+    }
+    if (dateRange.end) {
+      results = results.filter(item => new Date(item.created_date) <= new Date(dateRange.end));
     }
 
     // IMPORTANT: Remove sorting for sermons, as `loadData` now fetches them pre-sorted by `sortBy`.
@@ -440,16 +462,28 @@ Be strategic and personalized.`;
           </Button>
 
           {user && (
-            <Button onClick={() => setShowShareDialog(true)}>
-              <Share2 className="w-4 h-4 mr-2" />
-              Share Sermon
-            </Button>
+            <>
+              <Button onClick={() => setShowSeriesManager(true)} variant="outline">
+                <Layers className="w-4 h-4 mr-2" />
+                Manage Series
+              </Button>
+              <Button onClick={() => setShowShareDialog(true)}>
+                <Share2 className="w-4 h-4 mr-2" />
+                Share Sermon
+              </Button>
+            </>
           )}
         </div>
 
-        {/* Filters */}
+        {/* Advanced Filters */}
         <Card className="mb-6">
-          <CardContent className="pt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="w-5 h-5" />
+              Advanced Filters
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="space-y-4">
               <div>
                 <Label className="mb-2 block">Filter by Tags</Label>
@@ -477,24 +511,84 @@ Be strategic and personalized.`;
                 )}
               </div>
 
-              <div>
-                <Label className="mb-2 block">Denomination</Label>
-                <Select value={selectedDenomination} onValueChange={setSelectedDenomination}>
-                  <SelectTrigger className="w-64">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Denominations</SelectItem>
-                    <SelectItem value="Baptist">Baptist</SelectItem>
-                    <SelectItem value="Methodist">Methodist</SelectItem>
-                    <SelectItem value="Presbyterian">Presbyterian</SelectItem>
-                    <SelectItem value="Pentecostal">Pentecostal</SelectItem>
-                    <SelectItem value="Lutheran">Lutheran</SelectItem>
-                    <SelectItem value="Catholic">Catholic</SelectItem>
-                    <SelectItem value="Non-Denominational">Non-Denominational</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label className="mb-2 block">Denomination</Label>
+                  <Select value={selectedDenomination} onValueChange={setSelectedDenomination}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Denominations</SelectItem>
+                      <SelectItem value="Baptist">Baptist</SelectItem>
+                      <SelectItem value="Methodist">Methodist</SelectItem>
+                      <SelectItem value="Presbyterian">Presbyterian</SelectItem>
+                      <SelectItem value="Pentecostal">Pentecostal</SelectItem>
+                      <SelectItem value="Lutheran">Lutheran</SelectItem>
+                      <SelectItem value="Catholic">Catholic</SelectItem>
+                      <SelectItem value="Non-Denominational">Non-Denominational</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="mb-2 block">Sermon Series</Label>
+                  <Select value={selectedSeries} onValueChange={setSelectedSeries}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Series</SelectItem>
+                      {mySermons
+                        .filter(s => s.series_id)
+                        .reduce((acc, s) => {
+                          if (!acc.find(x => x.series_id === s.series_id)) {
+                            acc.push(s);
+                          }
+                          return acc;
+                        }, [])
+                        .map((s) => (
+                          <SelectItem key={s.series_id} value={s.series_id}>
+                            Series {s.series_id.substring(0, 8)}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="mb-2 block">Date Range</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="date"
+                      value={dateRange.start}
+                      onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="date"
+                      value={dateRange.end}
+                      onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
               </div>
+
+              {(selectedTags.length > 0 || selectedDenomination !== 'all' || selectedSeries !== 'all' || dateRange.start || dateRange.end) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedTags([]);
+                    setSelectedDenomination('all');
+                    setSelectedSeries('all');
+                    setDateRange({ start: '', end: '' });
+                  }}
+                >
+                  Clear All Filters
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -698,6 +792,19 @@ Be strategic and personalized.`;
                           >
                             <Sparkles className="w-3 h-3" />
                           </Button>
+                          {user && sermon.user_id === user.id && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedSermon(sermon);
+                                setShowTagsNotesDialog(true);
+                              }}
+                              title="Edit tags & notes"
+                            >
+                              <FileText className="w-3 h-3" />
+                            </Button>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -850,15 +957,35 @@ Be strategic and personalized.`;
         )}
 
         {user && (
-          <ShareSermonDialog
-            open={showShareDialog}
-            onClose={() => {
-              setShowShareDialog(false);
-              loadData(); // Reload data after sharing
-            }}
-            user={user}
-            mySermons={mySermons}
-          />
+          <>
+            <ShareSermonDialog
+              open={showShareDialog}
+              onClose={() => {
+                setShowShareDialog(false);
+                loadData();
+              }}
+              user={user}
+              mySermons={mySermons}
+            />
+
+            <SermonTagsNotesDialog
+              open={showTagsNotesDialog}
+              onClose={() => {
+                setShowTagsNotesDialog(false);
+                setSelectedSermon(null);
+              }}
+              sermon={selectedSermon}
+              onSave={() => {
+                loadMySermons();
+              }}
+            />
+
+            <SeriesManager
+              open={showSeriesManager}
+              onClose={() => setShowSeriesManager(false)}
+              user={user}
+            />
+          </>
         )}
       </div>
     </div>
