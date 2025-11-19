@@ -28,6 +28,8 @@ export default function SeriesManager({ open, onClose, user }) {
     denomination: user?.denomination || ""
   });
   const [selectedSermons, setSelectedSermons] = useState([]);
+  const [showSeriesCollab, setShowSeriesCollab] = useState(false);
+  const [selectedSeries, setSelectedSeries] = useState(null);
 
   useEffect(() => {
     if (open && user) {

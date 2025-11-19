@@ -11,7 +11,7 @@ import {
   DialogHeader as ShadcnDialogHeader,
   DialogTitle as ShadcnDialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, Printer, Trash2, Loader2, Crown, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation, Users, MessageSquare } from "lucide-react";
+import { FileText, Printer, Trash2, Loader2, Crown, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation, Users, MessageSquare, Edit3 } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -518,6 +518,15 @@ export default function MySermons() {
                             <Presentation className="w-3 h-3 mr-1" />
                             Present
                           </Button>
+                          <Link to={createPageUrl('CollaborativeSermonEditor') + `?id=${sermon.id}`}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                            >
+                              <Edit3 className="w-3 h-3 mr-1" />
+                              Edit
+                            </Button>
+                          </Link>
                           <Button
                             variant="ghost"
                             size="sm"
