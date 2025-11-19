@@ -1,49 +1,9 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 
-// Bible source configurations
-const bibleSources = {
-  "en-kjv": {
-    label: "King James Version (KJV)",
-    remoteBaseUrl: "https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/en-kjv",
-    bookSlugMap: {
-      GEN: "genesis", EXO: "exodus", LEV: "leviticus", NUM: "numbers", DEU: "deuteronomy",
-      JOS: "joshua", JDG: "judges", RUT: "ruth", "1SA": "1-samuel", "2SA": "2-samuel",
-      "1KI": "1-kings", "2KI": "2-kings", "1CH": "1-chronicles", "2CH": "2-chronicles",
-      EZR: "ezra", NEH: "nehemiah", EST: "esther", JOB: "job", PSA: "psalms",
-      PRO: "proverbs", ECC: "ecclesiastes", SNG: "song-of-solomon", ISA: "isaiah",
-      JER: "jeremiah", LAM: "lamentations", EZK: "ezekiel", DAN: "daniel",
-      HOS: "hosea", JOL: "joel", AMO: "amos", OBA: "obadiah", JON: "jonah",
-      MIC: "micah", NAM: "nahum", HAB: "habakkuk", ZEP: "zephaniah", HAG: "haggai",
-      ZEC: "zechariah", MAL: "malachi", MAT: "matthew", MRK: "mark", LUK: "luke",
-      JHN: "john", ACT: "acts", ROM: "romans", "1CO": "1-corinthians", "2CO": "2-corinthians",
-      GAL: "galatians", EPH: "ephesians", PHP: "philippians", COL: "colossians",
-      "1TH": "1-thessalonians", "2TH": "2-thessalonians", "1TI": "1-timothy", "2TI": "2-timothy",
-      TIT: "titus", PHM: "philemon", HEB: "hebrews", JAS: "james", "1PE": "1-peter",
-      "2PE": "2-peter", "1JN": "1-john", "2JN": "2-john", "3JN": "3-john",
-      JUD: "jude", REV: "revelation"
-    }
-  },
-  "en-web": {
-    label: "World English Bible (WEB)",
-    remoteBaseUrl: "https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/en-web",
-    bookSlugMap: {
-      GEN: "genesis", EXO: "exodus", LEV: "leviticus", NUM: "numbers", DEU: "deuteronomy",
-      JOS: "joshua", JDG: "judges", RUT: "ruth", "1SA": "1-samuel", "2SA": "2-samuel",
-      "1KI": "1-kings", "2KI": "2-kings", "1CH": "1-chronicles", "2CH": "2-chronicles",
-      EZR: "ezra", NEH: "nehemiah", EST: "esther", JOB: "job", PSA: "psalms",
-      PRO: "proverbs", ECC: "ecclesiastes", SNG: "song-of-solomon", ISA: "isaiah",
-      JER: "jeremiah", LAM: "lamentations", EZK: "ezekiel", DAN: "daniel",
-      HOS: "hosea", JOL: "joel", AMO: "amos", OBA: "obadiah", JON: "jonah",
-      MIC: "micah", NAM: "nahum", HAB: "habakkuk", ZEP: "zephaniah", HAG: "haggai",
-      ZEC: "zechariah", MAL: "malachi", MAT: "matthew", MRK: "mark", LUK: "luke",
-      JHN: "john", ACT: "acts", ROM: "romans", "1CO": "1-corinthians", "2CO": "2-corinthians",
-      GAL: "galatians", EPH: "ephesians", PHP: "philippians", COL: "colossians",
-      "1TH": "1-thessalonians", "2TH": "2-thessalonians", "1TI": "1-timothy", "2TI": "2-timothy",
-      TIT: "titus", PHM: "philemon", HEB: "hebrews", JAS: "james", "1PE": "1-peter",
-      "2PE": "2-peter", "1JN": "1-john", "2JN": "2-john", "3JN": "3-john",
-      JUD: "jude", REV: "revelation"
-    }
-  }
+// Map translation IDs to bible-api.com identifiers
+const translationMap = {
+  "en-kjv": "kjv",
+  "en-web": "web"
 };
 
 Deno.serve(async (req) => {
@@ -57,32 +17,28 @@ Deno.serve(async (req) => {
 
     const { translationId, bookCode, chapter, verses } = await req.json();
 
-    const source = bibleSources[translationId || "en-kjv"];
-    if (!source) {
-      return Response.json({ error: 'Translation not found' }, { status: 404 });
-    }
-
-    const bookSlug = source.bookSlugMap[bookCode];
-    if (!bookSlug) {
-      return Response.json({ error: 'Invalid book code' }, { status: 400 });
-    }
-
-    const url = `${source.remoteBaseUrl}/${bookSlug}.json`;
+    const apiTranslationId = translationMap[translationId] || "kjv";
+    
+    // Fetch chapter data from bible-api.com
+    const url = `https://bible-api.com/data/${apiTranslationId}/${bookCode}/${chapter}`;
     
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Failed to fetch: ${response.statusText}`);
+      throw new Error(`Failed to fetch Bible data: ${response.statusText}`);
     }
 
     const data = await response.json();
-    const chapterData = data.chapters?.find(c => c.chapter === parseInt(chapter));
     
-    if (!chapterData) {
+    if (!data.verses || data.verses.length === 0) {
       return Response.json({ error: 'Chapter not found' }, { status: 404 });
     }
 
-    let verseData = chapterData.verses || [];
+    let verseData = data.verses.map(v => ({
+      verse: v.verse,
+      text: v.text
+    }));
     
+    // Filter to specific verses if requested
     if (verses) {
       const [start, end] = verses.includes('-') 
         ? verses.split('-').map(Number)
@@ -93,7 +49,7 @@ Deno.serve(async (req) => {
 
     return Response.json({
       reference: `${bookCode} ${chapter}${verses ? `:${verses}` : ''}`,
-      translationLabel: source.label,
+      translationLabel: translationId === "en-kjv" ? "King James Version (KJV)" : "World English Bible (WEB)",
       verses: verseData
     });
 
