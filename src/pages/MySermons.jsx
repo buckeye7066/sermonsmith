@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -6,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, Printer, Trash2, Loader2, Crown, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation } from "lucide-react";
+import { FileText, Printer, Trash2, Loader2, Crown, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation, Users, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -15,6 +14,8 @@ import CollectionManager from "@/components/resources/CollectionManager";
 import AdvancedSearch from "@/components/resources/AdvancedSearch";
 import SermonAdaptation from "@/components/sermon/SermonAdaptation";
 import PresentationMode from "@/components/sermon/PresentationMode";
+import CollaboratorManager from "@/components/collaboration/CollaboratorManager";
+import CommentPanel from "@/components/collaboration/CommentPanel";
 
 export default function MySermons() {
   const [searchParams] = useSearchParams();
@@ -34,6 +35,10 @@ export default function MySermons() {
   const [showAdaptDialog, setShowAdaptDialog] = useState(false);
   const [presentingSermon, setPresentingSermon] = useState(null);
   const [showPresentation, setShowPresentation] = useState(false);
+  const [showCollaborators, setShowCollaborators] = useState(false);
+  const [collaboratingSermon, setCollaboratingSermon] = useState(null);
+  const [showComments, setShowComments] = useState(false);
+  const [commentingSermon, setCommentingSermon] = useState(null);
 
   useEffect(() => {
     loadUser();
@@ -463,6 +468,28 @@ export default function MySermons() {
                           <Button
                             variant="outline"
                             size="sm"
+                            onClick={() => {
+                              setCollaboratingSermon(sermon);
+                              setShowCollaborators(true);
+                            }}
+                          >
+                            <Users className="w-3 h-3 mr-1" />
+                            Collab
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setCommentingSermon(sermon);
+                              setShowComments(true);
+                            }}
+                          >
+                            <MessageSquare className="w-3 h-3 mr-1" />
+                            Comments
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => handlePrint(sermon)}
                           >
                             <Printer className="w-3 h-3 mr-1" />
@@ -650,7 +677,53 @@ export default function MySermons() {
             }}
           />
         )}
+
+        {collaboratingSermon && (
+          <CollaboratorManager
+            open={showCollaborators}
+            onClose={() => {
+              setShowCollaborators(false);
+              setCollaboratingSermon(null);
+            }}
+            sermon={collaboratingSermon}
+            user={user}
+          />
+        )}
+
+        {commentingSermon && showComments && (
+          <Dialog open={showComments} onOpenChange={setShowComments}>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Comments: {commentingSermon.title}</DialogTitle>
+              </DialogHeader>
+              <CommentPanel sermon={commentingSermon} user={user} />
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </div>
   );
+}
+
+function Dialog({ open, onOpenChange, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-lg shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DialogContent({ children, className = "" }) {
+  return <div className={`p-6 ${className}`}>{children}</div>;
+}
+
+function DialogHeader({ children }) {
+  return <div className="mb-4">{children}</div>;
+}
+
+function DialogTitle({ children }) {
+  return <h2 className="text-xl font-semibold">{children}</h2>;
 }
