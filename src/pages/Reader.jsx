@@ -257,13 +257,11 @@ export default function Reader() {
     setIsOfflineMode(false);
 
     try {
-      // Get OSIS code for the book
       const bookCode = BOOK_NAME_TO_OSIS[currentBook];
       if (!bookCode) {
         throw new Error(`Book code not found for ${currentBook}`);
       }
 
-      // Call the new biblePassage backend function
       const response = await base44.functions.invoke('biblePassage', {
         translationId: currentTranslation,
         bookCode: bookCode,
