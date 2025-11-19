@@ -5,6 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog as ShadcnDialog,
+  DialogContent as ShadcnDialogContent,
+  DialogHeader as ShadcnDialogHeader,
+  DialogTitle as ShadcnDialogTitle,
+} from "@/components/ui/dialog";
 import { FileText, Printer, Trash2, Loader2, Crown, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation, Users, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router-dom";
@@ -691,39 +697,16 @@ export default function MySermons() {
         )}
 
         {commentingSermon && showComments && (
-          <Dialog open={showComments} onOpenChange={setShowComments}>
-            <DialogContent className="max-w-3xl">
-              <DialogHeader>
-                <DialogTitle>Comments: {commentingSermon.title}</DialogTitle>
-              </DialogHeader>
+          <ShadcnDialog open={showComments} onOpenChange={setShowComments}>
+            <ShadcnDialogContent className="max-w-3xl">
+              <ShadcnDialogHeader>
+                <ShadcnDialogTitle>Comments: {commentingSermon.title}</ShadcnDialogTitle>
+              </ShadcnDialogHeader>
               <CommentPanel sermon={commentingSermon} user={user} />
-            </DialogContent>
-          </Dialog>
+            </ShadcnDialogContent>
+          </ShadcnDialog>
         )}
       </div>
     </div>
   );
-}
-
-function Dialog({ open, onOpenChange, children }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function DialogContent({ children, className = "" }) {
-  return <div className={`p-6 ${className}`}>{children}</div>;
-}
-
-function DialogHeader({ children }) {
-  return <div className="mb-4">{children}</div>;
-}
-
-function DialogTitle({ children }) {
-  return <h2 className="text-xl font-semibold">{children}</h2>;
 }

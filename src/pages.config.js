@@ -26,6 +26,7 @@ import BibleAPITest from './pages/BibleAPITest';
 import GrantAccess from './pages/GrantAccess';
 import GroupDetail from './pages/GroupDetail';
 import AdminUsers from './pages/AdminUsers';
+import CollaborativeSermonEditor from './pages/CollaborativeSermonEditor';
 import __Layout from './Layout.jsx';
 
 
@@ -58,6 +59,7 @@ export const PAGES = {
     "GrantAccess": GrantAccess,
     "GroupDetail": GroupDetail,
     "AdminUsers": AdminUsers,
+    "CollaborativeSermonEditor": CollaborativeSermonEditor,
 }
 
 export const pagesConfig = {

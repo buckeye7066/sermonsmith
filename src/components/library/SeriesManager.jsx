@@ -12,9 +12,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Layers, Plus, Save, Trash2, GripVertical } from "lucide-react";
+import { Layers, Plus, Save, Trash2, GripVertical, Users } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+import SeriesCollabManager from "@/components/collaboration/SeriesCollabManager";
 
 export default function SeriesManager({ open, onClose, user }) {
   const [series, setSeries] = useState([]);
@@ -218,13 +219,26 @@ export default function SeriesManager({ open, onClose, user }) {
                             <Badge variant="outline">{series.status}</Badge>
                           </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteSeries(series.id)}
-                        >
-                          <Trash2 className="w-4 h-4 text-red-600" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setSelectedSeries(series);
+                              setShowSeriesCollab(true);
+                            }}
+                            title="Manage collaborators"
+                          >
+                            <Users className="w-4 h-4 text-indigo-600" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteSeries(series.id)}
+                          >
+                            <Trash2 className="w-4 h-4 text-red-600" />
+                          </Button>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -260,6 +274,19 @@ export default function SeriesManager({ open, onClose, user }) {
           </Button>
         </div>
       </DialogContent>
+
+      {selectedSeries && (
+        <SeriesCollabManager
+          open={showSeriesCollab}
+          onClose={() => {
+            setShowSeriesCollab(false);
+            setSelectedSeries(null);
+          }}
+          series={selectedSeries}
+          sermons={sermons.filter(s => s.series_id === selectedSeries.id)}
+          user={user}
+        />
+      )}
     </Dialog>
   );
 }
