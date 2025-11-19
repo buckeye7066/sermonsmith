@@ -11,12 +11,14 @@ import { usePremiumAccess } from './components/hooks/usePremiumAccess';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import OnboardingWizard from './components/profile/OnboardingWizard';
 import EmbeddedBrowserDetector from './components/EmbeddedBrowserDetector';
+import WhatsNewDialog, { CURRENT_VERSION } from './components/WhatsNewDialog';
 
 export default function Layout({ children, currentPageName }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const { isPremium, devOverride, loading: accessLoading } = usePremiumAccess();
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
 
   useEffect(() => {
     loadUser();
@@ -121,6 +123,12 @@ export default function Layout({ children, currentPageName }) {
       
       if (currentUser && !currentUser.onboarding_completed) {
         setTimeout(() => setShowOnboarding(true), 1000);
+      } else if (currentUser) {
+        // Check if user has seen the latest updates
+        const lastSeenVersion = currentUser.last_seen_version || "";
+        if (lastSeenVersion !== CURRENT_VERSION) {
+          setTimeout(() => setShowWhatsNew(true), 1500);
+        }
       }
     } catch (error) {
       console.log('User not logged in');
@@ -289,6 +297,20 @@ export default function Layout({ children, currentPageName }) {
           loadUser();
         }}
         user={user}
+      />
+      <WhatsNewDialog
+        open={showWhatsNew}
+        onClose={async () => {
+          setShowWhatsNew(false);
+          // Mark as seen
+          if (user) {
+            try {
+              await base44.auth.updateMe({ last_seen_version: CURRENT_VERSION });
+            } catch (error) {
+              console.error('Failed to update version:', error);
+            }
+          }
+        }}
       />
     </SidebarProvider>
   );
