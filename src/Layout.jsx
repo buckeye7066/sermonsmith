@@ -124,6 +124,18 @@ export default function Layout({ children, currentPageName }) {
       if (currentUser && !currentUser.onboarding_completed) {
         setTimeout(() => setShowOnboarding(true), 1000);
       } else if (currentUser) {
+        // Check for special message
+        if (currentUser.special_message) {
+          setTimeout(() => {
+            toast.success(currentUser.special_message, {
+              duration: 8000,
+              className: "text-lg"
+            });
+            // Clear the message after showing
+            base44.auth.updateMe({ special_message: null }).catch(() => {});
+          }, 1000);
+        }
+        
         // Check if user has seen the latest updates
         const lastSeenVersion = currentUser.last_seen_version || "";
         if (lastSeenVersion !== CURRENT_VERSION) {
