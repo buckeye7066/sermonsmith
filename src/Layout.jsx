@@ -172,6 +172,7 @@ export default function Layout({ children, currentPageName }) {
     { name: 'Bible Reader', icon: Book, page: 'Reader' },
     { name: 'Sermon Builder', icon: FileText, page: 'SermonBuilder' },
     { name: 'My Sermons', icon: FileText, page: 'MySermons' },
+    { name: 'Sermon Analytics', icon: Scale, page: 'SermonAnalytics' },
     { name: 'Sermon Library', icon: BookOpen, page: 'SermonLibrary' },
     { name: 'Bible Study', icon: GraduationCap, page: 'BibleStudy' },
     { name: 'My Studies', icon: GraduationCap, page: 'MyStudies' },

@@ -27,6 +27,7 @@ import GrantAccess from './pages/GrantAccess';
 import GroupDetail from './pages/GroupDetail';
 import AdminUsers from './pages/AdminUsers';
 import CollaborativeSermonEditor from './pages/CollaborativeSermonEditor';
+import SermonAnalytics from './pages/SermonAnalytics';
 import __Layout from './Layout.jsx';
 
 
@@ -60,6 +61,7 @@ export const PAGES = {
     "GroupDetail": GroupDetail,
     "AdminUsers": AdminUsers,
     "CollaborativeSermonEditor": CollaborativeSermonEditor,
+    "SermonAnalytics": SermonAnalytics,
 }
 
 export const pagesConfig = {
