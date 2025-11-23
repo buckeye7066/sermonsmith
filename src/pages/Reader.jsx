@@ -43,6 +43,7 @@ import VerseOfTheDay from "../components/reader/VerseOfTheDay";
 import CrossReferencePanel from "../components/reader/CrossReferencePanel";
 import ThematicLinker from "../components/discovery/ThematicLinker";
 import AIExplanation from "../components/reader/AIExplanation";
+import ReligiousViewpointsDialog from "../components/reader/ReligiousViewpointsDialog";
 
 const THEME_CLASSES = {
   light: { bg: 'bg-white', text: 'text-gray-900', card: 'bg-white' },
@@ -168,6 +169,8 @@ export default function Reader() {
   const [thematicVerse, setThematicVerse] = useState(null);
   const [showAIExplanation, setShowAIExplanation] = useState(false);
   const [aiExplainVerse, setAiExplainVerse] = useState(null);
+  const [showReligiousViewpoints, setShowReligiousViewpoints] = useState(false);
+  const [religiousViewpointsVerse, setReligiousViewpointsVerse] = useState(null);
 
   const verseRefs = useRef({});
 
@@ -575,6 +578,19 @@ export default function Reader() {
     setShowAIExplanation(true);
   };
 
+  const handleReligiousViewpoints = (verse) => {
+    if (!user) {
+      toast.error("Please log in to compare religious viewpoints");
+      return;
+    }
+    setReligiousViewpointsVerse({
+      ...verse,
+      book_name: currentBook,
+      chapter: currentChapter
+    });
+    setShowReligiousViewpoints(true);
+  };
+
   const getVerseHighlight = (verseId) => {
     return highlights.find(h => h.verse_id === verseId);
   };
@@ -838,6 +854,7 @@ export default function Reader() {
                       onCrossReference={handleCrossReference}
                       onDiscoverRelated={handleDiscoverRelated}
                       onAIExplain={handleAIExplain}
+                      onReligiousViewpoints={handleReligiousViewpoints}
                       showTranslate={isPremium}
                     />
                   </div>
@@ -944,6 +961,16 @@ export default function Reader() {
             setAiExplainVerse(null);
           }}
           verse={aiExplainVerse}
+          user={user}
+        />
+
+        <ReligiousViewpointsDialog
+          open={showReligiousViewpoints}
+          onClose={() => {
+            setShowReligiousViewpoints(false);
+            setReligiousViewpointsVerse(null);
+          }}
+          verse={religiousViewpointsVerse}
           user={user}
         />
         </div>

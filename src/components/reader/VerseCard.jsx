@@ -11,7 +11,8 @@ import {
   Share2,
   Link2,
   Sparkles,
-  Brain
+  Brain,
+  Scale
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -36,6 +37,7 @@ export default function VerseCard({
   onCrossReference,
   onDiscoverRelated,
   onAIExplain,
+  onReligiousViewpoints,
   showTranslate = false
 }) {
   const hasNotes = notes && notes.length > 0;
@@ -130,6 +132,18 @@ export default function VerseCard({
               title="AI Scripture Explanation"
             >
               <Brain className="w-4 h-4 text-purple-600" />
+            </Button>
+          )}
+          {onReligiousViewpoints && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hover:bg-indigo-100 dark:hover:bg-indigo-900"
+              onClick={() => onReligiousViewpoints(verse)}
+              aria-label="Religious Viewpoints"
+              title="Compare Religious Interpretations"
+            >
+              <Scale className="w-4 h-4 text-indigo-600" />
             </Button>
           )}
           {showTranslate && (
