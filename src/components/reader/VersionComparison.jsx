@@ -27,8 +27,8 @@ export default function VersionComparison({ book, chapter, onClose }) {
     try {
       const response = await base44.functions.invoke('listAvailableTranslations');
       if (response.data?.translations) {
-        const available = response.data.translations.filter(t => t.available);
-        setAvailableTranslations(available);
+        // Show all translations, not just available ones
+        setAvailableTranslations(response.data.translations);
       }
     } catch (error) {
       console.error('Failed to load translations:', error);
