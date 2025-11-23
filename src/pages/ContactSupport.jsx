@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquare, Send, Sparkles, Loader2, CheckCircle2, Mail } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { MessageSquare, Send, Sparkles, Loader2, CheckCircle2, Mail, Palette } from "lucide-react";
 import { toast } from "sonner";
 
 const MESSAGE_TYPES = [
@@ -26,6 +27,11 @@ export default function ContactSupport() {
   const [isSending, setIsSending] = useState(false);
   const [myMessages, setMyMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [theme, setTheme] = useState({
+    accentColor: 'indigo',
+    fontSize: 'medium',
+    fontFamily: 'sans'
+  });
 
   useEffect(() => {
     loadUser();
@@ -35,11 +41,27 @@ export default function ContactSupport() {
     try {
       const userData = await base44.auth.me();
       setUser(userData);
+      
+      // Load saved theme preferences
+      if (userData.message_theme) {
+        setTheme(userData.message_theme);
+      }
+      
       await loadMyMessages(userData.id);
     } catch (error) {
       console.error("Error loading user:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const saveThemePreference = async (newTheme) => {
+    try {
+      await base44.auth.updateMe({ message_theme: newTheme });
+      setTheme(newTheme);
+      toast.success("Theme saved!");
+    } catch (error) {
+      toast.error("Failed to save theme");
     }
   };
 
@@ -128,6 +150,29 @@ Return only the message text, nothing else.`;
     }
   };
 
+  const colorThemes = {
+    indigo: { bg: 'bg-indigo-600', hover: 'hover:bg-indigo-700', border: 'border-indigo-600', text: 'text-indigo-600', lightBg: 'bg-indigo-50' },
+    purple: { bg: 'bg-purple-600', hover: 'hover:bg-purple-700', border: 'border-purple-600', text: 'text-purple-600', lightBg: 'bg-purple-50' },
+    blue: { bg: 'bg-blue-600', hover: 'hover:bg-blue-700', border: 'border-blue-600', text: 'text-blue-600', lightBg: 'bg-blue-50' },
+    green: { bg: 'bg-green-600', hover: 'hover:bg-green-700', border: 'border-green-600', text: 'text-green-600', lightBg: 'bg-green-50' },
+    rose: { bg: 'bg-rose-600', hover: 'hover:bg-rose-700', border: 'border-rose-600', text: 'text-rose-600', lightBg: 'bg-rose-50' },
+    amber: { bg: 'bg-amber-600', hover: 'hover:bg-amber-700', border: 'border-amber-600', text: 'text-amber-600', lightBg: 'bg-amber-50' }
+  };
+
+  const fontSizes = {
+    small: 'text-sm',
+    medium: 'text-base',
+    large: 'text-lg'
+  };
+
+  const fontFamilies = {
+    sans: 'font-sans',
+    serif: 'font-serif',
+    mono: 'font-mono'
+  };
+
+  const currentTheme = colorThemes[theme.accentColor] || colorThemes.indigo;
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -150,17 +195,72 @@ Return only the message text, nothing else.`;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-4 md:p-8">
+    <div className={`min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-4 md:p-8 ${fontFamilies[theme.fontFamily]}`}>
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <MessageSquare className="w-8 h-8 text-indigo-600" />
-            Contact Dr. John White
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Send a message to the app creator
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className={`text-3xl font-bold flex items-center gap-2 ${fontSizes[theme.fontSize]}`}>
+              <MessageSquare className={`w-8 h-8 ${currentTheme.text}`} />
+              Contact Dr. John White
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">
+              Send a message to the app creator
+            </p>
+          </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon">
+                <Palette className="w-4 h-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80">
+              <div className="space-y-4">
+                <h3 className="font-semibold">Customize Appearance</h3>
+                
+                <div>
+                  <label className="text-sm font-medium">Accent Color</label>
+                  <div className="grid grid-cols-6 gap-2 mt-2">
+                    {Object.keys(colorThemes).map((color) => (
+                      <button
+                        key={color}
+                        onClick={() => saveThemePreference({ ...theme, accentColor: color })}
+                        className={`w-8 h-8 rounded-full ${colorThemes[color].bg} ${theme.accentColor === color ? 'ring-2 ring-offset-2 ring-gray-900' : ''}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Font Size</label>
+                  <Select value={theme.fontSize} onValueChange={(value) => saveThemePreference({ ...theme, fontSize: value })}>
+                    <SelectTrigger className="mt-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="small">Small</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="large">Large</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Font Style</label>
+                  <Select value={theme.fontFamily} onValueChange={(value) => saveThemePreference({ ...theme, fontFamily: value })}>
+                    <SelectTrigger className="mt-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sans">Sans Serif</SelectItem>
+                      <SelectItem value="serif">Serif</SelectItem>
+                      <SelectItem value="mono">Monospace</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
         {/* Compose Message */}
@@ -204,6 +304,7 @@ Return only the message text, nothing else.`;
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder="Describe your issue, request, or question in detail..."
                 rows={6}
+                className={fontSizes[theme.fontSize]}
               />
             </div>
 
@@ -224,7 +325,7 @@ Return only the message text, nothing else.`;
               <Button
                 onClick={handleSend}
                 disabled={isSending || !subject.trim() || !message.trim()}
-                className="flex items-center gap-2 ml-auto"
+                className={`flex items-center gap-2 ml-auto ${currentTheme.bg} ${currentTheme.hover} text-white`}
               >
                 {isSending ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
