@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
+import { logActivity } from "../components/admin/UserActivityLogger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -313,8 +314,14 @@ export default function Reader() {
         }));
 
         setVerses(formattedVerses);
-        setIsCached(true);
-        setIsOfflineMode(false);
+          setIsCached(true);
+          setIsOfflineMode(false);
+
+          // Log Bible reading
+          logActivity('bible_read', { 
+            page_name: 'Reader',
+            metadata: { book: currentBook, chapter: currentChapter, translation: currentTranslation }
+          });
       } else {
         setError({
           message: `${currentBook} ${currentChapter} is not available in ${currentTranslation} yet.`,
@@ -349,6 +356,9 @@ export default function Reader() {
 
   useEffect(() => {
     loadUser();
+    
+    // Log page view
+    logActivity('page_view', { page_name: 'Reader' });
     
     // Handle deep link parameters
     const params = new URLSearchParams(window.location.search);
@@ -483,7 +493,12 @@ export default function Reader() {
       
       // Immediately update local state for instant visual feedback
       setHighlights(prev => [...prev, created]);
-      
+
+      logActivity('highlight_added', {
+        page_name: 'Reader',
+        metadata: { book: currentBook, chapter: currentChapter, verse: selectedVerse.verse }
+      });
+
       toast.success(`Highlighted with ${color}!`);
       setShowHighlightDrawer(false);
       setSelectedVerse(null);
@@ -506,6 +521,11 @@ export default function Reader() {
         verse: selectedVerse.verse
       });
       toast.success("Note saved!");
+
+      logActivity('note_added', {
+        page_name: 'Reader',
+        metadata: { book: currentBook, chapter: currentChapter, verse: selectedVerse.verse }
+      });
 
       setShowNoteDrawer(false);
       loadUserData();
