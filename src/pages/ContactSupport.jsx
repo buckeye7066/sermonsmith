@@ -362,15 +362,15 @@ Return only the message text, nothing else.`;
                       <span className="capitalize">{msg.message_type.replace('_', ' ')}</span>
                     </div>
                     {msg.admin_response && (
-                      <div className="mt-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded border-l-4 border-indigo-600">
+                      <div className={`mt-3 p-3 ${currentTheme.lightBg} dark:bg-gray-800 rounded border-l-4 ${currentTheme.border}`}>
                         <div className="flex items-center gap-2 mb-2">
-                          <Mail className="w-4 h-4 text-indigo-600" />
-                          <span className="font-semibold text-sm text-indigo-900 dark:text-indigo-100">
+                          <Mail className={`w-4 h-4 ${currentTheme.text}`} />
+                          <span className={`font-semibold text-sm ${currentTheme.text}`}>
                             Dr. John White replied:
                           </span>
                         </div>
-                        <p className="text-sm text-indigo-800 dark:text-indigo-200">{msg.admin_response}</p>
-                        <p className="text-xs text-indigo-600 mt-2">
+                        <p className={`${fontSizes[theme.fontSize]} text-gray-700 dark:text-gray-300`}>{msg.admin_response}</p>
+                        <p className="text-xs text-gray-500 mt-2">
                           {new Date(msg.responded_at).toLocaleString()}
                         </p>
                       </div>
