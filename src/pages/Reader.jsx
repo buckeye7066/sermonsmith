@@ -42,6 +42,7 @@ import ShareMenu from "../components/reader/ShareMenu";
 import VerseOfTheDay from "../components/reader/VerseOfTheDay";
 import CrossReferencePanel from "../components/reader/CrossReferencePanel";
 import ThematicLinker from "../components/discovery/ThematicLinker";
+import AIExplanation from "../components/reader/AIExplanation";
 
 const THEME_CLASSES = {
   light: { bg: 'bg-white', text: 'text-gray-900', card: 'bg-white' },
@@ -165,6 +166,8 @@ export default function Reader() {
   const [crossRefVerse, setCrossRefVerse] = useState(null);
   const [showThematicLinker, setShowThematicLinker] = useState(false);
   const [thematicVerse, setThematicVerse] = useState(null);
+  const [showAIExplanation, setShowAIExplanation] = useState(false);
+  const [aiExplainVerse, setAiExplainVerse] = useState(null);
 
   const verseRefs = useRef({});
 
@@ -537,6 +540,19 @@ export default function Reader() {
     setShowThematicLinker(true);
   };
 
+  const handleAIExplain = (verse) => {
+    if (!user) {
+      toast.error("Please log in to use AI explanations");
+      return;
+    }
+    setAiExplainVerse({
+      ...verse,
+      book_name: currentBook,
+      chapter: currentChapter
+    });
+    setShowAIExplanation(true);
+  };
+
   const getVerseHighlight = (verseId) => {
     return highlights.find(h => h.verse_id === verseId);
   };
@@ -799,6 +815,7 @@ export default function Reader() {
                       onShareToCommunity={handleShareToCommunity}
                       onCrossReference={handleCrossReference}
                       onDiscoverRelated={handleDiscoverRelated}
+                      onAIExplain={handleAIExplain}
                       showTranslate={isPremium}
                     />
                   </div>
@@ -897,7 +914,17 @@ export default function Reader() {
           verse={crossRefVerse}
           onNavigate={handleJumpToVerse}
         />
-      </div>
-    </div>
-  );
-}
+
+        <AIExplanation
+          open={showAIExplanation}
+          onClose={() => {
+            setShowAIExplanation(false);
+            setAiExplainVerse(null);
+          }}
+          verse={aiExplainVerse}
+          user={user}
+        />
+        </div>
+        </div>
+        );
+        }

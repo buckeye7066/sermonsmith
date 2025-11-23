@@ -4,14 +4,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Languages, BookOpen, X } from "lucide-react";
+import { Loader2, Languages, BookOpen, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function VersionComparison({ book, chapter, onClose }) {
   const [selectedVersions, setSelectedVersions] = useState(['en-kjv', 'en-web']);
   const [availableTranslations, setAvailableTranslations] = useState([]);
   const [comparisonData, setComparisonData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [aiComparison, setAiComparison] = useState(null);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [selectedVerseForAI, setSelectedVerseForAI] = useState(null);
 
   useEffect(() => {
     loadAvailableTranslations();
@@ -83,6 +87,53 @@ export default function VersionComparison({ book, chapter, onClose }) {
       setSelectedVersions(selectedVersions.filter(v => v !== translationId));
     } else {
       toast.error('At least one version must be selected');
+    }
+  };
+
+  const generateAIComparison = async (verseIndex) => {
+    setIsGeneratingAI(true);
+    setSelectedVerseForAI(verseIndex);
+    
+    try {
+      const verseNumber = verseIndex + 1;
+      const versesText = comparisonData.map(data => {
+        const verse = data.verses[verseIndex];
+        return `**${data.translation?.name}** (${data.translation?.year}): "${verse?.text}"`;
+      }).join('\n\n');
+
+      const prompt = `Compare and contrast these Bible translations of ${book} ${chapter}:${verseNumber}
+
+${versesText}
+
+Provide:
+1. **Key Differences**: What are the main translation differences and why?
+2. **Linguistic Analysis**: Which words or phrases differ most significantly?
+3. **Theological Implications**: Do these differences affect meaning or interpretation?
+4. **Original Language Insight**: What does the Hebrew/Greek/Aramaic reveal?
+5. **Recommendation**: Which translation captures the meaning best for general readers?
+
+Be scholarly yet accessible. About 300-350 words.`;
+
+      const response = await base44.integrations.Core.InvokeLLM({
+        prompt,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            key_differences: { type: "string" },
+            linguistic_analysis: { type: "string" },
+            theological_implications: { type: "string" },
+            original_language: { type: "string" },
+            recommendation: { type: "string" }
+          }
+        }
+      });
+
+      setAiComparison({ verseIndex, analysis: response });
+    } catch (error) {
+      console.error("Error generating AI comparison:", error);
+      toast.error("Failed to generate AI comparison");
+    } finally {
+      setIsGeneratingAI(false);
     }
   };
 
@@ -179,12 +230,23 @@ export default function VersionComparison({ book, chapter, onClose }) {
               {comparisonData.length > 0 && comparisonData[0].verses.map((_, verseIndex) => {
                 const verseNumber = verseIndex + 1;
                 return (
-                  <div key={verseIndex} className="border-l-4 border-blue-500 pl-4">
-                    <div className="flex items-center gap-2 mb-3">
+                  <div key={verseIndex} className="border-l-4 border-blue-500 pl-4 space-y-4">
+                    <div className="flex items-center justify-between mb-3">
                       <Badge variant="outline" className="text-sm">
                         Verse {verseNumber}
                       </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => generateAIComparison(verseIndex)}
+                        disabled={isGeneratingAI || selectedVersions.length < 2}
+                        className="gap-2"
+                      >
+                        <Sparkles className="w-4 h-4 text-purple-500" />
+                        {isGeneratingAI && selectedVerseForAI === verseIndex ? "Analyzing..." : "AI Compare"}
+                      </Button>
                     </div>
+                    
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                       {comparisonData.map((data) => {
                         const verse = data.verses[verseIndex];
@@ -217,6 +279,60 @@ export default function VersionComparison({ book, chapter, onClose }) {
                         );
                       })}
                     </div>
+
+                    {aiComparison && aiComparison.verseIndex === verseIndex && (
+                      <Alert className="bg-purple-50 dark:bg-purple-900/20 border-purple-200">
+                        <Sparkles className="w-4 h-4 text-purple-600" />
+                        <AlertDescription>
+                          <div className="space-y-3 mt-2">
+                            <div>
+                              <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-1">
+                                🔍 Key Differences
+                              </h4>
+                              <p className="text-sm text-gray-700 dark:text-gray-300">
+                                {aiComparison.analysis.key_differences}
+                              </p>
+                            </div>
+                            
+                            <div>
+                              <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-1">
+                                📖 Linguistic Analysis
+                              </h4>
+                              <p className="text-sm text-gray-700 dark:text-gray-300">
+                                {aiComparison.analysis.linguistic_analysis}
+                              </p>
+                            </div>
+
+                            <div>
+                              <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-1">
+                                ⛪ Theological Implications
+                              </h4>
+                              <p className="text-sm text-gray-700 dark:text-gray-300">
+                                {aiComparison.analysis.theological_implications}
+                              </p>
+                            </div>
+
+                            <div>
+                              <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-1">
+                                🌍 Original Language Insight
+                              </h4>
+                              <p className="text-sm text-gray-700 dark:text-gray-300">
+                                {aiComparison.analysis.original_language}
+                              </p>
+                            </div>
+
+                            <div>
+                              <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-1">
+                                ✅ Recommendation
+                              </h4>
+                              <p className="text-sm text-gray-700 dark:text-gray-300">
+                                {aiComparison.analysis.recommendation}
+                              </p>
+                            </div>
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    )}
                   </div>
                 );
               })}
