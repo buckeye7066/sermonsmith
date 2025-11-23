@@ -29,6 +29,7 @@ import AdminUsers from './pages/AdminUsers';
 import CollaborativeSermonEditor from './pages/CollaborativeSermonEditor';
 import SermonAnalytics from './pages/SermonAnalytics';
 import StudyNotes from './pages/StudyNotes';
+import AdminAnalytics from './pages/AdminAnalytics';
 import __Layout from './Layout.jsx';
 
 
@@ -64,6 +65,7 @@ export const PAGES = {
     "CollaborativeSermonEditor": CollaborativeSermonEditor,
     "SermonAnalytics": SermonAnalytics,
     "StudyNotes": StudyNotes,
+    "AdminAnalytics": AdminAnalytics,
 }
 
 export const pagesConfig = {

@@ -3,14 +3,39 @@ import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Users, Search, Crown, Mail, Calendar, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { 
+  Users, 
+  Search, 
+  Crown, 
+  Mail, 
+  Calendar, 
+  Loader2, 
+  Trash2, 
+  Ban,
+  Activity,
+  AlertTriangle
+} from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [user, setUser] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [banConfirm, setBanConfirm] = useState(null);
+  const [selectedUserActivities, setSelectedUserActivities] = useState(null);
 
   useEffect(() => {
     loadCurrentUser();
@@ -44,6 +69,60 @@ export default function AdminUsers() {
       toast.error("Failed to load users");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const deleteUser = async (userId) => {
+    try {
+      await base44.entities.User.delete(userId);
+      toast.success("User deleted successfully");
+      setDeleteConfirm(null);
+      loadUsers();
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      toast.error("Failed to delete user");
+    }
+  };
+
+  const banUser = async (userId) => {
+    try {
+      await base44.entities.User.update(userId, { 
+        is_banned: true,
+        banned_at: new Date().toISOString()
+      });
+      toast.success("User banned successfully");
+      setBanConfirm(null);
+      loadUsers();
+    } catch (error) {
+      console.error("Error banning user:", error);
+      toast.error("Failed to ban user");
+    }
+  };
+
+  const unbanUser = async (userId) => {
+    try {
+      await base44.entities.User.update(userId, { 
+        is_banned: false,
+        banned_at: null
+      });
+      toast.success("User unbanned successfully");
+      loadUsers();
+    } catch (error) {
+      console.error("Error unbanning user:", error);
+      toast.error("Failed to unban user");
+    }
+  };
+
+  const viewUserActivity = async (userId, userEmail) => {
+    try {
+      const activities = await base44.entities.UserActivity.filter({ 
+        user_id: userId 
+      }, '-created_date', 100);
+      
+      setSelectedUserActivities({ email: userEmail, activities });
+    } catch (error) {
+      console.error("Error loading user activities:", error);
+      toast.error("Failed to load user activities");
     }
   };
 
@@ -160,13 +239,60 @@ export default function AdminUsers() {
                         </div>
                       </div>
                       
-                      <div className="text-right text-xs text-gray-500">
-                        <div>ID: {u.id?.substring(0, 8)}...</div>
-                        {u.onboarding_completed && (
-                          <Badge variant="secondary" className="mt-2">
-                            Onboarded
-                          </Badge>
-                        )}
+                      <div className="flex flex-col gap-2">
+                        <div className="text-right text-xs text-gray-500 mb-2">
+                          <div>ID: {u.id?.substring(0, 8)}...</div>
+                          {u.onboarding_completed && (
+                            <Badge variant="secondary" className="mt-2">
+                              Onboarded
+                            </Badge>
+                          )}
+                          {u.is_banned && (
+                            <Badge variant="destructive" className="mt-2">
+                              BANNED
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => viewUserActivity(u.id, u.email)}
+                            className="gap-1"
+                          >
+                            <Activity className="w-3 h-3" />
+                            Activity
+                          </Button>
+                          {u.is_banned ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => unbanUser(u.id)}
+                              className="gap-1"
+                            >
+                              Unban
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setBanConfirm(u)}
+                              className="gap-1 text-orange-600 hover:text-orange-700"
+                            >
+                              <Ban className="w-3 h-3" />
+                              Ban
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setDeleteConfirm(u)}
+                            className="gap-1 text-red-600 hover:text-red-700"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Delete
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -187,6 +313,97 @@ export default function AdminUsers() {
             </CardContent>
           </Card>
         )}
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+                Delete User?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete <strong>{deleteConfirm?.email}</strong>? 
+                This action cannot be undone. All their data will be permanently deleted.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => deleteUser(deleteConfirm?.id)}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                Delete User
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Ban Confirmation Dialog */}
+        <AlertDialog open={!!banConfirm} onOpenChange={() => setBanConfirm(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <Ban className="w-5 h-5 text-orange-600" />
+                Ban User?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to ban <strong>{banConfirm?.email}</strong>? 
+                They will not be able to access the app until unbanned.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => banUser(banConfirm?.id)}
+                className="bg-orange-600 hover:bg-orange-700"
+              >
+                Ban User
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* User Activity Dialog */}
+        <AlertDialog open={!!selectedUserActivities} onOpenChange={() => setSelectedUserActivities(null)}>
+          <AlertDialogContent className="max-w-3xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-indigo-600" />
+                Activity Log: {selectedUserActivities?.email}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Last 100 activities for this user
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="max-h-96 overflow-y-auto space-y-2">
+              {selectedUserActivities?.activities?.length > 0 ? (
+                selectedUserActivities.activities.map((activity) => (
+                  <div key={activity.id} className="border-b pb-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="font-medium text-sm">
+                          {activity.action_type.replace(/_/g, ' ')}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {activity.page_name && `Page: ${activity.page_name}`}
+                          {activity.resource_type && ` • ${activity.resource_type}`}
+                        </div>
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {new Date(activity.created_date).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-center text-gray-500 py-8">No activity recorded yet</p>
+              )}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Close</AlertDialogCancel>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
