@@ -412,13 +412,20 @@ export default function Reader() {
     }
   };
 
-  const handleHighlight = (verse) => {
+  const handleHighlight = (verse, color = null) => {
     if (!user) {
       toast.error("Please log in to save highlights");
       return;
     }
-    setSelectedVerse(verse);
-    setShowHighlightDrawer(true);
+    
+    if (color) {
+      // Direct highlight with color
+      saveHighlight(color, verse);
+    } else {
+      // Show drawer to choose color
+      setSelectedVerse(verse);
+      setShowHighlightDrawer(true);
+    }
   };
 
   const handleNote = (verse) => {
@@ -430,22 +437,23 @@ export default function Reader() {
     setShowNoteDrawer(true);
   };
 
-  const saveHighlight = async (color) => {
-    if (!selectedVerse || !user) return;
+  const saveHighlight = async (color, verse = null) => {
+    const verseToHighlight = verse || selectedVerse;
+    if (!verseToHighlight || !user) return;
 
     try {
       await base44.entities.Highlight.create({
         user_id: user.id,
-        verse_id: selectedVerse.id,
+        verse_id: verseToHighlight.id,
         color,
-        book_name: selectedVerse.book_name,
-        chapter: selectedVerse.chapter,
-        verse: selectedVerse.verse
+        book_name: verseToHighlight.book_name,
+        chapter: verseToHighlight.chapter,
+        verse: verseToHighlight.verse
       });
       toast.success("Highlight saved!");
 
       setShowHighlightDrawer(false);
-      loadUserData();
+      await loadUserData();
     } catch (error) {
       toast.error("Error saving highlight");
     }
