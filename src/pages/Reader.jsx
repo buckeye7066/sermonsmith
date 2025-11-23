@@ -472,7 +472,7 @@ export default function Reader() {
       // Ensure we have all required fields
       const verseId = selectedVerse.id || `${currentBook}-${currentChapter}-${selectedVerse.verse}`;
       
-      await base44.entities.Highlight.create({
+      const created = await base44.entities.Highlight.create({
         user_id: user.id,
         verse_id: verseId,
         color,
@@ -481,10 +481,12 @@ export default function Reader() {
         verse: selectedVerse.verse
       });
       
+      // Immediately update local state for instant visual feedback
+      setHighlights(prev => [...prev, created]);
+      
       toast.success(`Highlighted with ${color}!`);
       setShowHighlightDrawer(false);
       setSelectedVerse(null);
-      await loadUserData();
     } catch (error) {
       console.error("Highlight save error:", error);
       toast.error("Failed to save highlight");
