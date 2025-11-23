@@ -86,7 +86,7 @@ export default function VerseCard({
             variant="ghost"
             size="icon"
             className="h-8 w-8 hover:bg-yellow-100 dark:hover:bg-yellow-900"
-            onClick={() => onHighlight(verse, 'yellow')}
+            onClick={() => onHighlight(verse)}
             aria-label="Highlight verse"
           >
             <Highlighter className="w-4 h-4" />

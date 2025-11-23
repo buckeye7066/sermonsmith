@@ -442,20 +442,15 @@ export default function Reader() {
     }
   };
 
-  const handleHighlight = (verse, color = null) => {
+  const handleHighlight = (verse) => {
     if (!user) {
       toast.error("Please log in to save highlights");
       return;
     }
     
-    if (color) {
-      // Direct highlight with color
-      saveHighlight(color, verse);
-    } else {
-      // Show drawer to choose color
-      setSelectedVerse(verse);
-      setShowHighlightDrawer(true);
-    }
+    // Show drawer to choose color
+    setSelectedVerse(verse);
+    setShowHighlightDrawer(true);
   };
 
   const handleNote = (verse) => {
@@ -467,16 +462,15 @@ export default function Reader() {
     setShowNoteDrawer(true);
   };
 
-  const saveHighlight = async (color, verse = null) => {
-    const verseToHighlight = verse || selectedVerse;
-    if (!verseToHighlight || !user) {
+  const saveHighlight = async (color) => {
+    if (!selectedVerse || !user) {
       toast.error("Cannot save highlight - missing data");
       return;
     }
 
     try {
       // Ensure we have all required fields
-      const verseId = verseToHighlight.id || `${currentBook}-${currentChapter}-${verseToHighlight.verse}`;
+      const verseId = selectedVerse.id || `${currentBook}-${currentChapter}-${selectedVerse.verse}`;
       
       await base44.entities.Highlight.create({
         user_id: user.id,
@@ -484,11 +478,12 @@ export default function Reader() {
         color,
         book_name: currentBook,
         chapter: currentChapter,
-        verse: verseToHighlight.verse
+        verse: selectedVerse.verse
       });
       
-      toast.success("Highlight saved!");
+      toast.success(`Highlighted with ${color}!`);
       setShowHighlightDrawer(false);
+      setSelectedVerse(null);
       await loadUserData();
     } catch (error) {
       console.error("Highlight save error:", error);
