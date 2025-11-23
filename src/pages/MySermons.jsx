@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { logActivity } from "../components/admin/UserActivityLogger";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -48,6 +49,7 @@ export default function MySermons() {
 
   useEffect(() => {
     loadUser();
+    logActivity('page_view', { page_name: 'MySermons' });
     
     // Check for upgrade success
     const upgraded = searchParams.get('upgraded');
@@ -82,6 +84,14 @@ export default function MySermons() {
       const userSermons = await base44.entities.Sermon.filter({ user_id: user.id }, '-created_date');
       setSermons(userSermons);
       setFilteredSermons(userSermons);
+      
+      // Log viewing sermons list
+      if (userSermons.length > 0) {
+        logActivity('sermon_viewed', {
+          page_name: 'MySermons',
+          metadata: { count: userSermons.length }
+        });
+      }
     } catch (error) {
       console.error('Error loading sermons:', error);
       toast.error("Failed to load sermons");
@@ -142,6 +152,12 @@ export default function MySermons() {
   };
 
   const handlePrint = (sermon) => {
+    logActivity('export_pdf', {
+      page_name: 'MySermons',
+      resource_type: 'sermon',
+      resource_id: sermon.id
+    });
+    
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <html>
@@ -181,6 +197,11 @@ export default function MySermons() {
   };
 
   const handleAdvancedSearch = async (filters) => {
+    logActivity('search_performed', {
+      page_name: 'MySermons',
+      metadata: { filters }
+    });
+    
     let results = [...sermons];
 
     // Search term
