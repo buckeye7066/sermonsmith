@@ -1,6 +1,6 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { logActivity } from "../components/admin/UserActivityLogger";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -68,6 +68,7 @@ export default function BibleStudy() {
 
   useEffect(() => {
     loadUser();
+    logActivity('page_view', { page_name: 'BibleStudy' });
   }, []);
 
   const loadUser = async () => {

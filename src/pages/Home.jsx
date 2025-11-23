@@ -45,6 +45,7 @@ export default function Home() {
 
   useEffect(() => {
     loadUser();
+    logActivity('page_view', { page_name: 'Home' });
   }, []);
 
   const loadUser = async () => {

@@ -1,10 +1,28 @@
 import { base44 } from "@/api/base44Client";
 
+let currentUser = null;
+
+// Cache user to avoid repeated auth calls
+const getUser = async () => {
+  if (!currentUser) {
+    try {
+      currentUser = await base44.auth.me();
+    } catch (error) {
+      return null;
+    }
+  }
+  return currentUser;
+};
+
 export const logActivity = async (actionType, details = {}) => {
   try {
-    const user = await base44.auth.me();
+    const user = await getUser();
+    if (!user) {
+      console.log("No user logged in, skipping activity log");
+      return;
+    }
     
-    await base44.entities.UserActivity.create({
+    const activityData = {
       user_id: user.id,
       user_email: user.email,
       action_type: actionType,
@@ -12,11 +30,22 @@ export const logActivity = async (actionType, details = {}) => {
       resource_type: details.resource_type,
       resource_id: details.resource_id,
       metadata: details.metadata || {}
-    });
+    };
+    
+    console.log("Logging activity:", activityData);
+    
+    await base44.entities.UserActivity.create(activityData);
+    
+    console.log("Activity logged successfully");
   } catch (error) {
-    // Silent fail - don't disrupt user experience
-    console.log("Activity logging failed:", error);
+    // Log error but don't disrupt user experience
+    console.error("Activity logging failed:", error);
   }
+};
+
+// Reset user cache when needed (e.g., on logout)
+export const resetUserCache = () => {
+  currentUser = null;
 };
 
 export default logActivity;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { logActivity } from "../components/admin/UserActivityLogger";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,6 +21,7 @@ export default function Settings() {
 
   useEffect(() => {
     loadUser();
+    logActivity('page_view', { page_name: 'Settings' });
   }, []);
 
   const loadUser = async () => {
