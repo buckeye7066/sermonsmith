@@ -439,9 +439,22 @@ export default function Reader() {
 
   const saveHighlight = async (color, verse = null) => {
     const verseToHighlight = verse || selectedVerse;
-    if (!verseToHighlight || !user) return;
+    if (!verseToHighlight || !user) {
+      console.error("Missing verse or user:", { verse: verseToHighlight, user });
+      toast.error("Cannot save highlight - missing data");
+      return;
+    }
 
     try {
+      console.log("Saving highlight:", {
+        user_id: user.id,
+        verse_id: verseToHighlight.id,
+        color,
+        book_name: verseToHighlight.book_name,
+        chapter: verseToHighlight.chapter,
+        verse: verseToHighlight.verse
+      });
+      
       await base44.entities.Highlight.create({
         user_id: user.id,
         verse_id: verseToHighlight.id,
@@ -450,12 +463,13 @@ export default function Reader() {
         chapter: verseToHighlight.chapter,
         verse: verseToHighlight.verse
       });
+      
       toast.success("Highlight saved!");
-
       setShowHighlightDrawer(false);
       await loadUserData();
     } catch (error) {
-      toast.error("Error saving highlight");
+      console.error("Error saving highlight:", error);
+      toast.error("Error saving highlight: " + error.message);
     }
   };
 
