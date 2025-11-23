@@ -346,6 +346,30 @@ export default function Reader() {
 
   useEffect(() => {
     loadUser();
+    
+    // Handle deep link parameters
+    const params = new URLSearchParams(window.location.search);
+    const bookParam = params.get('book');
+    const chapterParam = params.get('chapter');
+    const verseParam = params.get('verse');
+    
+    if (bookParam && chapterParam) {
+      handleJumpToVerse(bookParam, parseInt(chapterParam), verseParam ? parseInt(verseParam) : null);
+    }
+    
+    // Handle shared content
+    const sharedContent = sessionStorage.getItem('sharedContent');
+    if (sharedContent) {
+      try {
+        const { text } = JSON.parse(sharedContent);
+        if (text) {
+          toast.info(`Shared: ${text.substring(0, 50)}...`);
+        }
+        sessionStorage.removeItem('sharedContent');
+      } catch (e) {
+        console.error('Failed to parse shared content');
+      }
+    }
   }, [loadUser]);
 
   useEffect(() => {

@@ -43,7 +43,7 @@ export default function Layout({ children, currentPageName }) {
       "name": "SermonSmith - AI Bible Study & Sermon Builder",
       "short_name": "SermonSmith",
       "description": "AI-Powered Bible Study, Sermon Builder, and Scripture Reader",
-      "start_url": "/",
+      "start_url": "/?source=pwa",
       "scope": "/",
       "display": "standalone",
       "orientation": "portrait-primary",
@@ -62,6 +62,44 @@ export default function Layout({ children, currentPageName }) {
           "sizes": "512x512",
           "type": "image/png",
           "purpose": "any maskable"
+        }
+      ],
+      "shortcuts": [
+        {
+          "name": "Bible Reader",
+          "short_name": "Read Bible",
+          "description": "Open Bible Reader",
+          "url": "/pages/Reader?source=shortcut",
+          "icons": [{ "src": "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png", "sizes": "192x192" }]
+        },
+        {
+          "name": "Sermon Builder",
+          "short_name": "New Sermon",
+          "description": "Create new sermon",
+          "url": "/pages/SermonBuilder?source=shortcut",
+          "icons": [{ "src": "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png", "sizes": "192x192" }]
+        },
+        {
+          "name": "Bible Study",
+          "short_name": "Study",
+          "description": "Create Bible study",
+          "url": "/pages/BibleStudy?source=shortcut",
+          "icons": [{ "src": "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png", "sizes": "192x192" }]
+        }
+      ],
+      "share_target": {
+        "action": "/pages/Reader?share=true",
+        "method": "GET",
+        "params": {
+          "title": "title",
+          "text": "text",
+          "url": "url"
+        }
+      },
+      "protocol_handlers": [
+        {
+          "protocol": "web+bible",
+          "url": "/pages/Reader?verse=%s"
         }
       ]
     };
@@ -114,7 +152,33 @@ export default function Layout({ children, currentPageName }) {
       viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
     }
 
-  }, []);
+    // Handle deep links from URL parameters
+    const handleDeepLink = () => {
+      const params = new URLSearchParams(window.location.search);
+      const verse = params.get('verse');
+      const share = params.get('share');
+
+      if (verse) {
+        // Parse verse reference like "John 3:16" and navigate
+        const match = verse.match(/(.+?)\s+(\d+):(\d+)/);
+        if (match) {
+          const [, book, chapter, verseNum] = match;
+          window.location.href = `/pages/Reader?book=${encodeURIComponent(book)}&chapter=${chapter}&verse=${verseNum}`;
+        }
+      }
+
+      if (share) {
+        const text = params.get('text');
+        const url = params.get('url');
+        if (text || url) {
+          sessionStorage.setItem('sharedContent', JSON.stringify({ text, url }));
+        }
+      }
+    };
+
+    handleDeepLink();
+
+    }, []);
 
   const loadUser = async () => {
     try {
