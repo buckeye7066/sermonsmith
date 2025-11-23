@@ -10,7 +10,8 @@ import {
   Languages,
   Share2,
   Link2,
-  Sparkles
+  Sparkles,
+  Brain
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -34,6 +35,7 @@ export default function VerseCard({
   onShareToCommunity,
   onCrossReference,
   onDiscoverRelated,
+  onAIExplain,
   showTranslate = false
 }) {
   const hasNotes = notes && notes.length > 0;
@@ -116,6 +118,18 @@ export default function VerseCard({
               title="Find Related Sermons & Verses"
             >
               <Sparkles className="w-4 h-4" />
+            </Button>
+          )}
+          {onAIExplain && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hover:bg-purple-100 dark:hover:bg-purple-900"
+              onClick={() => onAIExplain(verse)}
+              aria-label="AI Explanation"
+              title="AI Scripture Explanation"
+            >
+              <Brain className="w-4 h-4 text-purple-600" />
             </Button>
           )}
           {showTranslate && (
