@@ -20,19 +20,29 @@ export default function AIExplanation({ open, onClose, verse, user }) {
     setIsLoading(true);
     try {
       const userDenomination = user?.denomination || "general Christian";
-      const prompt = `Provide a clear, insightful explanation of this Bible verse from a ${userDenomination} perspective:
+      const preachingStyle = user?.preaching_style || "balanced";
+      const ministryFocus = user?.ministry_focus || [];
+      const audience = user?.primary_audience || "general";
+      
+      const focusContext = ministryFocus.length > 0 
+        ? ` with focus on ${ministryFocus.join(", ")}` 
+        : "";
+      
+      const prompt = `Provide a clear, insightful explanation of this Bible verse from a ${userDenomination} perspective, using a ${preachingStyle} teaching style${focusContext}:
 
 "${verse.text}"
 - ${verse.book_name} ${verse.chapter}:${verse.verse}
 
+Tailor this explanation for: ${audience}
+
 Include:
 1. **Historical Context**: What was happening when this was written?
 2. **Meaning**: What does this verse mean in its original context?
-3. **Application**: How can this apply to daily life today?
-4. **Key Insights**: Important theological or spiritual insights
+3. **Application**: How can this apply to daily life today? Make this practical for ${audience}.
+4. **Key Insights**: Important theological or spiritual insights from a ${userDenomination} viewpoint
 5. **Cross References**: Brief mention of related verses
 
-Keep it accessible, encouraging, and practical. About 250-300 words.`;
+Keep it accessible, encouraging, and practical in a ${preachingStyle} tone. About 250-300 words.`;
 
       const response = await base44.integrations.Core.InvokeLLM({
         prompt,
