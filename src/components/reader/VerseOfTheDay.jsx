@@ -109,7 +109,7 @@ Make it warm, personal, and actionable.`;
   };
 
   const handleShare = () => {
-    const text = `📖 Verse of the Day\n\n"${verse.text}"\n- ${verse.reference}\n\n${devotional.reflection.substring(0, 200)}...\n\nvia SermonSmith`;
+    const text = `📖 Verse of the Day\n\n${verse.text}\n- ${verse.reference}\n\n${devotional.reflection.substring(0, 200)}...\n\nvia SermonSmith`;
     
     if (navigator.share) {
       navigator.share({ text }).catch(() => {
@@ -157,7 +157,7 @@ Make it warm, personal, and actionable.`;
           {/* The Verse */}
           <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur p-6 rounded-lg border border-indigo-200 dark:border-indigo-800">
             <p className="text-xl md:text-2xl font-serif italic text-gray-800 dark:text-gray-200 leading-relaxed mb-3">
-              "{verse.text}"
+              {verse.text}
             </p>
             <p className="text-right text-indigo-600 dark:text-indigo-400 font-semibold">
               - {verse.reference}
