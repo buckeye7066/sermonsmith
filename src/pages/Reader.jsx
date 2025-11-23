@@ -122,8 +122,18 @@ const BIBLE_BOOKS = [
 
 export default function Reader() {
   const [verses, setVerses] = useState([]);
-  const [currentBook, setCurrentBook] = useState("Genesis");
-  const [currentChapter, setCurrentChapter] = useState(1);
+  const [currentBook, setCurrentBook] = useState(() => {
+    // Validate and load from localStorage
+    const saved = localStorage.getItem('lastReadBook');
+    if (saved && BIBLE_BOOKS.find(b => b.name === saved)) {
+      return saved;
+    }
+    return "Genesis";
+  });
+  const [currentChapter, setCurrentChapter] = useState(() => {
+    const saved = parseInt(localStorage.getItem('lastReadChapter'));
+    return saved > 0 ? saved : 1;
+  });
   const [currentTranslation, setCurrentTranslation] = useState("en-kjv");
   const [highlights, setHighlights] = useState([]);
   const [notes, setNotes] = useState([]);
@@ -257,6 +267,16 @@ export default function Reader() {
     setIsOfflineMode(false);
 
     try {
+      // Validate currentBook before proceeding
+      if (!currentBook || !BIBLE_BOOKS.find(b => b.name === currentBook)) {
+        console.error(`Invalid book: ${currentBook}, resetting to Genesis`);
+        setCurrentBook("Genesis");
+        setCurrentChapter(1);
+        localStorage.setItem('lastReadBook', 'Genesis');
+        localStorage.setItem('lastReadChapter', '1');
+        return;
+      }
+
       const bookCode = BOOK_NAME_TO_OSIS[currentBook];
       if (!bookCode) {
         throw new Error(`Book code not found for ${currentBook}`);
@@ -332,12 +352,16 @@ export default function Reader() {
 
   const navigateChapter = (direction) => {
     const currentBookInfo = BIBLE_BOOKS.find(b => b.name === currentBook);
-    if (!currentBookInfo) return; // Should ideally not happen if BIBLE_BOOKS is complete
+    if (!currentBookInfo) return;
 
     if (direction === 'prev' && currentChapter > 1) {
-      setCurrentChapter(currentChapter - 1);
+      const newChapter = currentChapter - 1;
+      setCurrentChapter(newChapter);
+      localStorage.setItem('lastReadChapter', newChapter.toString());
     } else if (direction === 'next' && currentChapter < currentBookInfo.chapters) {
-      setCurrentChapter(currentChapter + 1);
+      const newChapter = currentChapter + 1;
+      setCurrentChapter(newChapter);
+      localStorage.setItem('lastReadChapter', newChapter.toString());
     }
   };
 
@@ -347,17 +371,29 @@ export default function Reader() {
     if (direction === 'prev' && currentBookIndex > 0) {
       const prevBook = BIBLE_BOOKS[currentBookIndex - 1];
       setCurrentBook(prevBook.name);
-      setCurrentChapter(1); // Start at chapter 1 of the new book
+      setCurrentChapter(1);
+      localStorage.setItem('lastReadBook', prevBook.name);
+      localStorage.setItem('lastReadChapter', '1');
     } else if (direction === 'next' && currentBookIndex < BIBLE_BOOKS.length - 1) {
       const nextBook = BIBLE_BOOKS[currentBookIndex + 1];
       setCurrentBook(nextBook.name);
-      setCurrentChapter(1); // Start at chapter 1 of the new book
+      setCurrentChapter(1);
+      localStorage.setItem('lastReadBook', nextBook.name);
+      localStorage.setItem('lastReadChapter', '1');
     }
   };
 
   const handleJumpToVerse = (book, chapter, verse) => {
-    setCurrentBook(book);
-    setCurrentChapter(chapter);
+    // Validate book name
+    if (book && BIBLE_BOOKS.find(b => b.name === book)) {
+      setCurrentBook(book);
+      localStorage.setItem('lastReadBook', book);
+    }
+    
+    if (chapter && chapter > 0) {
+      setCurrentChapter(chapter);
+      localStorage.setItem('lastReadChapter', chapter.toString());
+    }
 
     if (verse) {
       setTimeout(() => {
