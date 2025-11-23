@@ -118,6 +118,30 @@ Deno.serve(async (req) => {
         year: "1876",
         is_premium: true,
         available: isPremium
+      },
+      {
+        id: "he-wlc",
+        name: "Westminster Leningrad Codex (Hebrew OT)",
+        language: "he",
+        year: "1008",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "el-grk",
+        name: "Greek New Testament (Textus Receptus)",
+        language: "el",
+        year: "1550",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "arc-peshitta",
+        name: "Peshitta (Aramaic)",
+        language: "arc",
+        year: "200",
+        is_premium: true,
+        available: isPremium
       }
     ];
 
