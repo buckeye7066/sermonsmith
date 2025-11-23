@@ -12,7 +12,8 @@ import {
   Link2,
   Sparkles,
   Brain,
-  Scale
+  Scale,
+  BookOpen
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -38,6 +39,7 @@ export default function VerseCard({
   onDiscoverRelated,
   onAIExplain,
   onReligiousViewpoints,
+  onStudyTools,
   showTranslate = false
 }) {
   const hasNotes = notes && notes.length > 0;
@@ -144,6 +146,18 @@ export default function VerseCard({
               title="Compare Religious Interpretations"
             >
               <Scale className="w-4 h-4 text-indigo-600" />
+            </Button>
+          )}
+          {onStudyTools && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hover:bg-emerald-100 dark:hover:bg-emerald-900"
+              onClick={() => onStudyTools(verse)}
+              aria-label="Study Tools"
+              title="Bible Study Tools"
+            >
+              <BookOpen className="w-4 h-4 text-emerald-600" />
             </Button>
           )}
           {showTranslate && (

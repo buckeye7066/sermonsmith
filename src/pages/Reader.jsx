@@ -44,6 +44,7 @@ import CrossReferencePanel from "../components/reader/CrossReferencePanel";
 import ThematicLinker from "../components/discovery/ThematicLinker";
 import AIExplanation from "../components/reader/AIExplanation";
 import ReligiousViewpointsDialog from "../components/reader/ReligiousViewpointsDialog";
+import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 
 const THEME_CLASSES = {
   light: { bg: 'bg-white', text: 'text-gray-900', card: 'bg-white' },
@@ -171,6 +172,8 @@ export default function Reader() {
   const [aiExplainVerse, setAiExplainVerse] = useState(null);
   const [showReligiousViewpoints, setShowReligiousViewpoints] = useState(false);
   const [religiousViewpointsVerse, setReligiousViewpointsVerse] = useState(null);
+  const [showStudyTools, setShowStudyTools] = useState(false);
+  const [studyToolsVerse, setStudyToolsVerse] = useState(null);
 
   const verseRefs = useRef({});
 
@@ -615,6 +618,19 @@ export default function Reader() {
     setShowReligiousViewpoints(true);
   };
 
+  const handleStudyTools = (verse) => {
+    if (!user) {
+      toast.error("Please log in to use study tools");
+      return;
+    }
+    setStudyToolsVerse({
+      ...verse,
+      book_name: currentBook,
+      chapter: currentChapter
+    });
+    setShowStudyTools(true);
+  };
+
   const getVerseHighlight = (verseId) => {
     return highlights.find(h => h.verse_id === verseId);
   };
@@ -879,6 +895,7 @@ export default function Reader() {
                       onDiscoverRelated={handleDiscoverRelated}
                       onAIExplain={handleAIExplain}
                       onReligiousViewpoints={handleReligiousViewpoints}
+                      onStudyTools={handleStudyTools}
                       showTranslate={isPremium}
                     />
                   </div>
@@ -995,6 +1012,16 @@ export default function Reader() {
             setReligiousViewpointsVerse(null);
           }}
           verse={religiousViewpointsVerse}
+          user={user}
+        />
+
+        <StudyToolsPanel
+          open={showStudyTools}
+          onClose={() => {
+            setShowStudyTools(false);
+            setStudyToolsVerse(null);
+          }}
+          verse={studyToolsVerse}
           user={user}
         />
         </div>
