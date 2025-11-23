@@ -12,39 +12,86 @@ import { Badge } from "@/components/ui/badge";
 import { Search, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+const BIBLE_BOOKS = [
+  "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth",
+  "1 Samuel", "2 Samuel", "1 Kings", "2 Kings", "1 Chronicles", "2 Chronicles", "Ezra",
+  "Nehemiah", "Esther", "Job", "Psalms", "Proverbs", "Ecclesiastes", "Song of Solomon",
+  "Isaiah", "Jeremiah", "Lamentations", "Ezekiel", "Daniel", "Hosea", "Joel", "Amos",
+  "Obadiah", "Jonah", "Micah", "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah",
+  "Malachi", "Matthew", "Mark", "Luke", "John", "Acts", "Romans", "1 Corinthians",
+  "2 Corinthians", "Galatians", "Ephesians", "Philippians", "Colossians", "1 Thessalonians",
+  "2 Thessalonians", "1 Timothy", "2 Timothy", "Titus", "Philemon", "Hebrews", "James",
+  "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
+];
+
+const normalizeBookName = (input) => {
+  const normalized = input.trim();
+  
+  // Direct match
+  const directMatch = BIBLE_BOOKS.find(b => b.toLowerCase() === normalized.toLowerCase());
+  if (directMatch) return directMatch;
+  
+  // Partial match (starts with)
+  const partialMatch = BIBLE_BOOKS.find(b => b.toLowerCase().startsWith(normalized.toLowerCase()));
+  if (partialMatch) return partialMatch;
+  
+  // Handle common abbreviations
+  const abbrevMap = {
+    'gen': 'Genesis', 'exo': 'Exodus', 'lev': 'Leviticus', 'num': 'Numbers', 'deut': 'Deuteronomy',
+    'josh': 'Joshua', 'judg': 'Judges', 'sam': '1 Samuel', '1sam': '1 Samuel', '2sam': '2 Samuel',
+    'kings': '1 Kings', '1kings': '1 Kings', '2kings': '2 Kings', 'chron': '1 Chronicles',
+    '1chron': '1 Chronicles', '2chron': '2 Chronicles', 'neh': 'Nehemiah', 'esth': 'Esther',
+    'ps': 'Psalms', 'psalm': 'Psalms', 'prov': 'Proverbs', 'eccl': 'Ecclesiastes', 'song': 'Song of Solomon',
+    'isa': 'Isaiah', 'jer': 'Jeremiah', 'lam': 'Lamentations', 'ezek': 'Ezekiel', 'dan': 'Daniel',
+    'hos': 'Hosea', 'obad': 'Obadiah', 'jon': 'Jonah', 'mic': 'Micah', 'nah': 'Nahum',
+    'hab': 'Habakkuk', 'zeph': 'Zephaniah', 'hag': 'Haggai', 'zech': 'Zechariah', 'mal': 'Malachi',
+    'matt': 'Matthew', 'mat': 'Matthew', 'mk': 'Mark', 'lk': 'Luke', 'jn': 'John',
+    'rom': 'Romans', 'cor': '1 Corinthians', '1cor': '1 Corinthians', '2cor': '2 Corinthians',
+    'gal': 'Galatians', 'eph': 'Ephesians', 'phil': 'Philippians', 'col': 'Colossians',
+    'thess': '1 Thessalonians', '1thess': '1 Thessalonians', '2thess': '2 Thessalonians',
+    'tim': '1 Timothy', '1tim': '1 Timothy', '2tim': '2 Timothy', 'tit': 'Titus',
+    'philem': 'Philemon', 'heb': 'Hebrews', 'jas': 'James', 'jam': 'James',
+    'pet': '1 Peter', '1pet': '1 Peter', '2pet': '2 Peter', 'joh': '1 John',
+    '1joh': '1 John', '2joh': '2 John', '3joh': '3 John', 'rev': 'Revelation'
+  };
+  
+  const abbrevMatch = abbrevMap[normalized.toLowerCase()];
+  if (abbrevMatch) return abbrevMatch;
+  
+  return null;
+};
+
 export default function SearchDialog({ open, onClose, onSelectVerse, currentTranslation }) {
   const [searchQuery, setSearchQuery] = useState("");
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
-      // Parse search query for verse reference (e.g., "John 3:16")
-      const verseMatch = searchQuery.match(/(\d?\s?[A-Za-z]+)\s+(\d+):(\d+)/);
-      
-      if (verseMatch) {
-        const book = verseMatch[1].trim();
-        const chapter = parseInt(verseMatch[2]);
-        const verse = parseInt(verseMatch[3]);
-        
-        onSelectVerse(book, chapter, verse);
-        onClose();
-        setSearchQuery("");
-      }
+      handleSearch();
     }
   };
 
   const handleSearch = () => {
     if (!searchQuery.trim()) return;
     
-    const verseMatch = searchQuery.match(/(\d?\s?[A-Za-z]+)\s+(\d+):(\d+)/);
+    // Parse search query for verse reference (e.g., "John 3:16")
+    const verseMatch = searchQuery.match(/(.+?)\s+(\d+):(\d+)/);
     
     if (verseMatch) {
-      const book = verseMatch[1].trim();
+      const rawBook = verseMatch[1].trim();
+      const book = normalizeBookName(rawBook);
       const chapter = parseInt(verseMatch[2]);
       const verse = parseInt(verseMatch[3]);
       
-      onSelectVerse(book, chapter, verse);
-      onClose();
-      setSearchQuery("");
+      if (book) {
+        onSelectVerse(book, chapter, verse);
+        onClose();
+        setSearchQuery("");
+      } else {
+        // Invalid book name
+        alert(`Book "${rawBook}" not found. Please check spelling or try a different format.`);
+      }
+    } else {
+      alert("Invalid format. Please use: Book Chapter:Verse (e.g., John 3:16)");
     }
   };
 
