@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
+import { logActivity } from "../components/admin/UserActivityLogger";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -73,6 +74,7 @@ export default function SermonBuilder() {
 
   useEffect(() => {
     loadUser();
+    logActivity('page_view', { page_name: 'SermonBuilder' });
   }, []);
 
   const loadUser = async () => {
@@ -200,6 +202,11 @@ Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblica
         tone,
         audience,
         denomination
+      });
+      
+      logActivity('ai_feature_used', {
+        page_name: 'SermonBuilder',
+        metadata: { feature: 'generate_sermon', topic, passage }
       });
       
       toast.success("Larry created your sermon! 🎉");
@@ -386,6 +393,12 @@ Return the full adapted sermon in the same JSON format.`;
         status: "draft"
       });
 
+      logActivity('sermon_created', {
+        page_name: 'SermonBuilder',
+        resource_type: 'sermon',
+        metadata: { title: sermon.title, topic: sermon.topic }
+      });
+      
       toast.success("Sermon saved successfully!");
     } catch (error) {
       console.error("Save error:", error);
