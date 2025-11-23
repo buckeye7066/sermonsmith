@@ -17,17 +17,107 @@ Deno.serve(async (req) => {
     const translations = [
       {
         id: "en-kjv",
-        name: "King James Version",
-        language: "English",
+        name: "King James Version (KJV)",
+        language: "en",
+        year: "1611",
         is_premium: false,
         available: true
       },
       {
         id: "en-web",
-        name: "World English Bible",
-        language: "English",
+        name: "World English Bible (WEB)",
+        language: "en",
+        year: "2000",
         is_premium: false,
         available: true
+      },
+      {
+        id: "en-niv",
+        name: "New International Version (NIV)",
+        language: "en",
+        year: "1978",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "en-esv",
+        name: "English Standard Version (ESV)",
+        language: "en",
+        year: "2001",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "en-nlt",
+        name: "New Living Translation (NLT)",
+        language: "en",
+        year: "1996",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "en-nkjv",
+        name: "New King James Version (NKJV)",
+        language: "en",
+        year: "1982",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "en-nasb",
+        name: "New American Standard Bible (NASB)",
+        language: "en",
+        year: "1971",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "es-rvr",
+        name: "Reina-Valera (RVR)",
+        language: "es",
+        year: "1960",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "fr-lsg",
+        name: "Louis Segond (LSG)",
+        language: "fr",
+        year: "1910",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "de-lut",
+        name: "Luther Bible (LUT)",
+        language: "de",
+        year: "1984",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "pt-arc",
+        name: "Almeida Revista e Corrigida (ARC)",
+        language: "pt",
+        year: "1969",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "zh-cnv",
+        name: "Chinese Union Version (CNV)",
+        language: "zh",
+        year: "1919",
+        is_premium: true,
+        available: isPremium
+      },
+      {
+        id: "ru-rst",
+        name: "Russian Synodal Translation (RST)",
+        language: "ru",
+        year: "1876",
+        is_premium: true,
+        available: isPremium
       }
     ];
 
