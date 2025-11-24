@@ -36,6 +36,7 @@ export default function AdminUsers() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [banConfirm, setBanConfirm] = useState(null);
   const [selectedUserActivities, setSelectedUserActivities] = useState(null);
+  const [userLastLogin, setUserLastLogin] = useState({});
 
   useEffect(() => {
     loadCurrentUser();
@@ -64,6 +65,24 @@ export default function AdminUsers() {
     try {
       const allUsers = await base44.entities.User.list('-created_date', 1000);
       setUsers(allUsers);
+      
+      // Load last login for each user
+      const lastLoginData = {};
+      for (const u of allUsers) {
+        try {
+          const activities = await base44.entities.UserActivity.filter(
+            { user_id: u.id },
+            '-created_date',
+            1
+          );
+          if (activities.length > 0) {
+            lastLoginData[u.id] = activities[0].created_date;
+          }
+        } catch (error) {
+          console.error(`Failed to load activity for user ${u.id}`);
+        }
+      }
+      setUserLastLogin(lastLoginData);
     } catch (error) {
       console.error("Error loading users:", error);
       toast.error("Failed to load users");
@@ -218,6 +237,14 @@ export default function AdminUsers() {
                             <Calendar className="w-4 h-4" />
                             Joined {new Date(u.created_date).toLocaleDateString()}
                           </div>
+                          {userLastLogin[u.id] && (
+                            <div className="flex items-center gap-2">
+                              <Activity className="w-4 h-4 text-green-600" />
+                              <span className="text-green-600 font-medium">
+                                Last active: {new Date(userLastLogin[u.id]).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
                           {u.denomination && (
                             <div className="flex items-center gap-2">
                               <Users className="w-4 h-4" />
