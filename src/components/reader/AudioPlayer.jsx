@@ -203,7 +203,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
   }, [speechRate, speechPitch, pauseBetweenVerses, volume, selectedVoice]);
 
   const speakVerse = (verseIndex) => {
-    if (verseIndex >= verses.length) {
+    if (verseIndex >= verses.length || !isPlaying) {
       setIsPlaying(false);
       setCurrentVerseIndex(0);
       return;
@@ -229,15 +229,17 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
       utterance.volume = volume[0] / 100;
 
       utterance.onend = () => {
-        if (isPlaying && verseIndex < verses.length - 1) {
-          // Natural pause between verses
+        // Auto-advance to next verse if still playing
+        if (verseIndex < verses.length - 1) {
           setTimeout(() => {
             setCurrentVerseIndex(verseIndex + 1);
             speakVerse(verseIndex + 1);
           }, pauseBetweenVerses[0]);
         } else {
+          // Reached the end of the chapter
           setIsPlaying(false);
           setCurrentVerseIndex(0);
+          toast.success("Finished reading chapter");
         }
       };
 
