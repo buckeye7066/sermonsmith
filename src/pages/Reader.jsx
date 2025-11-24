@@ -317,10 +317,17 @@ export default function Reader() {
           setIsCached(true);
           setIsOfflineMode(false);
 
-          // Log Bible reading
+          // Log Bible reading with granular details
           logActivity('bible_read', { 
             page_name: 'Reader',
-            metadata: { book: currentBook, chapter: currentChapter, translation: currentTranslation }
+            data_viewed: `${currentBook} ${currentChapter}`,
+            metadata: { 
+              book: currentBook, 
+              chapter: currentChapter, 
+              translation: currentTranslation,
+              verse_count: formattedVerses.length,
+              is_cached: true
+            }
           });
       } else {
         setError({
@@ -496,7 +503,17 @@ export default function Reader() {
 
       logActivity('highlight_added', {
         page_name: 'Reader',
-        metadata: { book: currentBook, chapter: currentChapter, verse: selectedVerse.verse }
+        resource_type: 'highlight',
+        resource_id: created.id,
+        data_modified: `${currentBook} ${currentChapter}:${selectedVerse.verse}`,
+        new_value: color,
+        metadata: { 
+          book: currentBook, 
+          chapter: currentChapter, 
+          verse: selectedVerse.verse,
+          color: color,
+          verse_text: selectedVerse.text?.substring(0, 100)
+        }
       });
 
       toast.success(`Highlighted with ${color}!`);
@@ -524,7 +541,16 @@ export default function Reader() {
 
       logActivity('note_added', {
         page_name: 'Reader',
-        metadata: { book: currentBook, chapter: currentChapter, verse: selectedVerse.verse }
+        resource_type: 'note',
+        data_modified: `${currentBook} ${currentChapter}:${selectedVerse.verse}`,
+        new_value: content.substring(0, 100),
+        metadata: { 
+          book: currentBook, 
+          chapter: currentChapter, 
+          verse: selectedVerse.verse,
+          note_length: content.length,
+          verse_text: selectedVerse.text?.substring(0, 100)
+        }
       });
 
       setShowNoteDrawer(false);

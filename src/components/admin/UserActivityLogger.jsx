@@ -49,7 +49,24 @@ export const logActivity = (actionType, details = {}) => {
     page_name: details.page_name || window.location.pathname.split('/').pop() || 'Home',
     resource_type: details.resource_type || null,
     resource_id: details.resource_id || null,
-    metadata: details.metadata || {}
+    metadata: {
+      ...details.metadata || {},
+      // Capture granular details
+      url: window.location.href,
+      pathname: window.location.pathname,
+      search_params: window.location.search,
+      timestamp: new Date().toISOString(),
+      user_agent: navigator.userAgent,
+      screen_size: `${window.innerWidth}x${window.innerHeight}`,
+      // Action outcome
+      outcome: details.outcome || 'success',
+      error_message: details.error_message || null,
+      // Data context
+      data_modified: details.data_modified || null,
+      data_viewed: details.data_viewed || null,
+      previous_value: details.previous_value || null,
+      new_value: details.new_value || null
+    }
   };
   
   activityQueue.push(activityData);
