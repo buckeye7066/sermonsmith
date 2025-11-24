@@ -125,6 +125,22 @@ Make it engaging, biblically sound, and appropriate for ${studyType} study. Use 
       });
 
       setGeneratedStudy(response);
+      
+      logActivity('ai_feature_used', {
+        page_name: 'BibleStudy',
+        resource_type: 'study',
+        data_modified: 'new_study_generated',
+        new_value: topic,
+        metadata: { 
+          feature: 'study_generation', 
+          topic,
+          study_type: studyType,
+          denomination: user?.denomination || 'Non-Denominational',
+          section_count: response?.study_sections?.length || 0,
+          key_verse_count: response?.key_verses?.length || 0
+        }
+      });
+      
       toast.success("Larry has created your Bible study! 🎉");
     } catch (error) {
       console.error("Error generating study:", error);
@@ -310,7 +326,7 @@ Return as JSON array of strings.`;
     }
 
     try {
-      await base44.entities.BibleStudy.create({
+      const saved = await base44.entities.BibleStudy.create({
         user_id: user.id,
         title: generatedStudy.title,
         topic: generatedStudy.topic,
@@ -320,6 +336,21 @@ Return as JSON array of strings.`;
         study_sections: generatedStudy.study_sections,
         conclusion: generatedStudy.conclusion,
         denomination: user.denomination || "Non-Denominational"
+      });
+
+      logActivity('study_created', {
+        page_name: 'BibleStudy',
+        resource_type: 'study',
+        resource_id: saved.id,
+        data_modified: 'study_saved',
+        new_value: generatedStudy.title,
+        metadata: { 
+          title: generatedStudy.title,
+          topic: generatedStudy.topic,
+          study_type: studyType,
+          section_count: generatedStudy.study_sections?.length || 0,
+          key_verse_count: generatedStudy.key_verses?.length || 0
+        }
       });
 
       toast.success("Bible study saved successfully!");

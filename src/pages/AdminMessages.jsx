@@ -18,6 +18,7 @@ import {
   Activity
 } from "lucide-react";
 import { toast } from "sonner";
+import logActivity from "../components/admin/UserActivityLogger";
 
 export default function AdminMessages() {
   const [user, setUser] = useState(null);
@@ -94,6 +95,22 @@ export default function AdminMessages() {
         status: "resolved"
       });
 
+      logActivity('message_resolved', {
+        page_name: 'AdminMessages',
+        resource_type: 'message',
+        resource_id: selectedMessage.id,
+        data_modified: 'admin_response_sent',
+        previous_value: selectedMessage.status,
+        new_value: 'resolved',
+        metadata: {
+          message_type: selectedMessage.message_type,
+          user_email: selectedMessage.user_email,
+          user_id: selectedMessage.user_id,
+          response_length: response.trim().length,
+          subject: selectedMessage.subject
+        }
+      });
+
       toast.success("Response sent!");
       setResponse("");
       setSelectedMessage(null);
@@ -108,7 +125,25 @@ export default function AdminMessages() {
 
   const handleStatusChange = async (messageId, newStatus) => {
     try {
+      const message = messages.find(m => m.id === messageId);
+      const oldStatus = message?.status;
+      
       await base44.entities.Message.update(messageId, { status: newStatus });
+      
+      logActivity('message_status_changed', {
+        page_name: 'AdminMessages',
+        resource_type: 'message',
+        resource_id: messageId,
+        data_modified: 'message_status',
+        previous_value: oldStatus,
+        new_value: newStatus,
+        metadata: {
+          message_type: message?.message_type,
+          user_email: message?.user_email,
+          user_id: message?.user_id
+        }
+      });
+      
       toast.success("Status updated");
       await loadMessages();
     } catch (error) {

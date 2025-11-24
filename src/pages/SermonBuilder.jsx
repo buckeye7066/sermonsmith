@@ -206,7 +206,18 @@ Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblica
       
       logActivity('ai_feature_used', {
         page_name: 'SermonBuilder',
-        metadata: { feature: 'generate_sermon', topic, passage }
+        resource_type: 'sermon',
+        data_modified: 'new_sermon_generated',
+        new_value: topic,
+        metadata: { 
+          feature: 'generate_sermon', 
+          topic,
+          passage,
+          denomination,
+          tone,
+          audience,
+          point_count: response?.points?.length || 0
+        }
       });
       
       toast.success("Larry created your sermon! 🎉");
@@ -393,10 +404,34 @@ Return the full adapted sermon in the same JSON format.`;
         status: "draft"
       });
 
+      const saved = await base44.entities.Sermon.create({
+        user_id: user.id,
+        title: sermon.title,
+        topic: sermon.topic,
+        anchor_passage: sermon.anchor_passage,
+        big_idea: sermon.big_idea,
+        points: sermon.points,
+        conclusion: sermon.conclusion,
+        theological_notes: sermon.theological_notes,
+        tone: sermon.tone,
+        audience: sermon.audience,
+        denomination: sermon.denomination,
+        status: "draft"
+      });
+
       logActivity('sermon_created', {
         page_name: 'SermonBuilder',
         resource_type: 'sermon',
-        metadata: { title: sermon.title, topic: sermon.topic }
+        resource_id: saved.id,
+        data_modified: 'sermon_saved',
+        new_value: sermon.title,
+        metadata: { 
+          title: sermon.title, 
+          topic: sermon.topic,
+          passage: sermon.anchor_passage,
+          point_count: sermon.points?.length || 0,
+          status: 'draft'
+        }
       });
       
       toast.success("Sermon saved successfully!");
