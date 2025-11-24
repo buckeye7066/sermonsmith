@@ -14,7 +14,8 @@ import {
   Clock, 
   XCircle,
   Mail,
-  User
+  User,
+  Activity
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -26,6 +27,7 @@ export default function AdminMessages() {
   const [response, setResponse] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [userActivities, setUserActivities] = useState({});
 
   useEffect(() => {
     loadUser();
@@ -51,6 +53,27 @@ export default function AdminMessages() {
     try {
       const allMessages = await base44.entities.Message.list('-created_date');
       setMessages(allMessages);
+      
+      // Load last activity for each user
+      const uniqueUserIds = [...new Set(allMessages.map(m => m.user_id))];
+      const activities = {};
+      
+      for (const userId of uniqueUserIds) {
+        try {
+          const userActivities = await base44.entities.UserActivity.filter(
+            { user_id: userId },
+            '-created_date',
+            1
+          );
+          if (userActivities.length > 0) {
+            activities[userId] = userActivities[0].created_date;
+          }
+        } catch (error) {
+          console.error(`Failed to load activity for user ${userId}`);
+        }
+      }
+      
+      setUserActivities(activities);
     } catch (error) {
       console.error("Error loading messages:", error);
       toast.error("Failed to load messages");
@@ -223,13 +246,19 @@ export default function AdminMessages() {
                   <div key={msg.id} className="border rounded-lg p-4 space-y-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <User className="w-4 h-4 text-gray-500" />
                           <span className="font-semibold">{msg.user_name}</span>
                           <span className="text-sm text-gray-500">{msg.user_email}</span>
                           <Badge className={getStatusColor(msg.status)}>
                             {msg.status.replace('_', ' ')}
                           </Badge>
+                          {userActivities[msg.user_id] && (
+                            <Badge variant="outline" className="flex items-center gap-1">
+                              <Activity className="w-3 h-3" />
+                              Last active: {new Date(userActivities[msg.user_id]).toLocaleString()}
+                            </Badge>
+                          )}
                         </div>
                         <h3 className="font-semibold text-lg flex items-center gap-2">
                           <span>{getTypeIcon(msg.message_type)}</span>
