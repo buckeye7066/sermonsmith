@@ -240,7 +240,7 @@ export default function AdminUsers() {
                           <div className="flex items-center gap-2">
                             <Activity className="w-4 h-4 text-green-600" />
                             <span className="text-green-600 font-medium">
-                              Last active: {userLastLogin[u.id] ? new Date(userLastLogin[u.id]).toLocaleString() : 'Never active'}
+                              Last active: {userLastLogin[u.id] ? new Date(userLastLogin[u.id]).toLocaleString('en-US', { timeZone: 'America/New_York' }) : 'Never active'}
                             </span>
                           </div>
                           {u.denomination && (
