@@ -237,14 +237,12 @@ export default function AdminUsers() {
                             <Calendar className="w-4 h-4" />
                             Joined {new Date(u.created_date).toLocaleDateString()}
                           </div>
-                          {userLastLogin[u.id] && (
-                            <div className="flex items-center gap-2">
-                              <Activity className="w-4 h-4 text-green-600" />
-                              <span className="text-green-600 font-medium">
-                                Last active: {new Date(userLastLogin[u.id]).toLocaleString()}
-                              </span>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-green-600" />
+                            <span className="text-green-600 font-medium">
+                              Last active: {userLastLogin[u.id] ? new Date(userLastLogin[u.id]).toLocaleString() : 'Never active'}
+                            </span>
+                          </div>
                           {u.denomination && (
                             <div className="flex items-center gap-2">
                               <Users className="w-4 h-4" />
