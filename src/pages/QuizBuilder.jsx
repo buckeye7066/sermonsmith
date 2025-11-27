@@ -1,8 +1,5 @@
-
 import React, { useState, useEffect } from "react";
-import { User } from "@/entities/User";
-import { Quiz } from "@/entities/Quiz";
-import { InvokeLLM } from "@/integrations/Core";
+import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -55,7 +52,7 @@ export default function QuizBuilder() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const userData = await User.me();
+        const userData = await base44.auth.me();
         setUser(userData);
       } catch (e) {
         toast.error("Please log in to create quizzes");
@@ -82,8 +79,8 @@ export default function QuizBuilder() {
     const prompt = `Generate a Bible quiz on the topic "${topic}" with ${difficulty} difficulty level. The questions and correct answers should reflect the theological perspective and biblical interpretation of the "${denomination}" tradition. Create 10 multiple choice questions with 4 options each. Each question should test knowledge of Bible facts, stories, characters, or teachings related to "${topic}". Include the correct answer index (0-3), a brief explanation, and a relevant scripture reference for each question.`;
 
     try {
-      const result = await InvokeLLM({
-        prompt: prompt,
+      const result = await base44.integrations.Core.InvokeLLM({
+        prompt: `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.\n\n${prompt}`,
         response_json_schema: QUIZ_SCHEMA
       });
 
@@ -105,7 +102,7 @@ export default function QuizBuilder() {
     if (!user) return;
 
     try {
-      await Quiz.create({
+      await base44.entities.Quiz.create({
         user_id: user.id,
         title: quizDataToSave.title,
         topic: quizDataToSave.topic,

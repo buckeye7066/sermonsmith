@@ -128,7 +128,9 @@ export default function PrayerGenerator() {
       
       const typeInfo = PRAYER_TYPES.find(t => t.value === prayerType);
       
-      const prompt = `You are a pastor helping create a biblically sound, heartfelt prayer.
+      const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
+
+You are a pastor helping create a biblically sound, heartfelt prayer.
 
 Create a ${typeInfo.label} on the theme: "${prayerTheme}"
 

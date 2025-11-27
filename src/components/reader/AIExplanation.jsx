@@ -28,7 +28,9 @@ export default function AIExplanation({ open, onClose, verse, user }) {
         ? ` with focus on ${ministryFocus.join(", ")}` 
         : "";
       
-      const prompt = `Provide a clear, insightful explanation of this Bible verse from a ${userDenomination} perspective, using a ${preachingStyle} teaching style${focusContext}:
+      const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
+
+Provide a clear, insightful explanation of this Bible verse from a ${userDenomination} perspective, using a ${preachingStyle} teaching style${focusContext}:
 
 "${verse.text}"
 - ${verse.book_name} ${verse.chapter}:${verse.verse}

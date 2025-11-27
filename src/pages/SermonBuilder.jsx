@@ -168,7 +168,9 @@ Return as JSON array of objects with "reference" and "reason" fields.`;
         ? `\n\nUser's areas of interest: ${userTopics.join(', ')}. If relevant to "${topic}", incorporate these perspectives naturally.`
         : '';
 
-      const prompt = `You are Larry, an expert AI sermon assistant helping pastors create powerful, biblical sermons. Generate a complete sermon outline on the topic "${topic}" using ${passage} as the anchor passage.
+      const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
+
+      You are Larry, an expert AI sermon assistant helping pastors create powerful, biblical sermons. Generate a complete sermon outline on the topic "${topic}" using ${passage} as the anchor passage.
 
 Denomination: ${denomination}
 Tone: ${tone}
@@ -389,21 +391,6 @@ Return the full adapted sermon in the same JSON format.`;
     const sermon = sermonToSave || generatedSermon;
 
     try {
-      await base44.entities.Sermon.create({
-        user_id: user.id,
-        title: sermon.title,
-        topic: sermon.topic,
-        anchor_passage: sermon.anchor_passage,
-        big_idea: sermon.big_idea,
-        points: sermon.points,
-        conclusion: sermon.conclusion,
-        theological_notes: sermon.theological_notes,
-        tone: sermon.tone,
-        audience: sermon.audience,
-        denomination: sermon.denomination,
-        status: "draft"
-      });
-
       const saved = await base44.entities.Sermon.create({
         user_id: user.id,
         title: sermon.title,

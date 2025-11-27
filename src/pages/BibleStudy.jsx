@@ -101,7 +101,9 @@ export default function BibleStudy() {
         ? `\n\nUser's areas of interest: ${userTopics.join(', ')}. If these relate to "${topic}", incorporate relevant perspectives.`
         : '';
       
-      const prompt = `You are Larry, a friendly and knowledgeable AI Bible study assistant. Create a comprehensive Bible study on the topic: "${topic}" for a ${studyType} setting.
+      const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
+
+      You are Larry, a friendly and knowledgeable AI Bible study assistant. Create a comprehensive Bible study on the topic: "${topic}" for a ${studyType} setting.
 
 Denomination: ${denomination}${topicContext}
 

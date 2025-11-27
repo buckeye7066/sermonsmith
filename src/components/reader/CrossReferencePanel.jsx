@@ -28,7 +28,9 @@ export default function CrossReferencePanel({ open, onClose, verse, onNavigate }
     setIsLoading(true);
 
     try {
-      const prompt = `Analyze this Bible verse and find comprehensive cross-references and thematic connections:
+      const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
+
+Analyze this Bible verse and find comprehensive cross-references and thematic connections:
 
 Verse: ${verse.book_name} ${verse.chapter}:${verse.verse}
 Text: "${verse.text}"
