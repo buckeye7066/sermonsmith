@@ -167,7 +167,7 @@ export default function Reader() {
     const saved = parseInt(localStorage.getItem('lastReadChapter'));
     return saved > 0 ? saved : 1;
   });
-  const [currentTranslation, setCurrentTranslation] = useState("KJV");
+  const [currentTranslation, setCurrentTranslation] = useState("eng-kjv2006");
   const [highlights, setHighlights] = useState([]);
   const [notes, setNotes] = useState([]);
   const [user, setUser] = useState(null);
