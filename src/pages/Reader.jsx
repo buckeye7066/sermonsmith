@@ -51,6 +51,32 @@ import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
 import { getChapterOffline, isOnline as checkOnline } from "../components/reader/OfflineBibleService";
 
+// Translation ID normalization map
+const TRANSLATION_NORMALIZE_MAP = {
+  "en-kjv": "KJV", "kjv": "KJV", "k-j-v": "KJV",
+  "en-web": "WEB", "web": "WEB",
+  "en-bsb": "BSB", "bsb": "BSB",
+  "en-asv": "ASV", "asv": "ASV",
+  "en-esv": "ESV", "esv": "ESV",
+  "en-darby": "DARBY", "darby": "DARBY",
+  "en-ylt": "YLT", "ylt": "YLT",
+  "ru-rst": "RST", "rst": "RST", "ru-synodal": "RST",
+  "ru-rusv": "RUSV", "rusv": "RUSV"
+};
+
+function normalizeTranslationId(translationId) {
+  if (!translationId) return "KJV";
+  const lower = translationId.toLowerCase().trim();
+  if (TRANSLATION_NORMALIZE_MAP[lower]) {
+    return TRANSLATION_NORMALIZE_MAP[lower];
+  }
+  if (lower.includes('-')) {
+    const parts = lower.split('-');
+    return parts[parts.length - 1].toUpperCase();
+  }
+  return translationId.toUpperCase();
+}
+
 const THEME_CLASSES = {
   light: { bg: 'bg-white', text: 'text-gray-900', card: 'bg-white' },
   dark: { bg: 'bg-gray-900', text: 'text-gray-100', card: 'bg-gray-800' },
