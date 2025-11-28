@@ -111,8 +111,8 @@ Deno.serve(async (req) => {
       }, { status: 500 });
     }
 
-    // Free translations (English public domain)
-    const freeTranslationIds = ['KJV', 'WEB', 'BSB', 'ASV', 'DARBY', 'YLT', 'AKJV', 'RV1895', 'DRA'];
+    // Free translations (English public domain) - use actual API IDs
+    const freeTranslationIds = ['eng-kjv2006', 'ENGWEBP', 'BSB', 'eng-asv', 'eng-darby', 'eng-ylt', 'KJV', 'WEB', 'ASV', 'DARBY', 'YLT', 'AKJV', 'RV1895', 'DRA'];
     
     // Process all translations
     const translations = apiTranslations
