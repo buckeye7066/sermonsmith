@@ -111,18 +111,40 @@ Deno.serve(async (req) => {
     console.log(`Fetching: ${url}`);
     
     const response = await fetch(url);
+    
+    // Check content type before parsing
+    const contentType = response.headers.get('content-type') || '';
+    
     if (!response.ok) {
       // If translation not found, try to provide helpful error
       if (response.status === 404) {
         return Response.json({ 
-          error: `This chapter is not available in the ${translationId} translation. Try KJV or BSB.`,
+          error: `This chapter is not available in the ${apiTranslationId} translation. Try KJV or BSB.`,
           translation_not_found: true
         }, { status: 404 });
       }
-      throw new Error(`Failed to fetch Bible data: ${response.statusText}`);
+      return Response.json({ 
+        error: `Failed to fetch Bible data: ${response.status} ${response.statusText}` 
+      }, { status: 500 });
+    }
+    
+    // Verify we got JSON, not HTML
+    if (!contentType.includes('application/json')) {
+      console.error(`Unexpected content type: ${contentType}`);
+      return Response.json({ 
+        error: `Invalid response from Bible API. Expected JSON but got ${contentType}. Try a different translation.` 
+      }, { status: 500 });
     }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return Response.json({ 
+        error: 'Failed to parse Bible data. The API returned invalid JSON.' 
+      }, { status: 500 });
+    }
     
     if (!data.chapter || !data.chapter.content) {
       return Response.json({ error: 'Chapter not found' }, { status: 404 });
