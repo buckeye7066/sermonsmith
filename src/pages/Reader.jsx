@@ -51,30 +51,29 @@ import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
 import { getChapterOffline, isOnline as checkOnline } from "../components/reader/OfflineBibleService";
 
-// Translation ID normalization map
+// Translation ID normalization map - maps user-friendly IDs to actual HelloAO API IDs
 const TRANSLATION_NORMALIZE_MAP = {
-  "en-kjv": "KJV", "kjv": "KJV", "k-j-v": "KJV",
-  "en-web": "WEB", "web": "WEB",
+  "en-kjv": "eng-kjv2006", "kjv": "eng-kjv2006", "k-j-v": "eng-kjv2006",
+  "en-web": "ENGWEBP", "web": "ENGWEBP",
   "en-bsb": "BSB", "bsb": "BSB",
-  "en-asv": "ASV", "asv": "ASV",
-  "en-esv": "ESV", "esv": "ESV",
-  "en-darby": "DARBY", "darby": "DARBY",
-  "en-ylt": "YLT", "ylt": "YLT",
-  "ru-rst": "RST", "rst": "RST", "ru-synodal": "RST",
-  "ru-rusv": "RUSV", "rusv": "RUSV"
+  "en-asv": "eng-asv", "asv": "eng-asv",
+  "en-darby": "eng-darby", "darby": "eng-darby",
+  "en-ylt": "eng-ylt", "ylt": "eng-ylt",
+  "ru-rst": "rus-synodal", "rst": "rus-synodal", "ru-synodal": "rus-synodal",
+  "russian": "rus-synodal"
 };
 
 function normalizeTranslationId(translationId) {
-  if (!translationId) return "KJV";
+  if (!translationId) return "eng-kjv2006";
   const lower = translationId.toLowerCase().trim();
   if (TRANSLATION_NORMALIZE_MAP[lower]) {
     return TRANSLATION_NORMALIZE_MAP[lower];
   }
-  if (lower.includes('-')) {
-    const parts = lower.split('-');
-    return parts[parts.length - 1].toUpperCase();
+  // If already looks like an API ID, use as-is
+  if (translationId.includes('-') || /^[A-Z]{2,}$/.test(translationId)) {
+    return translationId;
   }
-  return translationId.toUpperCase();
+  return "eng-kjv2006";
 }
 
 const THEME_CLASSES = {
