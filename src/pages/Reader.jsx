@@ -397,24 +397,24 @@ export default function Reader() {
         }));
 
         setVerses(formattedVerses);
-          setIsCached(true);
-          setIsOfflineMode(false);
+        setIsCached(true);
+        setIsOfflineMode(false);
 
-          // Log Bible reading with granular details
-          logActivity('bible_read', { 
-            page_name: 'Reader',
-            data_viewed: `${currentBook} ${currentChapter}`,
-            metadata: { 
-              book: currentBook, 
-              chapter: currentChapter, 
-              translation: currentTranslation,
-              verse_count: formattedVerses.length,
-              is_cached: true
-            }
-          });
+        // Log Bible reading with granular details
+        logActivity('bible_read', { 
+          page_name: 'Reader',
+          data_viewed: `${currentBook} ${currentChapter}`,
+          metadata: { 
+            book: currentBook, 
+            chapter: currentChapter, 
+            translation: normalizedTranslation,
+            verse_count: formattedVerses.length,
+            is_cached: true
+          }
+        });
       } else {
         setError({
-          message: `${currentBook} ${currentChapter} is not available in ${currentTranslation} yet.`,
+          message: `${currentBook} ${currentChapter} is not available in ${normalizedTranslation} yet.`,
           canRetry: false
         });
         setVerses([]);
@@ -424,46 +424,55 @@ export default function Reader() {
       
       // Try offline fallback
       const bookCode = BOOK_NAME_TO_OSIS[currentBook];
+      const normalizedTranslation = normalizeTranslationId(currentTranslation);
+      
       if (bookCode) {
-        const offlineData = await getChapterOffline(currentTranslation, bookCode, currentChapter);
-        if (offlineData && offlineData.chapter?.content) {
-          const verseData = [];
-          let currentVerse = null;
-          let currentText = "";
-          
-          for (const item of offlineData.chapter.content) {
-            if (item.type === "verse") {
-              if (currentVerse !== null && currentText.trim()) {
-                verseData.push({ verse: currentVerse, text: currentText.trim() });
+        try {
+          const offlineData = await getChapterOffline(normalizedTranslation, bookCode, currentChapter);
+          if (offlineData && offlineData.chapter?.content) {
+            const verseData = [];
+            let currentVerse = null;
+            let currentText = "";
+            
+            for (const item of offlineData.chapter.content) {
+              if (item.type === "verse") {
+                if (currentVerse !== null && currentText.trim()) {
+                  verseData.push({ verse: currentVerse, text: currentText.trim() });
+                }
+                currentVerse = item.number;
+                currentText = "";
+              } else if (item.type === "text" && currentVerse !== null) {
+                currentText += item.text;
               }
-              currentVerse = item.number;
-              currentText = "";
-            } else if (item.type === "text" && currentVerse !== null) {
-              currentText += item.text;
             }
-          }
-          if (currentVerse !== null && currentText.trim()) {
-            verseData.push({ verse: currentVerse, text: currentText.trim() });
-          }
+            if (currentVerse !== null && currentText.trim()) {
+              verseData.push({ verse: currentVerse, text: currentText.trim() });
+            }
 
-          const formattedVerses = verseData.map((v) => ({
-            id: `${currentBook}-${currentChapter}-${v.verse}`,
-            verse: v.verse,
-            text: v.text,
-            book_name: currentBook,
-            chapter: currentChapter
-          }));
+            const formattedVerses = verseData.map((v) => ({
+              id: `${currentBook}-${currentChapter}-${v.verse}`,
+              verse: v.verse,
+              text: v.text,
+              book_name: currentBook,
+              chapter: currentChapter
+            }));
 
-          setVerses(formattedVerses);
-          setIsCached(true);
-          setIsOfflineMode(true);
-          setIsLoading(false);
-          return;
+            setVerses(formattedVerses);
+            setIsCached(true);
+            setIsOfflineMode(true);
+            setIsLoading(false);
+            return;
+          }
+        } catch (offlineError) {
+          console.error("Offline fallback failed:", offlineError);
         }
       }
       
+      // Extract user-friendly error message
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to load verses. Please try again.';
+      
       setError({
-        message: error.message || 'Failed to load verses. Please try again.',
+        message: errorMessage,
         canRetry: true
       });
       setVerses([]);
