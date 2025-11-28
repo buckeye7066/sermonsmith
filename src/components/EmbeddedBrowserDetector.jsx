@@ -17,19 +17,25 @@ export default function EmbeddedBrowserDetector() {
   const detectEmbeddedBrowser = () => {
     const ua = navigator.userAgent || navigator.vendor || window.opera;
     
-    // Detect various embedded browsers
+    // Detect various embedded browsers - comprehensive list
     const embeddedBrowsers = {
       'Instagram': /Instagram/i.test(ua),
       'Facebook': /FBAN|FBAV|FB_IAB/i.test(ua),
-      'TikTok': /TikTok/i.test(ua),
+      'Messenger': /Messenger|FBIOS/i.test(ua),
+      'TikTok': /TikTok|musical_ly/i.test(ua),
       'LinkedIn': /LinkedInApp/i.test(ua),
       'Twitter': /Twitter/i.test(ua),
       'Snapchat': /Snapchat/i.test(ua),
       'Pinterest': /Pinterest/i.test(ua),
       'WhatsApp': /WhatsApp/i.test(ua),
-      'Messenger': /Messenger/i.test(ua),
       'Line': /Line/i.test(ua),
-      'WeChat': /MicroMessenger/i.test(ua)
+      'WeChat': /MicroMessenger/i.test(ua),
+      'Telegram': /TelegramBot/i.test(ua),
+      'Discord': /Discord/i.test(ua),
+      'Slack': /Slack/i.test(ua),
+      'Reddit': /Reddit/i.test(ua),
+      'Android WebView': /wv\)|WebView/i.test(ua) && /Android/i.test(ua),
+      'iOS WebView': /AppleWebKit(?!.*Safari)|FBAN|FBAV|Instagram/i.test(ua) && /iPhone|iPad|iPod/i.test(ua)
     };
 
     // Check if in any embedded browser
@@ -184,11 +190,20 @@ export default function EmbeddedBrowserDetector() {
 
           <div className="flex gap-2">
             <Button
-              onClick={copyUrl}
+              onClick={() => {
+                // Try to open in default browser
+                const url = window.location.href;
+                // For Android, try intent
+                if (/Android/i.test(navigator.userAgent)) {
+                  window.location.href = `intent://${url.replace(/^https?:\/\//, '')}#Intent;scheme=https;action=android.intent.action.VIEW;end`;
+                } else {
+                  copyUrl();
+                }
+              }}
               className="flex-1 bg-indigo-600 hover:bg-indigo-700 gap-2"
             >
-              <Copy className="w-4 h-4" />
-              Copy URL
+              <ExternalLink className="w-4 h-4" />
+              Open in Browser
             </Button>
             <Button
               onClick={() => setShowPrompt(false)}
