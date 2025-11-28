@@ -51,49 +51,23 @@ import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
 import { getChapterOffline, isOnline as checkOnline } from "../components/reader/OfflineBibleService";
 
-// Translation ID mapping for the new Scripture API Bible
-export const TRANSLATION_MAP = {
-  // KJV variations
-  "eng-kjv2006": "de4e12af7f28f599-02",
-  "kjv": "de4e12af7f28f599-02",
-  "eng-kjv": "de4e12af7f28f599-02",
-  "KJV": "de4e12af7f28f599-02",
-  
-  // ESV
-  "eng-esv": "06125adad2d5898a-01",
-  "esv": "06125adad2d5898a-01",
-  "ESV": "06125adad2d5898a-01",
-  
-  // WEB
-  "ENGWEBP": "9879dbb7cfe39e4d-04",
-  "web": "9879dbb7cfe39e4d-04",
-  "WEB": "9879dbb7cfe39e4d-04",
-  
-  // BSB
-  "BSB": "bba9f40183526463-01",
-  "bsb": "bba9f40183526463-01",
-  
-  // ASV
-  "eng-asv": "06125adad2d5898a-01",
-  "asv": "06125adad2d5898a-01",
-  
-  // Russian
-  "ru-rst": "bba9f40183526463-01",
-  "rst": "bba9f40183526463-01",
-  "rus-synodal": "bba9f40183526463-01"
+// Translation ID mapping for HelloAO Bible API
+const TRANSLATION_MAP = {
+  "kjv": "eng-kjv2006",
+  "KJV": "eng-kjv2006",
+  "eng-kjv2006": "eng-kjv2006",
+  "web": "ENGWEBP",
+  "WEB": "ENGWEBP",
+  "bsb": "BSB",
+  "BSB": "BSB",
+  "asv": "eng-asv",
+  "ASV": "eng-asv",
+  "rst": "rus-synodal"
 };
 
 function normalizeTranslationId(translationId) {
-  if (!translationId) return "eng-kjv2006";
-  
-  // Return the mapped ID for the backend to use
-  // The backend will convert this to the actual Bible API ID
-  const mapped = TRANSLATION_MAP[translationId] || TRANSLATION_MAP[translationId.toLowerCase()];
-  if (mapped) {
-    return translationId; // Return original, backend handles the mapping
-  }
-  
-  return translationId;
+  if (!translationId) return "kjv";
+  return TRANSLATION_MAP[translationId] || translationId;
 }
 
 const THEME_CLASSES = {
