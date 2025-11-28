@@ -160,34 +160,34 @@ Deno.serve(async (req) => {
 
     // Parse the chapter content to extract verses
     // The helloao API returns content as an array of content items
+    // Each verse item has a "content" array with strings and/or objects
     const verseData = [];
-    let currentVerse = null;
-    let currentText = "";
     
     for (const item of data.chapter.content) {
-      if (item.type === "verse") {
-        // Save previous verse if exists
-        if (currentVerse !== null && currentText.trim()) {
+      if (item.type === "verse" && item.number && item.content) {
+        // Extract text from the verse's content array
+        let verseText = "";
+        for (const part of item.content) {
+          if (typeof part === "string") {
+            verseText += part;
+          } else if (part && typeof part === "object") {
+            // Handle objects like {text: "...", poem: 1} or {noteId: 0}
+            if (part.text) {
+              verseText += part.text;
+            }
+            if (part.lineBreak) {
+              verseText += " ";
+            }
+          }
+        }
+        
+        if (verseText.trim()) {
           verseData.push({
-            verse: currentVerse,
-            text: currentText.trim()
+            verse: item.number,
+            text: verseText.trim()
           });
         }
-        currentVerse = item.number;
-        currentText = "";
-      } else if (item.type === "text" && currentVerse !== null) {
-        currentText += item.text;
-      } else if (item.type === "line_break" && currentVerse !== null) {
-        currentText += " ";
       }
-    }
-    
-    // Don't forget the last verse
-    if (currentVerse !== null && currentText.trim()) {
-      verseData.push({
-        verse: currentVerse,
-        text: currentText.trim()
-      });
     }
     
     // Filter to specific verses if requested
