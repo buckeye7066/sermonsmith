@@ -84,30 +84,26 @@ Deno.serve(async (req) => {
 
     const { translationId, bookCode, chapter, verses } = await req.json();
 
+    // Validate required inputs
+    if (!bookCode) {
+      return Response.json({ 
+        error: 'Missing required field: bookCode' 
+      }, { status: 400 });
+    }
+    
+    if (!chapter && chapter !== 0) {
+      return Response.json({ 
+        error: 'Missing required field: chapter' 
+      }, { status: 400 });
+    }
+
     // Convert the incoming bookCode to USFM format for bible.helloao.org
     const usfmBookCode = osisToUsfm[bookCode] || bookCode;
     
-    // Handle legacy translation ID formats (e.g., "en-kjv" -> "KJV")
-    let apiTranslationId = translationId;
-    if (translationId && translationId.includes('-')) {
-      // Convert formats like "en-kjv" to "KJV"
-      const parts = translationId.split('-');
-      apiTranslationId = parts[parts.length - 1].toUpperCase();
-    }
+    // Normalize translation ID to API format
+    const apiTranslationId = normalizeTranslationId(translationId);
     
-    // Common translation ID mappings
-    const translationIdMap = {
-      'en-kjv': 'KJV',
-      'en-web': 'WEB', 
-      'en-bsb': 'BSB',
-      'en-asv': 'ASV',
-      'kjv': 'KJV',
-      'web': 'WEB',
-      'bsb': 'BSB',
-      'asv': 'ASV'
-    };
-    
-    apiTranslationId = translationIdMap[translationId?.toLowerCase()] || apiTranslationId;
+    console.log(`Normalized translation: ${translationId} -> ${apiTranslationId}`);
     
     // Fetch chapter data from bible.helloao.org
     const url = `https://bible.helloao.org/api/${apiTranslationId}/${usfmBookCode}/${chapter}.json`;
