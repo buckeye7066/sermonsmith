@@ -53,31 +53,9 @@ Deno.serve(async (req) => {
     // Convert the incoming bookCode to USFM format for bible.helloao.org
     const usfmBookCode = osisToUsfm[bookCode] || bookCode;
     
-    // Extract the translation code (e.g., "ru-rst" -> "RUSV" or use as-is)
-    // The helloao API uses translation IDs like "BSB", "KJV", "RUSV", etc.
-    let apiTranslationId = translationId;
-    
-    // Map our internal IDs to helloao.org IDs
-    const translationMapping = {
-      "en-kjv": "KJV",
-      "en-web": "WEB", 
-      "en-bsb": "BSB",
-      "en-asv": "ASV",
-      "ru-rusv": "RUSV",
-      "ru-rst": "RST",
-      "es-rv": "RV1909",
-      "es-rvr": "RV1909",
-      "de-lut": "DELUT",
-      "fr-lsg": "LSG",
-      "zh-cuv": "CUV",
-      "zh-cnv": "CUV",
-      "pt-arc": "PTBR",
-      "he-wlc": "WLC",
-      "el-grk": "TR",
-      "la-vul": "VULG"
-    };
-    
-    apiTranslationId = translationMapping[translationId] || translationId.toUpperCase();
+    // The helloao API uses translation IDs directly (BSB, KJV, RUSV, etc.)
+    // The translationId should come directly from the API list
+    const apiTranslationId = translationId;
     
     // Fetch chapter data from bible.helloao.org
     const url = `https://bible.helloao.org/api/${apiTranslationId}/${usfmBookCode}/${chapter}.json`;
