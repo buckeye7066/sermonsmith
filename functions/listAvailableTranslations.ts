@@ -5,42 +5,65 @@ let cachedTranslations = null;
 let cacheTime = 0;
 const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
 
-// Map our internal IDs to helloao.org IDs
-const internalToApiId = {
-  "en-kjv": "KJV",
-  "en-web": "WEB",
-  "en-bsb": "BSB",
-  "en-asv": "ASV",
-  "ru-rusv": "RUSV",
-  "es-rv": "RV1909",
-  "de-lut": "DELUT",
-  "fr-lsg": "LSG",
-  "zh-cuv": "CUV",
-  "pt-arc": "PTBR",
-  "he-wlc": "WLC",
-  "el-grk": "TR",
-  "la-vul": "VULG"
+// Language code to region/continent mapping
+const languageRegions = {
+  // Europe
+  "eng": "europe", "deu": "europe", "fra": "europe", "spa": "europe", "por": "europe",
+  "ita": "europe", "nld": "europe", "pol": "europe", "rus": "europe", "ukr": "europe",
+  "ces": "europe", "slk": "europe", "hrv": "europe", "srp": "europe", "bul": "europe",
+  "ron": "europe", "hun": "europe", "ell": "europe", "swe": "europe", "nor": "europe",
+  "dan": "europe", "fin": "europe", "lat": "europe", "lit": "europe", "lav": "europe",
+  "est": "europe", "slv": "europe", "mkd": "europe", "sqi": "europe", "bos": "europe",
+  "bel": "europe", "cat": "europe", "glg": "europe", "eus": "europe", "cym": "europe",
+  "gle": "europe", "gla": "europe", "isl": "europe", "mlt": "europe",
+  
+  // Middle East
+  "heb": "middle_east", "ara": "middle_east", "fas": "middle_east", "tur": "middle_east",
+  "kur": "middle_east", "aze": "middle_east", "arm": "middle_east", "kat": "middle_east",
+  "syr": "middle_east", "arc": "middle_east", "cop": "middle_east", "prs": "middle_east",
+  
+  // Asia
+  "zho": "asia", "cmn": "asia", "yue": "asia", "jpn": "asia", "kor": "asia",
+  "vie": "asia", "tha": "asia", "mya": "asia", "khm": "asia", "lao": "asia",
+  "hin": "asia", "ben": "asia", "tam": "asia", "tel": "asia", "mar": "asia",
+  "guj": "asia", "kan": "asia", "mal": "asia", "pan": "asia", "urd": "asia",
+  "nep": "asia", "sin": "asia", "mon": "asia", "tib": "asia", "kaz": "asia",
+  "uzb": "asia", "tgk": "asia", "kir": "asia", "ind": "asia", "msa": "asia",
+  "tgl": "asia", "ceb": "asia", "ilo": "asia", "jav": "asia", "sun": "asia",
+  
+  // Africa
+  "swa": "africa", "amh": "africa", "orm": "africa", "hau": "africa", "yor": "africa",
+  "ibo": "africa", "zul": "africa", "xho": "africa", "afr": "africa", "som": "africa",
+  "tir": "africa", "kin": "africa", "run": "africa", "nya": "africa", "sna": "africa",
+  "twi": "africa", "wol": "africa", "lin": "africa", "lug": "africa", "sot": "africa",
+  "tsn": "africa", "ssw": "africa", "ven": "africa", "nbl": "africa", "tso": "africa",
+  
+  // Americas  
+  "que": "americas", "aym": "americas", "grn": "americas", "nah": "americas",
+  "myn": "americas", "cre": "americas", "oji": "americas", "nav": "americas",
+  "chy": "americas", "chr": "americas",
+  
+  // Oceania
+  "mri": "oceania", "haw": "oceania", "smo": "oceania", "ton": "oceania",
+  "fij": "oceania", "tah": "oceania", "cha": "oceania", "pau": "oceania"
 };
 
-// Curated list of popular/useful translations with our internal IDs
-const curatedTranslations = [
-  // Free English translations
-  { internalId: "en-kjv", apiId: "KJV", name: "King James Version", language: "English", year: "1611", is_premium: false },
-  { internalId: "en-web", apiId: "WEB", name: "World English Bible", language: "English", year: "2000", is_premium: false },
-  { internalId: "en-bsb", apiId: "BSB", name: "Berean Standard Bible", language: "English", year: "2020", is_premium: false },
-  { internalId: "en-asv", apiId: "ASV", name: "American Standard Version", language: "English", year: "1901", is_premium: false },
-  
-  // Premium translations (other languages)
-  { internalId: "ru-rusv", apiId: "RUSV", name: "Russian Synodal Version", language: "Russian", year: "1876", is_premium: true },
-  { internalId: "es-rv", apiId: "RV1909", name: "Reina-Valera 1909", language: "Spanish", year: "1909", is_premium: true },
-  { internalId: "de-lut", apiId: "DELUT", name: "Luther Bible 1912", language: "German", year: "1912", is_premium: true },
-  { internalId: "fr-lsg", apiId: "LSG", name: "Louis Segond 1910", language: "French", year: "1910", is_premium: true },
-  { internalId: "zh-cuv", apiId: "CUV", name: "Chinese Union Version", language: "Chinese", year: "1919", is_premium: true },
-  { internalId: "pt-arc", apiId: "PTBR", name: "Almeida Revista", language: "Portuguese", year: "1969", is_premium: true },
-  { internalId: "he-wlc", apiId: "WLC", name: "Westminster Leningrad Codex", language: "Hebrew", year: "1008", is_premium: true },
-  { internalId: "el-grk", apiId: "TR", name: "Textus Receptus", language: "Greek", year: "1550", is_premium: true },
-  { internalId: "la-vul", apiId: "VULG", name: "Latin Vulgate", language: "Latin", year: "405", is_premium: true }
-];
+// Get region for a language code
+function getRegion(langCode) {
+  const code = (langCode || "").toLowerCase().substring(0, 3);
+  return languageRegions[code] || "other";
+}
+
+// Region display names
+const regionNames = {
+  "europe": "Europe",
+  "middle_east": "Middle East & Biblical Languages",
+  "asia": "Asia & Pacific",
+  "africa": "Africa",
+  "americas": "Americas",
+  "oceania": "Oceania",
+  "other": "Other Languages"
+};
 
 async function fetchAvailableTranslations() {
   // Check cache
@@ -78,44 +101,77 @@ Deno.serve(async (req) => {
                       user.subscription_tier === 'premium' ||
                       (user.premium_until && new Date(user.premium_until) > new Date());
 
-    // Fetch available translations from helloao.org to verify what's actually available
+    // Fetch all available translations from helloao.org
     const apiTranslations = await fetchAvailableTranslations();
     
-    // Build the translation list, marking unavailable ones
-    const translations = curatedTranslations.map(t => {
-      // Check if this translation exists in the API
-      const apiTranslation = apiTranslations?.find(at => at.id === t.apiId || at.shortName === t.apiId);
-      const isApiAvailable = !!apiTranslation;
-      
-      // Translation is available if:
-      // 1. It exists in the API
-      // 2. It's either free OR user has premium
-      const isAvailable = isApiAvailable && (!t.is_premium || isPremium);
-      
-      let unavailable_reason = null;
-      if (!isApiAvailable) {
-        unavailable_reason = 'not_in_api';
-      } else if (t.is_premium && !isPremium) {
-        unavailable_reason = 'premium_required';
+    if (!apiTranslations) {
+      return Response.json({ 
+        error: 'Failed to fetch translations from API',
+        translations: []
+      }, { status: 500 });
+    }
+
+    // Free translations (English public domain)
+    const freeTranslationIds = ['KJV', 'WEB', 'BSB', 'ASV', 'DARBY', 'YLT', 'AKJV', 'RV1895', 'DRA'];
+    
+    // Process all translations
+    const translations = apiTranslations
+      .filter(t => t.numberOfBooks >= 27) // At least New Testament
+      .map(t => {
+        const isFree = freeTranslationIds.includes(t.id) || freeTranslationIds.includes(t.shortName);
+        const isComplete = t.numberOfBooks >= 66;
+        const region = getRegion(t.language);
+        
+        return {
+          id: t.id,
+          shortName: t.shortName || t.id,
+          name: t.englishName || t.name,
+          nativeName: t.name,
+          language: t.languageEnglishName || t.language,
+          languageCode: t.language,
+          region: region,
+          regionName: regionNames[region],
+          textDirection: t.textDirection || 'ltr',
+          is_premium: !isFree,
+          available: isFree || isPremium,
+          unavailable_reason: (!isFree && !isPremium) ? 'premium_required' : null,
+          numberOfBooks: t.numberOfBooks,
+          isComplete: isComplete,
+          website: t.website
+        };
+      })
+      .sort((a, b) => {
+        // Sort: available first, then by language name
+        if (a.available !== b.available) return a.available ? -1 : 1;
+        return a.language.localeCompare(b.language);
+      });
+
+    // Group by region for UI
+    const byRegion = {};
+    for (const t of translations) {
+      if (!byRegion[t.region]) {
+        byRegion[t.region] = {
+          name: t.regionName,
+          translations: []
+        };
       }
-      
-      return {
-        id: t.internalId,
-        name: apiTranslation?.englishName || t.name,
-        language: apiTranslation?.languageEnglishName || t.language,
-        year: t.year,
-        is_premium: t.is_premium,
-        available: isAvailable,
-        unavailable_reason,
-        numberOfBooks: apiTranslation?.numberOfBooks || 66,
-        description: apiTranslation?.name || t.name
-      };
-    });
+      byRegion[t.region].translations.push(t);
+    }
+
+    // Stats
+    const stats = {
+      total: translations.length,
+      available: translations.filter(t => t.available).length,
+      languages: [...new Set(translations.map(t => t.languageCode))].length,
+      complete: translations.filter(t => t.isComplete).length
+    };
 
     return Response.json({
-      translations: translations,
-      is_developer: user.premium_override === true,
-      api_available: !!apiTranslations
+      translations,
+      byRegion,
+      stats,
+      is_premium: isPremium,
+      is_developer: user.premium_override === true
     });
 
   } catch (error) {
