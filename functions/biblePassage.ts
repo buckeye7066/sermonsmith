@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
 
     const data = await response.json();
     
-    if (!data || !data.verses) {
+    if (!data || !data.data || data.data.length === 0) {
       return Response.json({ 
         error: 'No verses found in this chapter.',
         verses: []
@@ -118,11 +118,20 @@ Deno.serve(async (req) => {
     }
 
     // Parse verses from the response
-    // Format: { book, chapter, verses: [{ verse, text }, ...] }
-    const verseData = data.verses.map(v => ({
-      verse: v.verse,
-      text: v.text
-    }));
+    // Format: { data: [{ book, chapter, verse, text }, ...] }
+    // Remove duplicates (API sometimes returns duplicates)
+    const seen = new Set();
+    const verseData = data.data
+      .filter(v => {
+        const key = `${v.verse}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map(v => ({
+        verse: parseInt(v.verse, 10),
+        text: v.text
+      }));
 
     // Filter to specific verses if requested
     let filteredVerses = verseData;
