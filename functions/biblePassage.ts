@@ -39,38 +39,46 @@ const osisToUsfm = {
   "Jude": "JUD", "Rev": "REV"
 };
 
-// Normalize translation IDs from various formats to API format
+// Normalize translation IDs from various formats to actual HelloAO API IDs
+// The API uses specific IDs like "eng-kjv2006", "BSB", "ENGWEBP" etc.
 const TRANSLATION_NORMALIZE_MAP = {
-  "en-kjv": "KJV", "kjv": "KJV", "k-j-v": "KJV",
-  "en-web": "WEB", "web": "WEB",
-  "en-bsb": "BSB", "bsb": "BSB",
-  "en-asv": "ASV", "asv": "ASV",
-  "en-esv": "ESV", "esv": "ESV",
-  "en-darby": "DARBY", "darby": "DARBY",
-  "en-ylt": "YLT", "ylt": "YLT",
-  "ru-rst": "RST", "rst": "RST", "ru-synodal": "RST", "synodal": "RST",
-  "ru-rusv": "RUSV", "rusv": "RUSV"
+  // KJV variations -> actual API ID
+  "en-kjv": "eng-kjv2006", "kjv": "eng-kjv2006", "k-j-v": "eng-kjv2006", 
+  "king james": "eng-kjv2006", "kingjames": "eng-kjv2006",
+  
+  // WEB variations -> actual API ID  
+  "en-web": "ENGWEBP", "web": "ENGWEBP", "world english bible": "ENGWEBP",
+  
+  // BSB is correct as-is
+  "en-bsb": "BSB", "bsb": "BSB", "berean": "BSB",
+  
+  // Other English translations
+  "en-asv": "eng-asv", "asv": "eng-asv",
+  "en-darby": "eng-darby", "darby": "eng-darby",
+  "en-ylt": "eng-ylt", "ylt": "eng-ylt",
+  
+  // Russian translations
+  "ru-rst": "rus-synodal", "rst": "rus-synodal", "ru-synodal": "rus-synodal", 
+  "synodal": "rus-synodal", "russian": "rus-synodal"
 };
 
 function normalizeTranslationId(translationId) {
-  if (!translationId) return "KJV";
+  if (!translationId) return "eng-kjv2006";
   
   const lower = translationId.toLowerCase().trim();
   
-  // Check direct mapping
+  // Check direct mapping first
   if (TRANSLATION_NORMALIZE_MAP[lower]) {
     return TRANSLATION_NORMALIZE_MAP[lower];
   }
   
-  // Handle formats like "en-kjv" -> "KJV"
-  if (lower.includes('-')) {
-    const parts = lower.split('-');
-    const code = parts[parts.length - 1].toUpperCase();
-    return code;
+  // If already looks like an API ID (contains hyphen or matches known pattern), use as-is
+  if (translationId.includes('-') || /^[A-Z]{2,}$/.test(translationId)) {
+    return translationId;
   }
   
-  // Return uppercase version as-is
-  return translationId.toUpperCase();
+  // Default to KJV if unknown
+  return "eng-kjv2006";
 }
 
 Deno.serve(async (req) => {
