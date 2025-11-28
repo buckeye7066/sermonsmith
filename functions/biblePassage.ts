@@ -53,9 +53,27 @@ Deno.serve(async (req) => {
     // Convert the incoming bookCode to USFM format for bible.helloao.org
     const usfmBookCode = osisToUsfm[bookCode] || bookCode;
     
-    // The helloao API uses translation IDs directly (BSB, KJV, RUSV, etc.)
-    // The translationId should come directly from the API list
-    const apiTranslationId = translationId;
+    // Handle legacy translation ID formats (e.g., "en-kjv" -> "KJV")
+    let apiTranslationId = translationId;
+    if (translationId && translationId.includes('-')) {
+      // Convert formats like "en-kjv" to "KJV"
+      const parts = translationId.split('-');
+      apiTranslationId = parts[parts.length - 1].toUpperCase();
+    }
+    
+    // Common translation ID mappings
+    const translationIdMap = {
+      'en-kjv': 'KJV',
+      'en-web': 'WEB', 
+      'en-bsb': 'BSB',
+      'en-asv': 'ASV',
+      'kjv': 'KJV',
+      'web': 'WEB',
+      'bsb': 'BSB',
+      'asv': 'ASV'
+    };
+    
+    apiTranslationId = translationIdMap[translationId?.toLowerCase()] || apiTranslationId;
     
     // Fetch chapter data from bible.helloao.org
     const url = `https://bible.helloao.org/api/${apiTranslationId}/${usfmBookCode}/${chapter}.json`;
