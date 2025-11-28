@@ -390,7 +390,9 @@ export default function Home() {
             viewport={{ once: true }}
             className="text-center"
           >
-            <img src="/characters/larry.png" className="w-64 mx-auto mb-4 rounded-xl shadow-xl" alt="Larry AI Assistant" />
+            <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-xl">
+              <Bot className="w-16 h-16 text-white" />
+            </div>
             <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Larry</h3>
             <p className="text-gray-600 dark:text-gray-400">Your Sermon & Teaching Assistant</p>
           </motion.div>
@@ -402,7 +404,9 @@ export default function Home() {
             viewport={{ once: true }}
             className="text-center"
           >
-            <img src="/characters/arlynn.png" className="w-64 mx-auto mb-4 rounded-xl shadow-xl" alt="Arlynn AI Assistant" />
+            <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center shadow-xl">
+              <Layers className="w-16 h-16 text-white" />
+            </div>
             <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Arlynn</h3>
             <p className="text-gray-600 dark:text-gray-400">Your Sermon Series Specialist</p>
           </motion.div>
