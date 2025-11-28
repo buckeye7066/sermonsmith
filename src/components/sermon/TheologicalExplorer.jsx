@@ -50,11 +50,24 @@ Please provide comprehensive theological analysis:
    - Explain how each relates to the sermon
    - Include biblical foundations
 
-2. DENOMINATIONAL PERSPECTIVES (3-4 perspectives):
-   - ${denomination || 'Various denominational'} view on this topic
-   - Other major Christian tradition views (Catholic, Reformed, Wesleyan, etc.)
-   - Key differences and commonalities
-   - Biblical basis for each view
+2. DENOMINATIONAL COMPARATIVE ANALYSIS (6 traditions):
+   Provide a detailed comparison of how these 6 major Christian traditions interpret this topic:
+   - Roman Catholic
+   - Eastern Orthodox
+   - Lutheran
+   - Baptist
+   - Methodist/Wesleyan
+   - Pentecostal/Charismatic
+   
+   For EACH tradition include:
+   - Their specific theological interpretation
+   - Key emphasis and distinctive approach
+   - Biblical basis they prioritize
+   
+   Then provide:
+   - SIMILARITIES: What do most traditions agree on?
+   - DIFFERENCES: Where do they diverge and why?
+   - The user's denomination (${denomination || 'Non-Denominational'}) perspective highlighted
 
 3. COUNTER-ARGUMENTS & OBJECTIONS (3-4 arguments):
    - Common objections people raise
@@ -102,7 +115,27 @@ Make this scholarly but accessible. Include scripture references throughout.`;
                 properties: {
                   tradition: { type: "string" },
                   view: { type: "string" },
+                  emphasis: { type: "string" },
                   biblical_basis: { type: "string" }
+                }
+              }
+            },
+            comparative_summary: {
+              type: "object",
+              properties: {
+                similarities: {
+                  type: "array",
+                  items: { type: "string" }
+                },
+                differences: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      area: { type: "string" },
+                      description: { type: "string" }
+                    }
+                  }
                 }
               }
             },
@@ -292,38 +325,104 @@ Make this scholarly but accessible. Include scripture references throughout.`;
                 <Alert>
                   <Users className="w-4 h-4" />
                   <AlertDescription>
-                    How different Christian traditions view this topic
+                    Comparative analysis of how 6 major Christian traditions interpret this topic
                   </AlertDescription>
                 </Alert>
-                {explorationData.denominational_perspectives?.map((perspective, index) => (
-                  <Card key={index}>
+
+                {/* Comparative Summary */}
+                {explorationData.comparative_summary && (
+                  <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-300">
                     <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <CardTitle className="text-lg flex items-center gap-2">
-                          <Users className="w-5 h-5 text-blue-600" />
-                          {perspective.tradition}
-                        </CardTitle>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleCopy(`${perspective.tradition}: ${perspective.view}`)}
-                        >
-                          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        </Button>
-                      </div>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Scale className="w-5 h-5 text-blue-600" />
+                        Comparative Summary
+                      </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div>
-                        <span className="font-semibold text-gray-700 dark:text-gray-300">View:</span>
-                        <p className="mt-1 text-gray-700 dark:text-gray-300">{perspective.view}</p>
+                    <CardContent className="space-y-4">
+                      {/* Similarities */}
+                      <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                        <h4 className="font-semibold text-green-900 dark:text-green-100 mb-2 flex items-center gap-2">
+                          ✓ Common Ground (What Most Traditions Agree On)
+                        </h4>
+                        <ul className="space-y-2">
+                          {explorationData.comparative_summary.similarities?.map((sim, index) => (
+                            <li key={index} className="flex items-start gap-2 text-green-800 dark:text-green-200">
+                              <span className="text-green-600 mt-1">•</span>
+                              <span>{sim}</span>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                      <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-                        <span className="font-semibold text-blue-900 dark:text-blue-100">Biblical Basis:</span>
-                        <p className="mt-1 text-blue-800 dark:text-blue-200">{perspective.biblical_basis}</p>
+
+                      {/* Differences */}
+                      <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg">
+                        <h4 className="font-semibold text-amber-900 dark:text-amber-100 mb-2 flex items-center gap-2">
+                          ⚖️ Key Differences (Where Traditions Diverge)
+                        </h4>
+                        <div className="space-y-3">
+                          {explorationData.comparative_summary.differences?.map((diff, index) => (
+                            <div key={index} className="border-l-2 border-amber-400 pl-3">
+                              <span className="font-medium text-amber-900 dark:text-amber-100">{diff.area}:</span>
+                              <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">{diff.description}</p>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                )}
+
+                {/* Individual Denomination Cards */}
+                <h3 className="text-lg font-semibold mt-6 mb-3 flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Individual Tradition Views
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {explorationData.denominational_perspectives?.map((perspective, index) => {
+                    const isUserDenom = denomination && perspective.tradition.toLowerCase().includes(denomination.toLowerCase());
+                    return (
+                      <Card key={index} className={isUserDenom ? 'ring-2 ring-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20' : ''}>
+                        <CardHeader className="pb-2">
+                          <div className="flex items-start justify-between">
+                            <CardTitle className="text-base flex items-center gap-2">
+                              <Users className="w-4 h-4 text-blue-600" />
+                              {perspective.tradition}
+                              {isUserDenom && (
+                                <Badge className="bg-indigo-600 text-xs">Your Tradition</Badge>
+                              )}
+                            </CardTitle>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleCopy(`${perspective.tradition}: ${perspective.view}`)}
+                            >
+                              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            </Button>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-2 text-sm">
+                          <div>
+                            <span className="font-semibold text-gray-700 dark:text-gray-300">Interpretation:</span>
+                            <p className="mt-1 text-gray-600 dark:text-gray-400">{perspective.view}</p>
+                          </div>
+                          {perspective.emphasis && (
+                            <div className="bg-purple-50 dark:bg-purple-900/20 p-2 rounded">
+                              <span className="font-semibold text-purple-900 dark:text-purple-100 text-xs">Key Emphasis:</span>
+                              <p className="text-purple-800 dark:text-purple-200 text-xs mt-1">{perspective.emphasis}</p>
+                            </div>
+                          )}
+                          <div className="bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
+                            <span className="font-semibold text-blue-900 dark:text-blue-100 text-xs flex items-center gap-1">
+                              <BookOpen className="w-3 h-3" />
+                              Biblical Basis:
+                            </span>
+                            <p className="text-blue-800 dark:text-blue-200 text-xs mt-1">{perspective.biblical_basis}</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
               </TabsContent>
 
               {/* Counter-Arguments */}
