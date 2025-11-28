@@ -39,10 +39,18 @@ import VerseOfTheDay from "@/components/reader/VerseOfTheDay";
 import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import { logActivity } from "../components/admin/UserActivityLogger";
 
+const testimonials = [
+  { name: "Pastor Michael Harper", church: "Church of God of Prophecy", text: "SermonSmith reduced my prep time by 10 hours weekly while improving depth." },
+  { name: "Sister Angela Ramirez", church: "Assembly of God", text: "Larry helped me prepare VBS lessons instantly. A true blessing!" },
+  { name: "Pastor Joel Simmons", church: "Baptist", text: "The theological clarity is unmatched. My church notices the difference." }
+];
+
 export default function Home() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
+  const [showPrayer, setShowPrayer] = useState(false);
 
   useEffect(() => {
     loadUser();
@@ -157,6 +165,32 @@ export default function Home() {
       <div className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 dark:from-indigo-500/5 dark:via-purple-500/5 dark:to-pink-500/5"></div>
         
+        {/* Animated Background Effects */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          {[...Array(20)].map((_, i) => (
+            <motion.div
+              key={i}
+              className="absolute w-2 h-2 bg-white/20 rounded-full"
+              initial={{ opacity: 0, scale: 0 }}
+              animate={{
+                opacity: [0, 1, 0],
+                scale: [0, 1.2, 0],
+                x: Math.random() * 800 - 400,
+                y: Math.random() * 800 - 400
+              }}
+              transition={{
+                duration: 8 + Math.random() * 4,
+                repeat: Infinity,
+                delay: Math.random() * 5
+              }}
+              style={{
+                top: `${Math.random() * 100}%`,
+                left: `${Math.random() * 100}%`
+              }}
+            />
+          ))}
+        </div>
+        
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 relative">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -169,9 +203,13 @@ export default function Home() {
               Powered by AI
             </Badge>
             
-            <h1 className="text-5xl md:text-7xl font-bold text-gray-900 dark:text-white mb-6">
+            <h1 className="text-5xl md:text-7xl font-bold text-gray-900 dark:text-white mb-4">
               SermonSmith
             </h1>
+            
+            <p className="text-xl md:text-2xl text-gray-700 dark:text-gray-300 italic mb-6">
+              "Study to show yourself approved unto God." — 2 Timothy 2:15
+            </p>
             
             <p className="text-2xl md:text-3xl text-gray-600 dark:text-gray-300 mb-4">
               AI-Powered <span className="text-indigo-600 dark:text-indigo-400 font-semibold">Bible Study</span> & 
@@ -184,7 +222,7 @@ export default function Home() {
               Generate complete lessons in 30 seconds, explore ethics and worldview topics, and share with your community.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 flex-wrap">
               {!user ? (
                 <>
                   <Button
@@ -194,6 +232,15 @@ export default function Home() {
                   >
                     <Zap className="w-5 h-5 mr-2" />
                     Get Started Free
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="text-lg px-8 py-6 border-2 shadow-md hover:shadow-xl hover:border-indigo-600"
+                    onClick={() => setShowDemo(true)}
+                  >
+                    <Zap className="w-5 h-5 mr-2" />
+                    Try It Live
                   </Button>
                   <Link to={createPageUrl('Pricing')}>
                     <Button
@@ -229,6 +276,16 @@ export default function Home() {
                   </Link>
                 </>
               )}
+            </div>
+            
+            <div className="mt-4">
+              <Button
+                variant="ghost"
+                className="underline text-indigo-700 dark:text-indigo-300"
+                onClick={() => setShowPrayer(true)}
+              >
+                Before you begin — Pray 🙏
+              </Button>
             </div>
           </motion.div>
 
@@ -323,6 +380,33 @@ export default function Home() {
             Two specialized AI assistants having a conversation about what they do
           </p>
         </motion.div>
+
+        {/* AI Character Art Section */}
+        <div className="grid md:grid-cols-2 gap-12 py-12 mb-12">
+          <motion.div
+            initial={{ opacity: 0, x: -30 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+            className="text-center"
+          >
+            <img src="/characters/larry.png" className="w-64 mx-auto mb-4 rounded-xl shadow-xl" alt="Larry AI Assistant" />
+            <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Larry</h3>
+            <p className="text-gray-600 dark:text-gray-400">Your Sermon & Teaching Assistant</p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, x: 30 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+            className="text-center"
+          >
+            <img src="/characters/arlynn.png" className="w-64 mx-auto mb-4 rounded-xl shadow-xl" alt="Arlynn AI Assistant" />
+            <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Arlynn</h3>
+            <p className="text-gray-600 dark:text-gray-400">Your Sermon Series Specialist</p>
+          </motion.div>
+        </div>
 
         {/* Conversation Introduction */}
         <motion.div
@@ -631,9 +715,9 @@ export default function Home() {
               red: 'from-red-500 to-orange-500',
               indigo: 'from-indigo-500 to-purple-500',
               orange: 'from-orange-500 to-yellow-500',
-              teal: 'from-teal-500 to-cyan-500', // Added
-              pink: 'from-pink-550 to-fuchsia-500', // Added
-              amber: 'from-amber-500 to-yellow-500' // Added
+              teal: 'from-teal-500 to-cyan-500',
+              pink: 'from-pink-500 to-fuchsia-500',
+              amber: 'from-amber-500 to-yellow-500'
             };
 
             return (
@@ -641,13 +725,20 @@ export default function Home() {
                 key={index}
                 initial={{ opacity: 0, scale: 0.9 }}
                 whileInView={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
+                whileHover={{
+                  scale: 1.05,
+                  rotateX: 5,
+                  rotateY: -5,
+                  boxShadow: "0 20px 40px rgba(0,0,0,0.25)"
+                }}
+                transition={{ type: "spring", stiffness: 200, damping: 10 }}
                 viewport={{ once: true }}
+                className="group"
               >
                 <Link to={createPageUrl(feature.link)}>
-                  <Card className="h-full hover:shadow-2xl transition-all duration-300 cursor-pointer group">
+                  <Card className="h-full hover:shadow-2xl transition-all duration-300 cursor-pointer">
                     <CardHeader>
-                      <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${colorClasses[feature.color]} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
+                      <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${colorClasses[feature.color]} flex items-center justify-center mb-4 group-hover:scale-110 group-hover:shadow-[0_0_20px_rgba(99,102,241,0.6)] transition-all`}>
                         <Icon className="w-8 h-8 text-white" />
                       </div>
                       <CardTitle className="text-xl group-hover:text-indigo-600 transition-colors">
@@ -667,6 +758,33 @@ export default function Home() {
             );
           })}
         </div>
+      </div>
+
+      {/* Testimonial Carousel */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 overflow-hidden py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8">
+          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white text-center mb-4">
+            What Pastors Are Saying
+          </h2>
+        </div>
+        <motion.div
+          initial={{ x: 0 }}
+          animate={{ x: ["0%", "-50%"] }}
+          transition={{ duration: 22, repeat: Infinity, ease: "linear" }}
+          className="flex gap-6 w-max"
+        >
+          {[...testimonials, ...testimonials].map((t, i) => (
+            <Card key={i} className="w-96 flex-shrink-0 bg-white dark:bg-gray-800 p-6 shadow-xl">
+              <CardContent className="pt-4">
+                <p className="italic mb-4 text-gray-700 dark:text-gray-300">
+                  "{t.text}"
+                </p>
+                <p className="font-bold text-indigo-600">{t.name}</p>
+                <p className="text-gray-500">{t.church}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </motion.div>
       </div>
 
       {/* How It Works */}
@@ -934,10 +1052,52 @@ export default function Home() {
         open={showOnboarding}
         onClose={() => {
           setShowOnboarding(false);
-          loadUser(); // Reload user to reflect onboarding_completed status
+          loadUser();
         }}
         user={user}
       />
+
+      {/* Live Demo Modal */}
+      {showDemo && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <Card className="w-full max-w-2xl p-8 bg-white dark:bg-gray-900 shadow-2xl mx-4">
+            <CardHeader>
+              <CardTitle className="text-2xl">Live Demo</CardTitle>
+              <CardDescription>See a sermon created instantly</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-gray-700 dark:text-gray-300 space-y-2">
+                <p><strong>• Title:</strong> The Prodigal Son</p>
+                <p><strong>• Main Theme:</strong> Grace</p>
+                <p><strong>• Points:</strong> Rebellion → Return → Restoration</p>
+                <p><strong>• Application:</strong> Come home to the Father</p>
+              </div>
+              <div className="text-center">
+                <Button onClick={() => setShowDemo(false)}>Close</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Prayer Modal */}
+      {showPrayer && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <Card className="w-full max-w-xl p-8 shadow-2xl bg-white dark:bg-gray-900 mx-4">
+            <CardHeader>
+              <CardTitle>A Prayer Before You Prepare</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="italic text-gray-700 dark:text-gray-300 mb-6 leading-relaxed">
+                "Lord, let Your Word speak through me. Give me wisdom, clarity, and compassion as I prepare. Anoint my mind, my voice, and my heart. Let everything I do bring glory to You. Amen."
+              </p>
+              <div className="text-center">
+                <Button onClick={() => setShowPrayer(false)}>Close</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
