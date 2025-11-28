@@ -127,6 +127,36 @@ export default function Layout({ children, currentPageName }) {
     addMetaTag('apple-mobile-web-app-title', 'SermonSmith');
     addMetaTag('mobile-web-app-capable', 'yes');
     addMetaTag('format-detection', 'telephone=no');
+    addMetaTag('referrer', 'no-referrer-when-downgrade');
+
+    // Add Content Security Policy for embedded browsers
+    const addHttpEquivMeta = (httpEquiv, content) => {
+      let meta = document.querySelector(`meta[http-equiv="${httpEquiv}"]`);
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.httpEquiv = httpEquiv;
+        document.head.appendChild(meta);
+      }
+      meta.content = content;
+    };
+    addHttpEquivMeta('Content-Security-Policy', 'upgrade-insecure-requests');
+
+    // Cross-browser localStorage fix for iOS in-app browsers
+    try {
+      localStorage.setItem("__storage_test__", "1");
+      localStorage.removeItem("__storage_test__");
+    } catch (e) {
+      console.warn("localStorage disabled — using fallback memory store");
+      const memoryStore = {};
+      window.localStorage = {
+        setItem: (k, v) => { memoryStore[k] = v; },
+        getItem: (k) => memoryStore[k] || null,
+        removeItem: (k) => { delete memoryStore[k]; },
+        clear: () => { Object.keys(memoryStore).forEach(k => delete memoryStore[k]); },
+        key: (i) => Object.keys(memoryStore)[i] || null,
+        get length() { return Object.keys(memoryStore).length; }
+      };
+    }
 
     // iOS splash screens and icons
     const addAppleTouchIcon = (sizes) => {
@@ -225,7 +255,16 @@ export default function Layout({ children, currentPageName }) {
 
   const handleLogin = async () => {
     try {
-      await base44.auth.redirectToLogin();
+      // Handle in-app browser login issues (Facebook, Instagram, Messenger, etc.)
+      const ua = navigator.userAgent || "";
+      const isInApp = /FBAN|FBAV|Instagram|Messenger|Line|TikTok|Snapchat|WebView|wv\)/i.test(ua);
+      
+      if (isInApp) {
+        // Force direct navigation for in-app browsers to avoid popup blocking
+        window.location.href = window.location.origin + '/auth/login';
+      } else {
+        await base44.auth.redirectToLogin();
+      }
     } catch (error) {
       toast.error("Failed to login");
     }
