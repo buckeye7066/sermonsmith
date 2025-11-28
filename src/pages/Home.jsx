@@ -155,7 +155,7 @@ export default function Home() {
   const stats = [
     { number: "30 sec", label: "Sermon Generation", icon: Clock },
     { number: "95%", label: "Time Saved", icon: Zap },
-    { number: "50+", label: "Bible Translations", icon: Globe },
+    { number: "1000+", label: "Bible Translations", icon: Globe },
     { number: "AI×2", label: "Smart Assistants", icon: Bot }
   ];
 
@@ -460,7 +460,7 @@ export default function Home() {
                 <div className="flex-1">
                   <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-tl-none p-4 shadow-md">
                     <p className="text-gray-700 dark:text-gray-300">
-                      Exactly! And together, we help with the entire SermonSmith platform. The app also has a powerful Bible Reader with 50+ translations, instant scripture search, verse highlighting, and personal note-taking. Plus there's a Community feature where you can share your sermons and studies with other ministry leaders, discover what's working in churches around the world, and even adapt other people's content for your congregation.
+                      Exactly! And together, we help with the entire SermonSmith platform. The app also has a powerful Bible Reader with 1000+ translations in 200+ languages, instant scripture search, verse highlighting, and personal note-taking. Plus there's a Community feature where you can share your sermons and studies with other ministry leaders, discover what's working in churches around the world, and even adapt other people's content for your congregation.
                     </p>
                   </div>
                 </div>
@@ -979,7 +979,7 @@ export default function Home() {
             </div>
 
             <p className="text-indigo-100 mt-6">
-              No credit card required • Works on all devices • 50+ Bible translations
+              No credit card required • Works on all devices • 1000+ Bible translations
             </p>
           </motion.div>
         </div>
