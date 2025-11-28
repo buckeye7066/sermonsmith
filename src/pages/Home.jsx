@@ -32,7 +32,9 @@ import {
   Download,
   Share2,
   Settings,
-  Scale // Added Scale import
+  Scale,
+  Archive,
+  Tablet
 } from "lucide-react";
 import { motion } from "framer-motion";
 import VerseOfTheDay from "@/components/reader/VerseOfTheDay";
@@ -390,8 +392,8 @@ export default function Home() {
             viewport={{ once: true }}
             className="text-center"
           >
-            <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-xl">
-              <Bot className="w-16 h-16 text-white" />
+            <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-amber-500 to-yellow-600 flex items-center justify-center shadow-xl">
+              <Archive className="w-16 h-16 text-white" />
             </div>
             <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Larry</h3>
             <p className="text-gray-600 dark:text-gray-400">Your Sermon & Teaching Assistant</p>
@@ -404,8 +406,8 @@ export default function Home() {
             viewport={{ once: true }}
             className="text-center"
           >
-            <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center shadow-xl">
-              <Layers className="w-16 h-16 text-white" />
+            <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-stone-500 to-stone-700 flex items-center justify-center shadow-xl">
+              <Tablet className="w-16 h-16 text-white" />
             </div>
             <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Arlynn</h3>
             <p className="text-gray-600 dark:text-gray-400">Your Sermon Series Specialist</p>
