@@ -1,28 +1,25 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 
-// Book name to USFM/OSIS code mapping
-const bookCodeMap = {
-  "Genesis": "GEN", "Exodus": "EXO", "Leviticus": "LEV", "Numbers": "NUM",
-  "Deuteronomy": "DEU", "Joshua": "JOS", "Judges": "JDG", "Ruth": "RUT",
-  "1 Samuel": "1SA", "2 Samuel": "2SA", "1 Kings": "1KI", "2 Kings": "2KI",
-  "1 Chronicles": "1CH", "2 Chronicles": "2CH", "Ezra": "EZR", "Nehemiah": "NEH",
-  "Esther": "EST", "Job": "JOB", "Psalms": "PSA", "Proverbs": "PRO",
-  "Ecclesiastes": "ECC", "Song of Solomon": "SNG", "Isaiah": "ISA", "Jeremiah": "JER",
-  "Lamentations": "LAM", "Ezekiel": "EZK", "Daniel": "DAN", "Hosea": "HOS",
-  "Joel": "JOL", "Amos": "AMO", "Obadiah": "OBA", "Jonah": "JON",
-  "Micah": "MIC", "Nahum": "NAM", "Habakkuk": "HAB", "Zephaniah": "ZEP",
-  "Haggai": "HAG", "Zechariah": "ZEC", "Malachi": "MAL",
-  "Matthew": "MAT", "Mark": "MRK", "Luke": "LUK", "John": "JHN",
-  "Acts": "ACT", "Romans": "ROM", "1 Corinthians": "1CO", "2 Corinthians": "2CO",
-  "Galatians": "GAL", "Ephesians": "EPH", "Philippians": "PHP", "Colossians": "COL",
-  "1 Thessalonians": "1TH", "2 Thessalonians": "2TH", "1 Timothy": "1TI", "2 Timothy": "2TI",
-  "Titus": "TIT", "Philemon": "PHM", "Hebrews": "HEB", "James": "JAS",
-  "1 Peter": "1PE", "2 Peter": "2PE", "1 John": "1JN", "2 John": "2JN",
-  "3 John": "3JN", "Jude": "JUD", "Revelation": "REV"
+// Book name to API book ID mapping
+const BOOK_ID_MAP = {
+  "GEN": "GEN", "EXO": "EXO", "LEV": "LEV", "NUM": "NUM", "DEU": "DEU",
+  "JOS": "JOS", "JDG": "JDG", "RUT": "RUT", "1SA": "1SA", "2SA": "2SA",
+  "1KI": "1KI", "2KI": "2KI", "1CH": "1CH", "2CH": "2CH", "EZR": "EZR",
+  "NEH": "NEH", "EST": "EST", "JOB": "JOB", "PSA": "PSA", "PRO": "PRO",
+  "ECC": "ECC", "SNG": "SNG", "ISA": "ISA", "JER": "JER", "LAM": "LAM",
+  "EZK": "EZK", "DAN": "DAN", "HOS": "HOS", "JOL": "JOL", "AMO": "AMO",
+  "OBA": "OBA", "JON": "JON", "MIC": "MIC", "NAM": "NAM", "HAB": "HAB",
+  "ZEP": "ZEP", "HAG": "HAG", "ZEC": "ZEC", "MAL": "MAL",
+  "MAT": "MAT", "MRK": "MRK", "LUK": "LUK", "JHN": "JHN", "ACT": "ACT",
+  "ROM": "ROM", "1CO": "1CO", "2CO": "2CO", "GAL": "GAL", "EPH": "EPH",
+  "PHP": "PHP", "COL": "COL", "1TH": "1TH", "2TH": "2TH", "1TI": "1TI",
+  "2TI": "2TI", "TIT": "TIT", "PHM": "PHM", "HEB": "HEB", "JAS": "JAS",
+  "1PE": "1PE", "2PE": "2PE", "1JN": "1JN", "2JN": "2JN", "3JN": "3JN",
+  "JUD": "JUD", "REV": "REV"
 };
 
-// Reverse mapping for incoming OSIS codes
-const osisToUsfm = {
+// OSIS to standard book code mapping
+const osisToBookCode = {
   "Gen": "GEN", "Exod": "EXO", "Lev": "LEV", "Num": "NUM", "Deut": "DEU",
   "Josh": "JOS", "Judg": "JDG", "Ruth": "RUT", "1Sam": "1SA", "2Sam": "2SA",
   "1Kgs": "1KI", "2Kgs": "2KI", "1Chr": "1CH", "2Chr": "2CH", "Ezra": "EZR",
@@ -39,46 +36,69 @@ const osisToUsfm = {
   "Jude": "JUD", "Rev": "REV"
 };
 
-// Normalize translation IDs from various formats to actual HelloAO API IDs
-// The API uses specific IDs like "eng-kjv2006", "BSB", "ENGWEBP" etc.
-const TRANSLATION_NORMALIZE_MAP = {
-  // KJV variations -> actual API ID
-  "en-kjv": "eng-kjv2006", "kjv": "eng-kjv2006", "k-j-v": "eng-kjv2006", 
-  "king james": "eng-kjv2006", "kingjames": "eng-kjv2006",
+// Translation ID to API Bible ID mapping
+const TRANSLATION_TO_BIBLE_ID = {
+  // English translations
+  "eng-kjv2006": "de4e12af7f28f599-02",
+  "kjv": "de4e12af7f28f599-02",
+  "eng-kjv": "de4e12af7f28f599-02",
+  "KJV": "de4e12af7f28f599-02",
   
-  // WEB variations -> actual API ID  
-  "en-web": "ENGWEBP", "web": "ENGWEBP", "world english bible": "ENGWEBP",
+  "eng-esv": "06125adad2d5898a-01",
+  "esv": "06125adad2d5898a-01",
+  "ESV": "06125adad2d5898a-01",
   
-  // BSB is correct as-is
-  "en-bsb": "BSB", "bsb": "BSB", "berean": "BSB",
+  "eng-asv": "06125adad2d5898a-01", // fallback to ESV if ASV not available
+  "asv": "06125adad2d5898a-01",
+  "ASV": "06125adad2d5898a-01",
   
-  // Other English translations
-  "en-asv": "eng-asv", "asv": "eng-asv",
-  "en-darby": "eng-darby", "darby": "eng-darby",
-  "en-ylt": "eng-ylt", "ylt": "eng-ylt",
+  "BSB": "bba9f40183526463-01",
+  "bsb": "bba9f40183526463-01",
+  
+  "ENGWEBP": "9879dbb7cfe39e4d-04",
+  "web": "9879dbb7cfe39e4d-04",
+  "WEB": "9879dbb7cfe39e4d-04",
   
   // Russian translations
-  "ru-rst": "rus-synodal", "rst": "rus-synodal", "ru-synodal": "rus-synodal", 
-  "synodal": "rus-synodal", "russian": "rus-synodal"
+  "ru-rst": "bba9f40183526463-01",
+  "rst": "bba9f40183526463-01",
+  "rus-synodal": "bba9f40183526463-01"
 };
 
-function normalizeTranslationId(translationId) {
-  if (!translationId) return "eng-kjv2006";
+function getBibleId(translationId) {
+  if (!translationId) return "de4e12af7f28f599-02"; // Default to KJV
   
-  const lower = translationId.toLowerCase().trim();
-  
-  // Check direct mapping first
-  if (TRANSLATION_NORMALIZE_MAP[lower]) {
-    return TRANSLATION_NORMALIZE_MAP[lower];
+  // Check direct mapping
+  if (TRANSLATION_TO_BIBLE_ID[translationId]) {
+    return TRANSLATION_TO_BIBLE_ID[translationId];
   }
   
-  // If already looks like an API ID (contains hyphen or matches known pattern), use as-is
-  if (translationId.includes('-') || /^[A-Z]{2,}$/.test(translationId)) {
+  // Check lowercase
+  const lower = translationId.toLowerCase();
+  if (TRANSLATION_TO_BIBLE_ID[lower]) {
+    return TRANSLATION_TO_BIBLE_ID[lower];
+  }
+  
+  // If it already looks like a Bible ID (contains hyphen with numbers), use as-is
+  if (/^[a-f0-9]+-[a-f0-9]+$/.test(translationId)) {
     return translationId;
   }
   
-  // Default to KJV if unknown
-  return "eng-kjv2006";
+  // Default to KJV
+  return "de4e12af7f28f599-02";
+}
+
+function getBookCode(bookCode) {
+  // If it's an OSIS code, convert it
+  if (osisToBookCode[bookCode]) {
+    return osisToBookCode[bookCode];
+  }
+  // If it's already a standard code, use it
+  if (BOOK_ID_MAP[bookCode]) {
+    return bookCode;
+  }
+  // Return as-is and let API handle it
+  return bookCode;
 }
 
 Deno.serve(async (req) => {
@@ -92,103 +112,161 @@ Deno.serve(async (req) => {
 
     const { translationId, bookCode, chapter, verses } = await req.json();
 
-    // Validate required inputs
-    if (!bookCode) {
+    // Sanity check for required fields
+    if (!bookCode || !chapter) {
       return Response.json({ 
-        error: 'Missing required field: bookCode' 
-      }, { status: 400 });
-    }
-    
-    if (!chapter && chapter !== 0) {
-      return Response.json({ 
-        error: 'Missing required field: chapter' 
+        success: false,
+        error: true,
+        message: "Missing book or chapter.",
+        verses: []
       }, { status: 400 });
     }
 
-    // Convert the incoming bookCode to USFM format for bible.helloao.org
-    const usfmBookCode = osisToUsfm[bookCode] || bookCode;
+    const apiKey = Deno.env.get("BIBLE_API_KEY");
+    if (!apiKey) {
+      return Response.json({ 
+        success: false,
+        error: true,
+        message: "Bible API key not configured.",
+        verses: []
+      }, { status: 500 });
+    }
+
+    // Get the Bible ID for the translation
+    const bibleId = getBibleId(translationId);
+    const book = getBookCode(bookCode);
     
-    // Normalize translation ID to API format
-    const apiTranslationId = normalizeTranslationId(translationId);
+    // Build the passage ID (e.g., "GEN.1" for Genesis chapter 1)
+    const passageId = `${book}.${chapter}`;
     
-    console.log(`Normalized translation: ${translationId} -> ${apiTranslationId}`);
+    console.log(`Fetching: bibleId=${bibleId}, passageId=${passageId}`);
     
-    // Fetch chapter data from bible.helloao.org
-    const url = `https://bible.helloao.org/api/${apiTranslationId}/${usfmBookCode}/${chapter}.json`;
+    // Fetch from scripture.api.bible
+    const url = `https://api.scripture.api.bible/v1/bibles/${bibleId}/chapters/${passageId}?content-type=json&include-verse-numbers=true`;
     
-    console.log(`Fetching: ${url}`);
-    
-    const response = await fetch(url);
-    
-    // Check content type before parsing
-    const contentType = response.headers.get('content-type') || '';
-    
+    const response = await fetch(url, {
+      headers: {
+        "api-key": apiKey,
+        "Accept": "application/json"
+      }
+    });
+
     if (!response.ok) {
-      // If translation not found, try to provide helpful error
+      const errorData = await response.json().catch(() => ({}));
+      console.error("[biblePassage] API error:", response.status, errorData);
+      
       if (response.status === 404) {
         return Response.json({ 
-          error: `This chapter is not available in the ${apiTranslationId} translation. Try KJV or BSB.`,
-          translation_not_found: true
+          success: false,
+          error: true,
+          message: `Chapter ${book} ${chapter} not found in this translation.`,
+          verses: []
         }, { status: 404 });
       }
+      
       return Response.json({ 
-        error: `Failed to fetch Bible data: ${response.status} ${response.statusText}` 
-      }, { status: 500 });
-    }
-    
-    // Verify we got JSON, not HTML
-    if (!contentType.includes('application/json')) {
-      console.error(`Unexpected content type: ${contentType}`);
-      return Response.json({ 
-        error: `Invalid response from Bible API. Expected JSON but got ${contentType}. Try a different translation.` 
-      }, { status: 500 });
+        success: false,
+        error: true,
+        message: errorData.message || `Bible API error: ${response.status}`,
+        verses: []
+      }, { status: response.status });
     }
 
-    let data;
-    try {
-      data = await response.json();
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      return Response.json({ 
-        error: 'Failed to parse Bible data. The API returned invalid JSON.' 
-      }, { status: 500 });
-    }
+    const data = await response.json();
     
-    if (!data.chapter || !data.chapter.content) {
-      return Response.json({ error: 'Chapter not found' }, { status: 404 });
+    if (!data.data || !data.data.content) {
+      return Response.json({ 
+        success: false,
+        error: true,
+        message: "No content returned from Bible API.",
+        verses: []
+      }, { status: 404 });
     }
 
-    // Parse the chapter content to extract verses
-    // The helloao API returns content as an array of content items
-    // Each verse item has a "content" array with strings and/or objects
+    // Parse verses from the API response
     const verseData = [];
+    const content = data.data.content;
     
-    for (const item of data.chapter.content) {
-      if (item.type === "verse" && item.number && item.content) {
-        // Extract text from the verse's content array
-        let verseText = "";
-        for (const part of item.content) {
-          if (typeof part === "string") {
-            verseText += part;
-          } else if (part && typeof part === "object") {
-            // Handle objects like {text: "...", poem: 1} or {noteId: 0}
-            if (part.text) {
-              verseText += part.text;
+    // The API returns content as an array of blocks
+    for (const block of content) {
+      if (!block.items) continue;
+      
+      for (const item of block.items) {
+        if (item.type === "verse" || item.attrs?.verseId) {
+          const verseId = item.attrs?.verseId || item.verseId;
+          if (!verseId) continue;
+          
+          // Extract verse number from verseId (format: "GEN.1.1")
+          const parts = verseId.split(".");
+          const verseNum = parseInt(parts[parts.length - 1], 10);
+          
+          // Extract text from item
+          let text = "";
+          if (item.text) {
+            text = item.text;
+          } else if (item.items) {
+            // Nested items
+            for (const subItem of item.items) {
+              if (subItem.text) {
+                text += subItem.text;
+              } else if (subItem.items) {
+                for (const subSubItem of subItem.items) {
+                  if (subSubItem.text) {
+                    text += subSubItem.text;
+                  }
+                }
+              }
             }
-            if (part.lineBreak) {
-              verseText += " ";
+          }
+          
+          if (text.trim() && !isNaN(verseNum)) {
+            // Check if we already have this verse (avoid duplicates)
+            const existing = verseData.find(v => v.verse === verseNum);
+            if (existing) {
+              existing.text += " " + text.trim();
+            } else {
+              verseData.push({
+                verse: verseNum,
+                text: text.trim()
+              });
+            }
+          }
+        } else if (item.items) {
+          // Handle nested structure
+          for (const subItem of item.items) {
+            if (subItem.attrs?.verseId) {
+              const verseId = subItem.attrs.verseId;
+              const parts = verseId.split(".");
+              const verseNum = parseInt(parts[parts.length - 1], 10);
+              
+              let text = "";
+              if (subItem.text) {
+                text = subItem.text;
+              } else if (subItem.items) {
+                for (const child of subItem.items) {
+                  if (child.text) text += child.text;
+                }
+              }
+              
+              if (text.trim() && !isNaN(verseNum)) {
+                const existing = verseData.find(v => v.verse === verseNum);
+                if (existing) {
+                  existing.text += " " + text.trim();
+                } else {
+                  verseData.push({
+                    verse: verseNum,
+                    text: text.trim()
+                  });
+                }
+              }
             }
           }
         }
-        
-        if (verseText.trim()) {
-          verseData.push({
-            verse: item.number,
-            text: verseText.trim()
-          });
-        }
       }
     }
+    
+    // Sort verses by number
+    verseData.sort((a, b) => a.verse - b.verse);
     
     // Filter to specific verses if requested
     let filteredVerses = verseData;
@@ -201,16 +279,21 @@ Deno.serve(async (req) => {
     }
 
     return Response.json({
-      reference: `${bookCode} ${chapter}${verses ? `:${verses}` : ''}`,
-      translationLabel: data.translation?.name || translationId,
-      translationLanguage: data.translation?.language || "eng",
+      success: true,
+      reference: `${book} ${chapter}${verses ? `:${verses}` : ''}`,
+      translationLabel: data.data.bibleId || translationId,
+      translationLanguage: "eng",
       verses: filteredVerses
     });
 
-  } catch (error) {
-    console.error('Error:', error);
-    return Response.json({ 
-      error: error.message 
+  } catch (err) {
+    console.error("[biblePassage] External API error:", err?.response?.data || err);
+    
+    return Response.json({
+      success: false,
+      error: true,
+      message: err?.response?.data?.error || err.message || "Bible API error",
+      verses: []
     }, { status: 500 });
   }
 });

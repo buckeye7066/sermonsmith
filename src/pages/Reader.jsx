@@ -51,29 +51,49 @@ import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
 import { getChapterOffline, isOnline as checkOnline } from "../components/reader/OfflineBibleService";
 
-// Translation ID normalization map - maps user-friendly IDs to actual HelloAO API IDs
-const TRANSLATION_NORMALIZE_MAP = {
-  "en-kjv": "eng-kjv2006", "kjv": "eng-kjv2006", "k-j-v": "eng-kjv2006",
-  "en-web": "ENGWEBP", "web": "ENGWEBP",
-  "en-bsb": "BSB", "bsb": "BSB",
-  "en-asv": "eng-asv", "asv": "eng-asv",
-  "en-darby": "eng-darby", "darby": "eng-darby",
-  "en-ylt": "eng-ylt", "ylt": "eng-ylt",
-  "ru-rst": "rus-synodal", "rst": "rus-synodal", "ru-synodal": "rus-synodal",
-  "russian": "rus-synodal"
+// Translation ID mapping for the new Scripture API Bible
+export const TRANSLATION_MAP = {
+  // KJV variations
+  "eng-kjv2006": "de4e12af7f28f599-02",
+  "kjv": "de4e12af7f28f599-02",
+  "eng-kjv": "de4e12af7f28f599-02",
+  "KJV": "de4e12af7f28f599-02",
+  
+  // ESV
+  "eng-esv": "06125adad2d5898a-01",
+  "esv": "06125adad2d5898a-01",
+  "ESV": "06125adad2d5898a-01",
+  
+  // WEB
+  "ENGWEBP": "9879dbb7cfe39e4d-04",
+  "web": "9879dbb7cfe39e4d-04",
+  "WEB": "9879dbb7cfe39e4d-04",
+  
+  // BSB
+  "BSB": "bba9f40183526463-01",
+  "bsb": "bba9f40183526463-01",
+  
+  // ASV
+  "eng-asv": "06125adad2d5898a-01",
+  "asv": "06125adad2d5898a-01",
+  
+  // Russian
+  "ru-rst": "bba9f40183526463-01",
+  "rst": "bba9f40183526463-01",
+  "rus-synodal": "bba9f40183526463-01"
 };
 
 function normalizeTranslationId(translationId) {
   if (!translationId) return "eng-kjv2006";
-  const lower = translationId.toLowerCase().trim();
-  if (TRANSLATION_NORMALIZE_MAP[lower]) {
-    return TRANSLATION_NORMALIZE_MAP[lower];
+  
+  // Return the mapped ID for the backend to use
+  // The backend will convert this to the actual Bible API ID
+  const mapped = TRANSLATION_MAP[translationId] || TRANSLATION_MAP[translationId.toLowerCase()];
+  if (mapped) {
+    return translationId; // Return original, backend handles the mapping
   }
-  // If already looks like an API ID, use as-is
-  if (translationId.includes('-') || /^[A-Z]{2,}$/.test(translationId)) {
-    return translationId;
-  }
-  return "eng-kjv2006";
+  
+  return translationId;
 }
 
 const THEME_CLASSES = {
@@ -167,7 +187,7 @@ export default function Reader() {
     const saved = parseInt(localStorage.getItem('lastReadChapter'));
     return saved > 0 ? saved : 1;
   });
-  const [currentTranslation, setCurrentTranslation] = useState("eng-kjv2006");
+  const [currentTranslation, setCurrentTranslation] = useState("kjv");
   const [highlights, setHighlights] = useState([]);
   const [notes, setNotes] = useState([]);
   const [user, setUser] = useState(null);
@@ -413,8 +433,8 @@ export default function Reader() {
         });
       } else {
         setError({
-          message: `${currentBook} ${currentChapter} is not available in ${normalizedTranslation} yet.`,
-          canRetry: false
+          message: response.data.message || `${currentBook} ${currentChapter} is not available in this translation.`,
+          canRetry: true
         });
         setVerses([]);
       }
@@ -467,9 +487,9 @@ export default function Reader() {
         }
       }
       
-      // Extract user-friendly error message
-      const errorMessage = error.response?.data?.error || error.message || 'Failed to load verses. Please try again.';
-      
+      // Extract user-friendly error message from the API response
+      const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to load verses. Please try again.';
+
       setError({
         message: errorMessage,
         canRetry: true
