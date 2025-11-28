@@ -1,9 +1,30 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 
 // Map translation IDs to bible-api.com identifiers
-const translationMap = {
+// bible-api.com supports: kjv, web, bbe (Bible in Basic English)
+const bibleApiTranslations = {
   "en-kjv": "kjv",
   "en-web": "web"
+};
+
+// Translation names for display
+const translationNames = {
+  "en-kjv": "King James Version (KJV)",
+  "en-web": "World English Bible (WEB)",
+  "en-niv": "New International Version (NIV)",
+  "en-esv": "English Standard Version (ESV)",
+  "en-nlt": "New Living Translation (NLT)",
+  "en-nkjv": "New King James Version (NKJV)",
+  "en-nasb": "New American Standard Bible (NASB)",
+  "es-rvr": "Reina-Valera (RVR)",
+  "fr-lsg": "Louis Segond (LSG)",
+  "de-lut": "Luther Bible (LUT)",
+  "pt-arc": "Almeida Revista e Corrigida (ARC)",
+  "zh-cnv": "Chinese Union Version (CNV)",
+  "ru-rst": "Russian Synodal Translation (RST)",
+  "he-wlc": "Westminster Leningrad Codex (Hebrew OT)",
+  "el-grk": "Greek New Testament (Textus Receptus)",
+  "arc-peshitta": "Peshitta (Aramaic)"
 };
 
 Deno.serve(async (req) => {
@@ -17,7 +38,17 @@ Deno.serve(async (req) => {
 
     const { translationId, bookCode, chapter, verses } = await req.json();
 
-    const apiTranslationId = translationMap[translationId] || "kjv";
+    // Check if this is a supported translation via bible-api.com
+    const apiTranslationId = bibleApiTranslations[translationId];
+    
+    if (!apiTranslationId) {
+      // This translation is not available via bible-api.com
+      // Return an error explaining the translation is not yet supported
+      return Response.json({ 
+        error: `The ${translationNames[translationId] || translationId} translation is not currently available. Please select KJV or WEB.`,
+        unsupported_translation: true
+      }, { status: 400 });
+    }
     
     // Fetch chapter data from bible-api.com
     const url = `https://bible-api.com/data/${apiTranslationId}/${bookCode}/${chapter}`;
@@ -49,7 +80,7 @@ Deno.serve(async (req) => {
 
     return Response.json({
       reference: `${bookCode} ${chapter}${verses ? `:${verses}` : ''}`,
-      translationLabel: translationId === "en-kjv" ? "King James Version (KJV)" : "World English Bible (WEB)",
+      translationLabel: translationNames[translationId] || translationId,
       verses: verseData
     });
 
