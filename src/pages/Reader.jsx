@@ -324,9 +324,20 @@ export default function Reader() {
         throw new Error(`Book code not found for ${currentBook}`);
       }
 
+      // Normalize the translation ID before sending
+      const normalizedTranslation = normalizeTranslationId(currentTranslation);
+
+      // Validate inputs before API call
+      if (!bookCode || !currentChapter) {
+        throw new Error("Missing book or chapter.");
+      }
+      if (!normalizedTranslation) {
+        throw new Error("Missing or invalid translation code.");
+      }
+
       // Try offline first if we're offline
       if (!navigator.onLine) {
-        const offlineData = await getChapterOffline(currentTranslation, bookCode, currentChapter);
+        const offlineData = await getChapterOffline(normalizedTranslation, bookCode, currentChapter);
         if (offlineData && offlineData.chapter?.content) {
           // Parse offline data
           const verseData = [];
@@ -365,7 +376,7 @@ export default function Reader() {
       }
 
       const response = await base44.functions.invoke('biblePassage', {
-        translationId: currentTranslation,
+        translationId: normalizedTranslation,
         bookCode: bookCode,
         chapter: currentChapter
       });
