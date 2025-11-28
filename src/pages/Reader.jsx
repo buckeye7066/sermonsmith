@@ -22,7 +22,9 @@ import {
   Settings,
   Navigation,
   Search,
-  Volume2
+  Volume2,
+  Download,
+  CloudOff
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
@@ -46,6 +48,8 @@ import ThematicLinker from "../components/discovery/ThematicLinker";
 import AIExplanation from "../components/reader/AIExplanation";
 import ReligiousViewpointsDialog from "../components/reader/ReligiousViewpointsDialog";
 import StudyToolsPanel from "../components/reader/StudyToolsPanel";
+import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
+import { getChapterOffline, isOnline as checkOnline } from "../components/reader/OfflineBibleService";
 
 const THEME_CLASSES = {
   light: { bg: 'bg-white', text: 'text-gray-900', card: 'bg-white' },
@@ -175,6 +179,8 @@ export default function Reader() {
   const [religiousViewpointsVerse, setReligiousViewpointsVerse] = useState(null);
   const [showStudyTools, setShowStudyTools] = useState(false);
   const [studyToolsVerse, setStudyToolsVerse] = useState(null);
+  const [showOfflineManager, setShowOfflineManager] = useState(false);
+  const [availableTranslations, setAvailableTranslations] = useState([]);
 
   const verseRefs = useRef({});
 
@@ -292,6 +298,46 @@ export default function Reader() {
         throw new Error(`Book code not found for ${currentBook}`);
       }
 
+      // Try offline first if we're offline
+      if (!navigator.onLine) {
+        const offlineData = await getChapterOffline(currentTranslation, bookCode, currentChapter);
+        if (offlineData && offlineData.chapter?.content) {
+          // Parse offline data
+          const verseData = [];
+          let currentVerse = null;
+          let currentText = "";
+          
+          for (const item of offlineData.chapter.content) {
+            if (item.type === "verse") {
+              if (currentVerse !== null && currentText.trim()) {
+                verseData.push({ verse: currentVerse, text: currentText.trim() });
+              }
+              currentVerse = item.number;
+              currentText = "";
+            } else if (item.type === "text" && currentVerse !== null) {
+              currentText += item.text;
+            }
+          }
+          if (currentVerse !== null && currentText.trim()) {
+            verseData.push({ verse: currentVerse, text: currentText.trim() });
+          }
+
+          const formattedVerses = verseData.map((v) => ({
+            id: `${currentBook}-${currentChapter}-${v.verse}`,
+            verse: v.verse,
+            text: v.text,
+            book_name: currentBook,
+            chapter: currentChapter
+          }));
+
+          setVerses(formattedVerses);
+          setIsCached(true);
+          setIsOfflineMode(true);
+          setIsLoading(false);
+          return;
+        }
+      }
+
       const response = await base44.functions.invoke('biblePassage', {
         translationId: currentTranslation,
         bookCode: bookCode,
@@ -338,6 +384,47 @@ export default function Reader() {
       }
     } catch (error) {
       console.error("Error loading verses:", error);
+      
+      // Try offline fallback
+      const bookCode = BOOK_NAME_TO_OSIS[currentBook];
+      if (bookCode) {
+        const offlineData = await getChapterOffline(currentTranslation, bookCode, currentChapter);
+        if (offlineData && offlineData.chapter?.content) {
+          const verseData = [];
+          let currentVerse = null;
+          let currentText = "";
+          
+          for (const item of offlineData.chapter.content) {
+            if (item.type === "verse") {
+              if (currentVerse !== null && currentText.trim()) {
+                verseData.push({ verse: currentVerse, text: currentText.trim() });
+              }
+              currentVerse = item.number;
+              currentText = "";
+            } else if (item.type === "text" && currentVerse !== null) {
+              currentText += item.text;
+            }
+          }
+          if (currentVerse !== null && currentText.trim()) {
+            verseData.push({ verse: currentVerse, text: currentText.trim() });
+          }
+
+          const formattedVerses = verseData.map((v) => ({
+            id: `${currentBook}-${currentChapter}-${v.verse}`,
+            verse: v.verse,
+            text: v.text,
+            book_name: currentBook,
+            chapter: currentChapter
+          }));
+
+          setVerses(formattedVerses);
+          setIsCached(true);
+          setIsOfflineMode(true);
+          setIsLoading(false);
+          return;
+        }
+      }
+      
       setError({
         message: error.message || 'Failed to load verses. Please try again.',
         canRetry: true
@@ -679,6 +766,21 @@ export default function Reader() {
     setCurrentTranslation(newTranslation);
   };
 
+  // Load available translations for offline manager
+  useEffect(() => {
+    const loadTranslations = async () => {
+      try {
+        const response = await base44.functions.invoke('listAvailableTranslations');
+        if (response.data.translations) {
+          setAvailableTranslations(response.data.translations);
+        }
+      } catch (error) {
+        console.error('Failed to load translations:', error);
+      }
+    };
+    loadTranslations();
+  }, []);
+
   const themeClasses = THEME_CLASSES[readerSettings.theme];
   const currentBookIndex = BIBLE_BOOKS.findIndex(b => b.name === currentBook);
   const currentBookInfo = BIBLE_BOOKS[currentBookIndex];
@@ -706,6 +808,14 @@ export default function Reader() {
               {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
               {isOnline ? 'Online' : 'Offline'}
             </Badge>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setShowOfflineManager(true)}
+              title="Offline Downloads"
+            >
+              <CloudOff className="w-4 h-4" />
+            </Button>
             <Button
               variant="outline"
               size="icon"
@@ -1059,6 +1169,12 @@ export default function Reader() {
           }}
           verse={studyToolsVerse}
           user={user}
+        />
+
+        <OfflineDownloadManager
+          open={showOfflineManager}
+          onClose={() => setShowOfflineManager(false)}
+          translations={availableTranslations}
         />
         </div>
         </div>
