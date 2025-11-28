@@ -51,18 +51,18 @@ import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
 import { getChapterOffline, isOnline as checkOnline } from "../components/reader/OfflineBibleService";
 
-// Translation ID mapping for HelloAO Bible API
+// Translation ID mapping for wldeh/bible-api
 const TRANSLATION_MAP = {
-  "kjv": "eng-kjv2006",
-  "KJV": "eng-kjv2006",
-  "eng-kjv2006": "eng-kjv2006",
-  "web": "ENGWEBP",
-  "WEB": "ENGWEBP",
-  "bsb": "BSB",
-  "BSB": "BSB",
-  "asv": "eng-asv",
-  "ASV": "eng-asv",
-  "rst": "rus-synodal"
+  "kjv": "en-kjv",
+  "KJV": "en-kjv",
+  "asv": "en-asv",
+  "ASV": "en-asv",
+  "web": "en-web",
+  "WEB": "en-web",
+  "bbe": "en-bbe",
+  "BBE": "en-bbe",
+  "bsb": "en-bsb",
+  "BSB": "en-bsb"
 };
 
 function normalizeTranslationId(translationId) {
