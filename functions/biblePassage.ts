@@ -39,6 +39,40 @@ const osisToUsfm = {
   "Jude": "JUD", "Rev": "REV"
 };
 
+// Normalize translation IDs from various formats to API format
+const TRANSLATION_NORMALIZE_MAP = {
+  "en-kjv": "KJV", "kjv": "KJV", "k-j-v": "KJV",
+  "en-web": "WEB", "web": "WEB",
+  "en-bsb": "BSB", "bsb": "BSB",
+  "en-asv": "ASV", "asv": "ASV",
+  "en-esv": "ESV", "esv": "ESV",
+  "en-darby": "DARBY", "darby": "DARBY",
+  "en-ylt": "YLT", "ylt": "YLT",
+  "ru-rst": "RST", "rst": "RST", "ru-synodal": "RST", "synodal": "RST",
+  "ru-rusv": "RUSV", "rusv": "RUSV"
+};
+
+function normalizeTranslationId(translationId) {
+  if (!translationId) return "KJV";
+  
+  const lower = translationId.toLowerCase().trim();
+  
+  // Check direct mapping
+  if (TRANSLATION_NORMALIZE_MAP[lower]) {
+    return TRANSLATION_NORMALIZE_MAP[lower];
+  }
+  
+  // Handle formats like "en-kjv" -> "KJV"
+  if (lower.includes('-')) {
+    const parts = lower.split('-');
+    const code = parts[parts.length - 1].toUpperCase();
+    return code;
+  }
+  
+  // Return uppercase version as-is
+  return translationId.toUpperCase();
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
