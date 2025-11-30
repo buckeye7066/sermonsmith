@@ -365,8 +365,12 @@ export default function Reader() {
       // Handle unified envelope
       const result = response.data;
 
-      if (result.ok === false && !result.data?.verses?.length) {
-        // Only show error if no verses were returned (even via fallback)
+      // Support both envelope format and direct format - check for fallback first
+      const responseData = result.data || result;
+      const verses = responseData?.verses || [];
+
+      // Only show error if no verses were returned at all
+      if (result.ok === false && verses.length === 0) {
         console.log('[Reader] API returned error:', result.error);
         setError({
           message: result.error || 'Translation temporarily unavailable',
@@ -376,10 +380,6 @@ export default function Reader() {
         setIsLoading(false);
         return;
       }
-
-      // Support both envelope format and direct format - check for fallback first
-      const responseData = result.data || result;
-      const verses = responseData?.verses || [];
 
       if (verses && verses.length > 0) {
         const formattedVerses = verses.map((v) => ({
