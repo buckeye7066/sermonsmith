@@ -47,7 +47,7 @@ const TEST_PAYLOADS = {
   'grantFamilyAccess': { _selfTest: true },
   'grantMePremium': { _selfTest: true },
   'createShareableLink': { _selfTest: true },
-  'prompt-suggestions': { _selfTest: true },
+  'promptSuggestions': { _selfTest: true },
 };
 
 function mapAllFunctions() {
