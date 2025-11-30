@@ -83,6 +83,35 @@ Deno.serve(async (req) => {
     
     const response = await fetch(url);
 
+    // Check if response is JSON (sometimes API returns HTML error pages)
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      console.log(`Non-JSON response for ${apiTranslation}, falling back to KJV`);
+      // Fallback to KJV
+      const fallbackUrl = `https://bible.helloao.org/api/engKJV/${bookId}/${chapter}.json`;
+      const fallbackResponse = await fetch(fallbackUrl);
+
+      if (fallbackResponse.ok) {
+        const fallbackData = await fallbackResponse.json();
+        const verseData = parseVerses(fallbackData);
+
+        return Response.json({
+          reference: `${fallbackData.book?.name || bookId} ${chapter}`,
+          translationLabel: "KJV (fallback)",
+          translationId: "engKJV",
+          translationLanguage: "en",
+          verses: verseData,
+          fallbackUsed: true,
+          originalTranslation: translationId
+        });
+      }
+
+      return Response.json({ 
+        error: `Translation ${apiTranslation} is not available. Please try a different translation.`,
+        verses: []
+      }, { status: 404 });
+    }
+
     if (!response.ok) {
       // Try fallback to KJV if translation not found
       if (response.status === 404 && apiTranslation !== "engKJV") {
