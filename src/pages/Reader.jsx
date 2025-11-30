@@ -51,23 +51,11 @@ import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
 import { getChapterOffline, isOnline as checkOnline } from "../components/reader/OfflineBibleService";
 
-// Translation ID mapping for wldeh/bible-api
-const TRANSLATION_MAP = {
-  "kjv": "en-kjv",
-  "KJV": "en-kjv",
-  "asv": "en-asv",
-  "ASV": "en-asv",
-  "web": "en-web",
-  "WEB": "en-web",
-  "bbe": "en-bbe",
-  "BBE": "en-bbe",
-  "bsb": "en-bsb",
-  "BSB": "en-bsb"
-};
-
+// Translation ID normalization - pass through to API as-is
+// The biblePassage function handles normalization
 function normalizeTranslationId(translationId) {
-  if (!translationId) return "kjv";
-  return TRANSLATION_MAP[translationId] || translationId;
+  if (!translationId) return "engKJV";
+  return translationId;
 }
 
 const THEME_CLASSES = {
