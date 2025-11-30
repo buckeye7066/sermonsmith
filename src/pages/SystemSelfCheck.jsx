@@ -244,237 +244,190 @@ export default function SystemSelfCheck() {
         {results && (
           <>
             {/* Summary Card */}
-            <Card className={`mb-6 border-2 ${results.ok ? 'border-green-300' : 'border-red-300'}`}>
+            <Card className={`mb-6 border-2 ${results.failed === 0 ? 'border-green-300' : 'border-red-300'}`}>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
-                    {results.ok 
+                    {results.failed === 0 
                       ? <CheckCircle2 className="w-6 h-6 text-green-600" /> 
                       : <XCircle className="w-6 h-6 text-red-600" />}
                     Overall Status
                   </CardTitle>
-                  <Badge className={results.ok ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
-                    {results.ok ? 'ALL SYSTEMS OK' : 'ISSUES DETECTED'}
+                  <Badge className={results.failed === 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                    {results.failed === 0 ? 'ALL SYSTEMS OK' : `${results.failed} ISSUE(S) DETECTED`}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      <p className="text-3xl font-bold text-gray-900 dark:text-white">
-                        {results.summary?.functions?.total || results.summary?.totalChecks || 0}
-                      </p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Functions</p>
-                    </div>
-                    <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                      <p className="text-3xl font-bold text-blue-600">
-                        {results.summary?.entities?.total || 0}
-                      </p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Entities</p>
-                    </div>
-                    <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                      <p className="text-3xl font-bold text-green-600">
-                        {results.summary?.functions?.passed || results.summary?.passed || 0}
-                      </p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Passed</p>
-                    </div>
-                    <div className="text-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
-                      <p className="text-3xl font-bold text-red-600">
-                        {results.summary?.functions?.failed || results.summary?.failed || 0}
-                      </p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Failed</p>
-                    </div>
-                    <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                      <p className="text-3xl font-bold text-purple-600">
-                        {results.elapsedTime || 0}ms
-                      </p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Duration</p>
-                    </div>
+                    <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                      {results.checked || 0}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Checked</p>
+                  </div>
+                  <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <p className="text-3xl font-bold text-green-600">
+                      {results.passed || 0}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Passed</p>
+                  </div>
+                  <div className="text-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                    <p className="text-3xl font-bold text-red-600">
+                      {results.failed || 0}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Failed</p>
+                  </div>
+                  <div className="text-center p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                    <p className="text-3xl font-bold text-amber-600">
+                      {results.skipped || 0}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Skipped</p>
+                  </div>
+                  <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                    <p className="text-3xl font-bold text-purple-600">
+                      {results.elapsedTime || 0}ms
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Duration</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Tabs */}
-            <Tabs defaultValue="report" value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-5">
-                <TabsTrigger value="report">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Error Report
-                </TabsTrigger>
-                <TabsTrigger value="functions">
-                  Functions ({results.functionChecks?.length || 0})
-                </TabsTrigger>
-                <TabsTrigger value="entities">
-                  Entities
-                </TabsTrigger>
-                <TabsTrigger value="env">
-                  Environment
-                </TabsTrigger>
-                <TabsTrigger value="registry">
-                  Registry
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Error Report Tab */}
-              <TabsContent value="report" className="mt-4">
-                <Card className="border-2 border-amber-200 dark:border-amber-800">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2">
-                        <FileText className="w-5 h-5 text-amber-600" />
-                        Combined Error Report
-                      </CardTitle>
-                      <Button variant="outline" size="sm" onClick={copyErrorReport}>
-                        <Copy className="w-4 h-4 mr-2" />
-                        Copy Full Report
-                      </Button>
-                    </div>
-                    <CardDescription>
-                      All errors with file paths, stack traces, and code snippets
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap font-mono max-h-[600px] overflow-y-auto">
-                      {results.combinedErrorReport || 'No errors detected'}
-                    </pre>
-                  </CardContent>
-                </Card>
-
-                {/* Auto-Fix Suggestions */}
-                {results.autoFixSuggestions?.length > 0 && (
-                  <Card className="mt-4 border-blue-200">
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Wrench className="w-5 h-5 text-blue-600" />
-                        Auto-Fix Suggestions
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        {results.autoFixSuggestions.map((suggestion, i) => (
-                          <Alert key={i} className={suggestion.severity === 'high' ? 'border-red-200' : 'border-yellow-200'}>
-                            <AlertTriangle className="w-4 h-4" />
-                            <AlertDescription>
-                              <p className="font-semibold">{suggestion.issue}</p>
-                              <p className="text-sm text-gray-600 mt-1">{suggestion.fix}</p>
-                            </AlertDescription>
-                          </Alert>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
-
-              {/* Functions Tab */}
-              <TabsContent value="functions" className="mt-4 space-y-2">
-                {results.functionChecks?.map((fn, i) => (
-                  <Collapsible key={i}>
-                    <CollapsibleTrigger 
-                      className="flex items-center justify-between w-full p-3 bg-white dark:bg-gray-800 rounded-lg border hover:bg-gray-50"
-                      onClick={() => toggleExpanded(`fn-${i}`)}
-                    >
-                      <div className="flex items-center gap-3">
-                        {fn.skipped ? (
-                          <Badge variant="secondary">⏭️</Badge>
-                        ) : fn.ok ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-600" />
-                        ) : (
-                          <XCircle className="w-5 h-5 text-red-600" />
-                        )}
-                        <span className="font-medium">{fn.name}</span>
-                        <Badge variant="outline">{fn.category}</Badge>
-                        {fn.responseTime > 0 && <Badge variant="outline">{fn.responseTime}ms</Badge>}
-                      </div>
-                      {expandedItems[`fn-${i}`] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="p-3 bg-gray-50 dark:bg-gray-900 rounded-b-lg mt-1">
-                      <div className="text-sm space-y-2">
-                        <p><strong>File:</strong> <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">{fn.filePath}</code></p>
-                        {fn.status && <p><strong>Status:</strong> {fn.status}</p>}
-                        {fn.skipReason && <p><strong>Skip Reason:</strong> {fn.skipReason}</p>}
-                        {fn.errorMessage && <p className="text-red-600"><strong>Error:</strong> {fn.errorMessage}</p>}
-                        {fn.codeSnippet && (
+            {/* Combined Error Report - Single Panel */}
+            <Card className={`border-2 ${results.failures?.length > 0 ? 'border-red-200' : 'border-green-200'}`}>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-indigo-600" />
+                    Self-Check Report
+                  </CardTitle>
+                  <Button variant="outline" size="sm" onClick={copyErrorReport}>
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy Report
+                  </Button>
+                </div>
+                <CardDescription>
+                  {results.failures?.length > 0 
+                    ? `${results.failures.length} failure(s) with function IDs, paths, errors, and code snippets`
+                    : 'All functions passed self-check'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {results.failures?.length > 0 ? (
+                  <div className="space-y-6">
+                    {results.failures.map((failure, i) => (
+                      <div key={i} className="border border-red-200 rounded-lg p-4 bg-red-50 dark:bg-red-900/10">
+                        <div className="flex items-start justify-between mb-3">
                           <div>
-                            <strong>Code Snippet:</strong>
-                            <pre className="mt-1 p-2 bg-gray-900 text-gray-100 rounded text-xs overflow-x-auto">{fn.codeSnippet}</pre>
+                            <h4 className="font-bold text-red-800 dark:text-red-400 text-lg">
+                              #{i + 1} {failure.functionId}
+                            </h4>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              Path: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">{failure.path}</code>
+                            </p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              File: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">{failure.filePath}</code>
+                            </p>
+                          </div>
+                          <Badge variant="destructive">FAILED</Badge>
+                        </div>
+                        
+                        <div className="mb-3">
+                          <p className="font-semibold text-red-700 dark:text-red-400">Error:</p>
+                          <p className="text-red-600 dark:text-red-300">{failure.errorMessage}</p>
+                        </div>
+                        
+                        {failure.stack && (
+                          <div className="mb-3">
+                            <p className="font-semibold text-gray-700 dark:text-gray-300">Stack Trace:</p>
+                            <pre className="bg-gray-900 text-gray-100 p-2 rounded text-xs overflow-x-auto max-h-32">
+                              {failure.stack}
+                            </pre>
+                          </div>
+                        )}
+                        
+                        {failure.codeSnippet && (
+                          <div>
+                            <p className="font-semibold text-gray-700 dark:text-gray-300">Code Context:</p>
+                            <pre className="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto">
+                              {failure.codeSnippet}
+                            </pre>
                           </div>
                         )}
                       </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                ))}
-              </TabsContent>
-
-              {/* Entities Tab */}
-              <TabsContent value="entities" className="mt-4 space-y-2">
-                {results.otherChecks?.filter(c => c.category === 'entity' || c.category === 'rls').map((check, i) => (
-                  <div 
-                    key={i}
-                    className={`p-3 rounded-lg border ${check.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(check.ok)}
-                        <span className="font-medium">{check.name || check.entity}</span>
-                        <Badge variant="outline">{check.category}</Badge>
-                      </div>
-                      {check.error && <span className="text-sm text-red-600">{check.error}</span>}
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </TabsContent>
+                ) : (
+                  <div className="text-center py-8">
+                    <CheckCircle2 className="w-16 h-16 mx-auto text-green-500 mb-4" />
+                    <p className="text-xl font-semibold text-green-700 dark:text-green-400">
+                      All Systems Operational
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-400 mt-2">
+                      All {results.passed} functions passed self-check
+                    </p>
+                  </div>
+                )}
 
-              {/* Environment Tab */}
-              <TabsContent value="env" className="mt-4 space-y-2">
-                {results.envChecks?.map((env, i) => (
-                  <div 
-                    key={i}
-                    className={`p-3 rounded-lg border ${
-                      env.ok 
-                        ? 'bg-green-50 border-green-200' 
-                        : env.required 
-                          ? 'bg-red-50 border-red-200'
-                          : 'bg-amber-50 border-amber-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {env.ok ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />}
-                        <span className="font-mono text-sm">{env.name}</span>
-                        {env.required && <Badge variant="outline" className="text-xs">Required</Badge>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={env.present ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
-                          {env.present ? 'Set' : 'Missing'}
+                {/* Raw Combined Report */}
+                {results.combinedErrorReport && results.failures?.length > 0 && (
+                  <div className="mt-6 pt-6 border-t">
+                    <p className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Raw Combined Report:</p>
+                    <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap font-mono max-h-[300px] overflow-y-auto">
+                      {results.combinedErrorReport}
+                    </pre>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Environment & Entity Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              {/* Environment */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Lock className="w-4 h-4" />
+                    Environment Variables
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-1">
+                    {results.envResults?.map((env, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm">
+                        <span className="font-mono">{env.name}</span>
+                        <Badge className={env.ok ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                          {env.present ? '✓' : '✗'}
                         </Badge>
-                        {env.error && <span className="text-sm text-red-600">{env.error}</span>}
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </TabsContent>
+                </CardContent>
+              </Card>
 
-              {/* Registry Tab */}
-              <TabsContent value="registry" className="mt-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Function Registry ({results.registry?.total || 0} functions)</CardTitle>
-                    <CardDescription>All registered backend functions in the system</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                      {results.registry?.functions?.map((fn, i) => (
-                        <div key={i} className="p-2 bg-gray-50 dark:bg-gray-800 rounded flex items-center justify-between">
-                          <span className="font-mono text-sm">{fn.name}</span>
-                          <Badge variant="outline" className="text-xs">{fn.category}</Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+              {/* Entities */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Database className="w-4 h-4" />
+                    Entity Checks
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-1">
+                    {results.entityResults?.map((entity, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm">
+                        <span>{entity.name}</span>
+                        <Badge className={entity.ok ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                          {entity.ok ? '✓' : '✗'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </>
         )}
 
