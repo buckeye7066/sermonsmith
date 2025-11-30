@@ -291,7 +291,8 @@ export default function Layout({ children, currentPageName }) {
     { name: 'Settings', icon: Settings, page: 'Settings' },
     { name: 'Admin Messages', icon: MessageSquare, page: 'AdminMessages', devOnly: true },
     { name: 'Admin Users', icon: Users, page: 'AdminUsers', devOnly: true },
-    { name: 'Admin Analytics', icon: Brain, page: 'AdminAnalytics', devOnly: true }
+    { name: 'Admin Analytics', icon: Brain, page: 'AdminAnalytics', devOnly: true },
+    { name: 'System Self-Check', icon: Shield, page: 'SystemSelfCheck', devOnly: true }
   ];
 
   if (loading || accessLoading) {
