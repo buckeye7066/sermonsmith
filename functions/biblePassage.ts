@@ -240,23 +240,40 @@ async function safeRun(req) {
   const apiTranslation = normalizeTranslationId(translationId);
   const bookId = getBookId(bookCode);
   
-  // bible.helloao.org - the translation ID in the URL must match exactly what's returned from available_translations
-  // Some IDs are case-sensitive (engKJV vs ENGWEBP)
+  // STRATEGY: Use bible-api.com for KJV/ASV/WEB, use bible.helloao.org for everything else
+  if (isBibleApiComTranslation(translationId)) {
+    console.log(`[biblePassage] Using bible-api.com for ${translationId}`);
+    const result = await fetchFromBibleApiCom(apiTranslation, bookCode, chapter);
+    
+    if (result.ok) {
+      // Filter to specific verses if requested
+      if (verses && result.data.verses) {
+        const [start, end] = verses.includes('-') 
+          ? verses.split('-').map(Number)
+          : [Number(verses), Number(verses)];
+        result.data.verses = result.data.verses.filter(v => v.verse >= start && v.verse <= end);
+        result.data.reference += `:${verses}`;
+      }
+      return result;
+    }
+    
+    // If bible-api.com fails, don't fallback - report the actual error
+    console.log(`[biblePassage] bible-api.com failed: ${result.error}`);
+    return result;
+  }
+  
+  // Use bible.helloao.org for other translations
   const apiUrl = `https://bible.helloao.org/api/${apiTranslation}/${bookId}/${chapter}.json`;
-
-  console.log(`[biblePassage] Fetching: ${apiUrl} (trans: ${translationId} -> ${apiTranslation})`);
+  console.log(`[biblePassage] Using bible.helloao.org: ${apiUrl}`);
 
   let result = await safeFetch(apiUrl);
 
-  // If primary fails (404 or HTML error page), try BSB fallback
-  if (!result.ok && apiTranslation !== DEFAULT_TRANSLATION) {
-    console.log(`[biblePassage] Primary failed (${result.error}), trying BSB fallback`);
-    const fallbackUrl = `https://bible.helloao.org/api/${DEFAULT_TRANSLATION}/${bookId}/${chapter}.json`;
-    result = await safeFetch(fallbackUrl);
+  // If primary fails (404 or HTML error page), try KJV fallback via bible-api.com
+  if (!result.ok) {
+    console.log(`[biblePassage] Primary failed (${result.error}), trying KJV fallback`);
+    const fallbackResult = await fetchFromBibleApiCom("kjv", bookCode, chapter);
     
-    if (result.ok) {
-      const verseData = parseVerses(result.data);
-      
+    if (fallbackResult.ok) {
       // Determine reason for fallback
       let fallbackReason = `${translationId} not available for this chapter`;
       if (bookId === "GEN" || bookId === "EXO" || bookId === "LEV" || bookId === "NUM" || bookId === "DEU") {
@@ -267,11 +284,9 @@ async function safeRun(req) {
         ok: true,
         error: null,
         data: {
-          reference: `${result.data.book?.name || bookId} ${chapter}`,
-          translationLabel: "BSB (fallback)",
-          translationId: DEFAULT_TRANSLATION,
-          translationLanguage: "en",
-          verses: verseData,
+          ...fallbackResult.data,
+          translationLabel: "KJV (fallback)",
+          translationId: "kjv",
           fallbackUsed: true,
           originalTranslation: translationId,
           fallbackReason
