@@ -960,16 +960,30 @@ export default function Reader() {
         </div>
 
         {!isOnline && (
-          <Alert className="mb-6 bg-amber-50 border-amber-200">
-            <WifiOff className="w-4 h-4 text-amber-600" />
-            <AlertDescription className="text-amber-800">
-              You're offline. Reading from local storage.
-              <Link to={createPageUrl('Downloads')} className="ml-2 underline font-medium">
-                Manage Downloads
-              </Link>
-            </AlertDescription>
-          </Alert>
-        )}
+                        <Alert className="mb-6 bg-amber-50 border-amber-200">
+                          <WifiOff className="w-4 h-4 text-amber-600" />
+                          <AlertDescription className="text-amber-800">
+                            You're offline. Reading from local storage.
+                            <Link to={createPageUrl('Downloads')} className="ml-2 underline font-medium">
+                              Manage Downloads
+                            </Link>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {showNTOnlyAlert && translationBookInfo?.isNTOnly && (
+                        <NTOnlyAlert 
+                          translationName={currentTranslation}
+                          currentBook={currentBook}
+                          onSwitchToMatthew={() => {
+                            setCurrentBook("Matthew");
+                            setCurrentChapter(1);
+                            localStorage.setItem('lastReadBook', 'Matthew');
+                            localStorage.setItem('lastReadChapter', '1');
+                            setShowNTOnlyAlert(false);
+                          }}
+                        />
+                      )}
 
         {!isPremium && (
           <Card className="mb-6 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900 dark:to-pink-900 border-purple-200 dark:border-purple-700">
