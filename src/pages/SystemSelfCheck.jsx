@@ -69,14 +69,17 @@ export default function SystemSelfCheck() {
       params.append('retryDelayMs', retryDelay);
       
       const response = await base44.functions.invoke(`systemSelfCheck?${params.toString()}`);
-      
+
       if (response.data) {
-        setResults(response.data);
-        
-        if (response.data.ok) {
+        // Handle unified envelope
+        const result = response.data;
+        setResults(result.data || result);
+
+        if (result.ok) {
           toast.success("All systems operational!");
         } else {
-          toast.error(`${response.data.summary?.failed || 0} issues detected`);
+          const failCount = result.data?.summary?.functions?.failed || result.summary?.failed || 0;
+          toast.error(`${failCount} issues detected`);
         }
       }
     } catch (error) {
