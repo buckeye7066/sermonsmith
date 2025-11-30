@@ -150,23 +150,29 @@ function parseVerses(data) {
   if (!data || !data.chapter || !data.chapter.content) return [];
 
   const verseData = [];
-  let currentVerse = null;
-  let currentText = "";
+
+  // Helper to extract text from nested content
+  function extractText(content) {
+    if (!content) return "";
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      return content.map(extractText).join(" ");
+    }
+    if (typeof content === "object") {
+      if (content.text) return content.text;
+      if (content.content) return extractText(content.content);
+    }
+    return "";
+  }
 
   for (const item of data.chapter.content) {
     if (item.type === "verse") {
-      if (currentVerse !== null && currentText.trim()) {
-        verseData.push({ verse: currentVerse, text: currentText.trim() });
+      // Verse content can be an array of text objects or strings
+      const text = extractText(item.content);
+      if (text.trim()) {
+        verseData.push({ verse: item.number, text: text.trim() });
       }
-      currentVerse = item.number;
-      currentText = "";
-    } else if (item.type === "text" && currentVerse !== null) {
-      currentText += item.text;
     }
-  }
-
-  if (currentVerse !== null && currentText.trim()) {
-    verseData.push({ verse: currentVerse, text: currentText.trim() });
   }
 
   return verseData;
