@@ -369,17 +369,7 @@ export default function Reader() {
       const responseData = result.data || result;
       const verses = responseData?.verses || [];
 
-      // Only show error if no verses were returned at all
-      if (result.ok === false && verses.length === 0) {
-        console.log('[Reader] API returned error:', result.error);
-        setError({
-          message: result.error || 'Translation temporarily unavailable',
-          canRetry: true
-        });
-        setVerses([]);
-        setIsLoading(false);
-        return;
-      }
+      console.log('[Reader] Response:', { ok: result.ok, hasVerses: verses.length, fallbackUsed: responseData?.fallbackUsed });
 
       if (verses && verses.length > 0) {
         const formattedVerses = verses.map((v) => ({
