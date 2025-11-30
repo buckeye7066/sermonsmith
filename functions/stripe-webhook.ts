@@ -16,6 +16,21 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Clone request to check for self-test before consuming body
+  const clonedReq = req.clone();
+  let bodyText;
+  try {
+    const jsonBody = await clonedReq.json();
+    if (jsonBody._selfTest) {
+      return new Response(JSON.stringify({ ok: true, selfTest: true, message: 'stripe-webhook is operational' }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+  } catch {
+    // Not JSON or no _selfTest, proceed normally
+  }
+
   const signature = req.headers.get("stripe-signature");
   const body = await req.text();
 
