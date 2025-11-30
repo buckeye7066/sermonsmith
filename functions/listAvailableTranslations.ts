@@ -95,7 +95,21 @@ async function safeRun(req) {
   }
 
   const apiTranslations = fetchResult.data;
-  const freeTranslationIds = ['engKJV', 'ENGWEBP', 'BSB', 'engASV', 'engDARBY', 'engYLT', 'engAKJV', 'engRV', 'engDRA', 'engWEBBE'];
+  
+  // Add KJV and other bible-api.com translations that aren't on helloao.org
+  const bibleApiComTranslations = [
+    { id: 'kjv', shortName: 'KJV', name: 'King James Version', englishName: 'King James Version', language: 'eng', languageEnglishName: 'English', textDirection: 'ltr', numberOfBooks: 66, source: 'bible-api.com' },
+    { id: 'asv', shortName: 'ASV', name: 'American Standard Version', englishName: 'American Standard Version', language: 'eng', languageEnglishName: 'English', textDirection: 'ltr', numberOfBooks: 66, source: 'bible-api.com' },
+    { id: 'web', shortName: 'WEB', name: 'World English Bible', englishName: 'World English Bible', language: 'eng', languageEnglishName: 'English', textDirection: 'ltr', numberOfBooks: 66, source: 'bible-api.com' },
+    { id: 'bbe', shortName: 'BBE', name: 'Bible in Basic English', englishName: 'Bible in Basic English', language: 'eng', languageEnglishName: 'English', textDirection: 'ltr', numberOfBooks: 66, source: 'bible-api.com' },
+    { id: 'darby', shortName: 'DARBY', name: 'Darby Bible', englishName: 'Darby Bible', language: 'eng', languageEnglishName: 'English', textDirection: 'ltr', numberOfBooks: 66, source: 'bible-api.com' },
+    { id: 'ylt', shortName: 'YLT', name: "Young's Literal Translation", englishName: "Young's Literal Translation", language: 'eng', languageEnglishName: 'English', textDirection: 'ltr', numberOfBooks: 27, source: 'bible-api.com' }
+  ];
+  
+  // Merge: bible-api.com translations first (including KJV), then helloao.org
+  const allTranslations = [...bibleApiComTranslations, ...apiTranslations];
+  
+  const freeTranslationIds = ['kjv', 'KJV', 'asv', 'ASV', 'web', 'WEB', 'bbe', 'BBE', 'darby', 'DARBY', 'ylt', 'YLT', 'ENGWEBP', 'BSB'];
 
   const translations = apiTranslations
     .filter(t => t.numberOfBooks >= 27)
