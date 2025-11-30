@@ -78,27 +78,38 @@ async function safeFetch(url, timeoutMs = 10000) {
     const response = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
     
-    const contentType = response.headers.get('content-type') || '';
-    
-    // Check for HTML response (error page)
-    if (!contentType.includes('application/json')) {
-      const text = await response.text();
-      if (text.trim().startsWith('<') || text.trim().startsWith('<!')) {
-        return { ok: false, error: 'External API returned HTML instead of JSON', data: null };
-      }
-      return { ok: false, error: 'External API returned invalid content type', data: null };
-    }
-    
+    // First check HTTP status
     if (!response.ok) {
+      // Try to get error details
+      const text = await response.text().catch(() => '');
+      if (response.status === 404) {
+        return { ok: false, error: 'Chapter not found', data: null, status: 404 };
+      }
       return { ok: false, error: `API error: ${response.status}`, data: null, status: response.status };
     }
     
-    const data = await response.json();
-    return { ok: true, error: null, data };
+    const contentType = response.headers.get('content-type') || '';
+    const text = await response.text();
+    
+    // Check for HTML response (error page)
+    if (text.trim().startsWith('<') || text.trim().startsWith('<!')) {
+      console.log('[biblePassage] Received HTML instead of JSON');
+      return { ok: false, error: 'Translation temporarily unavailable', data: null };
+    }
+    
+    // Try to parse JSON
+    try {
+      const data = JSON.parse(text);
+      return { ok: true, error: null, data };
+    } catch (parseErr) {
+      console.log('[biblePassage] JSON parse error:', parseErr.message);
+      return { ok: false, error: 'Invalid response from Bible API', data: null };
+    }
   } catch (err) {
     if (err.name === 'AbortError') {
       return { ok: false, error: 'Request timeout', data: null };
     }
+    console.log('[biblePassage] Fetch error:', err.message);
     return { ok: false, error: err.message || 'Fetch failed', data: null };
   }
 }
