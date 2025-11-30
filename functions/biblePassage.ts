@@ -77,13 +77,15 @@ function isBibleApiComTranslation(translationId) {
 }
 
 // Fetch from bible-api.com (for KJV, ASV, WEB, etc.)
+// bible-api.com uses format: https://bible-api.com/Genesis+1?translation=kjv
 async function fetchFromBibleApiCom(translationId, bookCode, chapter) {
   const bookName = OSIS_TO_BIBLE_API_BOOK[bookCode];
   if (!bookName) {
     return { ok: false, error: `Unknown book: ${bookCode}`, data: null };
   }
   
-  const url = `https://bible-api.com/data/${translationId}/${bookName.toUpperCase()}/${chapter}`;
+  // bible-api.com format: /BookName+Chapter?translation=xxx
+  const url = `https://bible-api.com/${encodeURIComponent(bookName)}+${chapter}?translation=${translationId}`;
   console.log(`[biblePassage] Fetching from bible-api.com: ${url}`);
   
   try {
@@ -103,7 +105,7 @@ async function fetchFromBibleApiCom(translationId, bookCode, chapter) {
       return { ok: false, error: 'No verses found', data: null };
     }
     
-    // bible-api.com returns verses with { book, chapter, verse, text }
+    // bible-api.com returns verses with { book_name, chapter, verse, text }
     const verses = data.verses.map(v => ({
       verse: v.verse,
       text: v.text
@@ -113,7 +115,7 @@ async function fetchFromBibleApiCom(translationId, bookCode, chapter) {
       ok: true,
       error: null,
       data: {
-        reference: `${data.book} ${chapter}`,
+        reference: `${data.reference || bookName + ' ' + chapter}`,
         translationLabel: translationId.toUpperCase(),
         translationId: translationId,
         translationLanguage: "en",
