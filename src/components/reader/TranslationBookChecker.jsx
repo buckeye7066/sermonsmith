@@ -24,8 +24,26 @@ export const NEW_TESTAMENT_BOOKS = [
   "Jude", "Revelation"
 ];
 
+// Known full-Bible translations that should never be marked as NT-only
+const FULL_BIBLE_TRANSLATIONS = ['engKJV', 'KJV', 'kjv', 'engASV', 'ASV', 'ENGWEBP', 'WEB', 'BSB'];
+
 // Check if a translation has a specific book
 export async function getTranslationBooks(translationId) {
+  // Always return full Bible for known complete translations
+  if (FULL_BIBLE_TRANSLATIONS.includes(translationId)) {
+    const fullBibleInfo = {
+      totalBooks: 66,
+      hasOT: true,
+      hasNT: true,
+      isNTOnly: false,
+      isOTOnly: false,
+      bookIds: [],
+      bookNames: []
+    };
+    translationBooksCache.set(translationId, fullBibleInfo);
+    return fullBibleInfo;
+  }
+
   if (translationBooksCache.has(translationId)) {
     return translationBooksCache.get(translationId);
   }
@@ -33,11 +51,17 @@ export async function getTranslationBooks(translationId) {
   try {
     const response = await fetch(`https://bible.helloao.org/api/${translationId}/books.json`);
     if (!response.ok) {
+      // If API fails, assume full Bible to avoid blocking
       return null;
     }
     
     const data = await response.json();
     const books = data.books || [];
+    
+    // If no books returned, assume full Bible
+    if (books.length === 0) {
+      return null;
+    }
     
     const bookInfo = {
       totalBooks: books.length,
