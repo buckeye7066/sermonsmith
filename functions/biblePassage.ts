@@ -57,6 +57,18 @@ function normalizeTranslationId(translationId) {
 
 Deno.serve(async (req) => {
   try {
+    // Handle self-test mode FIRST (before auth to allow quick health checks)
+    const url = new URL(req.url);
+    if (url.searchParams.get('_selfTest') === '1') {
+      return Response.json({ 
+        ok: true, 
+        selfTest: true, 
+        function: 'biblePassage',
+        message: 'biblePassage is operational',
+        preview: 'Genesis 1:1 (self-test)'
+      });
+    }
+
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
     
@@ -67,7 +79,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { translationId, bookCode, chapter, verses, _selfTest } = body;
 
-    // Self-test mode for system diagnostics
+    // Also support self-test via body
     if (_selfTest) {
       return Response.json({ ok: true, selfTest: true, message: 'biblePassage is operational' });
     }
