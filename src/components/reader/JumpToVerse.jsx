@@ -68,12 +68,22 @@ export default function JumpToVerse({ open, onClose, onJump, currentBook, curren
                 <SelectValue placeholder="Select book" />
               </SelectTrigger>
               <SelectContent className="max-h-60">
-                <div className="px-2 py-1 text-xs font-semibold text-gray-500 uppercase">
-                  Old Testament
-                </div>
-                {BIBLE_BOOKS.slice(0, 39).map((b) => (
-                  <SelectItem key={b} value={b}>{b}</SelectItem>
-                ))}
+                {!translationBookInfo?.isNTOnly && (
+                  <>
+                    <div className="px-2 py-1 text-xs font-semibold text-gray-500 uppercase">
+                      Old Testament
+                    </div>
+                    {BIBLE_BOOKS.slice(0, 39).map((b) => (
+                      <SelectItem key={b} value={b}>{b}</SelectItem>
+                    ))}
+                  </>
+                )}
+                {translationBookInfo?.isNTOnly && (
+                  <div className="px-2 py-1 text-xs text-amber-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Old Testament not available in this translation
+                  </div>
+                )}
                 <div className="px-2 py-1 text-xs font-semibold text-gray-500 uppercase mt-2">
                   New Testament
                 </div>
