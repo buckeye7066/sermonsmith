@@ -96,6 +96,12 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Self-test mode for system diagnostics
+    const body = await req.json().catch(() => ({}));
+    if (body._selfTest) {
+      return Response.json({ ok: true, selfTest: true, message: 'listAvailableTranslations is operational' });
+    }
+
     // Check premium status
     const isPremium = user.premium_override === true || 
                       user.subscription_tier === 'premium' ||

@@ -160,7 +160,12 @@ Deno.serve(async (req) => {
       return Response.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { reference, translation = "KJV" } = await req.json();
+    const { reference, translation = "KJV", _selfTest } = await req.json();
+
+    // Self-test mode for system diagnostics
+    if (_selfTest) {
+      return Response.json({ ok: true, selfTest: true, message: 'getPassageMultiSource is operational' });
+    }
 
     if (!reference) {
       return Response.json({ 

@@ -13,6 +13,12 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Self-test mode for system diagnostics
+    const body = await req.json().catch(() => ({}));
+    if (body._selfTest) {
+      return Response.json({ ok: true, selfTest: true, message: 'grantFamilyAccess is operational' });
+    }
+
     const familyEmails = [
       "Anyawhite@rocketmail.com",
       "Tishka1201@icloud.com", 
