@@ -31,6 +31,64 @@ const KNOWN_ENTITIES = [
   'UserActivity', 'StripeEvent', 'SystemCheckLog'
 ];
 
+/**
+ * Build a consolidated error report from all check results
+ */
+function buildCombinedErrorReport(checks, contamination, envMissing) {
+  const report = [];
+
+  // Backend/middleware/API errors
+  const failedChecks = checks.filter(c => !c.ok);
+  for (const c of failedChecks) {
+    report.push(
+`--------------------------------------------------
+ERROR IN: ${c.name || c.entity || 'Unknown'}
+TYPE: ${c.category || c.type || 'unknown'}
+FILE: ${c.filePath ?? 'unknown'}
+MESSAGE: ${c.error ?? 'unknown'}
+STATUS: ${c.status ?? 'N/A'}
+RESPONSE TIME: ${c.responseTime ?? 'N/A'}ms
+STACK:
+${c.errorStack ?? 'no stack available'}
+
+OFFENDING CODE SNIPPET:
+${c.offendingCode ?? 'no snippet available'}
+--------------------------------------------------`);
+  }
+
+  // Contamination errors
+  if (contamination?.results) {
+    const leaks = contamination.results.filter(r => r.leak);
+    for (const leak of leaks) {
+      report.push(
+`--------------------------------------------------
+DATA CONTAMINATION LEAK DETECTED
+DESCRIPTION: ${leak.description}
+FUNCTION: ${leak.functionName ?? 'unknown'}
+FILE: ${leak.filePath ?? 'unknown'}
+
+OFFENDING CODE SNIPPET:
+${leak.offendingCode ?? 'no snippet available'}
+--------------------------------------------------`);
+    }
+  }
+
+  // Missing environment variables
+  if (envMissing && envMissing.length > 0) {
+    report.push(
+`--------------------------------------------------
+MISSING ENVIRONMENT VARIABLES:
+${envMissing.join(', ')}
+--------------------------------------------------`);
+  }
+
+  if (report.length === 0) {
+    return '✅ No errors detected - all systems operational.';
+  }
+
+  return `COMBINED ERROR REPORT (${report.length} issues found)\n${'═'.repeat(50)}\n\n${report.join('\n\n')}`;
+}
+
 // Test entity access
 async function testEntity(base44, entityName, isAdmin) {
   const result = {
