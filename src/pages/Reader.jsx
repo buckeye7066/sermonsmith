@@ -395,15 +395,13 @@ export default function Reader() {
         setIsOfflineMode(false);
         setError(null); // Clear any previous errors
 
-        // If fallback was used, update the translation selector to show actual translation
-        const fallbackUsed = result.data?.fallbackUsed || result.fallbackUsed;
+        // If fallback was used, notify the user
+        const fallbackUsed = responseData?.fallbackUsed;
         if (fallbackUsed) {
-          toast.info(`${currentTranslation} not available, showing KJV`, {
-            duration: 3000
+          const reason = responseData?.fallbackReason || `${currentTranslation} not available for this book`;
+          toast.info(reason + " - showing KJV", {
+            duration: 4000
           });
-          // Update the translation to KJV to prevent repeated fallback attempts
-          setCurrentTranslation("engKJV");
-          localStorage.setItem('defaultTranslation', 'engKJV');
         }
 
         // Log Bible reading with granular details
