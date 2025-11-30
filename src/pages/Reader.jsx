@@ -386,7 +386,8 @@ export default function Reader() {
         setIsOfflineMode(false);
 
         // If fallback was used, update the translation selector to show actual translation
-        if (response.data.fallbackUsed) {
+        const fallbackUsed = result.data?.fallbackUsed || result.fallbackUsed;
+        if (fallbackUsed) {
           toast.info(`${currentTranslation} not available, showing KJV`, {
             duration: 3000
           });
