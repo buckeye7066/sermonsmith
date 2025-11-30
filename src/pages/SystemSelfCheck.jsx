@@ -338,11 +338,14 @@ export default function SystemSelfCheck() {
               </Card>
             )}
 
-            <Tabs defaultValue="checks" className="mb-6">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="checks">All Checks ({results.checks?.length || 0})</TabsTrigger>
+            <Tabs defaultValue="checks" className="mb-6" value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="grid w-full grid-cols-5">
+                <TabsTrigger value="checks">All Checks</TabsTrigger>
+                <TabsTrigger value="functions">
+                  Functions ({results.functionChecks?.length || 0})
+                </TabsTrigger>
                 <TabsTrigger value="failures">
-                  Failures ({results.errors?.length || 0})
+                  Failures ({results.summary?.failed || 0})
                 </TabsTrigger>
                 <TabsTrigger value="contamination">
                   Contamination {results.contamination?.ok ? '✅' : '🚨'}
