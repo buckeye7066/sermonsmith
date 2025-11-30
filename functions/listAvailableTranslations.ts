@@ -82,9 +82,7 @@ async function safeRun(req) {
     body = {};
   }
 
-  if (body._selfTest) {
-    return { ok: true, selfTest: true, message: 'listAvailableTranslations is operational', data: null };
-  }
+
 
   const isPremium = user.premium_override === true || 
                     user.subscription_tier === 'premium' ||
