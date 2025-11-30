@@ -58,8 +58,8 @@ function normalizeTranslationId(translationId) {
 Deno.serve(async (req) => {
   try {
     // Handle self-test mode FIRST (before auth to allow quick health checks)
-    const url = new URL(req.url);
-    if (url.searchParams.get('_selfTest') === '1') {
+    const reqUrl = new URL(req.url);
+    if (reqUrl.searchParams.get('_selfTest') === '1') {
       return Response.json({ 
         ok: true, 
         selfTest: true, 
@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     const bookId = getBookId(bookCode);
     
     // Use bible.helloao.org API (free, 1000+ translations, no API key)
-    const url = `https://bible.helloao.org/api/${apiTranslation}/${bookId}/${chapter}.json`;
+    const apiUrl = `https://bible.helloao.org/api/${apiTranslation}/${bookId}/${chapter}.json`;
     
     console.log(`Fetching: ${url}`);
     
