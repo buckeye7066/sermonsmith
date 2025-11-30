@@ -462,6 +462,8 @@ Deno.serve(async (req) => {
         passed: totalPassed,
         failed: totalFailed
       },
+      surfaceStats,
+      surfaces: allSurfaces,
       checks,
       contamination,
       elapsedTime,
