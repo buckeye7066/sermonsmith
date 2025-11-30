@@ -168,10 +168,10 @@ async function safeRun(req) {
 
   let result = await safeFetch(apiUrl);
 
-  // If primary fails (404 or HTML error page), try KJV fallback
-  if (!result.ok && apiTranslation !== "engKJV") {
-    console.log(`[biblePassage] Primary failed (${result.error}), trying KJV fallback`);
-    const fallbackUrl = `https://bible.helloao.org/api/engKJV/${bookId}/${chapter}.json`;
+  // If primary fails (404 or HTML error page), try BSB fallback
+  if (!result.ok && apiTranslation !== DEFAULT_TRANSLATION) {
+    console.log(`[biblePassage] Primary failed (${result.error}), trying BSB fallback`);
+    const fallbackUrl = `https://bible.helloao.org/api/${DEFAULT_TRANSLATION}/${bookId}/${chapter}.json`;
     result = await safeFetch(fallbackUrl);
     
     if (result.ok) {
@@ -188,8 +188,8 @@ async function safeRun(req) {
         error: null,
         data: {
           reference: `${result.data.book?.name || bookId} ${chapter}`,
-          translationLabel: "KJV (fallback)",
-          translationId: "engKJV",
+          translationLabel: "BSB (fallback)",
+          translationId: DEFAULT_TRANSLATION,
           translationLanguage: "en",
           verses: verseData,
           fallbackUsed: true,
