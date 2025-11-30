@@ -3,6 +3,10 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 /**
  * UNIFIED RESPONSE ENVELOPE:
  * All responses follow: { ok: boolean, error: string|null, data: any }
+ * 
+ * MULTI-API STRATEGY:
+ * - KJV: Use bible-api.com (free, no auth, has actual KJV)
+ * - Other translations: Use bible.helloao.org (1000+ translations)
  */
 
 // OSIS to API book code mapping for bible.helloao.org
@@ -23,18 +27,36 @@ const OSIS_TO_BOOK_ID = {
   "Jude": "JUD", "Rev": "REV"
 };
 
-// Common English translation aliases
-// NOTE: engKJV/engASV are NOT available on bible.helloao.org
-// BSB (Berean Standard Bible) is used as default - it's a modern, accurate translation
-const ENGLISH_TRANSLATION_ALIASES = {
-  "kjv": "BSB", "KJV": "BSB", "en-kjv": "BSB", "engKJV": "BSB",
-  "asv": "BSB", "ASV": "BSB", "en-asv": "BSB", "engASV": "BSB",
-  "web": "ENGWEBP", "WEB": "ENGWEBP", "en-web": "ENGWEBP",
-  "bsb": "BSB", "BSB": "BSB", "en-bsb": "BSB"
+// OSIS to bible-api.com book codes (lowercase full names)
+const OSIS_TO_BIBLE_API_BOOK = {
+  "Gen": "genesis", "Exod": "exodus", "Lev": "leviticus", "Num": "numbers", "Deut": "deuteronomy",
+  "Josh": "joshua", "Judg": "judges", "Ruth": "ruth", "1Sam": "1samuel", "2Sam": "2samuel",
+  "1Kgs": "1kings", "2Kgs": "2kings", "1Chr": "1chronicles", "2Chr": "2chronicles", "Ezra": "ezra",
+  "Neh": "nehemiah", "Esth": "esther", "Job": "job", "Ps": "psalms", "Prov": "proverbs",
+  "Eccl": "ecclesiastes", "Song": "songofsolomon", "Isa": "isaiah", "Jer": "jeremiah", "Lam": "lamentations",
+  "Ezek": "ezekiel", "Dan": "daniel", "Hos": "hosea", "Joel": "joel", "Amos": "amos",
+  "Obad": "obadiah", "Jonah": "jonah", "Mic": "micah", "Nah": "nahum", "Hab": "habakkuk",
+  "Zeph": "zephaniah", "Hag": "haggai", "Zech": "zechariah", "Mal": "malachi",
+  "Matt": "matthew", "Mark": "mark", "Luke": "luke", "John": "john", "Acts": "acts",
+  "Rom": "romans", "1Cor": "1corinthians", "2Cor": "2corinthians", "Gal": "galatians", "Eph": "ephesians",
+  "Phil": "philippians", "Col": "colossians", "1Thess": "1thessalonians", "2Thess": "2thessalonians", "1Tim": "1timothy",
+  "2Tim": "2timothy", "Titus": "titus", "Phlm": "philemon", "Heb": "hebrews", "Jas": "james",
+  "1Pet": "1peter", "2Pet": "2peter", "1John": "1john", "2John": "2john", "3John": "3john",
+  "Jude": "jude", "Rev": "revelation"
 };
 
-// Default fallback translation (must exist on bible.helloao.org)
-const DEFAULT_TRANSLATION = "BSB";
+// Translations available on bible-api.com (use this API for these)
+const BIBLE_API_COM_TRANSLATIONS = {
+  "kjv": "kjv", "KJV": "kjv", "en-kjv": "kjv", "engKJV": "kjv",
+  "asv": "asv", "ASV": "asv", "en-asv": "asv", "engASV": "asv",
+  "web": "web", "WEB": "web", "en-web": "web",
+  "bbe": "bbe", "BBE": "bbe",
+  "darby": "darby", "DARBY": "darby",
+  "ylt": "ylt", "YLT": "ylt"
+};
+
+// Default fallback translation 
+const DEFAULT_TRANSLATION = "kjv";
 
 function getBookId(bookCode) {
   if (OSIS_TO_BOOK_ID[bookCode]) return OSIS_TO_BOOK_ID[bookCode];
