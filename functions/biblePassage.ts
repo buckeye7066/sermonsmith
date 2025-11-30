@@ -65,9 +65,66 @@ function getBookId(bookCode) {
 
 function normalizeTranslationId(translationId) {
   if (!translationId) return DEFAULT_TRANSLATION;
-  if (ENGLISH_TRANSLATION_ALIASES[translationId]) return ENGLISH_TRANSLATION_ALIASES[translationId];
-  // Pass through as-is - the ID from available_translations.json is exact
+  // Check if it's a bible-api.com translation first
+  if (BIBLE_API_COM_TRANSLATIONS[translationId]) return BIBLE_API_COM_TRANSLATIONS[translationId];
+  // Pass through as-is for bible.helloao.org translations
   return translationId;
+}
+
+function isBibleApiComTranslation(translationId) {
+  return !!BIBLE_API_COM_TRANSLATIONS[translationId];
+}
+
+// Fetch from bible-api.com (for KJV, ASV, WEB, etc.)
+async function fetchFromBibleApiCom(translationId, bookCode, chapter) {
+  const bookName = OSIS_TO_BIBLE_API_BOOK[bookCode];
+  if (!bookName) {
+    return { ok: false, error: `Unknown book: ${bookCode}`, data: null };
+  }
+  
+  const url = `https://bible-api.com/data/${translationId}/${bookName.toUpperCase()}/${chapter}`;
+  console.log(`[biblePassage] Fetching from bible-api.com: ${url}`);
+  
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      return { ok: false, error: `API error: ${response.status}`, data: null };
+    }
+    
+    const data = await response.json();
+    
+    if (!data.verses || data.verses.length === 0) {
+      return { ok: false, error: 'No verses found', data: null };
+    }
+    
+    // bible-api.com returns verses with { book, chapter, verse, text }
+    const verses = data.verses.map(v => ({
+      verse: v.verse,
+      text: v.text
+    }));
+    
+    return {
+      ok: true,
+      error: null,
+      data: {
+        reference: `${data.book} ${chapter}`,
+        translationLabel: translationId.toUpperCase(),
+        translationId: translationId,
+        translationLanguage: "en",
+        verses: verses
+      }
+    };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { ok: false, error: 'Request timeout', data: null };
+    }
+    return { ok: false, error: err.message || 'Fetch failed', data: null };
+  }
 }
 
 // Parse verses from bible.helloao.org chapter format
