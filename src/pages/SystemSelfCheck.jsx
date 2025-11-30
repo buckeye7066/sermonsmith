@@ -375,11 +375,14 @@ export default function SystemSelfCheck() {
                             >
                               <div className="flex items-center gap-3">
                                 {getStatusIcon(check.ok)}
-                                <span className="font-medium">{check.name || check.entity}</span>
+                                <span className="font-medium">{check.name || check.entity || check.functionName}</span>
                                 {check.responseTime && (
                                   <Badge variant="outline" className="text-xs">
                                     {check.responseTime}ms
                                   </Badge>
+                                )}
+                                {check.skipped && (
+                                  <Badge variant="secondary" className="text-xs">Skipped</Badge>
                                 )}
                               </div>
                               {expandedItems[`${category}-${index}`] 
@@ -388,12 +391,21 @@ export default function SystemSelfCheck() {
                             </CollapsibleTrigger>
                             <CollapsibleContent className="p-3 bg-gray-50 dark:bg-gray-800 rounded-b-lg mt-1">
                               <div className="text-sm space-y-1">
+                                {check.filePath && <p><strong>File:</strong> <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">{check.filePath}</code></p>}
                                 {check.status && <p><strong>Status:</strong> {check.status}</p>}
                                 {check.error && <p className="text-red-600"><strong>Error:</strong> {check.error}</p>}
+                                {check.errorMessage && <p className="text-red-600"><strong>Error:</strong> {check.errorMessage}</p>}
                                 {check.warning && <p className="text-yellow-600"><strong>Warning:</strong> {check.warning}</p>}
                                 {check.description && <p><strong>Description:</strong> {check.description}</p>}
+                                {check.skipReason && <p className="text-gray-500"><strong>Skip Reason:</strong> {check.skipReason}</p>}
                                 {check.exists !== undefined && <p><strong>Exists:</strong> {check.exists ? 'Yes' : 'No'}</p>}
                                 {check.readable !== undefined && <p><strong>Readable:</strong> {check.readable ? 'Yes' : 'No'}</p>}
+                                {check.stack && (
+                                  <div>
+                                    <strong>Stack:</strong>
+                                    <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-900 rounded text-xs overflow-x-auto">{check.stack}</pre>
+                                  </div>
+                                )}
                               </div>
                             </CollapsibleContent>
                           </Collapsible>
@@ -402,6 +414,63 @@ export default function SystemSelfCheck() {
                     </CardContent>
                   </Card>
                 ))}
+              </TabsContent>
+
+              {/* Functions Tab */}
+              <TabsContent value="functions" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Code className="w-5 h-5 text-blue-600" />
+                      Function Introspection Results
+                      <Badge className="ml-2 bg-blue-100 text-blue-800">
+                        {results.functionChecks?.length || 0} functions tested
+                      </Badge>
+                    </CardTitle>
+                    <CardDescription>
+                      Deep test of all backend functions with timeout and error capture
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {results.functionChecks?.map((fn, index) => (
+                        <div 
+                          key={index}
+                          className={`p-3 rounded-lg border ${
+                            fn.skipped ? 'bg-gray-50 border-gray-200' :
+                            fn.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              {fn.skipped ? (
+                                <Badge variant="secondary">⏭️</Badge>
+                              ) : fn.ok ? (
+                                <CheckCircle2 className="w-5 h-5 text-green-600" />
+                              ) : (
+                                <XCircle className="w-5 h-5 text-red-600" />
+                              )}
+                              <div>
+                                <p className="font-medium">{fn.functionName}</p>
+                                <p className="text-xs text-gray-500">{fn.filePath}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {fn.status && <Badge variant="outline">{fn.status}</Badge>}
+                              {fn.responseTime > 0 && <Badge variant="outline">{fn.responseTime}ms</Badge>}
+                            </div>
+                          </div>
+                          {fn.skipReason && (
+                            <p className="text-sm text-gray-500 mt-2">{fn.skipReason}</p>
+                          )}
+                          {fn.errorMessage && (
+                            <p className="text-sm text-red-600 mt-2">{fn.errorMessage}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
               </TabsContent>
 
               {/* Failures Tab */}
