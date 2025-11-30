@@ -5,29 +5,22 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   PlayCircle,
   Loader2,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   Shield,
   Database,
   Zap,
   Lock,
   Download,
-  ChevronDown,
-  ChevronRight,
-  Settings,
   Copy,
   RefreshCw,
-  FileText,
-  Wrench
+  FileText
 } from "lucide-react";
 import { toast } from "sonner";
 
