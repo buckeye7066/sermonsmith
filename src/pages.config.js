@@ -31,7 +31,6 @@ import StudyNotes from './pages/StudyNotes';
 import AdminAnalytics from './pages/AdminAnalytics';
 import ContactSupport from './pages/ContactSupport';
 import AdminMessages from './pages/AdminMessages';
-import SystemSelfCheck from './pages/SystemSelfCheck';
 import __Layout from './Layout.jsx';
 
 
@@ -69,7 +68,6 @@ export const PAGES = {
     "AdminAnalytics": AdminAnalytics,
     "ContactSupport": ContactSupport,
     "AdminMessages": AdminMessages,
-    "SystemSelfCheck": SystemSelfCheck,
 }
 
 export const pagesConfig = {
