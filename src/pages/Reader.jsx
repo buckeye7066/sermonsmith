@@ -383,10 +383,10 @@ export default function Reader() {
 
         // If fallback was used, update the translation selector to show actual translation
         if (response.data.fallbackUsed) {
-          toast.info(`${currentTranslation.toUpperCase()} not available, showing KJV`, {
+          toast.info(`${currentTranslation} not available, showing KJV`, {
             duration: 3000
           });
-          setCurrentTranslation("kjv");
+          setCurrentTranslation("engKJV");
         }
 
         // Log Bible reading with granular details
