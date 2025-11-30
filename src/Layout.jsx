@@ -292,7 +292,7 @@ export default function Layout({ children, currentPageName }) {
     { name: 'Admin Messages', icon: MessageSquare, page: 'AdminMessages', devOnly: true },
     { name: 'Admin Users', icon: Users, page: 'AdminUsers', devOnly: true },
     { name: 'Admin Analytics', icon: Brain, page: 'AdminAnalytics', devOnly: true },
-    { name: 'System Self-Check', icon: Shield, page: 'SystemSelfCheck', devOnly: true }
+    { name: 'Function Tester', icon: Shield, page: 'AdminFunctionTester', devOnly: true }
   ];
 
   if (loading || accessLoading) {
