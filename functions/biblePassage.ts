@@ -154,9 +154,12 @@ async function safeRun(req) {
 
   const apiTranslation = normalizeTranslationId(translationId);
   const bookId = getBookId(bookCode);
-  const apiUrl = `https://bible.helloao.org/api/${apiTranslation}/${bookId}/${chapter}.json`;
+  
+  // bible.helloao.org uses lowercase translation IDs in the URL path
+  const urlTranslation = apiTranslation.toLowerCase() === 'engkjv' ? 'engKJV' : apiTranslation;
+  const apiUrl = `https://bible.helloao.org/api/${urlTranslation}/${bookId}/${chapter}.json`;
 
-  console.log(`[biblePassage] Fetching: ${apiUrl}`);
+  console.log(`[biblePassage] Fetching: ${apiUrl} (trans: ${translationId} -> ${urlTranslation})`);
 
   const result = await safeFetch(apiUrl);
 
