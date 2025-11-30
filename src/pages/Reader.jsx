@@ -189,7 +189,9 @@ export default function Reader() {
   const [showStudyTools, setShowStudyTools] = useState(false);
   const [studyToolsVerse, setStudyToolsVerse] = useState(null);
   const [showOfflineManager, setShowOfflineManager] = useState(false);
-  const [availableTranslations, setAvailableTranslations] = useState([]);
+      const [availableTranslations, setAvailableTranslations] = useState([]);
+      const [translationBookInfo, setTranslationBookInfo] = useState(null);
+      const [showNTOnlyAlert, setShowNTOnlyAlert] = useState(false);
 
   const verseRefs = useRef({});
 
