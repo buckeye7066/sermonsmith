@@ -365,8 +365,8 @@ export default function Reader() {
       // Handle unified envelope
       const result = response.data;
 
-      if (result.ok === false) {
-        // Don't throw - handle gracefully with fallback message
+      if (result.ok === false && !result.data?.verses?.length) {
+        // Only show error if no verses were returned (even via fallback)
         console.log('[Reader] API returned error:', result.error);
         setError({
           message: result.error || 'Translation temporarily unavailable',
