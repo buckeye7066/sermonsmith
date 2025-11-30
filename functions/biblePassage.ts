@@ -1,25 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 
-// Book name mapping for the wldeh/bible-api format (lowercase book names)
-const BOOK_NAME_MAP = {
-  "GEN": "genesis", "EXO": "exodus", "LEV": "leviticus", "NUM": "numbers", "DEU": "deuteronomy",
-  "JOS": "joshua", "JDG": "judges", "RUT": "ruth", "1SA": "1-samuel", "2SA": "2-samuel",
-  "1KI": "1-kings", "2KI": "2-kings", "1CH": "1-chronicles", "2CH": "2-chronicles", "EZR": "ezra",
-  "NEH": "nehemiah", "EST": "esther", "JOB": "job", "PSA": "psalms", "PRO": "proverbs",
-  "ECC": "ecclesiastes", "SNG": "song-of-solomon", "ISA": "isaiah", "JER": "jeremiah", "LAM": "lamentations",
-  "EZK": "ezekiel", "DAN": "daniel", "HOS": "hosea", "JOL": "joel", "AMO": "amos",
-  "OBA": "obadiah", "JON": "jonah", "MIC": "micah", "NAM": "nahum", "HAB": "habakkuk",
-  "ZEP": "zephaniah", "HAG": "haggai", "ZEC": "zechariah", "MAL": "malachi",
-  "MAT": "matthew", "MRK": "mark", "LUK": "luke", "JHN": "john", "ACT": "acts",
-  "ROM": "romans", "1CO": "1-corinthians", "2CO": "2-corinthians", "GAL": "galatians", "EPH": "ephesians",
-  "PHP": "philippians", "COL": "colossians", "1TH": "1-thessalonians", "2TH": "2-thessalonians", "1TI": "1-timothy",
-  "2TI": "2-timothy", "TIT": "titus", "PHM": "philemon", "HEB": "hebrews", "JAS": "james",
-  "1PE": "1-peter", "2PE": "2-peter", "1JN": "1-john", "2JN": "2-john", "3JN": "3-john",
-  "JUD": "jude", "REV": "revelation"
-};
-
-// OSIS to standard book code mapping
-const osisToBookCode = {
+// OSIS to API book code mapping for bible.helloao.org
+const OSIS_TO_BOOK_ID = {
   "Gen": "GEN", "Exod": "EXO", "Lev": "LEV", "Num": "NUM", "Deut": "DEU",
   "Josh": "JOS", "Judg": "JDG", "Ruth": "RUT", "1Sam": "1SA", "2Sam": "2SA",
   "1Kgs": "1KI", "2Kgs": "2KI", "1Chr": "1CH", "2Chr": "2CH", "Ezra": "EZR",
@@ -36,59 +18,41 @@ const osisToBookCode = {
   "Jude": "JUD", "Rev": "REV"
 };
 
-// Translation ID mapping - user-friendly to API format
-const TRANSLATION_MAP = {
-  "kjv": "en-kjv",
-  "KJV": "en-kjv",
-  "eng-kjv2006": "en-kjv",
-  "en-kjv": "en-kjv",
-  "asv": "en-asv",
-  "ASV": "en-asv",
-  "eng-asv": "en-asv",
-  "en-asv": "en-asv",
-  "web": "en-web",
-  "WEB": "en-web",
-  "ENGWEBP": "en-web",
-  "en-web": "en-web",
-  "bbe": "en-bbe",
-  "BBE": "en-bbe",
-  "en-bbe": "en-bbe",
-  "bsb": "en-bsb",
-  "BSB": "en-bsb",
-  "en-bsb": "en-bsb"
+// Common English translation aliases
+const ENGLISH_TRANSLATION_ALIASES = {
+  "kjv": "engKJV",
+  "KJV": "engKJV",
+  "en-kjv": "engKJV",
+  "asv": "engASV", 
+  "ASV": "engASV",
+  "en-asv": "engASV",
+  "web": "ENGWEBP",
+  "WEB": "ENGWEBP",
+  "en-web": "ENGWEBP",
+  "bsb": "BSB",
+  "BSB": "BSB",
+  "en-bsb": "BSB"
 };
 
-// List of supported translations in the free API
-const SUPPORTED_TRANSLATIONS = ["en-kjv", "en-asv", "en-web", "en-bbe", "en-bsb"];
-
-function getApiTranslationId(translationId) {
-  if (!translationId) return "en-kjv";
-  
-  // Check if it's in our map
-  const mapped = TRANSLATION_MAP[translationId] || TRANSLATION_MAP[translationId.toLowerCase()];
-  if (mapped) return mapped;
-  
-  // If translation starts with a known prefix, try to use it
-  if (translationId.startsWith("en-") && SUPPORTED_TRANSLATIONS.includes(translationId)) {
-    return translationId;
+function getBookId(bookCode) {
+  // If it's an OSIS code, convert it
+  if (OSIS_TO_BOOK_ID[bookCode]) {
+    return OSIS_TO_BOOK_ID[bookCode];
   }
-  
-  // Default to KJV for unsupported translations
-  return "en-kjv";
+  // If it's already a standard code, return as-is
+  return bookCode;
 }
 
-function isTranslationSupported(translationId) {
-  const apiId = getApiTranslationId(translationId);
-  return SUPPORTED_TRANSLATIONS.includes(apiId);
-}
-
-function getBookName(bookCode) {
-  // Convert OSIS to standard code if needed
-  let code = bookCode;
-  if (osisToBookCode[bookCode]) {
-    code = osisToBookCode[bookCode];
+function normalizeTranslationId(translationId) {
+  if (!translationId) return "engKJV";
+  
+  // Check aliases first
+  if (ENGLISH_TRANSLATION_ALIASES[translationId]) {
+    return ENGLISH_TRANSLATION_ALIASES[translationId];
   }
-  return BOOK_NAME_MAP[code] || bookCode.toLowerCase();
+  
+  // Return as-is for direct translation IDs (like agd_wbt)
+  return translationId;
 }
 
 Deno.serve(async (req) => {
@@ -109,60 +73,42 @@ Deno.serve(async (req) => {
       }, { status: 400 });
     }
 
-    let apiTranslation = getApiTranslationId(translationId);
-    const bookName = getBookName(bookCode);
+    const apiTranslation = normalizeTranslationId(translationId);
+    const bookId = getBookId(bookCode);
     
-    // Check if translation is supported, fall back to KJV if not
-    if (!isTranslationSupported(apiTranslation)) {
-      console.log(`Translation ${translationId} not supported, falling back to en-kjv`);
-      apiTranslation = "en-kjv";
-    }
-    
-    // Use wldeh/bible-api via jsDelivr CDN (free, no API key required)
-    const url = `https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/${apiTranslation}/books/${bookName}/chapters/${chapter}.json`;
+    // Use bible.helloao.org API (free, 1000+ translations, no API key)
+    const url = `https://bible.helloao.org/api/${apiTranslation}/${bookId}/${chapter}.json`;
     
     console.log(`Fetching: ${url}`);
     
     const response = await fetch(url);
 
     if (!response.ok) {
-      // If the specific translation failed, try KJV as fallback
-      if (response.status === 404 && apiTranslation !== "en-kjv") {
-        console.log(`Falling back to KJV for ${bookName} chapter ${chapter}`);
-        const fallbackUrl = `https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/en-kjv/books/${bookName}/chapters/${chapter}.json`;
+      // Try fallback to KJV if translation not found
+      if (response.status === 404 && apiTranslation !== "engKJV") {
+        console.log(`Translation ${apiTranslation} not found, falling back to KJV`);
+        const fallbackUrl = `https://bible.helloao.org/api/engKJV/${bookId}/${chapter}.json`;
         const fallbackResponse = await fetch(fallbackUrl);
         
         if (fallbackResponse.ok) {
           const fallbackData = await fallbackResponse.json();
-          if (fallbackData && fallbackData.data && fallbackData.data.length > 0) {
-            const seen = new Set();
-            const verseData = fallbackData.data
-              .filter(v => {
-                const key = `${v.verse}`;
-                if (seen.has(key)) return false;
-                seen.add(key);
-                return true;
-              })
-              .map(v => ({
-                verse: parseInt(v.verse, 10),
-                text: v.text
-              }));
-            
-            return Response.json({
-              reference: `${fallbackData.book || bookName} ${chapter}`,
-              translationLabel: "KJV (fallback)",
-              translationLanguage: "en",
-              verses: verseData,
-              fallbackUsed: true,
-              originalTranslation: translationId
-            });
-          }
+          const verseData = parseVerses(fallbackData);
+          
+          return Response.json({
+            reference: `${fallbackData.book?.name || bookId} ${chapter}`,
+            translationLabel: "KJV (fallback)",
+            translationId: "engKJV",
+            translationLanguage: "en",
+            verses: verseData,
+            fallbackUsed: true,
+            originalTranslation: translationId
+          });
         }
       }
       
       if (response.status === 404) {
         return Response.json({ 
-          error: `${bookName} chapter ${chapter} is not available. Try KJV, ASV, WEB, or BBE translations.`,
+          error: `This passage is not available in ${apiTranslation}. Try a different translation.`,
           verses: []
         }, { status: 404 });
       }
@@ -173,29 +119,14 @@ Deno.serve(async (req) => {
     }
 
     const data = await response.json();
-    
-    if (!data || !data.data || data.data.length === 0) {
+    const verseData = parseVerses(data);
+
+    if (verseData.length === 0) {
       return Response.json({ 
         error: 'No verses found in this chapter.',
         verses: []
       }, { status: 404 });
     }
-
-    // Parse verses from the response
-    // Format: { data: [{ book, chapter, verse, text }, ...] }
-    // Remove duplicates (API sometimes returns duplicates)
-    const seen = new Set();
-    const verseData = data.data
-      .filter(v => {
-        const key = `${v.verse}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .map(v => ({
-        verse: parseInt(v.verse, 10),
-        text: v.text
-      }));
 
     // Filter to specific verses if requested
     let filteredVerses = verseData;
@@ -208,9 +139,10 @@ Deno.serve(async (req) => {
     }
 
     return Response.json({
-      reference: `${data.book || bookName} ${chapter}${verses ? `:${verses}` : ''}`,
-      translationLabel: apiTranslation.toUpperCase(),
-      translationLanguage: apiTranslation.split('-')[0],
+      reference: `${data.book?.name || bookId} ${chapter}${verses ? `:${verses}` : ''}`,
+      translationLabel: data.translation?.name || apiTranslation,
+      translationId: apiTranslation,
+      translationLanguage: data.translation?.language || "en",
       verses: filteredVerses
     });
 
@@ -222,3 +154,40 @@ Deno.serve(async (req) => {
     }, { status: 500 });
   }
 });
+
+// Parse verses from bible.helloao.org chapter format
+function parseVerses(data) {
+  if (!data || !data.chapter || !data.chapter.content) {
+    return [];
+  }
+
+  const verseData = [];
+  let currentVerse = null;
+  let currentText = "";
+
+  for (const item of data.chapter.content) {
+    if (item.type === "verse") {
+      // Save previous verse
+      if (currentVerse !== null && currentText.trim()) {
+        verseData.push({ 
+          verse: currentVerse, 
+          text: currentText.trim() 
+        });
+      }
+      currentVerse = item.number;
+      currentText = "";
+    } else if (item.type === "text" && currentVerse !== null) {
+      currentText += item.text;
+    }
+  }
+
+  // Don't forget the last verse
+  if (currentVerse !== null && currentText.trim()) {
+    verseData.push({ 
+      verse: currentVerse, 
+      text: currentText.trim() 
+    });
+  }
+
+  return verseData;
+}
