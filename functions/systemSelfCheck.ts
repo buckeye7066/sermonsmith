@@ -28,7 +28,7 @@ const FUNCTION_REGISTRY = [
   { name: 'grantFamilyAccess', filePath: 'functions/grantFamilyAccess.js', kind: 'default', exported: true },
   { name: 'grantMePremium', filePath: 'functions/grantMePremium.js', kind: 'default', exported: true },
   { name: 'createShareableLink', filePath: 'functions/createShareableLink.js', kind: 'default', exported: true },
-  { name: 'prompt-suggestions', filePath: 'functions/prompt-suggestions.js', kind: 'default', exported: true },
+  { name: 'promptSuggestions', filePath: 'functions/promptSuggestions.js', kind: 'default', exported: true },
   { name: 'importBibleData', filePath: 'functions/importBibleData.js', kind: 'default', exported: true, isExternalCrawler: true },
   { name: 'importFullBible', filePath: 'functions/importFullBible.js', kind: 'default', exported: true, isExternalCrawler: true },
   { name: 'importFromScriptureAPI', filePath: 'functions/importFromScriptureAPI.js', kind: 'default', exported: true, isExternalCrawler: true },
