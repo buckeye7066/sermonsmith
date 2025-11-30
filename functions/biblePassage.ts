@@ -65,8 +65,9 @@ function getBookId(bookCode) {
 
 function normalizeTranslationId(translationId) {
   if (!translationId) return DEFAULT_TRANSLATION;
-  // Check if it's a bible-api.com translation first
-  if (BIBLE_API_COM_TRANSLATIONS[translationId]) return BIBLE_API_COM_TRANSLATIONS[translationId];
+  // Check if it's a bible-api.com translation - normalize to lowercase
+  const normalized = BIBLE_API_COM_TRANSLATIONS[translationId];
+  if (normalized) return normalized;
   // Pass through as-is for bible.helloao.org translations
   return translationId;
 }

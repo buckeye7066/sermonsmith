@@ -56,7 +56,7 @@ import { getTranslationBooks, isBookInTranslation, getFirstAvailableBook, OLD_TE
 // Translation ID normalization - pass through to API as-is
 // The biblePassage function handles normalization
 function normalizeTranslationId(translationId) {
-  if (!translationId) return "engKJV";
+  if (!translationId) return "kjv";
   return translationId;
 }
 
