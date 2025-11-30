@@ -25,7 +25,7 @@ const BIBLE_BOOKS = [
   "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
 ];
 
-export default function JumpToVerse({ open, onClose, onJump, currentBook, currentChapter }) {
+export default function JumpToVerse({ open, onClose, onJump, currentBook, currentChapter, translationBookInfo }) {
   const [book, setBook] = useState(currentBook);
   const [chapter, setChapter] = useState(currentChapter.toString());
   const [verse, setVerse] = useState("");
