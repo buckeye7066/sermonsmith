@@ -29,15 +29,21 @@ export default function TranslationSelector({ currentTranslation = "KJV", onTran
     try {
       const response = await base44.functions.invoke('listAvailableTranslations');
       
-      if (response.data.error) {
-        throw new Error(response.data.error);
+      // Handle unified envelope
+      const result = response.data;
+      
+      if (result.ok === false) {
+        throw new Error(result.error || 'Failed to load translations');
       }
 
-      setTranslations(response.data.translations || []);
-      setIsDeveloper(response.data.is_developer || false);
+      // Data is inside result.data for envelope format
+      const data = result.data || result;
+
+      setTranslations(data.translations || []);
+      setIsDeveloper(data.is_developer || false);
       
       // Set initial name
-      const translation = (response.data.translations || []).find(t => t.id === currentTranslation);
+      const translation = (data.translations || []).find(t => t.id === currentTranslation);
       if (translation) {
         setCurrentTranslationName(translation.shortName || translation.id);
       }
