@@ -52,15 +52,18 @@ export default function TranslationBrowser({
     try {
       const response = await base44.functions.invoke('listAvailableTranslations');
       
-      if (response.data.error) {
-        throw new Error(response.data.error);
+      // Handle unified envelope
+      const result = response.data;
+      if (result.ok === false) {
+        throw new Error(result.error || 'Failed to load translations');
       }
-
-      setTranslations(response.data.translations || []);
-      setByRegion(response.data.byRegion || {});
-      setStats(response.data.stats || null);
-      setIsPremium(response.data.is_premium || false);
-      setIsDeveloper(response.data.is_developer || false);
+      
+      const data = result.data || result;
+      setTranslations(data.translations || []);
+      setByRegion(data.byRegion || {});
+      setStats(data.stats || null);
+      setIsPremium(data.is_premium || false);
+      setIsDeveloper(data.is_developer || false);
     } catch (error) {
       console.error('Failed to load translations:', error);
       toast.error('Failed to load translations');
