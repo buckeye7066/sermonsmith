@@ -553,22 +553,29 @@ export default function Reader() {
   };
 
   const navigateBook = (direction) => {
-    const currentBookIndex = BIBLE_BOOKS.findIndex(b => b.name === currentBook);
+        // Filter books based on translation availability
+        const availableBooks = translationBookInfo?.isNTOnly 
+          ? BIBLE_BOOKS.filter(b => !OLD_TESTAMENT_BOOKS.includes(b.name))
+          : translationBookInfo?.isOTOnly
+            ? BIBLE_BOOKS.filter(b => OLD_TESTAMENT_BOOKS.includes(b.name))
+            : BIBLE_BOOKS;
 
-    if (direction === 'prev' && currentBookIndex > 0) {
-      const prevBook = BIBLE_BOOKS[currentBookIndex - 1];
-      setCurrentBook(prevBook.name);
-      setCurrentChapter(1);
-      localStorage.setItem('lastReadBook', prevBook.name);
-      localStorage.setItem('lastReadChapter', '1');
-    } else if (direction === 'next' && currentBookIndex < BIBLE_BOOKS.length - 1) {
-      const nextBook = BIBLE_BOOKS[currentBookIndex + 1];
-      setCurrentBook(nextBook.name);
-      setCurrentChapter(1);
-      localStorage.setItem('lastReadBook', nextBook.name);
-      localStorage.setItem('lastReadChapter', '1');
-    }
-  };
+        const currentBookIndex = availableBooks.findIndex(b => b.name === currentBook);
+
+        if (direction === 'prev' && currentBookIndex > 0) {
+          const prevBook = availableBooks[currentBookIndex - 1];
+          setCurrentBook(prevBook.name);
+          setCurrentChapter(1);
+          localStorage.setItem('lastReadBook', prevBook.name);
+          localStorage.setItem('lastReadChapter', '1');
+        } else if (direction === 'next' && currentBookIndex < availableBooks.length - 1) {
+          const nextBook = availableBooks[currentBookIndex + 1];
+          setCurrentBook(nextBook.name);
+          setCurrentChapter(1);
+          localStorage.setItem('lastReadBook', nextBook.name);
+          localStorage.setItem('lastReadChapter', '1');
+        }
+      };
 
   const handleJumpToVerse = (book, chapter, verse) => {
     // Validate book name
