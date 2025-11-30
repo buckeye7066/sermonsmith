@@ -34,23 +34,24 @@ const KNOWN_SURFACES = [
 ];
 
 // Test payloads for different function types
+// Note: Some functions will return 4xx errors which is fine - it means they're working
 const TEST_PAYLOADS = {
-  'biblePassage': { translationId: 'en-kjv', bookCode: 'GEN', chapter: 1, _selfTest: '1' },
-  'getPassageMultiSource': { reference: 'John 3:16', translation: 'KJV', _selfTest: '1' },
-  'listAvailableTranslations': { _selfTest: '1' },
-  'createCheckoutSession': { _selfTest: '1' },
-  'exportToPDF': { _selfTest: '1' },
-  'exportToPPTX': { _selfTest: '1' },
-  'listUsers': { _selfTest: '1' },
-  'grantFamilyAccess': { _selfTest: '1' },
-  'grantMePremium': { _selfTest: '1' },
-  'createShareableLink': { _selfTest: '1' },
-  'importBibleData': { _selfTest: '1' },
-  'importFullBible': { _selfTest: '1' },
-  'importFromScriptureAPI': { _selfTest: '1' },
-  'prompt-suggestions': { _selfTest: '1' },
-  'systemSelfCheck': { _selfTest: '1' },
-  'stripe-webhook': { _selfTest: '1' }
+  'biblePassage': { translationId: 'en-kjv', bookCode: 'GEN', chapter: 1, _selfTest: true },
+  'getPassageMultiSource': { reference: 'John 3:16', translation: 'KJV', _selfTest: true },
+  'listAvailableTranslations': { _selfTest: true },
+  'createCheckoutSession': { _selfTest: true }, // Will fail if Stripe key is invalid - that's expected
+  'exportToPDF': { resourceType: 'sermon', resourceId: 'test-nonexistent', _selfTest: true }, // 404 is acceptable
+  'exportToPPTX': { resourceType: 'sermon', resourceId: 'test-nonexistent', _selfTest: true }, // 404 is acceptable
+  'listUsers': { _selfTest: true },
+  'grantFamilyAccess': { _selfTest: true },
+  'grantMePremium': { _selfTest: true },
+  'createShareableLink': { _selfTest: true },
+  'importBibleData': { _selfTest: true },
+  'importFullBible': { _selfTest: true },
+  'importFromScriptureAPI': { _selfTest: true },
+  'prompt-suggestions': { _selfTest: true },
+  'systemSelfCheck': { _selfTest: true },
+  'stripe-webhook': { _selfTest: true }
 };
 
 /**
