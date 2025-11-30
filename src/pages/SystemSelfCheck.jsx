@@ -294,14 +294,48 @@ export default function SystemSelfCheck() {
             </Card>
 
             {/* Detailed Results */}
+            {/* Combined Error Report Card */}
+            {results.combinedErrorReport && (
+              <Card className="mb-6 border-2 border-amber-300 dark:border-amber-600">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-amber-600" />
+                      Combined Error Report
+                    </CardTitle>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={copyErrorReport}
+                      className="gap-2"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Copy Full Error Report
+                    </Button>
+                  </div>
+                  <CardDescription>
+                    All errors consolidated into one report for easy debugging
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap font-mono max-h-96 overflow-y-auto">
+                    {results.combinedErrorReport}
+                  </pre>
+                </CardContent>
+              </Card>
+            )}
+
             <Tabs defaultValue="checks" className="mb-6">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="checks">All Checks ({results.checks?.length || 0})</TabsTrigger>
                 <TabsTrigger value="failures">
-                  Failures ({results.checks?.filter(c => !c.ok).length || 0})
+                  Failures ({results.errors?.length || 0})
                 </TabsTrigger>
                 <TabsTrigger value="contamination">
                   Contamination {results.contamination?.ok ? '✅' : '🚨'}
+                </TabsTrigger>
+                <TabsTrigger value="env">
+                  Env {results.env?.ok ? '✅' : '⚠️'}
                 </TabsTrigger>
               </TabsList>
 
