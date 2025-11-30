@@ -191,9 +191,9 @@ export default function SystemSelfCheck() {
               {/* Actions */}
               <div className="flex items-center justify-between flex-wrap gap-4">
                 <div>
-                  <h3 className="font-semibold text-lg mb-1">Full System Diagnostic</h3>
+                  <h3 className="font-semibold text-lg mb-1">Deep System Diagnostic</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Tests all {results?.registry?.total || 16} backend functions, entities, RLS, and environment
+                    Discovers and tests all backend functions with selfCheck mode
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -211,7 +211,7 @@ export default function SystemSelfCheck() {
                     ) : (
                       <>
                         <PlayCircle className="w-5 h-5 mr-2" />
-                        Run Diagnostic
+                        Run Self-Check
                       </>
                     )}
                   </Button>
