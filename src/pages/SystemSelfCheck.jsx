@@ -103,6 +103,13 @@ export default function SystemSelfCheck() {
     toast.success("Report downloaded");
   };
 
+  const copyErrorReport = () => {
+    if (!results?.combinedErrorReport) return;
+    
+    navigator.clipboard.writeText(results.combinedErrorReport);
+    toast.success("Error report copied to clipboard");
+  };
+
   const getStatusIcon = (ok) => {
     return ok 
       ? <CheckCircle2 className="w-5 h-5 text-green-600" />
