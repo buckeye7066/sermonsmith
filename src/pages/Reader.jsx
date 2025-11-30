@@ -409,16 +409,12 @@ export default function Reader() {
             is_cached: true
           }
         });
-      } else if (result.ok === false && result.error) {
-        // API returned an error in unified envelope
-        setError({
-          message: result.error,
-          canRetry: true
-        });
-        setVerses([]);
       } else {
+        // No verses returned - show error
+        const errorMsg = result.error || `${currentBook} ${currentChapter} is not available in this translation.`;
+        console.log('[Reader] No verses, showing error:', errorMsg);
         setError({
-          message: `${currentBook} ${currentChapter} is not available in this translation.`,
+          message: errorMsg,
           canRetry: true
         });
         setVerses([]);
