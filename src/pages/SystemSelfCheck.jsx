@@ -170,7 +170,7 @@ export default function SystemSelfCheck() {
     );
   }
 
-  const groupedChecks = results?.checks ? groupChecksByCategory(results.checks) : {};
+
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
