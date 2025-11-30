@@ -393,6 +393,14 @@ export default function Reader() {
         setIsCached(true);
         setIsOfflineMode(false);
 
+        // If fallback was used, update the translation selector to show actual translation
+        if (response.data.fallbackUsed) {
+          toast.info(`${currentTranslation.toUpperCase()} not available, showing KJV`, {
+            duration: 3000
+          });
+          setCurrentTranslation("kjv");
+        }
+
         // Log Bible reading with granular details
         logActivity('bible_read', { 
           page_name: 'Reader',
@@ -400,7 +408,7 @@ export default function Reader() {
           metadata: { 
             book: currentBook, 
             chapter: currentChapter, 
-            translation: normalizedTranslation,
+            translation: response.data.fallbackUsed ? "kjv" : normalizedTranslation,
             verse_count: formattedVerses.length,
             is_cached: true
           }
