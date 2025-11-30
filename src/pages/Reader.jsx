@@ -394,6 +394,9 @@ export default function Reader() {
           });
         }
 
+        // Clear any previous errors since we have verses now
+        setError(null);
+
         // Log Bible reading with granular details
         logActivity('bible_read', { 
           page_name: 'Reader',
