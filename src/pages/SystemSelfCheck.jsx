@@ -23,7 +23,9 @@ import {
   ChevronRight,
   RefreshCw,
   Server,
-  Settings
+  Settings,
+  Copy,
+  FileText
 } from "lucide-react";
 import { toast } from "sonner";
 
