@@ -1175,12 +1175,13 @@ export default function Reader() {
         />
 
         <JumpToVerse
-          open={showJumpToVerse}
-          onClose={() => setShowJumpToVerse(false)}
-          onJump={handleJumpToVerse}
-          currentBook={currentBook}
-          currentChapter={currentChapter}
-        />
+                        open={showJumpToVerse}
+                        onClose={() => setShowJumpToVerse(false)}
+                        onJump={handleJumpToVerse}
+                        currentBook={currentBook}
+                        currentChapter={currentChapter}
+                        translationBookInfo={translationBookInfo}
+                      />
 
         <SearchDialog
           open={showSearch}
