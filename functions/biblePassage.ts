@@ -77,15 +77,17 @@ function isBibleApiComTranslation(translationId) {
 }
 
 // Fetch from bible-api.com (for KJV, ASV, WEB, etc.)
-// bible-api.com uses format: https://bible-api.com/Genesis+1?translation=kjv
+// Parameterized API: /data/TRANSLATION/BOOK_ID/CHAPTER
+// Book IDs are like GEN, EXO, JHN etc.
 async function fetchFromBibleApiCom(translationId, bookCode, chapter) {
-  const bookName = OSIS_TO_BIBLE_API_BOOK[bookCode];
-  if (!bookName) {
+  // bible-api.com uses same OSIS-style book codes as helloao.org
+  const bookId = OSIS_TO_BOOK_ID[bookCode];
+  if (!bookId) {
     return { ok: false, error: `Unknown book: ${bookCode}`, data: null };
   }
   
-  // bible-api.com format: /BookName+Chapter?translation=xxx
-  const url = `https://bible-api.com/${encodeURIComponent(bookName)}+${chapter}?translation=${translationId}`;
+  // Parameterized API: /data/translation/BOOK_ID/chapter
+  const url = `https://bible-api.com/data/${translationId}/${bookId}/${chapter}`;
   console.log(`[biblePassage] Fetching from bible-api.com: ${url}`);
   
   try {
@@ -105,7 +107,7 @@ async function fetchFromBibleApiCom(translationId, bookCode, chapter) {
       return { ok: false, error: 'No verses found', data: null };
     }
     
-    // bible-api.com returns verses with { book_name, chapter, verse, text }
+    // bible-api.com parameterized API returns { book: {name}, chapter, verses: [{verse, text}] }
     const verses = data.verses.map(v => ({
       verse: v.verse,
       text: v.text
@@ -115,7 +117,7 @@ async function fetchFromBibleApiCom(translationId, bookCode, chapter) {
       ok: true,
       error: null,
       data: {
-        reference: `${data.reference || bookName + ' ' + chapter}`,
+        reference: `${data.book?.name || bookId} ${chapter}`,
         translationLabel: translationId.toUpperCase(),
         translationId: translationId,
         translationLanguage: "en",
