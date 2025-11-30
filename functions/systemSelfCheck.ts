@@ -339,7 +339,7 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 3. ENTITY/DATABASE CHECKS
+    // 4. ENTITY/DATABASE CHECKS
     // ══════════════════════════════════════════════════════════════════════════
     console.log('\n🗄️ ENTITY/DATABASE CHECKS');
     
@@ -370,7 +370,7 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 4. RLS POLICY CHECKS
+    // 5. RLS POLICY CHECKS
     // ══════════════════════════════════════════════════════════════════════════
     console.log('\n🔒 RLS POLICY CHECKS');
     const rlsResults = await testRLS(base44, user);
@@ -387,7 +387,7 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 5. CROSS-CONTAMINATION DETECTION
+    // 6. CROSS-CONTAMINATION DETECTION
     // ══════════════════════════════════════════════════════════════════════════
     console.log('\n🔍 CROSS-CONTAMINATION DETECTION');
     const contamination = await detectContamination(base44, user, isAdmin);
@@ -402,7 +402,7 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 6. STRIPE INTEGRATION CHECK
+    // 7. STRIPE INTEGRATION CHECK
     // ══════════════════════════════════════════════════════════════════════════
     console.log('\n💳 STRIPE INTEGRATION CHECK');
     const stripeKey = Deno.env.get('STRIPE_API_KEY');
