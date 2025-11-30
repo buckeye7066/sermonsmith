@@ -812,9 +812,25 @@ export default function Reader() {
     return notes.filter(n => n.verse_id === verseId);
   };
 
-  const handleTranslationChange = (newTranslation) => {
-    setCurrentTranslation(newTranslation);
-  };
+  const handleTranslationChange = async (newTranslation) => {
+        setCurrentTranslation(newTranslation);
+
+        // Check what books this translation has
+        const bookInfo = await getTranslationBooks(newTranslation);
+        setTranslationBookInfo(bookInfo);
+
+        // If current book isn't available, switch to first available
+        if (bookInfo && !isBookInTranslation(currentBook, bookInfo)) {
+          const firstBook = getFirstAvailableBook(bookInfo);
+          setCurrentBook(firstBook);
+          setCurrentChapter(1);
+          localStorage.setItem('lastReadBook', firstBook);
+          localStorage.setItem('lastReadChapter', '1');
+          setShowNTOnlyAlert(true);
+        } else {
+          setShowNTOnlyAlert(false);
+        }
+      };
 
   // Load available translations for offline manager
   useEffect(() => {
