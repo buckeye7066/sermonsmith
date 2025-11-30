@@ -366,7 +366,15 @@ export default function Reader() {
       const result = response.data;
 
       if (result.ok === false) {
-        throw new Error(result.error || 'Failed to load verses');
+        // Don't throw - handle gracefully with fallback message
+        console.log('[Reader] API returned error:', result.error);
+        setError({
+          message: result.error || 'Translation temporarily unavailable',
+          canRetry: true
+        });
+        setVerses([]);
+        setIsLoading(false);
+        return;
       }
 
       // Support both envelope format and direct format
