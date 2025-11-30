@@ -116,22 +116,6 @@ export default function SystemSelfCheck() {
     toast.success("Error report copied to clipboard");
   };
 
-  const getStatusIcon = (ok) => {
-    return ok 
-      ? <CheckCircle2 className="w-5 h-5 text-green-600" />
-      : <XCircle className="w-5 h-5 text-red-600" />;
-  };
-
-  const getCategoryIcon = (category) => {
-    switch (category) {
-      case 'environment': return <Settings className="w-4 h-4" />;
-      case 'function': return <Zap className="w-4 h-4" />;
-      case 'entity': return <Database className="w-4 h-4" />;
-      case 'rls': return <Lock className="w-4 h-4" />;
-      default: return <Shield className="w-4 h-4" />;
-    }
-  };
-
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
