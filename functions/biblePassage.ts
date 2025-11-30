@@ -109,8 +109,14 @@ Deno.serve(async (req) => {
       }, { status: 400 });
     }
 
-    const apiTranslation = getApiTranslationId(translationId);
+    let apiTranslation = getApiTranslationId(translationId);
     const bookName = getBookName(bookCode);
+    
+    // Check if translation is supported, fall back to KJV if not
+    if (!isTranslationSupported(apiTranslation)) {
+      console.log(`Translation ${translationId} not supported, falling back to en-kjv`);
+      apiTranslation = "en-kjv";
+    }
     
     // Use wldeh/bible-api via jsDelivr CDN (free, no API key required)
     const url = `https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/${apiTranslation}/books/${bookName}/chapters/${chapter}.json`;
@@ -120,9 +126,43 @@ Deno.serve(async (req) => {
     const response = await fetch(url);
 
     if (!response.ok) {
+      // If the specific translation failed, try KJV as fallback
+      if (response.status === 404 && apiTranslation !== "en-kjv") {
+        console.log(`Falling back to KJV for ${bookName} chapter ${chapter}`);
+        const fallbackUrl = `https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/en-kjv/books/${bookName}/chapters/${chapter}.json`;
+        const fallbackResponse = await fetch(fallbackUrl);
+        
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json();
+          if (fallbackData && fallbackData.data && fallbackData.data.length > 0) {
+            const seen = new Set();
+            const verseData = fallbackData.data
+              .filter(v => {
+                const key = `${v.verse}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              })
+              .map(v => ({
+                verse: parseInt(v.verse, 10),
+                text: v.text
+              }));
+            
+            return Response.json({
+              reference: `${fallbackData.book || bookName} ${chapter}`,
+              translationLabel: "KJV (fallback)",
+              translationLanguage: "en",
+              verses: verseData,
+              fallbackUsed: true,
+              originalTranslation: translationId
+            });
+          }
+        }
+      }
+      
       if (response.status === 404) {
         return Response.json({ 
-          error: `${bookName} chapter ${chapter} is not available in ${apiTranslation}. Try a different translation (KJV, ASV, WEB, BBE).`,
+          error: `${bookName} chapter ${chapter} is not available. Try KJV, ASV, WEB, or BBE translations.`,
           verses: []
         }, { status: 404 });
       }
