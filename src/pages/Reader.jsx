@@ -377,8 +377,9 @@ export default function Reader() {
         return;
       }
 
-      // Support both envelope format and direct format
-      const verses = result.data?.verses || result.verses || [];
+      // Support both envelope format and direct format - check for fallback first
+      const responseData = result.data || result;
+      const verses = responseData?.verses || [];
 
       if (verses && verses.length > 0) {
         const formattedVerses = verses.map((v) => ({
