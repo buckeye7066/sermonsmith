@@ -210,10 +210,16 @@ export default function SystemSelfCheck() {
                   )}
                 </Button>
                 {results && (
-                  <Button variant="outline" onClick={downloadReport}>
-                    <Download className="w-4 h-4 mr-2" />
-                    Download JSON Report
-                  </Button>
+                  <>
+                    <Button variant="outline" onClick={downloadReport}>
+                      <Download className="w-4 h-4 mr-2" />
+                      Download JSON Report
+                    </Button>
+                    <Button variant="outline" onClick={() => setResults(null)}>
+                      <XCircle className="w-4 h-4 mr-2" />
+                      Clear Results
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
