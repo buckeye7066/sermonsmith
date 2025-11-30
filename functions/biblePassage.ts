@@ -222,18 +222,13 @@ async function safeRun(req) {
     filteredVerses = verseData.filter(v => v.verse >= start && v.verse <= end);
   }
 
-  // Determine display name - show "KJV" for KJV-requested translations
-  const isKJVRequest = KJV_DISPLAY_TRANSLATIONS.includes(translationId);
-  const displayLabel = isKJVRequest ? "KJV" : (result.data.translation?.name || apiTranslation);
-  const displayId = isKJVRequest ? "engKJV" : apiTranslation;
-
   return {
     ok: true,
     error: null,
     data: {
       reference: `${result.data.book?.name || bookId} ${chapter}${verses ? `:${verses}` : ''}`,
-      translationLabel: displayLabel,
-      translationId: displayId,
+      translationLabel: result.data.translation?.name || apiTranslation,
+      translationId: apiTranslation,
       translationLanguage: result.data.translation?.language || "en",
       verses: filteredVerses
     }
