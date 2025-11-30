@@ -1,0 +1,68 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
+
+Deno.serve(async (req) => {
+  const base44 = createClientFromRequest(req);
+  
+  try {
+    const user = await base44.auth.me();
+    if (!user) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { resourceType, resourceId, title, description, accessLevel, expiresInDays, _selfTest } = await req.json();
+
+    // Self-test mode for system diagnostics
+    if (_selfTest) {
+      return Response.json({ ok: true, selfTest: true, message: 'createShareableLink is operational' });
+    }
+
+    // Generate unique share code
+    const shareCode = generateShareCode();
+
+    // Calculate expiration
+    let expiresAt = null;
+    if (expiresInDays && expiresInDays > 0) {
+      const expireDate = new Date();
+      expireDate.setDate(expireDate.getDate() + expiresInDays);
+      expiresAt = expireDate.toISOString();
+    }
+
+    // Create shareable link
+    const shareableLink = await base44.entities.ShareableLink.create({
+      user_id: user.id,
+      resource_type: resourceType,
+      resource_id: resourceId,
+      share_code: shareCode,
+      title: title || `Shared ${resourceType}`,
+      description: description || '',
+      access_level: accessLevel || 'view',
+      expires_at: expiresAt,
+      view_count: 0,
+      is_active: true
+    });
+
+    // Build share URL
+    const appUrl = req.headers.get('origin') || 'https://app.base44.com';
+    const shareUrl = `${appUrl}/share/${shareCode}`;
+
+    return Response.json({
+      shareUrl,
+      shareCode,
+      expiresAt,
+      shareableLink
+    });
+
+  } catch (error) {
+    console.error('Create share link error:', error);
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+});
+
+function generateShareCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let code = '';
+  for (let i = 0; i < 12; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
