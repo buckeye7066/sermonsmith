@@ -51,25 +51,23 @@ export default function SystemSelfCheck() {
     setResults(null);
 
     try {
-      toast.info("Running comprehensive system self-check...");
+      toast.info("Running deep system self-check...");
       
       const params = new URLSearchParams();
-      if (autoFix) params.append('autoFix', '1');
       if (autoRetry) params.append('autoRetry', '1');
       params.append('retryDelayMs', retryDelay);
       
       const response = await base44.functions.invoke(`systemSelfCheck?${params.toString()}`);
 
       if (response.data) {
-        // Handle unified envelope
         const result = response.data;
         setResults(result.data || result);
 
         if (result.ok) {
           toast.success("All systems operational!");
         } else {
-          const failCount = result.data?.summary?.functions?.failed || result.summary?.failed || 0;
-          toast.error(`${failCount} issues detected`);
+          const failCount = result.data?.failed || result.failed || 0;
+          toast.error(`${failCount} issue(s) detected`);
         }
       }
     } catch (error) {
@@ -77,17 +75,23 @@ export default function SystemSelfCheck() {
       toast.error("Failed to run self-check");
       setResults({
         ok: false,
-        error: error.message,
-        summary: { total: 0, passed: 0, failed: 1 },
+        checked: 0,
+        passed: 0,
+        failed: 1,
+        skipped: 0,
+        failures: [{
+          functionId: 'systemSelfCheck',
+          path: '/functions/systemSelfCheck',
+          filePath: 'functions/systemSelfCheck.js',
+          errorMessage: error.message,
+          stack: null,
+          codeSnippet: '// Self-check crashed'
+        }],
         combinedErrorReport: `CRASH: ${error.message}`
       });
     } finally {
       setIsRunning(false);
     }
-  };
-
-  const toggleExpanded = (key) => {
-    setExpandedItems(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const downloadReport = () => {
