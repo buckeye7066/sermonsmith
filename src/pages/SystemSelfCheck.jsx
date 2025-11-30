@@ -163,23 +163,15 @@ export default function SystemSelfCheck() {
           <CardContent className="pt-6">
             <div className="flex flex-col gap-6">
               {/* Options */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="flex items-center space-x-2">
-                  <Switch id="auto-fix" checked={autoFix} onCheckedChange={setAutoFix} />
-                  <Label htmlFor="auto-fix" className="flex items-center gap-2">
-                    <Wrench className="w-4 h-4" />
-                    Auto-Fix
-                  </Label>
-                </div>
-                
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="flex items-center space-x-2">
                   <Switch id="auto-retry" checked={autoRetry} onCheckedChange={setAutoRetry} />
                   <Label htmlFor="auto-retry" className="flex items-center gap-2">
                     <RefreshCw className="w-4 h-4" />
-                    Auto-Retry
+                    Auto-Retry Failed
                   </Label>
                 </div>
-                
+
                 <div className="flex items-center space-x-2">
                   <Label htmlFor="retry-delay">Retry Delay:</Label>
                   <Select value={retryDelay} onValueChange={setRetryDelay}>
