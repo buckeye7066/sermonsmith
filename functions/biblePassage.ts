@@ -155,16 +155,16 @@ async function safeRun(req) {
   const apiTranslation = normalizeTranslationId(translationId);
   const bookId = getBookId(bookCode);
   
-  // bible.helloao.org uses lowercase translation IDs in the URL path
-  const urlTranslation = apiTranslation.toLowerCase() === 'engkjv' ? 'engKJV' : apiTranslation;
-  const apiUrl = `https://bible.helloao.org/api/${urlTranslation}/${bookId}/${chapter}.json`;
+  // bible.helloao.org - the translation ID in the URL must match exactly what's returned from available_translations
+  // Some IDs are case-sensitive (engKJV vs ENGWEBP)
+  const apiUrl = `https://bible.helloao.org/api/${apiTranslation}/${bookId}/${chapter}.json`;
 
-  console.log(`[biblePassage] Fetching: ${apiUrl} (trans: ${translationId} -> ${urlTranslation})`);
+  console.log(`[biblePassage] Fetching: ${apiUrl} (trans: ${translationId} -> ${apiTranslation})`);
 
   let result = await safeFetch(apiUrl);
 
-  // If primary fails, try KJV fallback
-  if (!result.ok && urlTranslation !== "engKJV") {
+  // If primary fails (404 or HTML error page), try KJV fallback
+  if (!result.ok && apiTranslation !== "engKJV") {
     console.log(`[biblePassage] Primary failed (${result.error}), trying KJV fallback`);
     const fallbackUrl = `https://bible.helloao.org/api/engKJV/${bookId}/${chapter}.json`;
     result = await safeFetch(fallbackUrl);
@@ -181,7 +181,8 @@ async function safeRun(req) {
           translationLanguage: "en",
           verses: verseData,
           fallbackUsed: true,
-          originalTranslation: translationId
+          originalTranslation: translationId,
+          fallbackReason: `${translationId} returned error: ${result.error}`
         }
       };
     }
