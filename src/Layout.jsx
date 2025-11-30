@@ -4,7 +4,7 @@ import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { Book, FileText, Settings, PlusCircle, MapPin, GraduationCap, Crown, LogOut, Home, Brain, BookOpen, Users, Globe, Scale, Heart, MessageSquare } from 'lucide-react';
+import { Book, FileText, Settings, PlusCircle, MapPin, GraduationCap, Crown, LogOut, Home, Brain, BookOpen, Users, Globe, Scale, Heart, MessageSquare, Shield } from 'lucide-react';
 import { SafeImg } from '@/components/ui/SafeImg';
 import { toast } from 'sonner';
 import { usePremiumAccess } from './components/hooks/usePremiumAccess';
