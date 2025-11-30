@@ -41,7 +41,7 @@ function getBookId(bookCode) {
 }
 
 function normalizeTranslationId(translationId) {
-  if (!translationId) return "engKJV";
+  if (!translationId) return DEFAULT_TRANSLATION;
   if (ENGLISH_TRANSLATION_ALIASES[translationId]) return ENGLISH_TRANSLATION_ALIASES[translationId];
   // Pass through as-is - the ID from available_translations.json is exact
   return translationId;
