@@ -839,20 +839,32 @@ export default function Reader() {
         }
       };
 
-  // Load available translations for offline manager
-  useEffect(() => {
-    const loadTranslations = async () => {
-      try {
-        const response = await base44.functions.invoke('listAvailableTranslations');
-        if (response.data.translations) {
-          setAvailableTranslations(response.data.translations);
-        }
-      } catch (error) {
-        console.error('Failed to load translations:', error);
-      }
-    };
-    loadTranslations();
-  }, []);
+  // Load available translations for offline manager and check current translation books
+      useEffect(() => {
+        const loadTranslations = async () => {
+          try {
+            const response = await base44.functions.invoke('listAvailableTranslations');
+            if (response.data.translations) {
+              setAvailableTranslations(response.data.translations);
+            }
+          } catch (error) {
+            console.error('Failed to load translations:', error);
+          }
+        };
+        loadTranslations();
+
+        // Check current translation's available books
+        const checkTranslationBooks = async () => {
+          const bookInfo = await getTranslationBooks(currentTranslation);
+          setTranslationBookInfo(bookInfo);
+
+          // If current book isn't available, show alert
+          if (bookInfo && !isBookInTranslation(currentBook, bookInfo)) {
+            setShowNTOnlyAlert(true);
+          }
+        };
+        checkTranslationBooks();
+      }, [currentTranslation, currentBook]);
 
   const themeClasses = THEME_CLASSES[readerSettings.theme];
   const currentBookIndex = BIBLE_BOOKS.findIndex(b => b.name === currentBook);
