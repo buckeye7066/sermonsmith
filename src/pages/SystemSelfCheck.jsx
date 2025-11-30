@@ -291,35 +291,35 @@ export default function SystemSelfCheck() {
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                    <p className="text-3xl font-bold text-gray-900 dark:text-white">
-                      {results.summary?.totalChecks || 0}
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Total Checks</p>
-                  </div>
-                  <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <p className="text-3xl font-bold text-blue-600">
-                      {results.summary?.totalFunctions || 0}
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Functions</p>
-                  </div>
-                  <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                    <p className="text-3xl font-bold text-green-600">
-                      {results.summary?.passed || 0}
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Passed</p>
-                  </div>
-                  <div className="text-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
-                    <p className="text-3xl font-bold text-red-600">
-                      {results.summary?.failed || 0}
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Failed</p>
-                  </div>
-                  <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                    <p className="text-3xl font-bold text-purple-600">
-                      {results.elapsedTime || 0}ms
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Duration</p>
-                  </div>
+                      <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                        {results.summary?.functions?.total || results.summary?.totalChecks || 0}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Functions</p>
+                    </div>
+                    <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <p className="text-3xl font-bold text-blue-600">
+                        {results.summary?.entities?.total || 0}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Entities</p>
+                    </div>
+                    <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                      <p className="text-3xl font-bold text-green-600">
+                        {results.summary?.functions?.passed || results.summary?.passed || 0}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Passed</p>
+                    </div>
+                    <div className="text-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                      <p className="text-3xl font-bold text-red-600">
+                        {results.summary?.functions?.failed || results.summary?.failed || 0}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Failed</p>
+                    </div>
+                    <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                      <p className="text-3xl font-bold text-purple-600">
+                        {results.elapsedTime || 0}ms
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Duration</p>
+                    </div>
                 </div>
               </CardContent>
             </Card>
