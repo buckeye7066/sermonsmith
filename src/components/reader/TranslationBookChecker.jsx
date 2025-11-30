@@ -25,7 +25,7 @@ export const NEW_TESTAMENT_BOOKS = [
 ];
 
 // Known full-Bible translations that should never be marked as NT-only
-const FULL_BIBLE_TRANSLATIONS = ['engKJV', 'KJV', 'kjv', 'engASV', 'ASV', 'ENGWEBP', 'WEB', 'BSB'];
+const FULL_BIBLE_TRANSLATIONS = ['kjv', 'KJV', 'asv', 'ASV', 'web', 'WEB', 'bbe', 'BBE', 'darby', 'DARBY', 'ENGWEBP', 'BSB'];
 
 // Check if a translation has a specific book
 export async function getTranslationBooks(translationId) {
