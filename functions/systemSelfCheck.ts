@@ -31,41 +31,6 @@ const KNOWN_ENTITIES = [
   'UserActivity', 'StripeEvent', 'SystemCheckLog'
 ];
 
-// Helper to safely test a function
-async function testFunction(base44, funcName, testPayload = {}) {
-  const result = {
-    name: funcName,
-    ok: false,
-    status: null,
-    error: null,
-    responseTime: 0
-  };
-
-  const start = Date.now();
-  try {
-    // Add self-test flag to payload
-    const payload = { ...testPayload, _selfTest: '1' };
-    const response = await Promise.race([
-      base44.functions.invoke(funcName, payload),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout after 15s')), 15000))
-    ]);
-
-    result.responseTime = Date.now() - start;
-    result.status = response.status;
-    result.ok = response.status >= 200 && response.status < 500; // 4xx is still "working"
-    
-    if (response.status >= 500) {
-      result.error = response.data?.error || 'Server error';
-    }
-  } catch (err) {
-    result.responseTime = Date.now() - start;
-    result.error = err.message;
-    result.ok = false;
-  }
-
-  return result;
-}
-
 // Test entity access
 async function testEntity(base44, entityName, isAdmin) {
   const result = {
