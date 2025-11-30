@@ -172,6 +172,13 @@ async function safeRun(req) {
     
     if (result.ok) {
       const verseData = parseVerses(result.data);
+      
+      // Determine reason for fallback
+      let fallbackReason = `${translationId} not available for this chapter`;
+      if (bookId === "GEN" || bookId === "EXO" || bookId === "LEV" || bookId === "NUM" || bookId === "DEU") {
+        fallbackReason = `${translationId} may be New Testament only`;
+      }
+      
       return {
         ok: true,
         error: null,
@@ -183,7 +190,7 @@ async function safeRun(req) {
           verses: verseData,
           fallbackUsed: true,
           originalTranslation: translationId,
-          fallbackReason: `${translationId} returned error: ${result.error}`
+          fallbackReason
         }
       };
     }
