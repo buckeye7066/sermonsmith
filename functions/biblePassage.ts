@@ -41,21 +41,45 @@ const TRANSLATION_MAP = {
   "kjv": "en-kjv",
   "KJV": "en-kjv",
   "eng-kjv2006": "en-kjv",
+  "en-kjv": "en-kjv",
   "asv": "en-asv",
   "ASV": "en-asv",
   "eng-asv": "en-asv",
+  "en-asv": "en-asv",
   "web": "en-web",
   "WEB": "en-web",
   "ENGWEBP": "en-web",
+  "en-web": "en-web",
   "bbe": "en-bbe",
   "BBE": "en-bbe",
+  "en-bbe": "en-bbe",
   "bsb": "en-bsb",
-  "BSB": "en-bsb"
+  "BSB": "en-bsb",
+  "en-bsb": "en-bsb"
 };
+
+// List of supported translations in the free API
+const SUPPORTED_TRANSLATIONS = ["en-kjv", "en-asv", "en-web", "en-bbe", "en-bsb"];
 
 function getApiTranslationId(translationId) {
   if (!translationId) return "en-kjv";
-  return TRANSLATION_MAP[translationId] || TRANSLATION_MAP[translationId.toLowerCase()] || translationId;
+  
+  // Check if it's in our map
+  const mapped = TRANSLATION_MAP[translationId] || TRANSLATION_MAP[translationId.toLowerCase()];
+  if (mapped) return mapped;
+  
+  // If translation starts with a known prefix, try to use it
+  if (translationId.startsWith("en-") && SUPPORTED_TRANSLATIONS.includes(translationId)) {
+    return translationId;
+  }
+  
+  // Default to KJV for unsupported translations
+  return "en-kjv";
+}
+
+function isTranslationSupported(translationId) {
+  const apiId = getApiTranslationId(translationId);
+  return SUPPORTED_TRANSLATIONS.includes(apiId);
 }
 
 function getBookName(bookCode) {
