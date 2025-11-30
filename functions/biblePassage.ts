@@ -97,9 +97,9 @@ Deno.serve(async (req) => {
     // Use bible.helloao.org API (free, 1000+ translations, no API key)
     const apiUrl = `https://bible.helloao.org/api/${apiTranslation}/${bookId}/${chapter}.json`;
     
-    console.log(`Fetching: ${url}`);
+    console.log(`Fetching: ${apiUrl}`);
     
-    const response = await fetch(url);
+    const response = await fetch(apiUrl);
 
     // Check if response is JSON (sometimes API returns HTML error pages)
     const contentType = response.headers.get('content-type') || '';
