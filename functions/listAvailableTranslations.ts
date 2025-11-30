@@ -111,7 +111,7 @@ async function safeRun(req) {
   
   const freeTranslationIds = ['kjv', 'KJV', 'asv', 'ASV', 'web', 'WEB', 'bbe', 'BBE', 'darby', 'DARBY', 'ylt', 'YLT', 'ENGWEBP', 'BSB'];
 
-  const translations = apiTranslations
+  const translations = allTranslations
     .filter(t => t.numberOfBooks >= 27)
     .map(t => {
       const isFree = freeTranslationIds.includes(t.id) || freeTranslationIds.includes(t.shortName);
