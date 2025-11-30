@@ -161,13 +161,89 @@ async function safeRun(req) {
 
   console.log(`[biblePassage] Fetching: ${apiUrl} (trans: ${translationId} -> ${urlTranslation})`);
 
-  const result = await safeFetch(apiUrl);
+  let result = await safeFetch(apiUrl);
 
   // If primary fails, try KJV fallback
-  if (!result.ok && apiTranslation !== "engKJV") {
-    console.log(`[biblePassage] Primary failed, trying KJV fallback`);
+  if (!result.ok && urlTranslation !== "engKJV") {
+    console.log(`[biblePassage] Primary failed (${result.error}), trying KJV fallback`);
     const fallbackUrl = `https://bible.helloao.org/api/engKJV/${bookId}/${chapter}.json`;
-    const fallbackResult = await safeFetch(fallbackUrl);
+    result = await safeFetch(fallbackUrl);
+    
+    if (result.ok) {
+      const verseData = parseVerses(result.data);
+      return {
+        ok: true,
+        error: null,
+        data: {
+          reference: `${result.data.book?.name || bookId} ${chapter}`,
+          translationLabel: "KJV (fallback)",
+          translationId: "engKJV",
+          translationLanguage: "en",
+          verses: verseData,
+          fallbackUsed: true,
+          originalTranslation: translationId
+        }
+      };
+    }
+  }
+
+  // Still failing - could be the external API is down
+  if (!result.ok) {
+    console.log(`[biblePassage] All attempts failed: ${result.error}`);
+    return { ok: false, error: result.error || 'Bible API temporarily unavailable', data: { verses: [] } };
+  }
+
+  const verseData = parseVerses(result.data);
+
+  if (verseData.length === 0) {
+    return { ok: false, error: 'No verses found in this chapter', data: { verses: [] } };
+  }
+
+  // Filter to specific verses if requested
+  let filteredVerses = verseData;
+  if (verses) {
+    const [start, end] = verses.includes('-') 
+      ? verses.split('-').map(Number)
+      : [Number(verses), Number(verses)];
+    filteredVerses = verseData.filter(v => v.verse >= start && v.verse <= end);
+  }
+
+  return {
+    ok: true,
+    error: null,
+    data: {
+      reference: `${result.data.book?.name || bookId} ${chapter}${verses ? `:${verses}` : ''}`,
+      translationLabel: result.data.translation?.name || apiTranslation,
+      translationId: apiTranslation,
+      translationLanguage: result.data.translation?.language || "en",
+      verses: filteredVerses
+    }
+  };
+}
+
+// Unified envelope handler
+Deno.serve(async (req) => {
+  try {
+    const result = await safeRun(req);
+    
+    // For self-test, return as-is
+    if (result.selfTest) {
+      return Response.json(result);
+    }
+    
+    // Standard envelope
+    return Response.json(result);
+  } catch (err) {
+    console.error("[biblePassage] CRITICAL ERROR:", err);
+    return Response.json({
+      ok: false,
+      error: err?.message ?? "Unknown error",
+      data: null
+    });
+  }
+});
+
+// REMOVED DUPLICATE CODE BELOW
 
     if (fallbackResult.ok) {
       const verseData = parseVerses(fallbackResult.data);
