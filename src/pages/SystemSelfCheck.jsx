@@ -28,11 +28,8 @@ export default function SystemSelfCheck() {
   const [user, setUser] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [results, setResults] = useState(null);
-  const [expandedItems, setExpandedItems] = useState({});
-  const [activeTab, setActiveTab] = useState("report");
   
   // Options
-  const [autoFix, setAutoFix] = useState(false);
   const [autoRetry, setAutoRetry] = useState(false);
   const [retryDelay, setRetryDelay] = useState("2000");
 
