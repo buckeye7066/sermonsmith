@@ -469,6 +469,69 @@ export default function SystemSelfCheck() {
                   </CardContent>
                 </Card>
               </TabsContent>
+
+              {/* Environment Tab */}
+              <TabsContent value="env" className="space-y-4 mt-4">
+                <Card className={results.env?.ok ? 'border-green-300' : 'border-amber-300'}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Settings className="w-5 h-5" />
+                      Environment Variables
+                      <Badge className={results.env?.ok ? 'bg-green-100 text-green-800 ml-2' : 'bg-amber-100 text-amber-800 ml-2'}>
+                        {results.env?.ok ? 'All Set' : `${results.env?.missing?.length || 0} Missing`}
+                      </Badge>
+                    </CardTitle>
+                    <CardDescription>
+                      Required and optional environment variables status
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {results.env?.missing?.length > 0 ? (
+                      <Alert variant="destructive" className="mb-4">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription>
+                          <strong>Missing Required Variables:</strong> {results.env.missing.join(', ')}
+                        </AlertDescription>
+                      </Alert>
+                    ) : (
+                      <Alert className="bg-green-50 border-green-300 mb-4">
+                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                        <AlertDescription className="text-green-800">
+                          All required environment variables are set.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    
+                    <div className="space-y-2">
+                      {results.checks?.filter(c => c.category === 'environment').map((envCheck, index) => (
+                        <div 
+                          key={index}
+                          className={`p-3 rounded-lg flex items-center justify-between ${
+                            envCheck.ok 
+                              ? 'bg-green-50 border border-green-200' 
+                              : envCheck.required 
+                                ? 'bg-red-50 border border-red-200'
+                                : 'bg-amber-50 border border-amber-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {envCheck.ok 
+                              ? <CheckCircle2 className="w-4 h-4 text-green-600" />
+                              : <XCircle className="w-4 h-4 text-red-600" />}
+                            <span className="font-mono text-sm">{envCheck.name}</span>
+                            {envCheck.required && (
+                              <Badge variant="outline" className="text-xs">Required</Badge>
+                            )}
+                          </div>
+                          <Badge className={envCheck.ok ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                            {envCheck.ok ? 'Set' : 'Missing'}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
             </Tabs>
           </>
         )}
