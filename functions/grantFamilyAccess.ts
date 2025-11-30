@@ -1,95 +1,81 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.4";
 
-Deno.serve(async (req) => {
+/**
+ * UNIFIED RESPONSE ENVELOPE:
+ * All responses follow: { ok: boolean, error: string|null, data: any }
+ */
+
+async function safeRun(req) {
   const base44 = createClientFromRequest(req);
+  const user = await base44.auth.me();
+  
+  if (!user || user.role !== "admin") {
+    return { ok: false, error: "Admin access required", data: null };
+  }
 
+  let body;
   try {
-    // 🔒 Verify admin access
-    const user = await base44.auth.me();
-    if (!user || user.role !== "admin") {
-      return Response.json(
-        { error: "Admin access required" },
-        { status: 403 }
-      );
-    }
+    body = await req.json();
+  } catch {
+    body = {};
+  }
 
-    // Self-test mode for system diagnostics
-    const body = await req.json().catch(() => ({}));
-    if (body._selfTest) {
-      return Response.json({ ok: true, selfTest: true, message: 'grantFamilyAccess is operational' });
-    }
+  if (body._selfTest) {
+    return { ok: true, selfTest: true, message: 'grantFamilyAccess is operational', data: null };
+  }
 
-    const familyEmails = [
-      "Anyawhite@rocketmail.com",
-      "Tishka1201@icloud.com", 
-      "Whiterobert1201@icloud.com"
-    ];
+  const familyEmails = [
+    "Anyawhite@rocketmail.com",
+    "Tishka1201@icloud.com", 
+    "Whiterobert1201@icloud.com"
+  ];
 
-    const results = [];
+  const results = [];
 
-    // Also grant access to Hailee Hopkins (troubleshooting helper - 423 315 9124)
-    try {
-      const haileeUsers = await base44.asServiceRole.entities.User.filter({ 
-        full_name: { $regex: "Hailee Hopkins", $options: "i" }
+  // Also grant access to Hailee Hopkins
+  try {
+    const haileeUsers = await base44.asServiceRole.entities.User.filter({ 
+      full_name: { $regex: "Hailee Hopkins", $options: "i" }
+    });
+    
+    for (const haileeUser of haileeUsers) {
+      await base44.asServiceRole.entities.User.update(haileeUser.id, {
+        premium_override: true,
+        subscription_tier: "premium"
       });
-      
-      for (const haileeUser of haileeUsers) {
-        await base44.asServiceRole.entities.User.update(haileeUser.id, {
-          premium_override: true,
-          subscription_tier: "premium"
-        });
-        results.push({
-          email: haileeUser.email,
-          status: "success",
-          message: "Premium access granted (Hailee Hopkins - 423 315 9124)",
-          user_id: haileeUser.id
-        });
-      }
-    } catch (e) {
-      console.log("Could not find/update Hailee Hopkins:", e.message);
+      results.push({
+        email: haileeUser.email,
+        status: "success",
+        message: "Premium access granted (Hailee Hopkins)",
+        user_id: haileeUser.id
+      });
     }
+  } catch (e) {
+    console.log("Could not find/update Hailee Hopkins:", e.message);
+  }
 
-    for (const email of familyEmails) {
-      try {
-        // Find user by email (case-insensitive)
-        const users = await base44.asServiceRole.entities.User.filter({
-          email: email
-        });
+  for (const email of familyEmails) {
+    try {
+      const users = await base44.asServiceRole.entities.User.filter({ email });
 
-        if (users.length === 0) {
-          results.push({
-            email,
-            status: "not_found",
-            message: "User hasn't signed up yet"
-          });
-          continue;
-        }
-
-        const targetUser = users[0];
-
-        // Grant premium override
-        await base44.asServiceRole.entities.User.update(targetUser.id, {
-          premium_override: true
-        });
-
-        results.push({
-          email,
-          status: "success",
-          message: "Premium access granted",
-          user_id: targetUser.id
-        });
-
-      } catch (error) {
-        results.push({
-          email,
-          status: "error",
-          message: error.message
-        });
+      if (users.length === 0) {
+        results.push({ email, status: "not_found", message: "User hasn't signed up yet" });
+        continue;
       }
-    }
 
-    return Response.json({
-      success: true,
+      const targetUser = users[0];
+      await base44.asServiceRole.entities.User.update(targetUser.id, { premium_override: true });
+      results.push({ email, status: "success", message: "Premium access granted", user_id: targetUser.id });
+
+    } catch (error) {
+      results.push({ email, status: "error", message: error.message });
+    }
+  }
+
+  return {
+    ok: true,
+    error: null,
+    data: {
       results,
       summary: {
         total: familyEmails.length,
@@ -97,13 +83,20 @@ Deno.serve(async (req) => {
         not_found: results.filter(r => r.status === "not_found").length,
         errors: results.filter(r => r.status === "error").length
       }
-    });
+    }
+  };
+}
 
-  } catch (error) {
-    console.error("Error granting family access:", error);
-    return Response.json(
-      { error: error.message },
-      { status: 500 }
-    );
+Deno.serve(async (req) => {
+  try {
+    const result = await safeRun(req);
+    return Response.json(result);
+  } catch (err) {
+    console.error("[grantFamilyAccess] CRITICAL ERROR:", err);
+    return Response.json({
+      ok: false,
+      error: err?.message ?? "Unknown error",
+      data: null
+    });
   }
 });
