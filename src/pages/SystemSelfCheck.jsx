@@ -129,6 +129,7 @@ export default function SystemSelfCheck() {
   };
 
   const groupChecksByCategory = (checks) => {
+    if (!checks) return {};
     return checks.reduce((acc, check) => {
       const cat = check.category || 'other';
       if (!acc[cat]) acc[cat] = [];
@@ -136,6 +137,10 @@ export default function SystemSelfCheck() {
       return acc;
     }, {});
   };
+
+  // Combine otherChecks for the grouped view
+  const allChecksForGrouping = [...(results?.otherChecks || [])];
+  const groupedChecks = results ? groupChecksByCategory(allChecksForGrouping) : {};
 
   if (!user) {
     return (
