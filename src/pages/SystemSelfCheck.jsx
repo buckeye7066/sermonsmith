@@ -174,10 +174,10 @@ export default function SystemSelfCheck() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Shield className="w-8 h-8 text-indigo-600" />
-            System Self-Check
+            System Self-Check v2.0
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Comprehensive diagnostic of all app layers
+            Deep introspection of all app functions, entities, RLS, and integrations
           </p>
         </div>
 
