@@ -362,11 +362,15 @@ export default function Reader() {
         chapter: currentChapter
       });
 
-      if (response.data.error) {
-        throw new Error(response.data.error);
+      // Handle unified envelope
+      const result = response.data;
+
+      if (result.ok === false) {
+        throw new Error(result.error || 'Failed to load verses');
       }
 
-      const verses = response.data.verses || [];
+      // Support both envelope format and direct format
+      const verses = result.data?.verses || result.verses || [];
 
       if (verses && verses.length > 0) {
         const formattedVerses = verses.map((v) => ({
