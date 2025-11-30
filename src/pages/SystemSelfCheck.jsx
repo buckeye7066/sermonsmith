@@ -438,11 +438,11 @@ export default function SystemSelfCheck() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Zap className="w-5 h-5 text-yellow-600" />
-                  Function Tests
+                  Deep Function Tests
                 </CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-gray-600">
-                Tests all backend functions with self-test payloads and captures errors with code snippets.
+                Discovers all functions, tests each with selfCheck mode, and captures errors with code snippets.
               </CardContent>
             </Card>
 
@@ -450,23 +450,23 @@ export default function SystemSelfCheck() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Database className="w-5 h-5 text-blue-600" />
-                  Entity & RLS
+                  Entity Validation
                 </CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-gray-600">
-                Verifies entity existence, readability, and row-level security policies.
+                Verifies entity existence and readability with proper RLS handling.
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Settings className="w-5 h-5 text-gray-600" />
+                  <Lock className="w-5 h-5 text-gray-600" />
                   Environment
                 </CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-gray-600">
-                Validates required and optional environment variables including Stripe key format.
+                Validates required and optional environment variables.
               </CardContent>
             </Card>
           </div>
