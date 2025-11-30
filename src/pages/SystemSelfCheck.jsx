@@ -138,9 +138,7 @@ export default function SystemSelfCheck() {
     }, {});
   };
 
-  // Combine otherChecks for the grouped view
-  const allChecksForGrouping = [...(results?.otherChecks || [])];
-  const groupedChecks = results ? groupChecksByCategory(allChecksForGrouping) : {};
+  const groupedChecks = results ? groupChecksByCategory(results.otherChecks || []) : {};
 
   if (!user) {
     return (
