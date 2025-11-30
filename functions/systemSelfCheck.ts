@@ -480,11 +480,19 @@ Deno.serve(async (req) => {
     console.log(`  ${stripeWebhook ? '✅' : '⚠️'} Stripe Webhook Secret: ${stripeWebhook ? 'Set' : 'Missing (webhooks disabled)'}`);
 
     // ══════════════════════════════════════════════════════════════════════════
-    // SUMMARY
+    // SUMMARY & CONSOLIDATED ERROR REPORT
     // ══════════════════════════════════════════════════════════════════════════
     const totalChecks = totalPassed + totalFailed;
     const overallOk = totalFailed === 0 && contamination.ok;
     const elapsedTime = Date.now() - startTime;
+
+    // Get missing required env vars
+    const envMissing = envResults
+      .filter(e => e.required && !e.present)
+      .map(e => e.name);
+
+    // Build consolidated error report
+    const combinedErrorReport = buildCombinedErrorReport(checks, contamination, envMissing);
 
     console.log('\n' + '═'.repeat(80));
     console.log('📊 SUMMARY');
@@ -496,6 +504,11 @@ Deno.serve(async (req) => {
     console.log(`⏱️ Time: ${elapsedTime}ms`);
     console.log(`\n🎯 Overall: ${overallOk ? '✅ ALL SYSTEMS OK' : '❌ ISSUES FOUND'}`);
     console.log('═'.repeat(80));
+    
+    if (!overallOk) {
+      console.log('\n📋 COMBINED ERROR REPORT:');
+      console.log(combinedErrorReport);
+    }
 
     // Log result to database
     try {
@@ -506,7 +519,8 @@ Deno.serve(async (req) => {
         summary: { total: totalChecks, passed: totalPassed, failed: totalFailed },
         checks: checks,
         contamination: contamination,
-        overall_ok: overallOk
+        overall_ok: overallOk,
+        combined_error_report: combinedErrorReport
       });
       console.log('📝 Result logged to SystemCheckLog');
     } catch (logErr) {
@@ -520,10 +534,16 @@ Deno.serve(async (req) => {
         passed: totalPassed,
         failed: totalFailed
       },
+      combinedErrorReport,
+      errors: checks.filter(c => !c.ok),
       surfaceStats,
       surfaces: allSurfaces,
       checks,
       contamination,
+      env: {
+        missing: envMissing,
+        ok: envMissing.length === 0
+      },
       elapsedTime,
       timestamp: new Date().toISOString()
     });
