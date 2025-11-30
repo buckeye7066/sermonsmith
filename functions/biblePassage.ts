@@ -24,12 +24,16 @@ const OSIS_TO_BOOK_ID = {
 };
 
 // Common English translation aliases
+// NOTE: engKJV is NOT available on bible.helloao.org - use BSB as default
 const ENGLISH_TRANSLATION_ALIASES = {
-  "kjv": "engKJV", "KJV": "engKJV", "en-kjv": "engKJV",
-  "asv": "engASV", "ASV": "engASV", "en-asv": "engASV",
+  "kjv": "BSB", "KJV": "BSB", "en-kjv": "BSB", "engKJV": "BSB",
+  "asv": "BSB", "ASV": "BSB", "en-asv": "BSB", "engASV": "BSB",
   "web": "ENGWEBP", "WEB": "ENGWEBP", "en-web": "ENGWEBP",
   "bsb": "BSB", "BSB": "BSB", "en-bsb": "BSB"
 };
+
+// Default fallback translation (must exist on bible.helloao.org)
+const DEFAULT_TRANSLATION = "BSB";
 
 function getBookId(bookCode) {
   if (OSIS_TO_BOOK_ID[bookCode]) return OSIS_TO_BOOK_ID[bookCode];
