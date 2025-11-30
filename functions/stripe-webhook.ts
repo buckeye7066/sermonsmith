@@ -1,64 +1,57 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.4";
 import Stripe from "npm:stripe@17.4.0";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_API_KEY"), {
-  apiVersion: "2024-06-20",
-});
-
-const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+/**
+ * UNIFIED RESPONSE ENVELOPE:
+ * All responses follow: { ok: boolean, error: string|null, data: any }
+ * 
+ * Note: Stripe webhooks have special handling - they need raw body for signature verification
+ */
 
 Deno.serve(async (req) => {
-  // Allow verification pings (GET requests from Stripe dashboard)
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  // Clone request to check for self-test before consuming body
-  const clonedReq = req.clone();
-  let bodyText;
   try {
-    const jsonBody = await clonedReq.json();
-    if (jsonBody._selfTest) {
-      return new Response(JSON.stringify({ ok: true, selfTest: true, message: 'stripe-webhook is operational' }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      });
+    // Allow GET for health checks
+    if (req.method !== "POST") {
+      return Response.json({ ok: true, message: 'Webhook endpoint active' });
     }
-  } catch {
-    // Not JSON or no _selfTest, proceed normally
-  }
 
-  const signature = req.headers.get("stripe-signature");
-  const body = await req.text();
+    // Clone request to check for self-test
+    const clonedReq = req.clone();
+    try {
+      const jsonBody = await clonedReq.json();
+      if (jsonBody._selfTest) {
+        return Response.json({ ok: true, selfTest: true, message: 'stripe-webhook is operational', data: null });
+      }
+    } catch {
+      // Not JSON or no _selfTest, proceed normally
+    }
 
-  // If no signature, this is not from Stripe
-  if (!signature) {
-    return new Response(JSON.stringify({ error: "No signature" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" }
-    });
-  }
+    const stripeKey = Deno.env.get("STRIPE_API_KEY");
+    const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
 
-  let event;
-  try {
-    // Verify webhook signature
-    event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-  } catch (err) {
-    console.error("❌ Webhook signature verification failed:", err.message);
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" }
-    });
-  }
+    if (!stripeKey || !webhookSecret) {
+      return Response.json({ ok: false, error: "Stripe not configured", data: null });
+    }
 
-  const base44 = createClientFromRequest(req);
+    const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
+    const signature = req.headers.get("stripe-signature");
+    const body = await req.text();
 
-  console.log(`📨 Stripe webhook event: ${event.type}`);
+    if (!signature) {
+      return Response.json({ ok: false, error: "No signature", data: null }, { status: 400 });
+    }
 
-  try {
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    } catch (err) {
+      console.error("❌ Webhook signature verification failed:", err.message);
+      return Response.json({ ok: false, error: err.message, data: null }, { status: 400 });
+    }
+
+    const base44 = createClientFromRequest(req);
+    console.log(`📨 Stripe webhook event: ${event.type}`);
+
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object;
@@ -69,7 +62,6 @@ Deno.serve(async (req) => {
           break;
         }
 
-        // 🔒 SECURITY: Use asServiceRole for admin-level database updates
         const users = await base44.asServiceRole.entities.User.filter({ id: userId });
         const user = users[0];
 
@@ -78,22 +70,19 @@ Deno.serve(async (req) => {
           break;
         }
 
-        // Check for premium override protection
         if (user.premium_override === true) {
-          console.log(`⚠️ User ${userId} has premium_override - skipping webhook update`);
+          console.log(`⚠️ User ${userId} has premium_override - skipping`);
           break;
         }
 
-        // ✅ Update correct fields: subscription_tier, stripe_customer_id
         await base44.asServiceRole.entities.User.update(userId, {
           subscription_tier: "premium",
           stripe_customer_id: session.customer,
-          premium_until: null // Clear any temporary premium access
+          premium_until: null
         });
 
         console.log(`✅ User ${userId} upgraded to premium`);
 
-        // Log event for debugging
         try {
           await base44.asServiceRole.entities.StripeEvent.create({
             event_id: event.id,
@@ -103,9 +92,8 @@ Deno.serve(async (req) => {
             data: { customer: session.customer }
           });
         } catch (e) {
-          console.log("⚠️ Could not log event (non-critical):", e.message);
+          console.log("⚠️ Could not log event:", e.message);
         }
-
         break;
       }
 
@@ -113,10 +101,7 @@ Deno.serve(async (req) => {
         const subscription = event.data.object;
         const customerId = subscription.customer;
 
-        // Find user by Stripe customer ID
-        const users = await base44.asServiceRole.entities.User.filter({ 
-          stripe_customer_id: customerId 
-        });
+        const users = await base44.asServiceRole.entities.User.filter({ stripe_customer_id: customerId });
         const user = users[0];
 
         if (!user) {
@@ -124,33 +109,17 @@ Deno.serve(async (req) => {
           break;
         }
 
-        // Check for premium override protection
         if (user.premium_override === true) {
-          console.log(`⚠️ User ${user.id} has premium_override - skipping downgrade`);
+          console.log(`⚠️ User ${user.id} has premium_override - skipping`);
           break;
         }
 
-        // Downgrade to free tier
         await base44.asServiceRole.entities.User.update(user.id, {
           subscription_tier: "free",
           premium_until: null
         });
 
         console.log(`✅ User ${user.id} downgraded to free`);
-
-        // Log event
-        try {
-          await base44.asServiceRole.entities.StripeEvent.create({
-            event_id: event.id,
-            event_type: event.type,
-            processed_at: new Date().toISOString(),
-            user_id: user.id,
-            data: { customer: customerId }
-          });
-        } catch (e) {
-          console.log("⚠️ Could not log event (non-critical):", e.message);
-        }
-
         break;
       }
 
@@ -159,10 +128,7 @@ Deno.serve(async (req) => {
         const customerId = subscription.customer;
         const status = subscription.status;
 
-        // Find user by Stripe customer ID
-        const users = await base44.asServiceRole.entities.User.filter({ 
-          stripe_customer_id: customerId 
-        });
+        const users = await base44.asServiceRole.entities.User.filter({ stripe_customer_id: customerId });
         const user = users[0];
 
         if (!user) {
@@ -170,33 +136,14 @@ Deno.serve(async (req) => {
           break;
         }
 
-        // Check for premium override protection
         if (user.premium_override === true) {
-          console.log(`⚠️ User ${user.id} has premium_override - skipping update`);
+          console.log(`⚠️ User ${user.id} has premium_override - skipping`);
           break;
         }
 
-        // Update based on subscription status
         const newTier = status === "active" ? "premium" : "free";
-        await base44.asServiceRole.entities.User.update(user.id, {
-          subscription_tier: newTier
-        });
-
+        await base44.asServiceRole.entities.User.update(user.id, { subscription_tier: newTier });
         console.log(`✅ User ${user.id} subscription updated: ${status} → ${newTier}`);
-
-        // Log event
-        try {
-          await base44.asServiceRole.entities.StripeEvent.create({
-            event_id: event.id,
-            event_type: event.type,
-            processed_at: new Date().toISOString(),
-            user_id: user.id,
-            data: { customer: customerId, status }
-          });
-        } catch (e) {
-          console.log("⚠️ Could not log event (non-critical):", e.message);
-        }
-
         break;
       }
 
@@ -204,19 +151,14 @@ Deno.serve(async (req) => {
         console.log(`ℹ️ Unhandled event type: ${event.type}`);
     }
 
-    return new Response(JSON.stringify({ received: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    });
+    return Response.json({ ok: true, error: null, data: { received: true } });
 
-  } catch (error) {
-    console.error("❌ Webhook processing error:", error);
-    return new Response(JSON.stringify({ 
-      error: "Webhook processing failed",
-      message: error.message 
-    }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" }
-    });
+  } catch (err) {
+    console.error("[stripe-webhook] CRITICAL ERROR:", err);
+    return Response.json({
+      ok: false,
+      error: err?.message ?? "Unknown error",
+      data: null
+    }, { status: 500 });
   }
 });

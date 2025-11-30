@@ -1,85 +1,83 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.4";
 import Stripe from "npm:stripe@17.4.0";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_API_KEY"), {
-  apiVersion: "2024-06-20",
-});
+/**
+ * UNIFIED RESPONSE ENVELOPE:
+ * All responses follow: { ok: boolean, error: string|null, data: any }
+ */
 
-Deno.serve(async (req) => {
+async function safeRun(req) {
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "POST required" }), {
-      status: 405,
-    });
+    return { ok: false, error: "POST required", data: null };
   }
 
+  const stripeKey = Deno.env.get("STRIPE_API_KEY");
+  if (!stripeKey) {
+    return { ok: false, error: "Stripe not configured", data: null };
+  }
+
+  const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
   const base44 = createClientFromRequest(req);
   
-  // 🔒 SECURITY: Get user from authenticated session, NOT request body
+  const user = await base44.auth.me();
+  
+  if (!user) {
+    return { ok: false, error: "Authentication required", data: null };
+  }
+
+  let body;
   try {
-    const user = await base44.auth.me();
-    
-    if (!user) {
-      return new Response(JSON.stringify({ 
-        error: "Authentication required",
-        message: "Please log in to create a checkout session"
-      }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" }
-      });
+    body = await req.json();
+  } catch {
+    body = {};
+  }
+  
+  if (body._selfTest) {
+    return { ok: true, selfTest: true, message: 'createCheckoutSession is operational', data: null };
+  }
+
+  const appUrl = req.headers.get("origin") || "https://sermon-smith-0150c183.base44.app";
+  const successUrl = body.success_url || `${appUrl}/pages/Settings?payment=success`;
+  const cancelUrl = body.cancel_url || `${appUrl}/pages/Pricing?payment=cancelled`;
+
+  const session = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    line_items: [
+      {
+        price: "price_1STE1wD0SPSojgdlxuUUhYII",
+        quantity: 1,
+      },
+    ],
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    client_reference_id: user.id,
+    customer_email: user.email,
+    metadata: {
+      user_id: user.id,
+      user_email: user.email
     }
+  });
 
-    // Read optional redirect URLs from request body (if provided)
-    const body = await req.json().catch(() => ({}));
-    
-    // Handle self-test from system check
-    if (body._selfTest) {
-      return new Response(JSON.stringify({ 
-        ok: true, 
-        message: 'Checkout session function is operational'
-      }), {
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-
-    // Get app URL for redirect URLs
-    const appUrl = req.headers.get("origin") || "https://sermon-smith-0150c183.base44.app";
-    const successUrl = body.success_url || `${appUrl}/pages/Settings?payment=success`;
-    const cancelUrl = body.cancel_url || `${appUrl}/pages/Pricing?payment=cancelled`;
-
-    // Create Stripe checkout session
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      line_items: [
-        {
-          price: "price_1SHpNkIZTZppGBxIvXfyvfNc", // SermonSmith Premium $4.99/month
-          quantity: 1,
-        },
-      ],
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      client_reference_id: user.id, // ✅ Use authenticated user ID
-      customer_email: user.email,
-      metadata: {
-        user_id: user.id,
-        user_email: user.email
-      }
-    });
-
-    return new Response(JSON.stringify({ 
+  return {
+    ok: true,
+    error: null,
+    data: {
       url: session.url,
       sessionId: session.id
-    }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    }
+  };
+}
 
-  } catch (error) {
-    console.error("Checkout session error:", error);
-    return new Response(JSON.stringify({ 
-      error: "Failed to create checkout session",
-      message: error.message
-    }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" }
+Deno.serve(async (req) => {
+  try {
+    const result = await safeRun(req);
+    return Response.json(result);
+  } catch (err) {
+    console.error("[createCheckoutSession] CRITICAL ERROR:", err);
+    return Response.json({
+      ok: false,
+      error: err?.message ?? "Unknown error",
+      data: null
     });
   }
 });

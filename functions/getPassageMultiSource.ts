@@ -1,68 +1,55 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 
-// Translation mappings for different APIs
-const SUPERSEARCH_MAP = {
-  KJV: "kjv",
-  WEB: "web",
-  ASV: "asv",
-  RST: "synodal"
-};
+/**
+ * UNIFIED RESPONSE ENVELOPE:
+ * All responses follow: { ok: boolean, error: string|null, data: any }
+ */
 
-const HELLOAO_MAP = {
-  KJV: "KJV",
-  WEB: "WEB",
-  ASV: "ASV",
-  RST: "RST"
-};
+const SUPERSEARCH_MAP = { KJV: "kjv", WEB: "web", ASV: "asv", RST: "synodal" };
+const HELLOAO_MAP = { KJV: "KJV", WEB: "WEB", ASV: "ASV", RST: "RST" };
 
-// Helper to try a source with timeout
-async function trySource(urlFn, sourceName, timeoutMs = 8000) {
+// Safe fetch with timeout and JSON validation
+async function safeFetch(url, timeoutMs = 8000) {
   try {
-    const url = urlFn();
-    console.log(`[${sourceName}] Trying: ${url}`);
-    
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
     
-    if (!res.ok) throw new Error(`Status ${res.status}`);
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await res.text();
+      if (text.trim().startsWith('<')) {
+        return { success: false, error: 'API returned HTML instead of JSON' };
+      }
+      return { success: false, error: 'Invalid content type' };
+    }
+    
+    if (!res.ok) return { success: false, error: `Status ${res.status}` };
+    
     const data = await res.json();
-    return { success: true, source: sourceName, data };
+    return { success: true, data };
   } catch (err) {
-    console.log(`[${sourceName}] Failed: ${err.message}`);
-    return { success: false, source: sourceName, error: err.message };
+    return { success: false, error: err.name === 'AbortError' ? 'Timeout' : err.message };
   }
 }
 
-// Normalization functions
 function normalizeBibleApi(result) {
   const { data } = result;
-  
-  if (!data || !data.verses || data.verses.length === 0) {
-    return null;
-  }
+  if (!data || !data.verses || data.verses.length === 0) return null;
   
   return {
-    success: true,
     source: "bible-api.com",
     reference: data.reference || "",
     translation: (data.translation_id || "KJV").toUpperCase(),
-    verses: data.verses.map(v => ({
-      verse: v.verse,
-      text: (v.text || "").trim()
-    }))
+    verses: data.verses.map(v => ({ verse: v.verse, text: (v.text || "").trim() }))
   };
 }
 
 function normalizeSupersearch(result) {
   const { data } = result;
-  
-  // BibleSuperSearch returns { results: { ... } } with bible data nested
-  if (!data || !data.results) {
-    return null;
-  }
+  if (!data || !data.results) return null;
   
   try {
     const bibleKey = Object.keys(data.results)[0];
@@ -71,7 +58,6 @@ function normalizeSupersearch(result) {
     const bibleData = data.results[bibleKey];
     const verses = [];
     
-    // Navigate the nested structure: results -> bible -> book -> chapter -> verses
     for (const bookKey of Object.keys(bibleData)) {
       const book = bibleData[bookKey];
       if (typeof book !== 'object') continue;
@@ -83,10 +69,7 @@ function normalizeSupersearch(result) {
         for (const verseKey of Object.keys(chapter)) {
           const verseText = chapter[verseKey];
           if (typeof verseText === 'string') {
-            verses.push({
-              verse: parseInt(verseKey, 10),
-              text: verseText.trim()
-            });
+            verses.push({ verse: parseInt(verseKey, 10), text: verseText.trim() });
           }
         }
       }
@@ -95,176 +78,120 @@ function normalizeSupersearch(result) {
     if (verses.length === 0) return null;
     
     return {
-      success: true,
       source: "biblesupersearch",
       reference: data.reference || "",
       translation: bibleKey.toUpperCase(),
       verses: verses.sort((a, b) => a.verse - b.verse)
     };
-  } catch (err) {
-    console.log("SuperSearch normalization error:", err);
+  } catch {
     return null;
   }
 }
 
-function normalizeHelloAO(result) {
-  const { data } = result;
+async function safeRun(req) {
+  const base44 = createClientFromRequest(req);
+  const user = await base44.auth.me();
   
-  // HelloAO returns { chapter: { content: [...] } }
-  if (!data || !data.chapter || !data.chapter.content) {
-    return null;
+  if (!user) {
+    return { ok: false, error: 'Unauthorized', data: null };
   }
-  
+
+  let body;
   try {
-    const verses = [];
-    let currentVerse = null;
-    let currentText = "";
+    body = await req.json();
+  } catch {
+    body = {};
+  }
+
+  const { reference, translation = "KJV", _selfTest } = body;
+
+  if (_selfTest) {
+    return { ok: true, selfTest: true, message: 'getPassageMultiSource is operational', data: null };
+  }
+
+  if (!reference) {
+    return { ok: false, error: 'Missing reference parameter', data: null };
+  }
+
+  const encodedRef = encodeURIComponent(reference);
+  const trans = translation.toUpperCase();
+  const attempts = [];
+
+  // PRIMARY: bible-api.com
+  console.log(`[getPassageMultiSource] Trying bible-api.com for ${reference}`);
+  const s1 = await safeFetch(`https://bible-api.com/${encodedRef}?translation=${trans.toLowerCase()}`);
+  attempts.push({ source: 'bible-api.com', ...s1 });
+  
+  if (s1.success) {
+    const normalized = normalizeBibleApi(s1);
+    if (normalized) {
+      return { ok: true, error: null, data: { ...normalized, success: true } };
+    }
+  }
+
+  // FALLBACK #1: BibleSuperSearch
+  console.log(`[getPassageMultiSource] Trying biblesupersearch`);
+  const superSearchTrans = SUPERSEARCH_MAP[trans] || trans.toLowerCase();
+  const s2 = await safeFetch(`https://api.biblesupersearch.com/api?bible=${superSearchTrans}&reference=${encodedRef}&data_format=minimal`);
+  attempts.push({ source: 'biblesupersearch', ...s2 });
+  
+  if (s2.success) {
+    const normalized = normalizeSupersearch(s2);
+    if (normalized) {
+      return { ok: true, error: null, data: { ...normalized, success: true } };
+    }
+  }
+
+  // FALLBACK #2: HelloAO CDN
+  const refMatch = reference.match(/^(\d?\s*[A-Za-z]+)\s+(\d+)/);
+  if (refMatch) {
+    const bookName = refMatch[1].trim().toLowerCase().replace(/\s+/g, '-');
+    const chapter = refMatch[2];
+    const helloaoTrans = HELLOAO_MAP[trans] || trans;
     
-    for (const item of data.chapter.content) {
-      if (item.type === "verse") {
-        if (currentVerse !== null && currentText.trim()) {
-          verses.push({ verse: currentVerse, text: currentText.trim() });
-        }
-        currentVerse = item.number;
-        currentText = "";
-      } else if (item.type === "text" && currentVerse !== null) {
-        currentText += item.text;
+    console.log(`[getPassageMultiSource] Trying HelloAO CDN`);
+    const s3 = await safeFetch(`https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/en-${helloaoTrans.toLowerCase()}/books/${bookName}/chapters/${chapter}.json`);
+    attempts.push({ source: 'helloao-cdn', ...s3 });
+    
+    if (s3.success && s3.data?.data?.length > 0) {
+      const seen = new Set();
+      const verses = s3.data.data
+        .filter(v => { const k = `${v.verse}`; if (seen.has(k)) return false; seen.add(k); return true; })
+        .map(v => ({ verse: parseInt(v.verse, 10), text: v.text }));
+      
+      if (verses.length > 0) {
+        return {
+          ok: true,
+          error: null,
+          data: {
+            success: true,
+            source: "helloao-cdn",
+            reference: `${s3.data.data[0].book} ${chapter}`,
+            translation: trans,
+            verses
+          }
+        };
       }
     }
-    
-    if (currentVerse !== null && currentText.trim()) {
-      verses.push({ verse: currentVerse, text: currentText.trim() });
-    }
-    
-    if (verses.length === 0) return null;
-    
-    return {
-      success: true,
-      source: "helloao",
-      reference: `${data.book} ${data.chapter.number}`,
-      translation: data.translation || "KJV",
-      verses
-    };
-  } catch (err) {
-    console.log("HelloAO normalization error:", err);
-    return null;
   }
+
+  return {
+    ok: false,
+    error: 'All Bible sources failed',
+    data: { attempts: attempts.map(a => ({ source: a.source, error: a.error || 'Normalization failed' })) }
+  };
 }
 
 Deno.serve(async (req) => {
   try {
-    const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    
-    if (!user) {
-      return Response.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { reference, translation = "KJV", _selfTest } = await req.json();
-
-    // Self-test mode for system diagnostics
-    if (_selfTest) {
-      return Response.json({ ok: true, selfTest: true, message: 'getPassageMultiSource is operational' });
-    }
-
-    if (!reference) {
-      return Response.json({ 
-        success: false, 
-        error: "Missing reference parameter" 
-      }, { status: 400 });
-    }
-
-    const encodedRef = encodeURIComponent(reference);
-    const trans = translation.toUpperCase();
-    const attempts = [];
-
-    // PRIMARY: bible-api.com
-    const s1 = await trySource(
-      () => `https://bible-api.com/${encodedRef}?translation=${trans.toLowerCase()}`,
-      "bible-api.com"
-    );
-    attempts.push(s1);
-    
-    if (s1.success) {
-      const normalized = normalizeBibleApi(s1);
-      if (normalized) {
-        return Response.json(normalized);
-      }
-    }
-
-    // FALLBACK #1: BibleSuperSearch
-    const superSearchTrans = SUPERSEARCH_MAP[trans] || trans.toLowerCase();
-    const s2 = await trySource(
-      () => `https://api.biblesupersearch.com/api?bible=${superSearchTrans}&reference=${encodedRef}&data_format=minimal`,
-      "biblesupersearch"
-    );
-    attempts.push(s2);
-    
-    if (s2.success) {
-      const normalized = normalizeSupersearch(s2);
-      if (normalized) {
-        return Response.json(normalized);
-      }
-    }
-
-    // FALLBACK #2: HelloAO (for full chapters only)
-    // HelloAO uses a different URL structure - need to parse reference
-    const helloaoTrans = HELLOAO_MAP[trans] || trans;
-    
-    // Try to parse reference like "John 3" or "Genesis 1"
-    const refMatch = reference.match(/^(\d?\s*[A-Za-z]+)\s+(\d+)/);
-    if (refMatch) {
-      const bookName = refMatch[1].trim().toLowerCase().replace(/\s+/g, '-');
-      const chapter = refMatch[2];
-      
-      const s3 = await trySource(
-        () => `https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/en-${helloaoTrans.toLowerCase()}/books/${bookName}/chapters/${chapter}.json`,
-        "helloao"
-      );
-      attempts.push(s3);
-      
-      if (s3.success) {
-        // This API returns { data: [...] } format
-        const { data } = s3;
-        if (data && data.data && data.data.length > 0) {
-          const seen = new Set();
-          const verses = data.data
-            .filter(v => {
-              const key = `${v.verse}`;
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            })
-            .map(v => ({
-              verse: parseInt(v.verse, 10),
-              text: v.text
-            }));
-          
-          if (verses.length > 0) {
-            return Response.json({
-              success: true,
-              source: "helloao",
-              reference: `${data.data[0].book} ${chapter}`,
-              translation: trans,
-              verses
-            });
-          }
-        }
-      }
-    }
-
-    // All sources failed
-    return Response.json({
-      success: false,
-      error: "All Bible sources failed.",
-      attempts: attempts.map(a => ({ source: a.source, error: a.error || "Normalization failed" }))
-    });
-
+    const result = await safeRun(req);
+    return Response.json(result);
   } catch (err) {
-    console.error("[getPassageMultiSource] Error:", err);
+    console.error("[getPassageMultiSource] CRITICAL ERROR:", err);
     return Response.json({
-      success: false,
-      error: err.message || "Unknown error"
-    }, { status: 500 });
+      ok: false,
+      error: err?.message ?? "Unknown error",
+      data: null
+    });
   }
 });

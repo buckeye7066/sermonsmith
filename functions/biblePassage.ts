@@ -1,5 +1,10 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 
+/**
+ * UNIFIED RESPONSE ENVELOPE:
+ * All responses follow: { ok: boolean, error: string|null, data: any }
+ */
+
 // OSIS to API book code mapping for bible.helloao.org
 const OSIS_TO_BOOK_ID = {
   "Gen": "GEN", "Exod": "EXO", "Lev": "LEV", "Num": "NUM", "Deut": "DEU",
@@ -20,193 +25,26 @@ const OSIS_TO_BOOK_ID = {
 
 // Common English translation aliases
 const ENGLISH_TRANSLATION_ALIASES = {
-  "kjv": "engKJV",
-  "KJV": "engKJV",
-  "en-kjv": "engKJV",
-  "asv": "engASV", 
-  "ASV": "engASV",
-  "en-asv": "engASV",
-  "web": "ENGWEBP",
-  "WEB": "ENGWEBP",
-  "en-web": "ENGWEBP",
-  "bsb": "BSB",
-  "BSB": "BSB",
-  "en-bsb": "BSB"
+  "kjv": "engKJV", "KJV": "engKJV", "en-kjv": "engKJV",
+  "asv": "engASV", "ASV": "engASV", "en-asv": "engASV",
+  "web": "ENGWEBP", "WEB": "ENGWEBP", "en-web": "ENGWEBP",
+  "bsb": "BSB", "BSB": "BSB", "en-bsb": "BSB"
 };
 
 function getBookId(bookCode) {
-  // If it's an OSIS code, convert it
-  if (OSIS_TO_BOOK_ID[bookCode]) {
-    return OSIS_TO_BOOK_ID[bookCode];
-  }
-  // If it's already a standard code, return as-is
+  if (OSIS_TO_BOOK_ID[bookCode]) return OSIS_TO_BOOK_ID[bookCode];
   return bookCode;
 }
 
 function normalizeTranslationId(translationId) {
   if (!translationId) return "engKJV";
-  
-  // Check aliases first
-  if (ENGLISH_TRANSLATION_ALIASES[translationId]) {
-    return ENGLISH_TRANSLATION_ALIASES[translationId];
-  }
-  
-  // Return as-is for direct translation IDs (like agd_wbt)
+  if (ENGLISH_TRANSLATION_ALIASES[translationId]) return ENGLISH_TRANSLATION_ALIASES[translationId];
   return translationId;
 }
 
-Deno.serve(async (req) => {
-  try {
-    // Handle self-test mode FIRST (before auth to allow quick health checks)
-    const reqUrl = new URL(req.url);
-    if (reqUrl.searchParams.get('_selfTest') === '1') {
-      return Response.json({ 
-        ok: true, 
-        selfTest: true, 
-        function: 'biblePassage',
-        message: 'biblePassage is operational',
-        preview: 'Genesis 1:1 (self-test)'
-      });
-    }
-
-    const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    
-    if (!user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const body = await req.json();
-    const { translationId, bookCode, chapter, verses, _selfTest } = body;
-
-    // Also support self-test via body
-    if (_selfTest) {
-      return Response.json({ ok: true, selfTest: true, message: 'biblePassage is operational' });
-    }
-
-    if (!bookCode || !chapter) {
-      return Response.json({ 
-        error: "Missing book or chapter.",
-        verses: []
-      }, { status: 400 });
-    }
-
-    const apiTranslation = normalizeTranslationId(translationId);
-    const bookId = getBookId(bookCode);
-    
-    // Use bible.helloao.org API (free, 1000+ translations, no API key)
-    const apiUrl = `https://bible.helloao.org/api/${apiTranslation}/${bookId}/${chapter}.json`;
-    
-    console.log(`Fetching: ${apiUrl}`);
-    
-    const response = await fetch(apiUrl);
-
-    // Check if response is JSON (sometimes API returns HTML error pages)
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      console.log(`Non-JSON response for ${apiTranslation}, falling back to KJV`);
-      // Fallback to KJV
-      const fallbackUrl = `https://bible.helloao.org/api/engKJV/${bookId}/${chapter}.json`;
-      const fallbackResponse = await fetch(fallbackUrl);
-
-      if (fallbackResponse.ok) {
-        const fallbackData = await fallbackResponse.json();
-        const verseData = parseVerses(fallbackData);
-
-        return Response.json({
-          reference: `${fallbackData.book?.name || bookId} ${chapter}`,
-          translationLabel: "KJV (fallback)",
-          translationId: "engKJV",
-          translationLanguage: "en",
-          verses: verseData,
-          fallbackUsed: true,
-          originalTranslation: translationId
-        });
-      }
-
-      return Response.json({ 
-        error: `Translation ${apiTranslation} is not available. Please try a different translation.`,
-        verses: []
-      }, { status: 404 });
-    }
-
-    if (!response.ok) {
-      // Try fallback to KJV if translation not found
-      if (response.status === 404 && apiTranslation !== "engKJV") {
-        console.log(`Translation ${apiTranslation} not found, falling back to KJV`);
-        const fallbackUrl = `https://bible.helloao.org/api/engKJV/${bookId}/${chapter}.json`;
-        const fallbackResponse = await fetch(fallbackUrl);
-        
-        if (fallbackResponse.ok) {
-          const fallbackData = await fallbackResponse.json();
-          const verseData = parseVerses(fallbackData);
-          
-          return Response.json({
-            reference: `${fallbackData.book?.name || bookId} ${chapter}`,
-            translationLabel: "KJV (fallback)",
-            translationId: "engKJV",
-            translationLanguage: "en",
-            verses: verseData,
-            fallbackUsed: true,
-            originalTranslation: translationId
-          });
-        }
-      }
-      
-      if (response.status === 404) {
-        return Response.json({ 
-          error: `This passage is not available in ${apiTranslation}. Try a different translation.`,
-          verses: []
-        }, { status: 404 });
-      }
-      return Response.json({ 
-        error: `Bible API error: ${response.status}`,
-        verses: []
-      }, { status: 500 });
-    }
-
-    const data = await response.json();
-    const verseData = parseVerses(data);
-
-    if (verseData.length === 0) {
-      return Response.json({ 
-        error: 'No verses found in this chapter.',
-        verses: []
-      }, { status: 404 });
-    }
-
-    // Filter to specific verses if requested
-    let filteredVerses = verseData;
-    if (verses) {
-      const [start, end] = verses.includes('-') 
-        ? verses.split('-').map(Number)
-        : [Number(verses), Number(verses)];
-      
-      filteredVerses = verseData.filter(v => v.verse >= start && v.verse <= end);
-    }
-
-    return Response.json({
-      reference: `${data.book?.name || bookId} ${chapter}${verses ? `:${verses}` : ''}`,
-      translationLabel: data.translation?.name || apiTranslation,
-      translationId: apiTranslation,
-      translationLanguage: data.translation?.language || "en",
-      verses: filteredVerses
-    });
-
-  } catch (err) {
-    console.error("[biblePassage] Error:", err);
-    return Response.json({
-      error: err.message || "Bible API error",
-      verses: []
-    }, { status: 500 });
-  }
-});
-
 // Parse verses from bible.helloao.org chapter format
 function parseVerses(data) {
-  if (!data || !data.chapter || !data.chapter.content) {
-    return [];
-  }
+  if (!data || !data.chapter || !data.chapter.content) return [];
 
   const verseData = [];
   let currentVerse = null;
@@ -214,12 +52,8 @@ function parseVerses(data) {
 
   for (const item of data.chapter.content) {
     if (item.type === "verse") {
-      // Save previous verse
       if (currentVerse !== null && currentText.trim()) {
-        verseData.push({ 
-          verse: currentVerse, 
-          text: currentText.trim() 
-        });
+        verseData.push({ verse: currentVerse, text: currentText.trim() });
       }
       currentVerse = item.number;
       currentText = "";
@@ -228,13 +62,169 @@ function parseVerses(data) {
     }
   }
 
-  // Don't forget the last verse
   if (currentVerse !== null && currentText.trim()) {
-    verseData.push({ 
-      verse: currentVerse, 
-      text: currentText.trim() 
-    });
+    verseData.push({ verse: currentVerse, text: currentText.trim() });
   }
 
   return verseData;
 }
+
+// Safe fetch with JSON validation
+async function safeFetch(url, timeoutMs = 10000) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    const contentType = response.headers.get('content-type') || '';
+    
+    // Check for HTML response (error page)
+    if (!contentType.includes('application/json')) {
+      const text = await response.text();
+      if (text.trim().startsWith('<') || text.trim().startsWith('<!')) {
+        return { ok: false, error: 'External API returned HTML instead of JSON', data: null };
+      }
+      return { ok: false, error: 'External API returned invalid content type', data: null };
+    }
+    
+    if (!response.ok) {
+      return { ok: false, error: `API error: ${response.status}`, data: null, status: response.status };
+    }
+    
+    const data = await response.json();
+    return { ok: true, error: null, data };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { ok: false, error: 'Request timeout', data: null };
+    }
+    return { ok: false, error: err.message || 'Fetch failed', data: null };
+  }
+}
+
+// Main handler logic
+async function safeRun(req) {
+  // Handle self-test mode FIRST
+  const reqUrl = new URL(req.url);
+  if (reqUrl.searchParams.get('_selfTest') === '1') {
+    return { 
+      ok: true, 
+      selfTest: true, 
+      function: 'biblePassage',
+      message: 'biblePassage is operational'
+    };
+  }
+
+  const base44 = createClientFromRequest(req);
+  const user = await base44.auth.me();
+  
+  if (!user) {
+    return { ok: false, error: 'Unauthorized', data: null };
+  }
+
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return { ok: false, error: 'Invalid JSON body', data: null };
+  }
+
+  const { translationId, bookCode, chapter, verses, _selfTest } = body;
+
+  // Also support self-test via body
+  if (_selfTest) {
+    return { ok: true, selfTest: true, message: 'biblePassage is operational', data: null };
+  }
+
+  if (!bookCode || !chapter) {
+    return { ok: false, error: 'Missing book or chapter', data: { verses: [] } };
+  }
+
+  const apiTranslation = normalizeTranslationId(translationId);
+  const bookId = getBookId(bookCode);
+  const apiUrl = `https://bible.helloao.org/api/${apiTranslation}/${bookId}/${chapter}.json`;
+
+  console.log(`[biblePassage] Fetching: ${apiUrl}`);
+
+  const result = await safeFetch(apiUrl);
+
+  // If primary fails, try KJV fallback
+  if (!result.ok && apiTranslation !== "engKJV") {
+    console.log(`[biblePassage] Primary failed, trying KJV fallback`);
+    const fallbackUrl = `https://bible.helloao.org/api/engKJV/${bookId}/${chapter}.json`;
+    const fallbackResult = await safeFetch(fallbackUrl);
+
+    if (fallbackResult.ok) {
+      const verseData = parseVerses(fallbackResult.data);
+      return {
+        ok: true,
+        error: null,
+        data: {
+          reference: `${fallbackResult.data.book?.name || bookId} ${chapter}`,
+          translationLabel: "KJV (fallback)",
+          translationId: "engKJV",
+          translationLanguage: "en",
+          verses: verseData,
+          fallbackUsed: true,
+          originalTranslation: translationId
+        }
+      };
+    }
+
+    return { ok: false, error: result.error || 'Translation not available', data: { verses: [] } };
+  }
+
+  if (!result.ok) {
+    return { ok: false, error: result.error, data: { verses: [] } };
+  }
+
+  const verseData = parseVerses(result.data);
+
+  if (verseData.length === 0) {
+    return { ok: false, error: 'No verses found in this chapter', data: { verses: [] } };
+  }
+
+  // Filter to specific verses if requested
+  let filteredVerses = verseData;
+  if (verses) {
+    const [start, end] = verses.includes('-') 
+      ? verses.split('-').map(Number)
+      : [Number(verses), Number(verses)];
+    filteredVerses = verseData.filter(v => v.verse >= start && v.verse <= end);
+  }
+
+  return {
+    ok: true,
+    error: null,
+    data: {
+      reference: `${result.data.book?.name || bookId} ${chapter}${verses ? `:${verses}` : ''}`,
+      translationLabel: result.data.translation?.name || apiTranslation,
+      translationId: apiTranslation,
+      translationLanguage: result.data.translation?.language || "en",
+      verses: filteredVerses
+    }
+  };
+}
+
+// Unified envelope handler
+Deno.serve(async (req) => {
+  try {
+    const result = await safeRun(req);
+    
+    // For self-test, return as-is
+    if (result.selfTest) {
+      return Response.json(result);
+    }
+    
+    // Standard envelope
+    return Response.json(result);
+  } catch (err) {
+    console.error("[biblePassage] CRITICAL ERROR:", err);
+    return Response.json({
+      ok: false,
+      error: err?.message ?? "Unknown error",
+      data: null
+    });
+  }
+});
