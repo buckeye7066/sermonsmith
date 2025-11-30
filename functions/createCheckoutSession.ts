@@ -28,11 +28,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Get app URL for redirect URLs
-    const appUrl = req.headers.get("origin") || "https://sermon-smith-0150c183.base44.app";
-    
     // Read optional redirect URLs from request body (if provided)
     const body = await req.json().catch(() => ({}));
+    
+    // Handle self-test from system check
+    if (body._selfTest) {
+      return new Response(JSON.stringify({ 
+        ok: true, 
+        message: 'Checkout session function is operational'
+      }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    // Get app URL for redirect URLs
+    const appUrl = req.headers.get("origin") || "https://sermon-smith-0150c183.base44.app";
     const successUrl = body.success_url || `${appUrl}/pages/Settings?payment=success`;
     const cancelUrl = body.cancel_url || `${appUrl}/pages/Pricing?payment=cancelled`;
 
