@@ -107,18 +107,21 @@ async function fetchFromBibleApiCom(translationId, bookCode, chapter) {
       return { ok: false, error: 'No verses found', data: null };
     }
     
-    // bible-api.com parameterized API returns { book: {name}, chapter, verses: [{verse, text}] }
+    // bible-api.com returns { translation, verses: [{book_id, book, chapter, verse, text}] }
+    // Get book name from first verse
+    const bookName = data.verses[0]?.book || bookId;
+    
     const verses = data.verses.map(v => ({
       verse: v.verse,
-      text: v.text
+      text: v.text.replace(/\n/g, ' ').trim() // Clean up newlines in text
     }));
     
     return {
       ok: true,
       error: null,
       data: {
-        reference: `${data.book?.name || bookId} ${chapter}`,
-        translationLabel: translationId.toUpperCase(),
+        reference: `${bookName} ${chapter}`,
+        translationLabel: data.translation?.name || translationId.toUpperCase(),
         translationId: translationId,
         translationLanguage: "en",
         verses: verses
