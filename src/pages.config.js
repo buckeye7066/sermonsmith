@@ -20,7 +20,6 @@ import PlanLibrary from './pages/PlanLibrary';
 import WorldviewExplorer from './pages/WorldviewExplorer';
 import ChristianEthics from './pages/ChristianEthics';
 import PrayerGenerator from './pages/PrayerGenerator';
-import SystemDiagnostics from './pages/SystemDiagnostics';
 import ImportStatus from './pages/ImportStatus';
 import BibleAPITest from './pages/BibleAPITest';
 import GrantAccess from './pages/GrantAccess';
@@ -58,7 +57,6 @@ export const PAGES = {
     "WorldviewExplorer": WorldviewExplorer,
     "ChristianEthics": ChristianEthics,
     "PrayerGenerator": PrayerGenerator,
-    "SystemDiagnostics": SystemDiagnostics,
     "ImportStatus": ImportStatus,
     "BibleAPITest": BibleAPITest,
     "GrantAccess": GrantAccess,
