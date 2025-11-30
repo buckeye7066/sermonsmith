@@ -1,33 +1,16 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
+import { getSurfaceMap, getExecutableSurfaces, testSurface, getSurfaceStats } from './shared/surfaceMapper.js';
 
 /**
  * COMPREHENSIVE SYSTEM SELF-CHECK
  * 
  * Tests all layers of the application:
- * - Backend functions
+ * - Backend functions (auto-discovered via Surface Mapper)
  * - Database/entities
  * - RLS policies
  * - Environment variables
  * - Cross-contamination detection
  */
-
-// Known backend functions to test
-const KNOWN_FUNCTIONS = [
-  'biblePassage',
-  'getPassageMultiSource',
-  'listAvailableTranslations',
-  'createCheckoutSession',
-  'exportToPDF',
-  'exportToPPTX',
-  'listUsers',
-  'grantFamilyAccess',
-  'grantMePremium',
-  'createShareableLink',
-  'importBibleData',
-  'importFullBible',
-  'importFromScriptureAPI',
-  'prompt-suggestions'
-];
 
 // Required environment variables
 const REQUIRED_ENV_VARS = [
