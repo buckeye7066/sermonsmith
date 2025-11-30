@@ -31,6 +31,7 @@ import StudyNotes from './pages/StudyNotes';
 import AdminAnalytics from './pages/AdminAnalytics';
 import ContactSupport from './pages/ContactSupport';
 import AdminMessages from './pages/AdminMessages';
+import AdminFunctionTester from './pages/AdminFunctionTester';
 import __Layout from './Layout.jsx';
 
 
@@ -68,6 +69,7 @@ export const PAGES = {
     "AdminAnalytics": AdminAnalytics,
     "ContactSupport": ContactSupport,
     "AdminMessages": AdminMessages,
+    "AdminFunctionTester": AdminFunctionTester,
 }
 
 export const pagesConfig = {
