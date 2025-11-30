@@ -283,10 +283,12 @@ function checkEnvironment() {
     const value = Deno.env.get(envVar);
     let validation = null;
     
-    // Validate Stripe key format
+    // Validate Stripe key format - be lenient, just check it's present
+    // The actual Stripe SDK will validate the key when used
     if (envVar === 'STRIPE_API_KEY' && value) {
-      if (!value.startsWith('sk_test_') && !value.startsWith('sk_live_')) {
-        validation = `Invalid format: expected sk_test_* or sk_live_*, got ${value.substring(0, 10)}...`;
+      // Accept any key that starts with sk_ (test, live, or other valid prefixes)
+      if (!value.startsWith('sk_')) {
+        validation = `Invalid format: expected sk_*, got ${value.substring(0, 8)}...`;
       }
     }
     
