@@ -475,7 +475,7 @@ export default function SystemSelfCheck() {
 
               {/* Failures Tab */}
               <TabsContent value="failures" className="space-y-4 mt-4">
-                {results.checks?.filter(c => !c.ok).length === 0 ? (
+                {results.summary?.failed === 0 ? (
                   <Card>
                     <CardContent className="pt-6 text-center py-12">
                       <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-green-500" />
@@ -484,16 +484,31 @@ export default function SystemSelfCheck() {
                     </CardContent>
                   </Card>
                 ) : (
-                  results.checks?.filter(c => !c.ok).map((check, index) => (
-                    <Alert key={index} variant="destructive">
-                      <XCircle className="h-4 w-4" />
-                      <AlertDescription>
-                        <p className="font-semibold">[{check.category}] {check.name || check.entity}</p>
-                        {check.error && <p className="text-sm mt-1">Error: {check.error}</p>}
-                        {check.status && <p className="text-sm">Status: {check.status}</p>}
-                      </AlertDescription>
-                    </Alert>
-                  ))
+                  <>
+                    {/* Function failures */}
+                    {results.functionChecks?.filter(c => !c.ok && !c.skipped).map((check, index) => (
+                      <Alert key={`fn-${index}`} variant="destructive">
+                        <XCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          <p className="font-semibold">[Function] {check.functionName}</p>
+                          <p className="text-xs text-gray-500">{check.filePath}</p>
+                          {check.errorMessage && <p className="text-sm mt-1">Error: {check.errorMessage}</p>}
+                          {check.status && <p className="text-sm">Status: {check.status}</p>}
+                        </AlertDescription>
+                      </Alert>
+                    ))}
+                    {/* Other failures */}
+                    {results.otherChecks?.filter(c => !c.ok).map((check, index) => (
+                      <Alert key={`other-${index}`} variant="destructive">
+                        <XCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          <p className="font-semibold">[{check.category}] {check.name || check.entity}</p>
+                          {check.error && <p className="text-sm mt-1">Error: {check.error}</p>}
+                          {check.status && <p className="text-sm">Status: {check.status}</p>}
+                        </AlertDescription>
+                      </Alert>
+                    ))}
+                  </>
                 )}
               </TabsContent>
 
