@@ -64,7 +64,12 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { translationId, bookCode, chapter, verses } = await req.json();
+    const { translationId, bookCode, chapter, verses, _selfTest } = await req.json();
+
+    // Self-test mode for system diagnostics
+    if (_selfTest) {
+      return Response.json({ ok: true, selfTest: true, message: 'biblePassage is operational' });
+    }
 
     if (!bookCode || !chapter) {
       return Response.json({ 
