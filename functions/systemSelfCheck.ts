@@ -1,6 +1,4 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
-import { mapAllFunctions, getExecutableFunctions, getFunctionStats } from './shared/functionMapper.js';
-import { runFunctionTest, buildFunctionErrorReport } from './shared/functionTester.js';
 
 /**
  * SYSTEM SELF-CHECK v2.0
@@ -13,6 +11,139 @@ import { runFunctionTest, buildFunctionErrorReport } from './shared/functionTest
  * - Cross-contamination detection
  * - Integration health (Stripe)
  */
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FUNCTION MAPPER (inlined from shared/functionMapper.js)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const FUNCTION_REGISTRY = [
+  { name: 'biblePassage', filePath: 'functions/biblePassage.js', kind: 'default', exported: true },
+  { name: 'getPassageMultiSource', filePath: 'functions/getPassageMultiSource.js', kind: 'default', exported: true },
+  { name: 'listAvailableTranslations', filePath: 'functions/listAvailableTranslations.js', kind: 'default', exported: true },
+  { name: 'createCheckoutSession', filePath: 'functions/createCheckoutSession.js', kind: 'default', exported: true },
+  { name: 'stripe-webhook', filePath: 'functions/stripe-webhook.js', kind: 'default', exported: true },
+  { name: 'exportToPDF', filePath: 'functions/exportToPDF.js', kind: 'default', exported: true },
+  { name: 'exportToPPTX', filePath: 'functions/exportToPPTX.js', kind: 'default', exported: true },
+  { name: 'listUsers', filePath: 'functions/listUsers.js', kind: 'default', exported: true },
+  { name: 'grantFamilyAccess', filePath: 'functions/grantFamilyAccess.js', kind: 'default', exported: true },
+  { name: 'grantMePremium', filePath: 'functions/grantMePremium.js', kind: 'default', exported: true },
+  { name: 'createShareableLink', filePath: 'functions/createShareableLink.js', kind: 'default', exported: true },
+  { name: 'prompt-suggestions', filePath: 'functions/prompt-suggestions.js', kind: 'default', exported: true },
+  { name: 'importBibleData', filePath: 'functions/importBibleData.js', kind: 'default', exported: true, isExternalCrawler: true },
+  { name: 'importFullBible', filePath: 'functions/importFullBible.js', kind: 'default', exported: true, isExternalCrawler: true },
+  { name: 'importFromScriptureAPI', filePath: 'functions/importFromScriptureAPI.js', kind: 'default', exported: true, isExternalCrawler: true },
+  { name: 'systemSelfCheck', filePath: 'functions/systemSelfCheck.js', kind: 'default', exported: true, isSelfCheck: true },
+];
+
+const TEST_PAYLOADS = {
+  'biblePassage': { translationId: 'engKJV', bookCode: 'GEN', chapter: 1, _selfTest: true },
+  'getPassageMultiSource': { reference: 'John 3:16', translation: 'KJV', _selfTest: true },
+  'listAvailableTranslations': { _selfTest: true },
+  'createCheckoutSession': { _selfTest: true },
+  'stripe-webhook': { _selfTest: true },
+  'exportToPDF': { resourceType: 'sermon', resourceId: 'test-selfcheck', _selfTest: true },
+  'exportToPPTX': { resourceType: 'sermon', resourceId: 'test-selfcheck', _selfTest: true },
+  'listUsers': { _selfTest: true },
+  'grantFamilyAccess': { _selfTest: true },
+  'grantMePremium': { _selfTest: true },
+  'createShareableLink': { _selfTest: true },
+  'prompt-suggestions': { _selfTest: true },
+};
+
+function mapAllFunctions() {
+  return FUNCTION_REGISTRY.map(fn => ({
+    ...fn,
+    testPayload: TEST_PAYLOADS[fn.name] || { _selfTest: true }
+  }));
+}
+
+function getExecutableFunctions() {
+  return mapAllFunctions().filter(fn => 
+    !fn.isSelfCheck && 
+    fn.exported && 
+    fn.kind === 'default'
+  );
+}
+
+function getFunctionStats() {
+  const all = mapAllFunctions();
+  return {
+    total: all.length,
+    executable: all.filter(f => !f.isSelfCheck).length,
+    crawlers: all.filter(f => f.isExternalCrawler).length
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FUNCTION TESTER (inlined from shared/functionTester.js)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function runFunctionTest(base44, surface, timeoutMs = null) {
+  const timeout = timeoutMs || (surface.isExternalCrawler ? 15000 : 5000);
+  
+  const result = {
+    ok: false,
+    filePath: surface.filePath,
+    functionName: surface.name,
+    kind: surface.kind,
+    errorMessage: null,
+    stack: null,
+    snippet: null,
+    responseTime: 0,
+    status: null,
+    skipped: false,
+    skipReason: null
+  };
+
+  if (surface.isSelfCheck) {
+    result.ok = true;
+    result.skipped = true;
+    result.skipReason = 'Self-check function - skipped to avoid recursion';
+    return result;
+  }
+
+  if (surface.isExternalCrawler) {
+    result.ok = true;
+    result.skipped = true;
+    result.skipReason = 'External crawler - skipped to avoid network calls';
+    return result;
+  }
+
+  const startTime = Date.now();
+
+  try {
+    const response = await Promise.race([
+      base44.functions.invoke(surface.name, surface.testPayload),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error(`Timeout after ${timeout}ms`)), timeout)
+      )
+    ]);
+
+    result.responseTime = Date.now() - startTime;
+    result.status = response.status;
+
+    if (response.status >= 200 && response.status < 500) {
+      result.ok = true;
+    } else {
+      result.ok = false;
+      result.errorMessage = response.data?.error || response.data?.message || `Server error: ${response.status}`;
+      result.stack = response.data?.stack || null;
+    }
+
+  } catch (err) {
+    result.responseTime = Date.now() - startTime;
+    result.ok = false;
+    result.errorMessage = err.message;
+    result.stack = err.stack || null;
+
+    if (err.stack) {
+      const lines = err.stack.split('\n').slice(0, 10);
+      result.snippet = lines.join('\n');
+    }
+  }
+
+  return result;
+}
 
 // Required environment variables
 const REQUIRED_ENV_VARS = ['BASE44_APP_ID'];
