@@ -80,10 +80,20 @@ function isBibleApiComTranslation(translationId) {
 // Parameterized API: /data/TRANSLATION/BOOK_ID/CHAPTER
 // Book IDs are like GEN, EXO, JHN etc.
 async function fetchFromBibleApiCom(translationId, bookCode, chapter) {
-  // bible-api.com uses same OSIS-style book codes as helloao.org
-  const bookId = OSIS_TO_BOOK_ID[bookCode];
+  // bookCode comes in as OSIS short form (Gen, Exod, etc.) or already as API form (GEN, EXO)
+  // Try OSIS mapping first, then check if it's already a valid API code
+  let bookId = OSIS_TO_BOOK_ID[bookCode];
+  
+  // If not in OSIS map, check if it's already an API-style code (GEN, EXO, etc.)
   if (!bookId) {
-    return { ok: false, error: `Unknown book: ${bookCode}`, data: null };
+    // Check if the uppercase version is a valid book ID (values in OSIS_TO_BOOK_ID)
+    const upperBookCode = bookCode.toUpperCase();
+    const validBookIds = Object.values(OSIS_TO_BOOK_ID);
+    if (validBookIds.includes(upperBookCode)) {
+      bookId = upperBookCode;
+    } else {
+      return { ok: false, error: `Unknown book: ${bookCode}`, data: null };
+    }
   }
   
   // Parameterized API: /data/translation/BOOK_ID/chapter
