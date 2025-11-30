@@ -50,6 +50,8 @@ import ReligiousViewpointsDialog from "../components/reader/ReligiousViewpointsD
 import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
 import { getChapterOffline, isOnline as checkOnline } from "../components/reader/OfflineBibleService";
+import NTOnlyAlert from "../components/reader/NTOnlyAlert";
+import { getTranslationBooks, isBookInTranslation, getFirstAvailableBook, OLD_TESTAMENT_BOOKS } from "../components/reader/TranslationBookChecker";
 
 // Translation ID normalization - pass through to API as-is
 // The biblePassage function handles normalization
