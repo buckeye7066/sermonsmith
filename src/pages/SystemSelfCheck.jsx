@@ -21,11 +21,11 @@ import {
   Download,
   ChevronDown,
   ChevronRight,
-  RefreshCw,
   Server,
   Settings,
   Copy,
-  FileText
+  FileText,
+  Code
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -34,6 +34,7 @@ export default function SystemSelfCheck() {
   const [isRunning, setIsRunning] = useState(false);
   const [results, setResults] = useState(null);
   const [expandedItems, setExpandedItems] = useState({});
+  const [activeTab, setActiveTab] = useState("checks");
 
   useEffect(() => {
     loadUser();
