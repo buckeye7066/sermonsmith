@@ -384,6 +384,7 @@ export default function Reader() {
         setVerses(formattedVerses);
         setIsCached(true);
         setIsOfflineMode(false);
+        setError(null); // Clear any previous errors
 
         // If fallback was used, update the translation selector to show actual translation
         const fallbackUsed = result.data?.fallbackUsed || result.fallbackUsed;
@@ -391,7 +392,9 @@ export default function Reader() {
           toast.info(`${currentTranslation} not available, showing KJV`, {
             duration: 3000
           });
+          // Update the translation to KJV to prevent repeated fallback attempts
           setCurrentTranslation("engKJV");
+          localStorage.setItem('defaultTranslation', 'engKJV');
         }
 
         // Log Bible reading with granular details
@@ -406,9 +409,16 @@ export default function Reader() {
             is_cached: true
           }
         });
+      } else if (result.ok === false && result.error) {
+        // API returned an error in unified envelope
+        setError({
+          message: result.error,
+          canRetry: true
+        });
+        setVerses([]);
       } else {
         setError({
-          message: response.data.message || `${currentBook} ${currentChapter} is not available in this translation.`,
+          message: `${currentBook} ${currentChapter} is not available in this translation.`,
           canRetry: true
         });
         setVerses([]);
