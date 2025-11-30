@@ -13,42 +13,179 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
  */
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FUNCTION MAPPER (inlined from shared/functionMapper.js)
+// COMPLETE FUNCTION REGISTRY - ALL BACKEND FUNCTIONS FOR SERMONSMITH
+// ═══════════════════════════════════════════════════════════════════════════
+// 
+// Each entry:
+// - name: function filename without extension
+// - filePath: full path to file
+// - category: "bible", "stripe", "export", "admin", "sharing", "crawler"
+// - method: "POST" (all Base44 functions use POST)
+// - isSelfCheck: true if this is the self-check function itself
+// - isExternalCrawler: true if calls external APIs (skip in tests to avoid rate limits)
+// - expectError: optional string for expected error messages (like webhook signature)
+//
 // ═══════════════════════════════════════════════════════════════════════════
 
 const FUNCTION_REGISTRY = [
-  { name: 'biblePassage', filePath: 'functions/biblePassage.js', kind: 'default', exported: true },
-  { name: 'getPassageMultiSource', filePath: 'functions/getPassageMultiSource.js', kind: 'default', exported: true },
-  { name: 'listAvailableTranslations', filePath: 'functions/listAvailableTranslations.js', kind: 'default', exported: true },
-  { name: 'createCheckoutSession', filePath: 'functions/createCheckoutSession.js', kind: 'default', exported: true },
-  { name: 'stripe-webhook', filePath: 'functions/stripe-webhook.js', kind: 'default', exported: true },
-  { name: 'exportToPDF', filePath: 'functions/exportToPDF.js', kind: 'default', exported: true },
-  { name: 'exportToPPTX', filePath: 'functions/exportToPPTX.js', kind: 'default', exported: true },
-  { name: 'listUsers', filePath: 'functions/listUsers.js', kind: 'default', exported: true },
-  { name: 'grantFamilyAccess', filePath: 'functions/grantFamilyAccess.js', kind: 'default', exported: true },
-  { name: 'grantMePremium', filePath: 'functions/grantMePremium.js', kind: 'default', exported: true },
-  { name: 'createShareableLink', filePath: 'functions/createShareableLink.js', kind: 'default', exported: true },
-  { name: 'promptSuggestions', filePath: 'functions/promptSuggestions.js', kind: 'default', exported: true },
-  { name: 'importBibleData', filePath: 'functions/importBibleData.js', kind: 'default', exported: true, isExternalCrawler: true },
-  { name: 'importFullBible', filePath: 'functions/importFullBible.js', kind: 'default', exported: true, isExternalCrawler: true },
-  { name: 'importFromScriptureAPI', filePath: 'functions/importFromScriptureAPI.js', kind: 'default', exported: true, isExternalCrawler: true },
-  { name: 'systemSelfCheck', filePath: 'functions/systemSelfCheck.js', kind: 'default', exported: true, isSelfCheck: true },
+  // ─────────────────────────────────────────────────────────────────────────
+  // BIBLE / SCRIPTURE FUNCTIONS
+  // ─────────────────────────────────────────────────────────────────────────
+  { 
+    name: 'biblePassage', 
+    filePath: 'functions/biblePassage.js', 
+    category: 'bible',
+    method: 'POST'
+  },
+  { 
+    name: 'getPassageMultiSource', 
+    filePath: 'functions/getPassageMultiSource.js', 
+    category: 'bible',
+    method: 'POST'
+  },
+  { 
+    name: 'listAvailableTranslations', 
+    filePath: 'functions/listAvailableTranslations.js', 
+    category: 'bible',
+    method: 'POST'
+  },
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // STRIPE / BILLING FUNCTIONS
+  // ─────────────────────────────────────────────────────────────────────────
+  { 
+    name: 'createCheckoutSession', 
+    filePath: 'functions/createCheckoutSession.js', 
+    category: 'stripe',
+    method: 'POST'
+  },
+  { 
+    name: 'stripe-webhook', 
+    filePath: 'functions/stripe-webhook.js', 
+    category: 'stripe',
+    method: 'POST'
+  },
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // EXPORT FUNCTIONS
+  // ─────────────────────────────────────────────────────────────────────────
+  { 
+    name: 'exportToPDF', 
+    filePath: 'functions/exportToPDF.js', 
+    category: 'export',
+    method: 'POST'
+  },
+  { 
+    name: 'exportToPPTX', 
+    filePath: 'functions/exportToPPTX.js', 
+    category: 'export',
+    method: 'POST'
+  },
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // ADMIN / USER MANAGEMENT FUNCTIONS
+  // ─────────────────────────────────────────────────────────────────────────
+  { 
+    name: 'listUsers', 
+    filePath: 'functions/listUsers.js', 
+    category: 'admin',
+    method: 'POST'
+  },
+  { 
+    name: 'grantFamilyAccess', 
+    filePath: 'functions/grantFamilyAccess.js', 
+    category: 'admin',
+    method: 'POST'
+  },
+  { 
+    name: 'grantMePremium', 
+    filePath: 'functions/grantMePremium.js', 
+    category: 'admin',
+    method: 'POST'
+  },
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // SHARING FUNCTIONS
+  // ─────────────────────────────────────────────────────────────────────────
+  { 
+    name: 'createShareableLink', 
+    filePath: 'functions/createShareableLink.js', 
+    category: 'sharing',
+    method: 'POST'
+  },
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // AI / SUGGESTIONS FUNCTIONS
+  // ─────────────────────────────────────────────────────────────────────────
+  { 
+    name: 'promptSuggestions', 
+    filePath: 'functions/promptSuggestions.js', 
+    category: 'general',
+    method: 'POST'
+  },
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // BIBLE IMPORT CRAWLERS (skipped in tests to avoid external API calls)
+  // ─────────────────────────────────────────────────────────────────────────
+  { 
+    name: 'importBibleData', 
+    filePath: 'functions/importBibleData.js', 
+    category: 'crawler',
+    method: 'POST',
+    isExternalCrawler: true
+  },
+  { 
+    name: 'importFullBible', 
+    filePath: 'functions/importFullBible.js', 
+    category: 'crawler',
+    method: 'POST',
+    isExternalCrawler: true
+  },
+  { 
+    name: 'importFromScriptureAPI', 
+    filePath: 'functions/importFromScriptureAPI.js', 
+    category: 'crawler',
+    method: 'POST',
+    isExternalCrawler: true
+  },
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // SELF-CHECK (excluded from testing to avoid recursion)
+  // ─────────────────────────────────────────────────────────────────────────
+  { 
+    name: 'systemSelfCheck', 
+    filePath: 'functions/systemSelfCheck.js', 
+    category: 'admin',
+    method: 'POST',
+    isSelfCheck: true
+  }
 ];
 
+// ═══════════════════════════════════════════════════════════════════════════
+// TEST PAYLOADS - Minimal payload to trigger self-test mode
+// ═══════════════════════════════════════════════════════════════════════════
+
 const TEST_PAYLOADS = {
-  'biblePassage': { translationId: 'engKJV', bookCode: 'GEN', chapter: 1, _selfTest: true },
-  'getPassageMultiSource': { reference: 'John 3:16', translation: 'KJV', _selfTest: true },
+  'biblePassage': { _selfTest: true },
+  'getPassageMultiSource': { _selfTest: true },
   'listAvailableTranslations': { _selfTest: true },
   'createCheckoutSession': { _selfTest: true },
   'stripe-webhook': { _selfTest: true },
-  'exportToPDF': { resourceType: 'sermon', resourceId: 'test-selfcheck', _selfTest: true },
-  'exportToPPTX': { resourceType: 'sermon', resourceId: 'test-selfcheck', _selfTest: true },
+  'exportToPDF': { _selfTest: true },
+  'exportToPPTX': { _selfTest: true },
   'listUsers': { _selfTest: true },
   'grantFamilyAccess': { _selfTest: true },
   'grantMePremium': { _selfTest: true },
   'createShareableLink': { _selfTest: true },
   'promptSuggestions': { _selfTest: true },
+  'importBibleData': { _selfTest: true },
+  'importFullBible': { _selfTest: true },
+  'importFromScriptureAPI': { _selfTest: true }
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
 
 function mapAllFunctions() {
   return FUNCTION_REGISTRY.map(fn => ({
@@ -59,9 +196,7 @@ function mapAllFunctions() {
 
 function getExecutableFunctions() {
   return mapAllFunctions().filter(fn => 
-    !fn.isSelfCheck && 
-    fn.exported && 
-    fn.kind === 'default'
+    !fn.isSelfCheck
   );
 }
 
@@ -70,7 +205,11 @@ function getFunctionStats() {
   return {
     total: all.length,
     executable: all.filter(f => !f.isSelfCheck).length,
-    crawlers: all.filter(f => f.isExternalCrawler).length
+    crawlers: all.filter(f => f.isExternalCrawler).length,
+    byCategory: all.reduce((acc, f) => {
+      acc[f.category] = (acc[f.category] || 0) + 1;
+      return acc;
+    }, {})
   };
 }
 
