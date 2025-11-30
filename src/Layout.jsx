@@ -23,8 +23,8 @@ export default function Layout({ children, currentPageName }) {
   useEffect(() => {
     loadUser();
 
-    // Register service worker
-    if ('serviceWorker' in navigator) {
+    // Register service worker only in production (not in preview/dev mode)
+    if ('serviceWorker' in navigator && window.location.hostname !== 'localhost' && !window.location.hostname.includes('preview')) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/service-worker.js')
           .then(registration => {
