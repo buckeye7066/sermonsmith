@@ -265,32 +265,77 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 2. BACKEND FUNCTION CHECKS
+    // 2. SURFACE MAPPER - DISCOVER ALL FUNCTIONS
     // ══════════════════════════════════════════════════════════════════════════
-    console.log('\n⚡ BACKEND FUNCTION CHECKS');
+    console.log('\n🗺️ SURFACE MAPPER - DISCOVERING FUNCTIONS');
     
-    // Test functions with appropriate payloads
-    const functionTests = [
-      { name: 'biblePassage', payload: { translationId: 'en-kjv', bookCode: 'GEN', chapter: 1 } },
-      { name: 'getPassageMultiSource', payload: { reference: 'John 3:16', translation: 'KJV' } },
-      { name: 'listAvailableTranslations', payload: {} },
-      { name: 'createCheckoutSession', payload: {} },
-      { name: 'exportToPDF', payload: { _selfTest: '1' } },
-      { name: 'exportToPPTX', payload: { _selfTest: '1' } }
-    ];
+    let surfaceStats = { total: 0, byType: {}, valid: 0, invalid: 0 };
+    let allSurfaces = [];
+    
+    try {
+      surfaceStats = await getSurfaceStats();
+      allSurfaces = await getSurfaceMap();
+      console.log(`  📊 Found ${surfaceStats.total} surfaces`);
+      console.log(`  📁 By type: ${JSON.stringify(surfaceStats.byType)}`);
+      console.log(`  ✅ Valid: ${surfaceStats.valid}, ❌ Invalid: ${surfaceStats.invalid}`);
+      
+      checks.push({
+        category: 'surface_mapper',
+        name: 'Surface Discovery',
+        ok: true,
+        totalSurfaces: surfaceStats.total,
+        byType: surfaceStats.byType,
+        valid: surfaceStats.valid,
+        invalid: surfaceStats.invalid
+      });
+      totalPassed++;
+    } catch (err) {
+      console.log(`  ❌ Surface Mapper Error: ${err.message}`);
+      checks.push({
+        category: 'surface_mapper',
+        name: 'Surface Discovery',
+        ok: false,
+        error: err.message
+      });
+      totalFailed++;
+    }
 
-    for (const ft of functionTests) {
-      const result = await testFunction(base44, ft.name, ft.payload);
+    // ══════════════════════════════════════════════════════════════════════════
+    // 3. BACKEND FUNCTION CHECKS (Auto-discovered)
+    // ══════════════════════════════════════════════════════════════════════════
+    console.log('\n⚡ BACKEND FUNCTION CHECKS (Auto-discovered)');
+    
+    const executableSurfaces = await getExecutableSurfaces();
+    console.log(`  Testing ${executableSurfaces.length} executable surfaces...`);
+
+    for (const surface of executableSurfaces) {
+      // Skip self-check to avoid recursion
+      if (surface.name === 'systemSelfCheck') {
+        console.log(`  ⏭️ ${surface.name}: Skipped (self)`);
+        continue;
+      }
+      
+      const result = await testSurface(base44, surface);
       if (result.ok) totalPassed++; else totalFailed++;
+      
       checks.push({
         category: 'function',
-        name: ft.name,
+        name: result.name,
+        filePath: result.filePath,
+        type: result.type,
         ok: result.ok,
         status: result.status,
         responseTime: result.responseTime,
-        error: result.error
+        error: result.error,
+        errorStack: result.errorStack,
+        offendingCode: result.offendingCode
       });
-      console.log(`  ${result.ok ? '✅' : '❌'} ${ft.name}: ${result.status || 'Error'} (${result.responseTime}ms)${result.error ? ` - ${result.error}` : ''}`);
+      
+      console.log(`  ${result.ok ? '✅' : '❌'} ${result.name}: ${result.status || 'Error'} (${result.responseTime}ms)${result.error ? ` - ${result.error}` : ''}`);
+      
+      if (result.offendingCode) {
+        console.log(`     📍 Offending: ${result.offendingCode}`);
+      }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
