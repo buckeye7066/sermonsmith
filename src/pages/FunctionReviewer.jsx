@@ -1,0 +1,435 @@
+import React, { useState, useEffect, useMemo } from "react";
+import { base44 } from "@/api/base44Client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { 
+  Code, 
+  ChevronLeft, 
+  ChevronRight, 
+  Search, 
+  Copy, 
+  Check, 
+  FileCode, 
+  FolderTree,
+  Loader2,
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  RefreshCw
+} from "lucide-react";
+import { toast } from "sonner";
+import { KNOWN_FUNCTIONS, getAllCategories } from "../components/functionRegistry";
+
+// Simple syntax highlighting for JavaScript
+function highlightCode(code) {
+  if (!code) return "";
+  
+  // Escape HTML first
+  let escaped = code
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  
+  // Keywords
+  escaped = escaped.replace(
+    /\b(import|export|from|const|let|var|function|async|await|return|if|else|for|while|try|catch|throw|new|class|extends|switch|case|break|default|continue|typeof|instanceof)\b/g,
+    '<span class="text-purple-600 dark:text-purple-400 font-semibold">$1</span>'
+  );
+  
+  // Strings
+  escaped = escaped.replace(
+    /(["'`])(?:(?!\1)[^\\]|\\.)*\1/g,
+    '<span class="text-green-600 dark:text-green-400">$&</span>'
+  );
+  
+  // Comments
+  escaped = escaped.replace(
+    /(\/\/.*$)/gm,
+    '<span class="text-gray-500 italic">$1</span>'
+  );
+  escaped = escaped.replace(
+    /(\/\*[\s\S]*?\*\/)/g,
+    '<span class="text-gray-500 italic">$1</span>'
+  );
+  
+  // Numbers
+  escaped = escaped.replace(
+    /\b(\d+)\b/g,
+    '<span class="text-orange-500">$1</span>'
+  );
+  
+  // Function calls
+  escaped = escaped.replace(
+    /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g,
+    '<span class="text-blue-600 dark:text-blue-400">$1</span>('
+  );
+  
+  return escaped;
+}
+
+function CodeBlock({ code, title, filePath, defaultOpen = true }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [copied, setCopied] = useState(false);
+  
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    toast.success("Code copied to clipboard");
+    setTimeout(() => setCopied(false), 2000);
+  };
+  
+  const lineCount = code ? code.split('\n').length : 0;
+  
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="border rounded-lg overflow-hidden">
+      <CollapsibleTrigger className="w-full flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+        <div className="flex items-center gap-2">
+          <FileCode className="w-4 h-4 text-blue-500" />
+          <span className="font-medium">{title || filePath}</span>
+          <Badge variant="outline" className="text-xs">{lineCount} lines</Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+            className="h-7 px-2"
+          >
+            {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+          </Button>
+          {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <ScrollArea className="max-h-[500px]">
+          <pre className="p-4 bg-gray-50 dark:bg-gray-900 text-sm font-mono overflow-x-auto">
+            <code dangerouslySetInnerHTML={{ __html: highlightCode(code) }} />
+          </pre>
+        </ScrollArea>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+export default function FunctionReviewer() {
+  const [functions, setFunctions] = useState(KNOWN_FUNCTIONS);
+  const [selectedFunction, setSelectedFunction] = useState(null);
+  const [functionDetails, setFunctionDetails] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [activeTab, setActiveTab] = useState("code");
+  
+  const categories = useMemo(() => ["all", ...getAllCategories()], []);
+  
+  const filteredFunctions = useMemo(() => {
+    let filtered = functions;
+    
+    if (selectedCategory !== "all") {
+      filtered = filtered.filter(f => f.category === selectedCategory);
+    }
+    
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(f => 
+        f.functionId.toLowerCase().includes(q) ||
+        f.description?.toLowerCase().includes(q) ||
+        f.filePath.toLowerCase().includes(q)
+      );
+    }
+    
+    return filtered;
+  }, [functions, selectedCategory, searchQuery]);
+  
+  const currentIndex = useMemo(() => {
+    if (!selectedFunction) return -1;
+    return filteredFunctions.findIndex(f => f.functionId === selectedFunction.functionId);
+  }, [filteredFunctions, selectedFunction]);
+  
+  const loadFunctionDetails = async (func) => {
+    setLoading(true);
+    setError(null);
+    setSelectedFunction(func);
+    
+    try {
+      const response = await base44.functions.invoke('getFunctionDetails', {
+        functionId: func.functionId
+      });
+      
+      if (response.data?.ok) {
+        setFunctionDetails(response.data.data);
+      } else {
+        setError(response.data?.error || 'Failed to load function details');
+        setFunctionDetails(null);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load function details');
+      setFunctionDetails(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const navigateFunction = (direction) => {
+    if (currentIndex === -1) return;
+    
+    const newIndex = direction === 'prev' 
+      ? Math.max(0, currentIndex - 1)
+      : Math.min(filteredFunctions.length - 1, currentIndex + 1);
+    
+    if (newIndex !== currentIndex) {
+      loadFunctionDetails(filteredFunctions[newIndex]);
+    }
+  };
+  
+  const getCategoryColor = (category) => {
+    const colors = {
+      bible: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+      export: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+      payment: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+      admin: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+      content: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+      import: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+      system: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200"
+    };
+    return colors[category] || colors.system;
+  };
+  
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="max-w-7xl mx-auto p-6">
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold flex items-center gap-3">
+            <Code className="w-8 h-8 text-blue-600" />
+            Function Reviewer
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            Browse and review all backend functions in this app
+          </p>
+        </div>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Sidebar - Function List */}
+          <div className="lg:col-span-1">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FolderTree className="w-5 h-5" />
+                  Functions ({filteredFunctions.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* Search */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Input
+                    placeholder="Search functions..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                
+                {/* Category Filter */}
+                <div className="flex flex-wrap gap-1">
+                  {categories.map(cat => (
+                    <Badge
+                      key={cat}
+                      variant={selectedCategory === cat ? "default" : "outline"}
+                      className="cursor-pointer text-xs"
+                      onClick={() => setSelectedCategory(cat)}
+                    >
+                      {cat}
+                    </Badge>
+                  ))}
+                </div>
+                
+                {/* Function List */}
+                <ScrollArea className="h-[500px]">
+                  <div className="space-y-1">
+                    {filteredFunctions.map((func, idx) => (
+                      <button
+                        key={func.functionId}
+                        onClick={() => loadFunctionDetails(func)}
+                        className={`w-full text-left p-2 rounded-lg transition-colors ${
+                          selectedFunction?.functionId === func.functionId
+                            ? 'bg-blue-100 dark:bg-blue-900 border-l-4 border-blue-500'
+                            : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-sm truncate">{func.functionId}</span>
+                          <Badge className={`text-[10px] ${getCategoryColor(func.category)}`}>
+                            {func.category}
+                          </Badge>
+                        </div>
+                        {func.description && (
+                          <p className="text-xs text-gray-500 mt-1 truncate">{func.description}</p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Main Content */}
+          <div className="lg:col-span-3">
+            {!selectedFunction ? (
+              <Card className="h-full flex items-center justify-center">
+                <CardContent className="text-center py-12">
+                  <FileCode className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+                  <h3 className="text-xl font-medium text-gray-600">Select a Function</h3>
+                  <p className="text-gray-500 mt-2">
+                    Choose a function from the sidebar to view its source code and details
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileCode className="w-5 h-5 text-blue-500" />
+                        {selectedFunction.functionId}
+                      </CardTitle>
+                      <CardDescription className="mt-1">
+                        {selectedFunction.filePath}
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigateFunction('prev')}
+                        disabled={currentIndex <= 0}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                        Prev
+                      </Button>
+                      <span className="text-sm text-gray-500">
+                        {currentIndex + 1} / {filteredFunctions.length}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigateFunction('next')}
+                        disabled={currentIndex >= filteredFunctions.length - 1}
+                      >
+                        Next
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  {/* Metadata Badges */}
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <Badge className={getCategoryColor(selectedFunction.category)}>
+                      {selectedFunction.category}
+                    </Badge>
+                    <Badge variant="outline">
+                      Export: {selectedFunction.exportType}
+                    </Badge>
+                    {selectedFunction.dependencyPaths?.length > 0 && (
+                      <Badge variant="outline">
+                        {selectedFunction.dependencyPaths.length} dependencies
+                      </Badge>
+                    )}
+                  </div>
+                  
+                  {selectedFunction.description && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                      {selectedFunction.description}
+                    </p>
+                  )}
+                </CardHeader>
+                
+                <CardContent>
+                  {loading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                      <span className="ml-3 text-gray-600">Loading function details...</span>
+                    </div>
+                  ) : error ? (
+                    <Alert variant="destructive">
+                      <AlertCircle className="w-4 h-4" />
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  ) : (
+                    <Tabs value={activeTab} onValueChange={setActiveTab}>
+                      <TabsList className="mb-4">
+                        <TabsTrigger value="code">Source Code</TabsTrigger>
+                        <TabsTrigger value="dependencies">
+                          Dependencies ({functionDetails?.dependencies?.length || 0})
+                        </TabsTrigger>
+                        <TabsTrigger value="raw">Raw JSON</TabsTrigger>
+                      </TabsList>
+                      
+                      <TabsContent value="code" className="space-y-4">
+                        {functionDetails?.sourceCode ? (
+                          <CodeBlock
+                            code={functionDetails.sourceCode}
+                            title={`${selectedFunction.functionId}.js`}
+                            filePath={selectedFunction.filePath}
+                            defaultOpen={true}
+                          />
+                        ) : (
+                          <Alert>
+                            <AlertCircle className="w-4 h-4" />
+                            <AlertDescription>
+                              Source code not available in runtime cache. 
+                              View in Base44 Dashboard → Code → Functions.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </TabsContent>
+                      
+                      <TabsContent value="dependencies" className="space-y-4">
+                        {functionDetails?.dependencies?.length > 0 ? (
+                          functionDetails.dependencies.map((dep, idx) => (
+                            <CodeBlock
+                              key={dep.filePath}
+                              code={dep.code}
+                              title={dep.filePath.split('/').pop()}
+                              filePath={dep.filePath}
+                              defaultOpen={idx === 0}
+                            />
+                          ))
+                        ) : (
+                          <Alert>
+                            <AlertDescription>
+                              This function has no dependencies.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </TabsContent>
+                      
+                      <TabsContent value="raw">
+                        <CodeBlock
+                          code={JSON.stringify(functionDetails, null, 2)}
+                          title="Raw JSON Response"
+                          defaultOpen={true}
+                        />
+                      </TabsContent>
+                    </Tabs>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

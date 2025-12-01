@@ -32,6 +32,7 @@ import AdminAnalytics from './pages/AdminAnalytics';
 import ContactSupport from './pages/ContactSupport';
 import AdminMessages from './pages/AdminMessages';
 import AdminFunctionTester from './pages/AdminFunctionTester';
+import FunctionReviewer from './pages/FunctionReviewer';
 import __Layout from './Layout.jsx';
 
 
@@ -70,6 +71,7 @@ export const PAGES = {
     "ContactSupport": ContactSupport,
     "AdminMessages": AdminMessages,
     "AdminFunctionTester": AdminFunctionTester,
+    "FunctionReviewer": FunctionReviewer,
 }
 
 export const pagesConfig = {
