@@ -191,6 +191,15 @@ export const KNOWN_FUNCTIONS = [
     dependencyPaths: ["components/functionRegistry.js"],
     category: "system",
     description: "Returns full source code and metadata for a function"
+  },
+  {
+    functionId: "syncToGitHub",
+    filePath: "functions/syncToGitHub.js",
+    exportType: "default",
+    namedExports: [],
+    dependencyPaths: [],
+    category: "system",
+    description: "Syncs frontend files to GitHub repository"
   }
 ];
 
