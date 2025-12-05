@@ -253,14 +253,28 @@ export default function FunctionReviewer() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <Code className="w-8 h-8 text-blue-600" />
-            Function Reviewer
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Browse and review all backend functions in this app
-          </p>
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-3">
+              <Code className="w-8 h-8 text-blue-600" />
+              Function Reviewer
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              Browse and review all backend functions in this app
+            </p>
+          </div>
+          <Button
+            onClick={syncAllToGitHub}
+            disabled={syncing}
+            className="bg-gray-900 hover:bg-gray-800"
+          >
+            {syncing ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Github className="w-4 h-4 mr-2" />
+            )}
+            {syncing ? "Syncing..." : "Sync All to GitHub"}
+          </Button>
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
