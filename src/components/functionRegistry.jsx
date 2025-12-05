@@ -209,6 +209,15 @@ export const KNOWN_FUNCTIONS = [
     dependencyPaths: [],
     category: "system",
     description: "Syncs frontend files to GitHub repository"
+  },
+  {
+    functionId: "_ADMIN_AUTH_TEMPLATE",
+    filePath: "functions/_ADMIN_AUTH_TEMPLATE.js",
+    exportType: "default",
+    namedExports: [],
+    dependencyPaths: [],
+    category: "system",
+    description: "Template for admin-only backend functions"
   }
 ];
 
