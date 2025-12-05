@@ -127,7 +127,7 @@ async function safeRun(req) {
 
   const funcEntry = KNOWN_FUNCTIONS.find(f => f.functionId === functionId);
   if (!funcEntry) {
-    return { ok: false, error: \`Function "\${functionId}" not found\`, data: { availableFunctions: KNOWN_FUNCTIONS.map(f => f.functionId) } };
+    return { ok: false, error: `Function "${functionId}" not found`, data: { availableFunctions: KNOWN_FUNCTIONS.map(f => f.functionId) } };
   }
 
   // Try embedded source first, then GitHub fallback
