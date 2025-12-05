@@ -140,7 +140,7 @@ async function safeRun(req) {
       sourceCode = ghResult.code;
       sourceOrigin = "github";
     } else {
-      sourceCode = \`// Source not available\\n// Embedded: Not found\\n// GitHub: \${ghResult.error}\\n//\\n// View in Base44 Dashboard > Code > Functions\`;
+      sourceCode = `// Source not available\n// Embedded: Not found\n// GitHub: ${ghResult.error}\n//\n// View in Base44 Dashboard > Code > Functions`;
       sourceOrigin = "unavailable";
     }
   }
