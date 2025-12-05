@@ -27,7 +27,6 @@ import {
   Github
 } from "lucide-react";
 import { toast } from "sonner";
-import { KNOWN_FUNCTIONS, getAllCategories } from "../components/functionRegistry";
 
 // Simple syntax highlighting for JavaScript
 function highlightCode(code) {
@@ -121,17 +120,43 @@ function CodeBlock({ code, title, filePath, defaultOpen = true }) {
 }
 
 export default function FunctionReviewer() {
-  const [functions, setFunctions] = useState(KNOWN_FUNCTIONS);
+  const [functions, setFunctions] = useState([]);
   const [selectedFunction, setSelectedFunction] = useState(null);
   const [functionDetails, setFunctionDetails] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [discovering, setDiscovering] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [activeTab, setActiveTab] = useState("code");
   const [syncing, setSyncing] = useState(false);
   
-  const categories = useMemo(() => ["all", ...getAllCategories()], []);
+  const categories = useMemo(() => {
+    const cats = [...new Set(functions.map(f => f.category))];
+    return ["all", ...cats.sort()];
+  }, [functions]);
+
+  // Auto-discover functions on mount
+  useEffect(() => {
+    discoverFunctions();
+  }, []);
+
+  const discoverFunctions = async () => {
+    setDiscovering(true);
+    try {
+      const response = await base44.functions.invoke('discoverFunctions', {});
+      if (response.data?.ok) {
+        setFunctions(response.data.data.functions);
+        toast.success(`Discovered ${response.data.data.total} functions`);
+      } else {
+        toast.error(response.data?.error || 'Discovery failed');
+      }
+    } catch (err) {
+      toast.error(err.message || 'Discovery failed');
+    } finally {
+      setDiscovering(false);
+    }
+  };
   
   const filteredFunctions = useMemo(() => {
     let filtered = functions;
