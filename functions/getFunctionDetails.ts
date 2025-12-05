@@ -4,10 +4,12 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
  * GET FUNCTION DETAILS
  * 
  * Returns full source code and metadata for a specific function.
- * Uses a static registry since Base44/Deno Deploy cannot scan filesystem.
- * 
- * PORTABLE: Works in any Base44 app with the functionRegistry.js file.
+ * Fetches source code from GitHub repository.
  */
+
+// GitHub configuration
+const GITHUB_REPO = "buckeye7066/Bible-app";
+const GITHUB_BRANCH = "main";
 
 // Static registry (must match components/functionRegistry.js)
 const KNOWN_FUNCTIONS = [
@@ -32,9 +34,37 @@ const KNOWN_FUNCTIONS = [
   { functionId: "getFunctionDetails", filePath: "functions/getFunctionDetails.js", exportType: "default", namedExports: [], dependencyPaths: [], category: "system" }
 ];
 
-// Embedded source code cache (populated at build time or manually)
-// This is necessary because Deno Deploy cannot read arbitrary files at runtime
-const SOURCE_CACHE = {};
+// Fetch file content from GitHub
+async function fetchFromGitHub(filePath) {
+  const token = Deno.env.get("GITHUB_TOKEN");
+  if (!token) {
+    return { ok: false, error: "GITHUB_TOKEN not configured" };
+  }
+
+  const url = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/${filePath}`;
+  
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "Authorization": `token ${token}`,
+        "Accept": "application/vnd.github.v3.raw",
+        "User-Agent": "Base44-FunctionReviewer"
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { ok: false, error: `File not found: ${filePath}` };
+      }
+      return { ok: false, error: `GitHub API error: ${response.status}` };
+    }
+
+    const code = await response.text();
+    return { ok: true, code };
+  } catch (err) {
+    return { ok: false, error: `Fetch error: ${err.message}` };
+  }
+}
 
 async function safeRun(req) {
   const base44 = createClientFromRequest(req);
@@ -58,11 +88,16 @@ async function safeRun(req) {
   const { functionId, _selfTest } = body;
 
   if (_selfTest) {
+    const token = Deno.env.get("GITHUB_TOKEN");
     return { 
       ok: true, 
       selfTest: true, 
       message: 'getFunctionDetails is operational',
-      data: { totalFunctions: KNOWN_FUNCTIONS.length }
+      data: { 
+        totalFunctions: KNOWN_FUNCTIONS.length,
+        githubConfigured: !!token,
+        repo: GITHUB_REPO
+      }
     };
   }
 
@@ -79,7 +114,8 @@ async function safeRun(req) {
           category: f.category,
           dependencyCount: f.dependencyPaths.length
         })),
-        total: KNOWN_FUNCTIONS.length
+        total: KNOWN_FUNCTIONS.length,
+        repo: GITHUB_REPO
       }
     };
   }
@@ -97,21 +133,19 @@ async function safeRun(req) {
     };
   }
 
-  // Try to get source code from cache
-  let sourceCode = SOURCE_CACHE[funcEntry.filePath] || null;
-  
-  // If not in cache, provide a helpful message
-  if (!sourceCode) {
-    sourceCode = `// Source code for ${funcEntry.filePath}\n// Not available in runtime cache.\n// \n// To view source code:\n// 1. Open the Base44 dashboard\n// 2. Navigate to Code > Functions\n// 3. Select ${funcEntry.functionId}\n//\n// Or use the AI assistant to read the file directly.`;
-  }
+  // Fetch source code from GitHub
+  const sourceResult = await fetchFromGitHub(funcEntry.filePath);
+  let sourceCode = sourceResult.ok 
+    ? sourceResult.code 
+    : `// Error loading source code:\n// ${sourceResult.error}\n//\n// File: ${funcEntry.filePath}`;
 
-  // Load dependency source codes
+  // Load dependency source codes from GitHub
   const dependencies = [];
   for (const depPath of funcEntry.dependencyPaths) {
-    const depCode = SOURCE_CACHE[depPath] || `// ${depPath}\n// Source not available in cache`;
+    const depResult = await fetchFromGitHub(depPath);
     dependencies.push({
       filePath: depPath,
-      code: depCode
+      code: depResult.ok ? depResult.code : `// Error: ${depResult.error}`
     });
   }
 
@@ -126,7 +160,7 @@ async function safeRun(req) {
       category: funcEntry.category,
       dependencies,
       sourceCode,
-      // Safe JSON serialization
+      repo: GITHUB_REPO,
       _serialized: true
     }
   };
