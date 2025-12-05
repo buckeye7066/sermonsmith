@@ -129,6 +129,7 @@ export default function FunctionReviewer() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [activeTab, setActiveTab] = useState("code");
+  const [syncing, setSyncing] = useState(false);
   
   const categories = useMemo(() => ["all", ...getAllCategories()], []);
   
