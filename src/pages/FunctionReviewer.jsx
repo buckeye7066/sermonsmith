@@ -288,18 +288,32 @@ export default function FunctionReviewer() {
               Browse and review all backend functions in this app
             </p>
           </div>
-          <Button
-            onClick={syncAllToGitHub}
-            disabled={syncing}
-            className="bg-gray-900 hover:bg-gray-800"
-          >
-            {syncing ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Github className="w-4 h-4 mr-2" />
-            )}
-            {syncing ? "Syncing..." : "Sync All to GitHub"}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={discoverFunctions}
+              disabled={discovering}
+              variant="outline"
+            >
+              {discovering ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              {discovering ? "Discovering..." : "Refresh"}
+            </Button>
+            <Button
+              onClick={syncAllToGitHub}
+              disabled={syncing}
+              className="bg-gray-900 hover:bg-gray-800"
+            >
+              {syncing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Github className="w-4 h-4 mr-2" />
+              )}
+              {syncing ? "Syncing..." : "Sync All to GitHub"}
+            </Button>
+          </div>
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -310,6 +324,7 @@ export default function FunctionReviewer() {
                 <CardTitle className="text-lg flex items-center gap-2">
                   <FolderTree className="w-5 h-5" />
                   Functions ({filteredFunctions.length})
+                  {discovering && <Loader2 className="w-4 h-4 animate-spin" />}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
