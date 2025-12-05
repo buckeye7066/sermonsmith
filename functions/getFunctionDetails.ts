@@ -178,6 +178,16 @@ Deno.serve(async (req) => {
     return Response.json(result);
   } catch (err) {
     console.error('[getFunctionDetails] CRITICAL:', err);
+    return Response.json({ ok: false, error: err?.message ?? 'Unknown error', data: null });
+  }
+});
+
+Deno.serve(async (req) => {
+  try {
+    const result = await safeRun(req);
+    return Response.json(result);
+  } catch (err) {
+    console.error('[getFunctionDetails] CRITICAL:', err);
     return Response.json({
       ok: false,
       error: err?.message ?? 'Unknown error',
