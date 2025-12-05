@@ -151,7 +151,7 @@ async function safeRun(req) {
     const ghResult = await fetchFromGitHub(depPath);
     dependencies.push({
       filePath: depPath,
-      code: ghResult.ok ? ghResult.code : \`// Error: \${ghResult.error}\`
+      code: ghResult.ok ? ghResult.code : `// Error: ${ghResult.error}`
     });
   }
 
