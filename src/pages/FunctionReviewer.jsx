@@ -141,13 +141,24 @@ export default function FunctionReviewer() {
     discoverFunctions();
   }, []);
 
+  const [allFiles, setAllFiles] = useState({ functions: [], pages: [], components: [], entities: [], other: [] });
+  const [viewMode, setViewMode] = useState('functions'); // functions, pages, components, entities, all
+
   const discoverFunctions = async () => {
     setDiscovering(true);
     try {
-      const response = await base44.functions.invoke('discoverFunctions', {});
+      const response = await base44.functions.invoke('discoverFunctions', { scope: 'all' });
       if (response.data?.ok) {
-        setFunctions(response.data.data.functions);
-        toast.success(`Discovered ${response.data.data.total} functions`);
+        const data = response.data.data;
+        setAllFiles({
+          functions: data.functions || [],
+          pages: data.pages || [],
+          components: data.components || [],
+          entities: data.entities || [],
+          other: data.other || []
+        });
+        setFunctions(data.functions || []);
+        toast.success(`Discovered ${data.totals?.all || 0} files`);
       } else {
         toast.error(response.data?.error || 'Discovery failed');
       }
@@ -157,25 +168,38 @@ export default function FunctionReviewer() {
       setDiscovering(false);
     }
   };
+
+  // Get current file list based on view mode
+  const currentFiles = useMemo(() => {
+    switch (viewMode) {
+      case 'functions': return allFiles.functions;
+      case 'pages': return allFiles.pages;
+      case 'components': return allFiles.components;
+      case 'entities': return allFiles.entities;
+      case 'all': return [...allFiles.functions, ...allFiles.pages, ...allFiles.components, ...allFiles.entities, ...allFiles.other];
+      default: return allFiles.functions;
+    }
+  }, [viewMode, allFiles]);
   
   const filteredFunctions = useMemo(() => {
-    let filtered = functions;
+    let filtered = currentFiles;
     
-    if (selectedCategory !== "all") {
+    if (viewMode === 'functions' && selectedCategory !== "all") {
       filtered = filtered.filter(f => f.category === selectedCategory);
     }
     
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(f => 
-        f.functionId.toLowerCase().includes(q) ||
-        f.description?.toLowerCase().includes(q) ||
-        f.filePath.toLowerCase().includes(q)
+        (f.id || '').toLowerCase().includes(q) ||
+        (f.name || '').toLowerCase().includes(q) ||
+        (f.description || '').toLowerCase().includes(q) ||
+        (f.path || '').toLowerCase().includes(q)
       );
     }
     
     return filtered;
-  }, [functions, selectedCategory, searchQuery]);
+  }, [currentFiles, viewMode, selectedCategory, searchQuery]);
   
   const currentIndex = useMemo(() => {
     if (!selectedFunction) return -1;
@@ -231,39 +255,72 @@ export default function FunctionReviewer() {
     return colors[category] || colors.system;
   };
 
+  const [syncProgress, setSyncProgress] = useState(null);
+
   const syncAllToGitHub = async () => {
     setSyncing(true);
+    setSyncProgress({ phase: 'collecting', collected: 0, total: 0 });
+    
     try {
-      // Fetch file list from Base44 - we'll sync pages, components, layout
       const filesToSync = [];
+      const allDiscoveredFiles = [
+        ...allFiles.functions,
+        ...allFiles.pages,
+        ...allFiles.components,
+        ...allFiles.entities,
+        ...allFiles.other
+      ];
       
-      // Add all known function files
-      for (const func of functions) {
-        try {
-          const response = await base44.functions.invoke('getFunctionDetails', { functionId: func.functionId });
-          if (response.data?.ok && response.data?.data?.sourceCode) {
-            filesToSync.push({
-              path: func.filePath,
-              content: response.data.data.sourceCode
-            });
+      setSyncProgress({ phase: 'fetching', collected: 0, total: allDiscoveredFiles.length });
+
+      // Fetch content for all files in parallel batches
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < allDiscoveredFiles.length; i += BATCH_SIZE) {
+        const batch = allDiscoveredFiles.slice(i, i + BATCH_SIZE);
+        const batchPromises = batch.map(async (file) => {
+          try {
+            if (file.type === 'function') {
+              const response = await base44.functions.invoke('getFunctionDetails', { functionId: file.id });
+              if (response.data?.ok && response.data?.data?.sourceCode) {
+                return { path: file.path, content: response.data.data.sourceCode };
+              }
+            }
+            // For non-functions, content should already be available from discovery if includeContent was true
+            // Otherwise we skip them (they're already on GitHub)
+            return null;
+          } catch {
+            return null;
           }
-        } catch (e) {
-          console.warn(`Skipping ${func.functionId}:`, e.message);
-        }
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        const validResults = batchResults.filter(r => r !== null);
+        filesToSync.push(...validResults);
+        
+        setSyncProgress({ phase: 'fetching', collected: filesToSync.length, total: allDiscoveredFiles.length });
       }
 
       if (filesToSync.length === 0) {
         toast.error("No files to sync");
+        setSyncing(false);
+        setSyncProgress(null);
         return;
       }
 
+      setSyncProgress({ phase: 'uploading', collected: filesToSync.length, total: filesToSync.length });
+
       const response = await base44.functions.invoke('syncToGitHub', {
         files: filesToSync,
-        message: `Auto-sync ${filesToSync.length} functions from Base44`
+        message: `Auto-sync ${filesToSync.length} files from Base44`
       });
 
       if (response.data?.ok) {
-        toast.success(`Synced ${response.data.data.success} files to GitHub`);
+        const { success, failed } = response.data.data;
+        if (failed > 0) {
+          toast.warning(`Synced ${success} files, ${failed} failed`);
+        } else {
+          toast.success(`Synced ${success} files to GitHub (parallel mode)`);
+        }
       } else {
         toast.error(response.data?.error || "Sync failed");
       }
@@ -271,6 +328,7 @@ export default function FunctionReviewer() {
       toast.error(err.message || "Sync failed");
     } finally {
       setSyncing(false);
+      setSyncProgress(null);
     }
   };
   
@@ -311,9 +369,13 @@ export default function FunctionReviewer() {
               ) : (
                 <Github className="w-4 h-4 mr-2" />
               )}
-              {syncing ? "Syncing..." : "Sync All to GitHub"}
-            </Button>
-          </div>
+              {syncing 
+                ? syncProgress 
+                  ? `${syncProgress.phase}: ${syncProgress.collected}/${syncProgress.total}`
+                  : "Syncing..." 
+                : "Sync All to GitHub"}
+              </Button>
+              </div>
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -323,57 +385,88 @@ export default function FunctionReviewer() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <FolderTree className="w-5 h-5" />
-                  Functions ({filteredFunctions.length})
+                  Files ({currentFiles.length})
                   {discovering && <Loader2 className="w-4 h-4 animate-spin" />}
                 </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
+                </CardHeader>
+                <CardContent className="space-y-3">
+                {/* View Mode Selector */}
+                <div className="flex flex-wrap gap-1 pb-2 border-b">
+                  {[
+                    { key: 'functions', label: 'Functions', count: allFiles.functions.length },
+                    { key: 'pages', label: 'Pages', count: allFiles.pages.length },
+                    { key: 'components', label: 'Components', count: allFiles.components.length },
+                    { key: 'entities', label: 'Entities', count: allFiles.entities.length }
+                  ].map(mode => (
+                    <Badge
+                      key={mode.key}
+                      variant={viewMode === mode.key ? "default" : "outline"}
+                      className="cursor-pointer text-xs"
+                      onClick={() => setViewMode(mode.key)}
+                    >
+                      {mode.label} ({mode.count})
+                    </Badge>
+                  ))}
+                </div>
+
                 {/* Search */}
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <Input
-                    placeholder="Search functions..."
+                    placeholder={`Search ${viewMode}...`}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-9"
                   />
                 </div>
+
+                {/* Category Filter (only for functions) */}
+                {viewMode === 'functions' && (
+                  <div className="flex flex-wrap gap-1">
+                    {categories.map(cat => (
+                      <Badge
+                        key={cat}
+                        variant={selectedCategory === cat ? "default" : "outline"}
+                        className="cursor-pointer text-xs"
+                        onClick={() => setSelectedCategory(cat)}
+                      >
+                        {cat}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
                 
-                {/* Category Filter */}
-                <div className="flex flex-wrap gap-1">
-                  {categories.map(cat => (
-                    <Badge
-                      key={cat}
-                      variant={selectedCategory === cat ? "default" : "outline"}
-                      className="cursor-pointer text-xs"
-                      onClick={() => setSelectedCategory(cat)}
-                    >
-                      {cat}
-                    </Badge>
-                  ))}
-                </div>
-                
-                {/* Function List */}
+                {/* File List */}
                 <ScrollArea className="h-[500px]">
                   <div className="space-y-1">
-                    {filteredFunctions.map((func, idx) => (
+                    {filteredFunctions.map((file, idx) => (
                       <button
-                        key={func.functionId}
-                        onClick={() => loadFunctionDetails(func)}
+                        key={file.path || file.id}
+                        onClick={() => viewMode === 'functions' ? loadFunctionDetails(file) : setSelectedFunction(file)}
                         className={`w-full text-left p-2 rounded-lg transition-colors ${
-                          selectedFunction?.functionId === func.functionId
+                          selectedFunction?.id === file.id || selectedFunction?.path === file.path
                             ? 'bg-blue-100 dark:bg-blue-900 border-l-4 border-blue-500'
                             : 'hover:bg-gray-100 dark:hover:bg-gray-800'
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-sm truncate">{func.functionId}</span>
-                          <Badge className={`text-[10px] ${getCategoryColor(func.category)}`}>
-                            {func.category}
-                          </Badge>
+                          <span className="font-medium text-sm truncate">{file.id || file.name}</span>
+                          {file.category && (
+                            <Badge className={`text-[10px] ${getCategoryColor(file.category)}`}>
+                              {file.category}
+                            </Badge>
+                          )}
+                          {file.type && file.type !== 'function' && (
+                            <Badge variant="outline" className="text-[10px]">
+                              {file.type}
+                            </Badge>
+                          )}
                         </div>
-                        {func.description && (
-                          <p className="text-xs text-gray-500 mt-1 truncate">{func.description}</p>
+                        {file.description && (
+                          <p className="text-xs text-gray-500 mt-1 truncate">{file.description}</p>
+                        )}
+                        {file.path && !file.description && (
+                          <p className="text-xs text-gray-400 mt-1 truncate">{file.path}</p>
                         )}
                       </button>
                     ))}
