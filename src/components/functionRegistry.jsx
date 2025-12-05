@@ -125,6 +125,15 @@ export const KNOWN_FUNCTIONS = [
     category: "content",
     description: "Returns AI prompt suggestions by content type"
   },
+  {
+    functionId: "prompt-suggestions",
+    filePath: "functions/prompt-suggestions.js",
+    exportType: "default",
+    namedExports: [],
+    dependencyPaths: [],
+    category: "content",
+    description: "Returns AI prompt suggestions (alternate endpoint)"
+  },
 
   // === Import Functions ===
   {
