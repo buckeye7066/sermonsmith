@@ -205,6 +205,49 @@ export default function FunctionReviewer() {
     };
     return colors[category] || colors.system;
   };
+
+  const syncAllToGitHub = async () => {
+    setSyncing(true);
+    try {
+      // Fetch file list from Base44 - we'll sync pages, components, layout
+      const filesToSync = [];
+      
+      // Add all known function files
+      for (const func of functions) {
+        try {
+          const response = await base44.functions.invoke('getFunctionDetails', { functionId: func.functionId });
+          if (response.data?.ok && response.data?.data?.sourceCode) {
+            filesToSync.push({
+              path: func.filePath,
+              content: response.data.data.sourceCode
+            });
+          }
+        } catch (e) {
+          console.warn(`Skipping ${func.functionId}:`, e.message);
+        }
+      }
+
+      if (filesToSync.length === 0) {
+        toast.error("No files to sync");
+        return;
+      }
+
+      const response = await base44.functions.invoke('syncToGitHub', {
+        files: filesToSync,
+        message: `Auto-sync ${filesToSync.length} functions from Base44`
+      });
+
+      if (response.data?.ok) {
+        toast.success(`Synced ${response.data.data.success} files to GitHub`);
+      } else {
+        toast.error(response.data?.error || "Sync failed");
+      }
+    } catch (err) {
+      toast.error(err.message || "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
