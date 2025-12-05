@@ -22,7 +22,9 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
-  RefreshCw
+  RefreshCw,
+  Upload,
+  Github
 } from "lucide-react";
 import { toast } from "sonner";
 import { KNOWN_FUNCTIONS, getAllCategories } from "../components/functionRegistry";
