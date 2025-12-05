@@ -1,10 +1,14 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
 
 /**
- * AUTO-DISCOVER FUNCTIONS
+ * AUTO-DISCOVER APP FILES
  * 
- * Scans the functions directory via GitHub API to discover all backend functions.
- * Returns metadata for each function found.
+ * Scans the entire app via GitHub API to discover all files:
+ * - functions/ (backend)
+ * - pages/ (frontend)
+ * - components/ (frontend)
+ * - entities/ (data schemas)
+ * - Layout.js, globals.css
  */
 
 const GITHUB_REPO = "buckeye7066/Bible-app";
@@ -86,6 +90,43 @@ async function fetchFileContent(token, path) {
   return null;
 }
 
+// Recursively fetch directory contents
+async function fetchDirectoryRecursive(token, path, results = []) {
+  try {
+    const items = await fetchGitHubDirectory(token, path);
+    
+    for (const item of items) {
+      if (item.type === 'file') {
+        results.push({
+          path: item.path,
+          name: item.name,
+          sha: item.sha,
+          size: item.size,
+          type: 'file'
+        });
+      } else if (item.type === 'dir') {
+        await fetchDirectoryRecursive(token, item.path, results);
+      }
+    }
+  } catch (e) {
+    // Directory might not exist
+    console.log(`Could not fetch ${path}: ${e.message}`);
+  }
+  
+  return results;
+}
+
+// Detect file type category
+function detectFileType(filePath) {
+  if (filePath.startsWith('functions/')) return 'function';
+  if (filePath.startsWith('pages/')) return 'page';
+  if (filePath.startsWith('components/')) return 'component';
+  if (filePath.startsWith('entities/')) return 'entity';
+  if (filePath === 'Layout.js') return 'layout';
+  if (filePath === 'globals.css') return 'style';
+  return 'other';
+}
+
 async function safeRun(req) {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -99,60 +140,117 @@ async function safeRun(req) {
   let body = {};
   try { body = await req.json(); } catch { /* empty body is ok */ }
 
-  const { _selfTest, includeContent = false } = body;
+  const { _selfTest, includeContent = false, scope = 'all' } = body;
 
   if (_selfTest) {
     return { ok: true, selfTest: true, message: 'discoverFunctions operational', data: null };
   }
 
-  // Fetch all files in functions directory
-  const files = await fetchGitHubDirectory(token, 'functions');
+  // Determine which directories to scan
+  const dirsToScan = scope === 'all' 
+    ? ['functions', 'pages', 'components', 'entities']
+    : [scope];
   
+  // Also check for root files
+  const rootFiles = ['Layout.js', 'globals.css'];
+
+  const allFiles = [];
+
+  // Scan directories
+  for (const dir of dirsToScan) {
+    const dirFiles = await fetchDirectoryRecursive(token, dir);
+    allFiles.push(...dirFiles);
+  }
+
+  // Check root files
+  for (const rootFile of rootFiles) {
+    try {
+      const content = await fetchFileContent(token, rootFile);
+      if (content) {
+        allFiles.push({
+          path: rootFile,
+          name: rootFile,
+          sha: null, // Would need separate API call
+          size: content.length,
+          type: 'file'
+        });
+      }
+    } catch { /* file doesn't exist */ }
+  }
+
+  // Process files
   const functions = [];
-  
-  for (const file of files) {
-    if (file.type !== 'file' || !file.name.endsWith('.js')) continue;
-    
-    const functionId = file.name.replace('.js', '');
-    const filePath = `functions/${file.name}`;
+  const pages = [];
+  const components = [];
+  const entities = [];
+  const other = [];
+
+  for (const file of allFiles) {
+    const fileType = detectFileType(file.path);
+    const id = file.name.replace(/\.(js|jsx|json|css)$/, '');
     
     let description = 'No description available';
     let content = null;
     
-    // Fetch content to extract description
-    if (includeContent || true) { // Always fetch to get description
-      content = await fetchFileContent(token, filePath);
-      if (content) {
+    // Fetch content for functions to get description
+    if (fileType === 'function' || includeContent) {
+      content = await fetchFileContent(token, file.path);
+      if (content && fileType === 'function') {
         description = extractDescription(content);
       }
     }
     
-    functions.push({
-      functionId,
-      filePath,
-      exportType: 'default',
-      namedExports: [],
-      dependencyPaths: [],
-      category: detectCategory(functionId),
-      description,
+    const fileInfo = {
+      id,
+      name: file.name,
+      path: file.path,
       sha: file.sha,
       size: file.size,
-      ...(includeContent && content ? { sourceCode: content } : {})
-    });
+      type: fileType,
+      ...(fileType === 'function' ? {
+        category: detectCategory(id),
+        description
+      } : {}),
+      ...(includeContent && content ? { content } : {})
+    };
+    
+    switch (fileType) {
+      case 'function': functions.push(fileInfo); break;
+      case 'page': pages.push(fileInfo); break;
+      case 'component': components.push(fileInfo); break;
+      case 'entity': entities.push(fileInfo); break;
+      default: other.push(fileInfo);
+    }
   }
 
-  // Sort by category then name
+  // Sort functions by category then name
   functions.sort((a, b) => {
     if (a.category !== b.category) return a.category.localeCompare(b.category);
-    return a.functionId.localeCompare(b.functionId);
+    return a.id.localeCompare(b.id);
   });
+
+  // Sort others alphabetically
+  pages.sort((a, b) => a.id.localeCompare(b.id));
+  components.sort((a, b) => a.path.localeCompare(b.path));
+  entities.sort((a, b) => a.id.localeCompare(b.id));
 
   return {
     ok: true,
     error: null,
     data: {
       functions,
-      total: functions.length,
+      pages,
+      components,
+      entities,
+      other,
+      totals: {
+        functions: functions.length,
+        pages: pages.length,
+        components: components.length,
+        entities: entities.length,
+        other: other.length,
+        all: allFiles.length
+      },
       categories: [...new Set(functions.map(f => f.category))],
       discoveredAt: new Date().toISOString()
     }
