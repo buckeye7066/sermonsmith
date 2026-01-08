@@ -10,7 +10,7 @@ import { BookOpen, Save, AlertCircle, FileText, Crown, MessageCircle, Sparkles, 
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { base44 } from "@/api/base44Client";
+import { apiBinaryCall } from "@/components/utils/apiCall";
 
 export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQuestions, isEnhancing, enhancementType }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -43,17 +43,22 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
     setIsExporting(true);
     try {
       const functionName = format === 'pdf' ? 'exportToPDF' : 'exportToPPTX';
-      const response = await base44.functions.invoke(functionName, {
+      const { blob, filename } = await apiBinaryCall(functionName, {
         resourceType: 'study',
         resourceId: studyData.id
       });
 
-      if (response.data?.download_url) {
-        window.open(response.data.download_url, '_blank');
-        toast.success(`Study exported to ${format.toUpperCase()}!`);
-      } else {
-        toast.error("Export failed - no download link returned");
-      }
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success(`Study exported to ${format.toUpperCase()}!`);
     } catch (error) {
       console.error(`Error exporting to ${format}:`, error);
       toast.error(`Failed to export to ${format.toUpperCase()}`, {
