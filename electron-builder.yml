@@ -1,0 +1,34 @@
+appId: com.sermonsmith.app
+productName: Sermon Smith
+directories:
+  output: dist-electron
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+win:
+  target: 
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: src/assets/icons/icon.png
+mac:
+  target: 
+    - dmg
+    - zip
+  icon: src/assets/icons/icon.png
+  category: public.app-category.reference
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: src/assets/icons
+  category: Education
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

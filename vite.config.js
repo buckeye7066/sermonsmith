@@ -11,5 +11,12 @@ export default defineConfig({
       legacySDKImports: process.env.BASE44_LEGACY_SDK_IMPORTS === 'true'
     }),
     react(),
-  ]
+  ],
+  // Base path for electron/capacitor
+  base: './',
+  // Build configuration for production
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+  }
 });
