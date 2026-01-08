@@ -3,10 +3,12 @@ import { base44 } from "@/api/base44Client";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Settings as SettingsIcon, User, Crown, Bell, Loader2, Sparkles } from "lucide-react";
+import { Settings as SettingsIcon, User, Crown, Bell, Loader2, Sparkles, Mail, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -18,6 +20,12 @@ export default function Settings() {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isSavingNotifications, setIsSavingNotifications] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState({
+    email_new_features: false,
+    email_weekly_digest: false,
+    email_tips: false
+  });
 
   useEffect(() => {
     loadUser();
@@ -28,12 +36,50 @@ export default function Settings() {
     try {
       const currentUser = await base44.auth.me();
       setUser(currentUser);
+      
+      // Load notification settings from user object
+      setNotificationSettings({
+        email_new_features: currentUser.email_new_features ?? false,
+        email_weekly_digest: currentUser.email_weekly_digest ?? false,
+        email_tips: currentUser.email_tips ?? false
+      });
     } catch (error) {
       console.error("Error loading user:", error);
       await base44.auth.redirectToLogin();
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const saveNotificationSettings = async () => {
+    if (!user) return;
+    
+    setIsSavingNotifications(true);
+    try {
+      await base44.entities.User.update(user.id, {
+        email_new_features: notificationSettings.email_new_features,
+        email_weekly_digest: notificationSettings.email_weekly_digest,
+        email_tips: notificationSettings.email_tips
+      });
+      
+      toast.success("Notification preferences saved!");
+      logActivity('settings_updated', {
+        page_name: 'Settings',
+        setting_type: 'notifications'
+      });
+    } catch (error) {
+      console.error("Error saving notification settings:", error);
+      toast.error("Failed to save notification preferences");
+    } finally {
+      setIsSavingNotifications(false);
+    }
+  };
+
+  const handleNotificationToggle = (key, value) => {
+    setNotificationSettings(prev => ({
+      ...prev,
+      [key]: value
+    }));
   };
 
   const isPremium = user && (
@@ -173,13 +219,89 @@ export default function Settings() {
             <Card>
               <CardHeader>
                 <CardTitle>Notification Preferences</CardTitle>
-                <CardDescription>Coming soon - manage your email and app notifications</CardDescription>
+                <CardDescription>Manage your email notifications and communication preferences</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-4 h-4 text-blue-600" />
+                        <Label htmlFor="email-features" className="text-base font-medium">
+                          New Features & Updates
+                        </Label>
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Get notified when we release new features and improvements
+                      </p>
+                    </div>
+                    <Switch
+                      id="email-features"
+                      checked={notificationSettings.email_new_features}
+                      onCheckedChange={(checked) => handleNotificationToggle('email_new_features', checked)}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="w-4 h-4 text-green-600" />
+                        <Label htmlFor="email-digest" className="text-base font-medium">
+                          Weekly Digest
+                        </Label>
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Receive a weekly summary of your activity and trending content
+                      </p>
+                    </div>
+                    <Switch
+                      id="email-digest"
+                      checked={notificationSettings.email_weekly_digest}
+                      onCheckedChange={(checked) => handleNotificationToggle('email_weekly_digest', checked)}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-purple-600" />
+                        <Label htmlFor="email-tips" className="text-base font-medium">
+                          Tips & Inspiration
+                        </Label>
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Get helpful tips and inspirational content for your ministry
+                      </p>
+                    </div>
+                    <Switch
+                      id="email-tips"
+                      checked={notificationSettings.email_tips}
+                      onCheckedChange={(checked) => handleNotificationToggle('email_tips', checked)}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t">
+                  <Button 
+                    onClick={saveNotificationSettings}
+                    disabled={isSavingNotifications}
+                  >
+                    {isSavingNotifications ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      'Save Preferences'
+                    )}
+                  </Button>
+                </div>
+
                 <Alert>
                   <Bell className="w-4 h-4" />
                   <AlertDescription>
-                    Notification settings will be available in a future update
+                    Browser notifications are managed through your device's settings. 
+                    Check your browser's notification permissions to enable or disable push notifications.
                   </AlertDescription>
                 </Alert>
               </CardContent>

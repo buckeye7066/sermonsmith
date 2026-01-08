@@ -5,14 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { BookOpen, Save, AlertCircle, FileText, Crown, MessageCircle, Sparkles, Loader2 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { BookOpen, Save, AlertCircle, FileText, Crown, MessageCircle, Sparkles, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { apiBinaryCall } from "@/components/utils/apiCall";
 
 export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQuestions, isEnhancing, enhancementType }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState(studyData?.title || "");
+  const [isExporting, setIsExporting] = useState(false);
 
   const isPremium = user && (
     user.subscription_tier === 'premium' ||
@@ -22,14 +25,48 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
     ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'].some(p => user.phone?.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, '')))
   );
 
-  const handleExport = () => {
+  const handleExport = async (format) => {
     if (!isPremium) {
       toast.error("Export is a Premium feature", {
         description: "Upgrade to export your studies to PDF and PPTX"
       });
       return;
     }
-    toast.info("Export feature coming soon!");
+
+    if (!studyData?.id) {
+      toast.error("Please save your study first", {
+        description: "You need to save the study before exporting it"
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const functionName = format === 'pdf' ? 'exportToPDF' : 'exportToPPTX';
+      const { blob, filename } = await apiBinaryCall(functionName, {
+        resourceType: 'study',
+        resourceId: studyData.id
+      });
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success(`Study exported to ${format.toUpperCase()}!`);
+    } catch (error) {
+      console.error(`Error exporting to ${format}:`, error);
+      toast.error(`Failed to export to ${format.toUpperCase()}`, {
+        description: error.message
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (!studyData) {
@@ -245,25 +282,50 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
           <Save className="w-4 h-4 mr-2" />
           Save Study
         </Button>
-        <Button
-          variant="outline"
-          onClick={handleExport}
-          disabled={!isPremium}
-          className="flex-1"
-          size="lg"
-        >
-          {isPremium ? (
-            <>
-              <FileText className="w-4 h-4 mr-2" />
-              Export
-            </>
-          ) : (
-            <>
-              <Crown className="w-4 h-4 mr-2" />
-              Export (Premium)
-            </>
-          )}
-        </Button>
+        {isPremium ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={isExporting || !studyData?.id}
+                className="flex-1"
+                size="lg"
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export {!studyData?.id && "(Save First)"}
+                  </>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => handleExport('pdf')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export to PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('pptx')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export to PPTX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button
+            variant="outline"
+            disabled
+            className="flex-1"
+            size="lg"
+          >
+            <Crown className="w-4 h-4 mr-2" />
+            Export (Premium)
+          </Button>
+        )}
       </div>
 
       {!isPremium && (
