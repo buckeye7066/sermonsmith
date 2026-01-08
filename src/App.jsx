@@ -9,7 +9,7 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
-import { OfflineProvider } from '@/lib/offlineDetector';
+import { OfflineProvider } from '@/lib/offlineDetector.jsx';
 import OfflineBanner from '@/components/OfflineBanner';
 
 const { Pages, Layout, mainPage } = pagesConfig;

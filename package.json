@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "author": {
+    "name": "Sermon Smith Team",
+    "email": "support@sermonsmith.app"
+  },
+  "description": "A comprehensive sermon preparation and Bible study application",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
