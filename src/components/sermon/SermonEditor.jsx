@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { base44 } from "@/api/base44Client";
 import SermonAdaptation from "./SermonAdaptation";
 import PresentationMode from "./PresentationMode";
 import TheologicalExplorer from "./TheologicalExplorer";
@@ -31,6 +33,7 @@ export default function SermonEditor({
   const [showTheologyExplorer, setShowTheologyExplorer] = useState(false);
   const [showExegesisHelper, setShowExegesisHelper] = useState(false);
   const [exegesisPassage, setExegesisPassage] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   // Update internal state when sermonData prop changes
   useEffect(() => {
@@ -47,14 +50,43 @@ export default function SermonEditor({
     user.role === 'admin'
   );
 
-  const handleExport = () => {
+  const handleExport = async (format) => {
     if (!isPremium) {
       toast.error("Export is a Premium feature", {
         description: "Upgrade to export your sermons to PDF and PPTX"
       });
       return;
     }
-    toast.info("Export feature coming soon!");
+
+    if (!sermonData?.id) {
+      toast.error("Please save your sermon first", {
+        description: "You need to save the sermon before exporting it"
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const functionName = format === 'pdf' ? 'exportToPDF' : 'exportToPPTX';
+      const response = await base44.functions.invoke(functionName, {
+        resourceType: 'sermon',
+        resourceId: sermonData.id
+      });
+
+      if (response.data?.download_url) {
+        window.open(response.data.download_url, '_blank');
+        toast.success(`Sermon exported to ${format.toUpperCase()}!`);
+      } else {
+        toast.error("Export failed - no download link returned");
+      }
+    } catch (error) {
+      console.error(`Error exporting to ${format}:`, error);
+      toast.error(`Failed to export to ${format.toUpperCase()}`, {
+        description: error.message
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleAdaptedSermon = (adaptedData) => {
@@ -370,25 +402,50 @@ export default function SermonEditor({
           <Save className="w-4 h-4 mr-2" />
           Save Sermon
         </Button>
-        <Button
-          variant="outline"
-          onClick={handleExport}
-          disabled={!isPremium}
-          className="flex-1"
-          size="lg"
-        >
-          {isPremium ? (
-            <>
-              <FileText className="w-4 h-4 mr-2" />
-              Export
-            </>
-          ) : (
-            <>
-              <Crown className="w-4 h-4 mr-2" />
-              Export (Premium)
-            </>
-          )}
-        </Button>
+        {isPremium ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={isExporting || !sermonData?.id}
+                className="flex-1"
+                size="lg"
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export {!sermonData?.id && "(Save First)"}
+                  </>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => handleExport('pdf')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export to PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('pptx')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export to PPTX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button
+            variant="outline"
+            disabled
+            className="flex-1"
+            size="lg"
+          >
+            <Crown className="w-4 h-4 mr-2" />
+            Export (Premium)
+          </Button>
+        )}
       </div>
 
       {!isPremium && (

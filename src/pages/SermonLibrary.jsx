@@ -846,7 +846,7 @@ Be strategic and personalized.`;
                   <h3 className="text-xl font-semibold mb-2">No series found</h3>
                   <p className="text-gray-600">
                     {sharedSeries.length === 0
-                      ? "Series sharing coming soon!"
+                      ? "Create sermon series to organize your content and share with your congregation"
                       : "Try adjusting your filters"}
                   </p>
                 </CardContent>
