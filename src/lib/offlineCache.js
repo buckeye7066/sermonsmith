@@ -3,6 +3,12 @@ import { openDB } from 'idb';
 const DB_NAME = 'sermon-smith-offline';
 const DB_VERSION = 1;
 
+// Cache configuration
+const CACHE_CONFIG = {
+  RETENTION_DAYS: 30,
+  RETENTION_MS: 30 * 24 * 60 * 60 * 1000 // 30 days in milliseconds
+};
+
 // Store names
 const STORES = {
   SERMONS: 'sermons',
@@ -180,12 +186,12 @@ export async function getCachedAsset(url) {
 }
 
 /**
- * Clear old cached items (older than 30 days)
+ * Clear old cached items (older than configured retention period)
  */
 export async function clearOldCache() {
   try {
     const db = await getDB();
-    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const cutoffTime = Date.now() - CACHE_CONFIG.RETENTION_MS;
     
     for (const storeName of Object.values(STORES)) {
       const tx = db.transaction(storeName, 'readwrite');
@@ -193,7 +199,7 @@ export async function clearOldCache() {
       const items = await store.getAll();
       
       for (const item of items) {
-        if (item.cachedAt && item.cachedAt < thirtyDaysAgo) {
+        if (item.cachedAt && item.cachedAt < cutoffTime) {
           await store.delete(item.id || item.url);
         }
       }

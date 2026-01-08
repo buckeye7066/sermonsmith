@@ -34,18 +34,26 @@ export function OfflineProvider({ children }) {
 
       try {
         // Try to fetch a small resource to verify connectivity
-        const response = await fetch('https://www.google.com/favicon.ico', {
-          mode: 'no-cors',
-          cache: 'no-store'
+        // Using a HEAD request to the app's own domain when available
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        await fetch('/favicon.ico', {
+          method: 'HEAD',
+          cache: 'no-store',
+          signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         setIsOnline(true);
       } catch (error) {
+        // If local check fails, assume offline
         setIsOnline(false);
       }
     };
 
-    // Check every 30 seconds
-    const intervalId = setInterval(checkConnection, 30000);
+    // Check every 60 seconds (battery-friendly interval)
+    const intervalId = setInterval(checkConnection, 60000);
 
     // Initial check
     checkConnection();
