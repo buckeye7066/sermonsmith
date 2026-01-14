@@ -12,8 +12,8 @@ export default defineConfig({
     }),
     react(),
   ],
-  // Base path for electron/capacitor
-  base: './',
+  // Base path: Electron needs relative paths for file://, web should stay rooted.
+  base: process.env.ELECTRON_BUILD === 'true' ? './' : '/',
   // Build configuration for production
   build: {
     outDir: 'dist',

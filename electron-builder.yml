@@ -5,6 +5,7 @@ directories:
 files:
   - dist/**/*
   - electron/**/*
+  - src/assets/icons/**/*
   - package.json
 win:
   target: 

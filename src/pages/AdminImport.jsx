@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { base44Promise } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ export default function AdminImport() {
     setProgress('Starting Bible import from bible-api.com...');
     
     try {
+      const base44 = await base44Promise;
       const response = await base44.functions.invoke('importFullBible', {
         translation: 'KJV'
       });
@@ -35,6 +36,7 @@ export default function AdminImport() {
     setProgress('Starting import from Scripture API...');
     
     try {
+      const base44 = await base44Promise;
       const response = await base44.functions.invoke('importFromScriptureAPI', {
         bibleId: 'de4e12af7f28f599-02' // KJV
       });
@@ -58,6 +60,7 @@ export default function AdminImport() {
     setProgress('Uploading and processing CSV file...');
 
     try {
+      const base44 = await base44Promise;
       // Upload file
       const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadedFile });
       
