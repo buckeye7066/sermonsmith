@@ -4,10 +4,11 @@ import App from '@/App.jsx'
 import '@/index.css'
 
 // Register service worker for offline support
-if ('serviceWorker' in navigator) {
+const isWebProtocol = window.location.protocol === 'http:' || window.location.protocol === 'https:';
+if (isWebProtocol && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/sw.js')
+      .register(`${import.meta.env.BASE_URL}sw.js`)
       .then((registration) => {
         console.log('Service Worker registered:', registration);
       })

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { base44Promise } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, CheckCircle2, Clock, Database, RefreshCw } from 'lucide-react';
@@ -19,6 +19,7 @@ export default function ImportStatus() {
   const checkStatus = async () => {
     if (status) setRefreshing(true);
     try {
+      const base44 = await base44Promise;
       const response = await base44.functions.invoke('getImportStatus', {});
       console.log('Import Status:', response.data);
       setStatus(response.data);

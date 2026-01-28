@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { base44Promise } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
+import { getRuntimeConfig } from '@/lib/runtimeConfig';
 import { createAxiosClient } from '@base44/sdk/dist/utils/axios-client';
 
 const AuthContext = createContext();
@@ -21,20 +22,22 @@ export const AuthProvider = ({ children }) => {
     try {
       setIsLoadingPublicSettings(true);
       setAuthError(null);
+
+      const { appId, backendUrl } = await getRuntimeConfig();
       
       // First, check app public settings (with token if available)
       // This will tell us if auth is required, user not registered, etc.
       const appClient = createAxiosClient({
-        baseURL: `${appParams.serverUrl}/api/apps/public`,
+        baseURL: `${backendUrl}/api/apps/public`,
         headers: {
-          'X-App-Id': appParams.appId
+          'X-App-Id': appId
         },
         token: appParams.token, // Include token if available
         interceptResponses: true
       });
       
       try {
-        const publicSettings = await appClient.get(`/prod/public-settings/by-id/${appParams.appId}`);
+        const publicSettings = await appClient.get(`/prod/public-settings/by-id/${appId}`);
         setAppPublicSettings(publicSettings);
         
         // If we got the app public settings successfully, check if user is authenticated
@@ -91,6 +94,7 @@ export const AuthProvider = ({ children }) => {
     try {
       // Now check if the user is authenticated
       setIsLoadingAuth(true);
+      const base44 = await base44Promise;
       const currentUser = await base44.auth.me();
       setUser(currentUser);
       setIsAuthenticated(true);
@@ -116,16 +120,16 @@ export const AuthProvider = ({ children }) => {
     
     if (shouldRedirect) {
       // Use the SDK's logout method which handles token cleanup and redirect
-      base44.auth.logout(window.location.href);
+      base44Promise.then((base44) => base44.auth.logout(window.location.href));
     } else {
       // Just remove the token without redirect
-      base44.auth.logout();
+      base44Promise.then((base44) => base44.auth.logout());
     }
   };
 
   const navigateToLogin = () => {
     // Use the SDK's redirectToLogin method
-    base44.auth.redirectToLogin(window.location.href);
+    base44Promise.then((base44) => base44.auth.redirectToLogin(window.location.href));
   };
 
   return (
