@@ -15,7 +15,7 @@ function isFirstRun() {
 
 // Create the main application window
 function createMainWindow() {
-  const iconPath = path.join(app.getAppPath(), 'src', 'assets', 'icons', 'icon.png');
+  const iconPath = path.join(app.getAppPath(), '..', 'web', 'src', 'assets', 'icons', 'icon.png');
   mainWindow = new BrowserWindow({
     width: store.get('windowWidth', 1200),
     height: store.get('windowHeight', 800),
@@ -37,7 +37,7 @@ function createMainWindow() {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadFile(path.join(__dirname, '..', '..', 'web', 'dist', 'index.html'));
   }
 
   // Show window when ready
@@ -61,7 +61,7 @@ function createMainWindow() {
 
 // Create first-run setup wizard window
 function createFirstRunWindow() {
-  const iconPath = path.join(app.getAppPath(), 'src', 'assets', 'icons', 'icon.png');
+  const iconPath = path.join(app.getAppPath(), '..', 'web', 'src', 'assets', 'icons', 'icon.png');
   firstRunWindow = new BrowserWindow({
     width: 600,
     height: 500,

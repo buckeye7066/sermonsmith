@@ -1,0 +1,11 @@
+{
+  "name": "@sermonsmith/api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "SermonSmith API Server (Fastify + Prisma)",
+  "scripts": {
+    "dev": "echo 'API server scaffold - to be implemented in PR #3'",
+    "build": "echo 'API build - to be implemented in PR #3'"
+  }
+}

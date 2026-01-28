@@ -1,11 +1,11 @@
 appId: com.sermonsmith.app
 productName: Sermon Smith
 directories:
-  output: dist-electron
+  output: ../../dist-electron
 files:
-  - dist/**/*
+  - ../web/dist/**/*
   - electron/**/*
-  - src/assets/icons/**/*
+  - ../web/src/assets/icons/**/*
   - package.json
 win:
   target: 
@@ -15,18 +15,18 @@ win:
     - target: portable
       arch:
         - x64
-  icon: src/assets/icons/icon.png
+  icon: ../web/src/assets/icons/icon.png
 mac:
   target: 
     - dmg
     - zip
-  icon: src/assets/icons/icon.png
+  icon: ../web/src/assets/icons/icon.png
   category: public.app-category.reference
 linux:
   target:
     - AppImage
     - deb
-  icon: src/assets/icons
+  icon: ../web/src/assets/icons
   category: Education
 nsis:
   oneClick: false
