@@ -11,7 +11,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { toast } from "react-hot-toast"; // Assuming react-hot-toast for toast notifications
+import { toast } from "sonner";
 
 export default function QuizViewer({ quizData, onSave, user }) {
   const [selectedAnswers, setSelectedAnswers] = useState({});
@@ -31,7 +31,7 @@ export default function QuizViewer({ quizData, onSave, user }) {
   const emailMatch = user?.email && devEmails.includes(user.email.toLowerCase());
   
   // Normalize user.phone and devPhones for robust comparison
-  const normalizePhoneNumber = (phone) => phone ? phone.replace(/[\s\-\(\)\+]/g, '') : '';
+  const normalizePhoneNumber = (phone) => phone ? phone.replace(/[\s\-()+]/g, '') : '';
 
   const phoneMatch = user?.phone && devPhones.some(devPhone => {
     const normalizedUserPhone = normalizePhoneNumber(user.phone);

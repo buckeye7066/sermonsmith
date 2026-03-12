@@ -41,7 +41,16 @@ router.post('/:type/filter', optionalAuth, async (req, res, next) => {
     const orderBy = resolveOrderBy(_orderBy);
 
     if (req.params.type === 'User') {
-      const users = await prisma.user.findMany({ orderBy, take, skip });
+      const users = await prisma.user.findMany({
+        select: {
+          id: true, email: true, name: true, full_name: true, avatar: true,
+          role: true, premium: true, profile: true, onboarding_completed: true,
+          special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
+        },
+        orderBy,
+        take,
+        skip,
+      });
       return res.json(users.map(sanitizeUser));
     }
 
@@ -54,7 +63,13 @@ router.post('/:type/filter', optionalAuth, async (req, res, next) => {
     }
     if (conditions.length > 0) where.AND = conditions;
 
-    const entities = await prisma.entity.findMany({ where, orderBy, take, skip });
+    const entities = await prisma.entity.findMany({
+      select: { id: true, type: true, data: true, createdAt: true, updatedAt: true },
+      where,
+      orderBy,
+      take,
+      skip,
+    });
     res.json(entities.map(formatEntity));
   } catch (err) {
     next(err);
@@ -109,11 +124,21 @@ router.get('/:type', optionalAuth, async (req, res, next) => {
     const skip = Number(req.query.offset) || 0;
 
     if (req.params.type === 'User') {
-      const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' }, take, skip });
+      const users = await prisma.user.findMany({
+        select: {
+          id: true, email: true, name: true, full_name: true, avatar: true,
+          role: true, premium: true, profile: true, onboarding_completed: true,
+          special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      });
       return res.json(users.map(sanitizeUser));
     }
 
     const entities = await prisma.entity.findMany({
+      select: { id: true, type: true, data: true, createdAt: true, updatedAt: true },
       where: { type: req.params.type },
       orderBy: { createdAt: 'desc' },
       take,
@@ -154,14 +179,15 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       });
     }
 
-    const existing = await prisma.entity.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.entity.findUnique({
+      select: { id: true, type: true, data: true, userId: true, createdAt: true, updatedAt: true },
+      where: { id: req.params.id },
+    });
     if (!existing) return res.status(404).json({ message: 'Not found' });
 
+    // req.userRole is cached by authenticateToken — no extra DB lookup needed
     if (existing.userId !== req.userId && req.userRole !== 'admin' && req.userRole !== 'dev') {
-      const u = await prisma.user.findUnique({ where: { id: req.userId }, select: { role: true } });
-      if (!u || (u.role !== 'admin' && u.role !== 'dev')) {
-        return res.status(403).json({ message: 'You can only update your own items' });
-      }
+      return res.status(403).json({ message: 'You can only update your own items' });
     }
 
     const entity = await prisma.entity.update({
@@ -188,14 +214,15 @@ router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
       });
     }
 
-    const existing = await prisma.entity.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.entity.findUnique({
+      select: { id: true, userId: true },
+      where: { id: req.params.id },
+    });
     if (!existing) return res.status(404).json({ message: 'Not found' });
 
-    if (existing.userId !== req.userId) {
-      const u = await prisma.user.findUnique({ where: { id: req.userId }, select: { role: true } });
-      if (!u || (u.role !== 'admin' && u.role !== 'dev')) {
-        return res.status(403).json({ message: 'You can only delete your own items' });
-      }
+    // req.userRole is cached by authenticateToken — no extra DB lookup needed
+    if (existing.userId !== req.userId && req.userRole !== 'admin' && req.userRole !== 'dev') {
+      return res.status(403).json({ message: 'You can only delete your own items' });
     }
 
     await prisma.entity.delete({ where: { id: req.params.id } });

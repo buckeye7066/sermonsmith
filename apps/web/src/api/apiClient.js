@@ -2,36 +2,12 @@
  * SermonSmith API client.
  * Provides auth, entity CRUD, AI integrations, and cloud function calls
  * against the self-hosted Express/Prisma backend (Railway).
+ *
+ * Authentication uses httpOnly cookies set by the server — no tokens
+ * are stored in localStorage or sessionStorage (OWASP best practice).
  */
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const TOKEN_KEY = 'ss_token';
-
-// ---------------------------------------------------------------------------
-// Token helpers
-// ---------------------------------------------------------------------------
-
-function getToken() {
-  if (typeof window === 'undefined') return null;
-
-  const params = new URLSearchParams(window.location.search);
-  const urlToken = params.get('access_token');
-  if (urlToken) {
-    localStorage.setItem(TOKEN_KEY, urlToken);
-    params.delete('access_token');
-    const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', clean);
-    return urlToken;
-  }
-
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-function setToken(token) {
-  if (typeof window === 'undefined') return;
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-}
 
 // ---------------------------------------------------------------------------
 // Fetch wrapper
@@ -42,39 +18,47 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
 
 async function apiFetch(path, options = {}, _retryCount = 0) {
-  const token = getToken();
   const headers = {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  // Only create an internal AbortController when the caller hasn't supplied their own signal.
+  // This avoids allocating a wasted controller (and its timeout) for every caller-cancelled request.
+  const ownController = options.signal ? null : new AbortController();
+  const timeout = ownController
+    ? setTimeout(() => ownController.abort(), REQUEST_TIMEOUT_MS)
+    : null;
+  const signal = ownController ? ownController.signal : options.signal;
 
   let res;
   try {
     res = await fetch(`${API_URL}${path}`, {
       ...options,
       headers,
-      signal: options.signal || controller.signal,
+      signal,
+      credentials: 'include', // send/receive httpOnly auth cookies
     });
   } catch (err) {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
     // Retry on network errors / timeouts (not on user-abort)
     if (_retryCount < MAX_RETRIES && err.name !== 'AbortError') {
-      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (_retryCount + 1)));
+      const jitter = Math.random() * RETRY_DELAY_MS;
+      const backoff = Math.min(RETRY_DELAY_MS * Math.pow(2, _retryCount), 10_000);
+      await new Promise(r => setTimeout(r, backoff + jitter));
       return apiFetch(path, options, _retryCount + 1);
     }
     throw err;
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
 
   if (!res.ok) {
     // Retry on 5xx server errors
     if (res.status >= 500 && _retryCount < MAX_RETRIES) {
-      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (_retryCount + 1)));
+      const jitter = Math.random() * RETRY_DELAY_MS;
+      const backoff = Math.min(RETRY_DELAY_MS * Math.pow(2, _retryCount), 10_000);
+      await new Promise(r => setTimeout(r, backoff + jitter));
       return apiFetch(path, options, _retryCount + 1);
     }
     const body = await res.json().catch(() => ({ message: res.statusText }));
@@ -120,23 +104,17 @@ const auth = {
   me:       ()            => apiFetch('/api/auth/me'),
   updateMe: (data)        => apiFetch('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
 
-  login: async (email, password) => {
-    const result = await apiFetch('/api/auth/login', {
+  login: (email, password) =>
+    apiFetch('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
-    });
-    if (result.token) setToken(result.token);
-    return result;
-  },
+    }),
 
-  register: async (email, password, name) => {
-    const result = await apiFetch('/api/auth/register', {
+  register: (email, password, name) =>
+    apiFetch('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, password, name }),
-    });
-    if (result.token) setToken(result.token);
-    return result;
-  },
+    }),
 
   redirectToLogin: (returnUrl) => {
     const target = returnUrl
@@ -145,13 +123,14 @@ const auth = {
     window.location.href = target;
   },
 
-  logout: (returnUrl) => {
-    setToken(null);
+  logout: async (returnUrl) => {
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.warn('Logout request failed (cookie may already be expired):', err.message);
+    }
     if (returnUrl) window.location.href = returnUrl;
   },
-
-  setToken,
-  getToken,
 };
 
 // ---------------------------------------------------------------------------

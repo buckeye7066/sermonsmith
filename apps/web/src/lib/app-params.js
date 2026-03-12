@@ -1,6 +1,6 @@
 /**
- * Application parameters derived from URL query strings and localStorage.
- * Kept minimal after migration off external auth providers.
+ * Application parameters derived from URL query strings.
+ * Auth tokens are managed via httpOnly cookies — no token parameters needed.
  */
 
 const isNode = typeof window === 'undefined';
@@ -21,6 +21,5 @@ function getParamValue(paramName, { removeFromUrl = false } = {}) {
 }
 
 export const appParams = {
-  token: getParamValue('access_token', { removeFromUrl: true }),
   returnUrl: getParamValue('return'),
 };

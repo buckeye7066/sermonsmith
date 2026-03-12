@@ -15,6 +15,10 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     chunkSizeWarningLimit: 800,
+    minify: 'esbuild',
+    cssMinify: true,
+    target: 'es2020',
+    reportCompressedSize: false,
     rollupOptions: {
       output: {
         manualChunks: {
@@ -31,6 +35,13 @@ export default defineConfig({
           'vendor-query': ['@tanstack/react-query'],
           'vendor-motion': ['framer-motion'],
           'vendor-icons': ['lucide-react'],
+          'vendor-charts': ['recharts'],
+          'vendor-editor': ['react-quill'],
+          'vendor-3d': ['three'],
+          'vendor-pdf': ['jspdf', 'html2canvas'],
+          'vendor-maps': ['react-leaflet'],
+          'vendor-markdown': ['react-markdown'],
+          'vendor-dnd': ['@hello-pangea/dnd'],
         },
       },
     },

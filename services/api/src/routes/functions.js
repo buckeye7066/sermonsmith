@@ -68,17 +68,28 @@ router.post('/listAvailableTranslations', optionalAuth, async (_req, res) => {
 });
 
 // Multi-source passage
+const TRANSLATION_TIMEOUT_MS = 10000;
+const MAX_TRANSLATIONS = 5;
+
 router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
   try {
-    const { book, chapter, verse, translations = ['kjv', 'web', 'bbe'] } = req.body;
+    const { book, chapter, verse } = req.body;
+    // Cap translations to prevent upstream abuse / DDoS
+    const translations = (req.body.translations || ['kjv', 'web', 'bbe']).slice(0, MAX_TRANSLATIONS);
     const ref = verse ? `${book} ${chapter}:${verse}` : `${book} ${chapter}`;
 
     const results = await Promise.allSettled(
       translations.map(async (t) => {
         const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${t}`;
-        const resp = await fetch(url);
-        if (!resp.ok) return { translation: t, error: `HTTP ${resp.status}` };
-        return { translation: t, ...(await resp.json()) };
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), TRANSLATION_TIMEOUT_MS);
+        try {
+          const resp = await fetch(url, { signal: controller.signal });
+          if (!resp.ok) return { translation: t, error: `HTTP ${resp.status}` };
+          return { translation: t, ...(await resp.json()) };
+        } finally {
+          clearTimeout(timeout);
+        }
       })
     );
 
