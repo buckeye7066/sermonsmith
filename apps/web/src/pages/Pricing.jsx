@@ -69,15 +69,15 @@ export default function Pricing() {
         try {
             const response = await api.functions.invoke('createCheckoutSession');
             
-            if (response.data.error) {
-                throw new Error(response.data.error);
+            if (response.error) {
+                throw new Error(response.error);
             }
 
-            const { url, isPreview } = response.data;
+            const { url } = response;
             
             const inIframe = window.self !== window.top;
             
-            if (inIframe || isPreview) {
+            if (inIframe) {
                 const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
                 if (!newWindow) {
                     toast.error("Please allow pop-ups to complete payment", {

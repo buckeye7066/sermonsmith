@@ -107,18 +107,17 @@ router.get('/me', authenticateToken, async (req, res, next) => {
 router.patch('/me', authenticateToken, async (req, res, next) => {
   try {
     const directFields = ['name', 'full_name', 'avatar', 'onboarding_completed', 'special_message', 'last_seen_version'];
+    const blockedFields = ['premium', 'role', 'email', 'password'];
     const data = {};
 
     for (const key of directFields) {
       if (req.body[key] !== undefined) data[key] = req.body[key];
     }
 
-    if (req.body.premium !== undefined) data.premium = req.body.premium;
-
     // Store extra fields in the profile JSON column
     const extraFields = {};
     for (const [key, value] of Object.entries(req.body)) {
-      if (!directFields.includes(key) && key !== 'premium' && key !== 'profile') {
+      if (!directFields.includes(key) && !blockedFields.includes(key) && key !== 'profile') {
         extraFields[key] = value;
       }
     }

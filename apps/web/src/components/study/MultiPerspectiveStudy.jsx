@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -181,6 +182,7 @@ Provide a comprehensive multi-perspective analysis:
 Be fair, accurate, and respectful to every tradition. Present each view charitably, as its adherents would recognize it. Do not caricature any position.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: perspectiveSchema
       });

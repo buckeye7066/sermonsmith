@@ -26,7 +26,7 @@ export default function Layout({ children, currentPageName }) {
     // Register service worker only in production (not in preview/dev mode)
     if ('serviceWorker' in navigator && window.location.hostname !== 'localhost' && !window.location.hostname.includes('preview')) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js')
+        navigator.serviceWorker.register('/sw.js')
           .then(registration => {
             console.log('SW registered:', registration);
           })
@@ -243,14 +243,10 @@ export default function Layout({ children, currentPageName }) {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await api.auth.logout();
-      toast.success("Logged out successfully");
-      window.location.reload();
-    } catch (error) {
-      toast.error("Failed to logout");
-    }
+  const handleLogout = () => {
+    api.auth.logout();
+    toast.success("Logged out successfully");
+    window.location.href = '/Login';
   };
 
   const handleLogin = async () => {
@@ -260,10 +256,9 @@ export default function Layout({ children, currentPageName }) {
       const isInApp = /FBAN|FBAV|Instagram|Messenger|Line|TikTok|Snapchat|WebView|wv\)/i.test(ua);
       
       if (isInApp) {
-        // Force direct navigation for in-app browsers to avoid popup blocking
-        window.location.href = window.location.origin + '/auth/login';
+        window.location.href = window.location.origin + '/Login';
       } else {
-        await api.auth.redirectToLogin();
+        api.auth.redirectToLogin();
       }
     } catch (error) {
       toast.error("Failed to login");
@@ -439,7 +434,6 @@ export default function Layout({ children, currentPageName }) {
         </nav>
       </div>
       <PWAInstallPrompt />
-      <EmbeddedBrowserDetector />
       <OnboardingWizard
         open={showOnboarding}
         onClose={() => {

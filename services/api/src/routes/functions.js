@@ -93,36 +93,19 @@ router.post('/createCheckoutSession', authenticateToken, async (req, res, next) 
   }
 });
 
-// Stripe webhook — Note: for production, mount this route on the Express app
-// with express.raw() middleware BEFORE express.json() parses the body.
-// See: https://docs.stripe.com/webhooks/quickstart
-router.post('/stripeWebhook', async (req, res) => {
-  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
-    return res.status(503).json({ message: 'Stripe webhooks not configured' });
-  }
-
-  try {
-    const event = req.body;
-
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data?.object;
-      const userId = session?.metadata?.userId;
-      if (userId) {
-        await prisma.user.update({ where: { id: userId }, data: { premium: true } });
-        console.log(`[Stripe] Premium granted to user ${userId}`);
-      }
-    }
-
-    res.json({ received: true });
-  } catch (err) {
-    console.error('[Stripe Webhook Error]', err.message);
-    res.status(400).json({ message: err.message });
-  }
+// Stripe webhook — mounted at app level with express.raw() for signature verification.
+// The router-level route is kept as a no-op fallback (requests are handled in index.js).
+router.post('/stripeWebhook', (_req, res) => {
+  res.status(400).json({ message: 'Webhook must be processed at the app level' });
 });
 
-// Grant premium (dev/admin)
+// Grant premium (admin/dev only)
 router.post('/grantMePremium', authenticateToken, async (req, res, next) => {
   try {
+    const currentUser = await prisma.user.findUnique({ where: { id: req.userId } });
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'dev')) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
     await prisma.user.update({
       where: { id: req.userId },
       data: { premium: true },
@@ -173,5 +156,31 @@ router.post('/exportToPDF', authenticateToken, async (_req, res) => {
 router.post('/exportToPPTX', authenticateToken, async (_req, res) => {
   res.json({ message: 'PPTX export is handled client-side' });
 });
+
+// Exported so index.js can mount it with express.raw() for signature verification
+export async function handleStripeWebhook(req, res) {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+    return res.status(503).json({ message: 'Stripe webhooks not configured' });
+  }
+
+  try {
+    const sig = req.headers['stripe-signature'];
+    const event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data?.object;
+      const userId = session?.metadata?.userId;
+      if (userId) {
+        await prisma.user.update({ where: { id: userId }, data: { premium: true } });
+        console.log(`[Stripe] Premium granted to user ${userId}`);
+      }
+    }
+
+    res.json({ received: true });
+  } catch (err) {
+    console.error('[Stripe Webhook Error]', err.message);
+    res.status(400).json({ message: err.message });
+  }
+}
 
 export default router;

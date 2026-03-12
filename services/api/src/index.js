@@ -5,9 +5,15 @@ import authRoutes from './routes/auth.js';
 import entityRoutes from './routes/entities.js';
 import aiRoutes from './routes/ai.js';
 import functionRoutes from './routes/functions.js';
+import { handleStripeWebhook } from './routes/functions.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is required');
+  process.exit(1);
+}
 
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
@@ -18,6 +24,9 @@ app.use(cors({
   credentials: true,
 }));
 
+// Stripe webhook needs raw body for signature verification — mount before JSON parser
+app.post('/api/functions/stripeWebhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
+
 app.use(express.json({ limit: '10mb' }));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
@@ -27,11 +36,26 @@ app.use('/api/entities', entityRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/functions', functionRoutes);
 
-app.use((err, _req, res, _next) => {
-  console.error(`[${new Date().toISOString()}] Error:`, err.message);
-  res.status(err.status || 500).json({ message: err.message || 'Internal server error' });
+app.use((_req, res) => {
+  res.status(404).json({ message: 'Not found' });
 });
 
-app.listen(PORT, () => {
+app.use((err, _req, res, _next) => {
+  console.error(`[${new Date().toISOString()}] Error:`, err.message);
+  const status = err.status || 500;
+  res.status(status).json({
+    message: status === 500 ? 'Internal server error' : err.message,
+  });
+});
+
+const server = app.listen(PORT, () => {
   console.log(`SermonSmith API running on port ${PORT}`);
 });
+
+function shutdown(signal) {
+  console.log(`${signal} received — shutting down gracefully`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10_000);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

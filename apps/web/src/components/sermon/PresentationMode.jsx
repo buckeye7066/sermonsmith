@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 
 const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60);
@@ -225,6 +226,7 @@ Provide brief vocal feedback in your ${assistantPersonality} style:
 Keep it VERY brief (2-3 sentences max) and ${assistantPersonality === 'encouraging' ? 'encouraging' : assistantPersonality === 'direct' ? 'direct' : assistantPersonality === 'analytical' ? 'analytical' : 'conversational'}.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -240,6 +242,7 @@ Keep it VERY brief (2-3 sentences max) and ${assistantPersonality === 'encouragi
       setVocalFeedback(response);
     } catch (error) {
       console.error("Error generating vocal feedback:", error);
+      toast.error("Larry couldn't analyze your delivery right now");
     }
   };
 
@@ -265,6 +268,7 @@ Suggest ONE specific way to engage the audience RIGHT NOW. Options:
 Keep it ${assistantPersonality === 'encouraging' ? 'encouraging and positive' : assistantPersonality === 'direct' ? 'brief and actionable' : assistantPersonality === 'analytical' ? 'strategic' : 'warm and conversational'}.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -276,7 +280,7 @@ Keep it ${assistantPersonality === 'encouraging' ? 'encouraging and positive' : 
       });
 
       setEngagementSuggestion(response);
-      setTimeout(() => setEngagementSuggestion(null), 15000); // Auto-dismiss after 15s
+      setTimeout(() => setEngagementSuggestion(null), 15000);
     } catch (error) {
       console.error("Error generating engagement:", error);
     }
@@ -288,18 +292,19 @@ Keep it ${assistantPersonality === 'encouraging' ? 'encouraging and positive' : 
     setIsSearchingScripture(true);
     
     try {
-      const prompt = `I need a quick scripture reference!
+      const prompt = `Larry, I need a quick scripture reference while preaching!
 
 Query: "${scriptureQuery}"
 
 Find and return 2-3 relevant Bible verses that address this. Include:
 - Verse reference
-- Verse text
+- Verse text (real verses only)
 - Why it's relevant
 
 Keep each verse brief and directly applicable to preaching context.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -392,6 +397,7 @@ I've paused. Provide ONE brief suggestion in your ${assistantPersonality} style:
 Match the ${personalityData.description} tone!`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

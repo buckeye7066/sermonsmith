@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
+import { ARLYNN_SYSTEM_PROMPT, denomContext } from '@/ai/personas';
 
 const SERIES_LENGTHS = [
   { value: 3, label: "3-Part Series" },
@@ -160,6 +161,7 @@ Create a complete sermon outline with:
 Make this biblically accurate, ${user?.denomination || 'theologically sound'}, and ready to preach!`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: ARLYNN_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -289,6 +291,7 @@ Please create a complete series outline with:
 Make this comprehensive but practical. Ensure each sermon clearly connects to the next!`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: ARLYNN_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -365,7 +368,7 @@ Make this comprehensive but practical. Ensure each sermon clearly connects to th
 SERIES CONTEXT:
 Series: "${seriesOutline.series_title}"
 Overall Goal: ${seriesOutline.series_goal}
-Theological Trajectory: ${seriesOutline.theological_trajectory.progression}
+Theological Trajectory: ${seriesOutline.theological_trajectory?.progression || 'Progressive revelation'}
 
 THIS SERMON:
 Week ${sermonOutline.week}: "${sermonOutline.title}"
@@ -404,6 +407,7 @@ Include:
 - Conclusion with next week teaser (if applicable)`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: ARLYNN_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

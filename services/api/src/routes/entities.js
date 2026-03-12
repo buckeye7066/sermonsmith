@@ -127,10 +127,19 @@ router.get('/:type/:id', optionalAuth, async (req, res, next) => {
   }
 });
 
+// --- Helper: check if user is admin ---
+async function isAdmin(userId) {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  return u && (u.role === 'admin' || u.role === 'dev');
+}
+
 // --- Update ---
 router.put('/:type/:id', authenticateToken, async (req, res, next) => {
   try {
     if (req.params.type === 'User') {
+      if (!(await isAdmin(req.userId))) {
+        return res.status(403).json({ message: 'Admin access required to update users' });
+      }
       const user = await prisma.user.update({
         where: { id: req.params.id },
         data: req.body,
@@ -140,6 +149,11 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
 
     const existing = await prisma.entity.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ message: 'Not found' });
+
+    // Ownership: only the owner or an admin can update
+    if (existing.userId !== req.userId && !(await isAdmin(req.userId))) {
+      return res.status(403).json({ message: 'You can only update your own items' });
+    }
 
     const entity = await prisma.entity.update({
       where: { id: req.params.id },
@@ -157,8 +171,18 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
 router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
   try {
     if (req.params.type === 'User') {
+      if (!(await isAdmin(req.userId))) {
+        return res.status(403).json({ message: 'Admin access required to delete users' });
+      }
       await prisma.user.delete({ where: { id: req.params.id } });
       return res.status(204).send();
+    }
+
+    const existing = await prisma.entity.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ message: 'Not found' });
+
+    if (existing.userId !== req.userId && !(await isAdmin(req.userId))) {
+      return res.status(403).json({ message: 'You can only delete your own items' });
     }
 
     await prisma.entity.delete({ where: { id: req.params.id } });

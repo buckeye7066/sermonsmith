@@ -37,7 +37,11 @@ function setToken(token) {
 // Fetch wrapper
 // ---------------------------------------------------------------------------
 
-async function apiFetch(path, options = {}) {
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1000;
+
+async function apiFetch(path, options = {}, _retryCount = 0) {
   const token = getToken();
   const headers = {
     'Content-Type': 'application/json',
@@ -45,9 +49,34 @@ async function apiFetch(path, options = {}) {
     ...(options.headers || {}),
   };
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+      signal: options.signal || controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    // Retry on network errors / timeouts (not on user-abort)
+    if (_retryCount < MAX_RETRIES && err.name !== 'AbortError') {
+      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (_retryCount + 1)));
+      return apiFetch(path, options, _retryCount + 1);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
+    // Retry on 5xx server errors
+    if (res.status >= 500 && _retryCount < MAX_RETRIES) {
+      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (_retryCount + 1)));
+      return apiFetch(path, options, _retryCount + 1);
+    }
     const body = await res.json().catch(() => ({ message: res.statusText }));
     const error = new Error(body.message || `API error ${res.status}`);
     error.status = res.status;

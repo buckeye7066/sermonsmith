@@ -30,6 +30,10 @@ android
 ios
 .capacitor
 
+# Build artifacts
+*.tsbuildinfo
+coverage/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

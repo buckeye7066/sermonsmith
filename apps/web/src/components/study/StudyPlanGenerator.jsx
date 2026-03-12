@@ -23,6 +23,7 @@ import {
 import { Loader2, Calendar, Users, Sparkles, Save, Baby, User, GraduationCap, Heart, Share2 } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import SharePlanDialog from "../plans/SharePlanDialog";
 
 const AGE_GROUPS = [
@@ -81,7 +82,7 @@ export default function StudyPlanGenerator({ open, onClose, user }) {
     try {
       const ageGroupInfo = AGE_GROUPS.find(g => g.value === ageGroup);
       
-      const prompt = `Create an interactive ${duration}-day Bible study plan on "${topic}" for ${ageGroupInfo.label}.
+      const prompt = `Larry, create an interactive ${duration}-day Bible study plan on "${topic}" for ${ageGroupInfo.label}.
 
 Age Group: ${ageGroupInfo.label}
 Focus: ${ageGroupInfo.description}
@@ -129,6 +130,7 @@ ${ageGroup === 'children' ? `
 Make it engaging, age-appropriate, and progressively building toward deeper understanding of "${topic}".`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

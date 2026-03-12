@@ -1,12 +1,15 @@
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
 
-export const prisma = new PrismaClient();
+// Singleton — avoids spawning multiple connection pools
+const globalForPrisma = globalThis;
+export const prisma = globalForPrisma.__prisma || (globalForPrisma.__prisma = new PrismaClient());
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_OPTS = { algorithms: ['HS256'] };
 
 export function signToken(userId) {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' });
+  return jwt.sign({ userId }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '30d' });
 }
 
 export function authenticateToken(req, res, next) {
@@ -18,7 +21,7 @@ export function authenticateToken(req, res, next) {
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, JWT_OPTS);
     req.userId = decoded.userId;
     next();
   } catch {
@@ -32,7 +35,7 @@ export function optionalAuth(req, _res, next) {
 
   if (token) {
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
+      const decoded = jwt.verify(token, JWT_SECRET, JWT_OPTS);
       req.userId = decoded.userId;
     } catch {
       // Invalid token — continue without auth

@@ -24,7 +24,8 @@ export default function Login() {
         await api.auth.login(email, password);
         toast.success('Welcome back!');
       }
-      window.location.href = returnUrl || '/';
+      const safeReturn = returnUrl && returnUrl.startsWith('/') ? returnUrl : '/';
+      window.location.href = safeReturn;
     } catch (error) {
       toast.error(error.message || 'Authentication failed');
     } finally {

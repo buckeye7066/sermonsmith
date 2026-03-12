@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 
 export default function TheologicalExplorer({ open, onClose, topic, passage, denomination }) {
   const [activeTab, setActiveTab] = useState("concepts");
@@ -90,6 +91,7 @@ Please provide comprehensive theological analysis:
 Make this scholarly but accessible. Include scripture references throughout.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

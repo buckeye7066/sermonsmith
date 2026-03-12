@@ -12,7 +12,7 @@ export default function PageNotFound({}) {
         queryFn: async () => {
             try {
                 const apiClient = await apiPromise;
-                const user = await api.auth.me();
+                const user = await apiClient.auth.me();
                 return { user, isAuthenticated: true };
             } catch (error) {
                 return { user: null, isAuthenticated: false };

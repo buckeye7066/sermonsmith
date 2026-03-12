@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -124,6 +125,7 @@ Generate a Bible study guide that includes:
 Make it engaging, biblically sound, and appropriate for ${studyType} study. Use clear, accessible language.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: studyGenerationSchema
       });
@@ -169,7 +171,7 @@ Key Sections: ${generatedStudy.study_sections.map(s => s.title).join(', ')}
 
 Give me a powerful summary that captures the heart of this study.`;
 
-      const summary = await api.integrations.Core.InvokeLLM({ prompt });
+      const summary = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
       
       setAiSuggestions(prev => ({ ...prev, summary }));
       toast.success("Larry created a summary!");
@@ -196,6 +198,7 @@ Current key verses: ${generatedStudy.key_verses.join(', ')}
 Provide verses that complement but don't duplicate what's already included. Format as a JSON array of strings, where each string is a verse reference (e.g., "John 3:16", "Romans 8:28").`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -237,6 +240,7 @@ Think about:
 Return as a JSON array of objects, each with "title" and "reason" fields explaining why it's related.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -293,6 +297,7 @@ Generate questions that:
 Return as JSON array of strings.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

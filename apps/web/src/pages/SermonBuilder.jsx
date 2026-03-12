@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Button } from "@/components/ui/button";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Input } from "@/components/ui/input";
@@ -115,6 +116,7 @@ Consider:
 Return as JSON array of objects with "reference" and "reason" fields.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -192,6 +194,7 @@ Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblica
 
       console.log('[SermonBuilder] Calling InvokeLLM...');
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: sermonGenerationSchema
       });
@@ -255,7 +258,7 @@ Can you create a more engaging ${tone} illustration that:
 
 Give me just the new illustration (2-3 paragraphs).`;
 
-      const newIllustration = await api.integrations.Core.InvokeLLM({ prompt });
+      const newIllustration = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
       
       const updatedSermon = { ...generatedSermon };
       updatedSermon.points[pointIndex].illustration = newIllustration;
@@ -295,6 +298,7 @@ Suggest 3-5 additional Bible verses that:
 Return as JSON array of verse references.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -359,6 +363,7 @@ Please adapt the sermon for ${audienceDescriptions[newAudience]}:
 Return the full adapted sermon in the same JSON format.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: sermonGenerationSchema
       });

@@ -15,23 +15,29 @@ function getOpenAI() {
 router.post('/invoke', authenticateToken, async (req, res, next) => {
   try {
     const openai = getOpenAI();
-    const { prompt, response_json_schema, model, max_tokens } = req.body;
+    const { prompt, system_prompt, response_json_schema, model, max_tokens, temperature } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ message: 'prompt is required' });
     }
 
-    const messages = [{ role: 'user', content: prompt }];
+    const messages = [];
+    if (system_prompt) {
+      messages.push({ role: 'system', content: system_prompt });
+    }
+    messages.push({ role: 'user', content: prompt });
+
     const params = {
       model: model || process.env.OPENAI_MODEL || 'gpt-4o-mini',
       messages,
       max_tokens: max_tokens || 4096,
-      temperature: 0.7,
+      temperature: temperature ?? 0.7,
     };
 
     if (response_json_schema) {
       params.response_format = { type: 'json_object' };
-      messages[0].content += `\n\nRespond ONLY with valid JSON matching this schema: ${JSON.stringify(response_json_schema)}`;
+      const schemaIdx = system_prompt ? 0 : messages.length - 1;
+      messages[schemaIdx].content += `\n\nRespond ONLY with valid JSON matching this schema: ${JSON.stringify(response_json_schema)}`;
     }
 
     const completion = await openai.chat.completions.create(params);

@@ -25,12 +25,17 @@ import {
 } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 
 export default function ExegesisHelper({ open, onClose, initialPassage = "", denomination }) {
   const [passage, setPassage] = useState(initialPassage);
   const [isLoading, setIsLoading] = useState(false);
   const [exegesis, setExegesis] = useState(null);
   const [copied, setCopied] = useState(false);
+
+  React.useEffect(() => {
+    if (open && initialPassage) setPassage(initialPassage);
+  }, [open, initialPassage]);
 
   const performExegesis = async () => {
     if (!passage.trim()) {
@@ -88,6 +93,7 @@ Provide deep exegetical analysis:
 Be scholarly but accessible. Include specific examples.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

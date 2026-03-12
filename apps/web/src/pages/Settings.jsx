@@ -83,6 +83,9 @@ export default function Settings() {
   };
 
   const isPremium = user && (
+    user.role === 'admin' ||
+    user.role === 'dev' ||
+    user.premium === true ||
     user.subscription_tier === 'premium' ||
     user.premium_override === true ||
     (user.premium_until && new Date(user.premium_until) > new Date())
