@@ -31,7 +31,7 @@ export default function QuizViewer({ quizData, onSave, user }) {
   const emailMatch = user?.email && devEmails.includes(user.email.toLowerCase());
   
   // Normalize user.phone and devPhones for robust comparison
-  const normalizePhoneNumber = (phone) => phone ? phone.replace(/[\s\-\(\)\+]/g, '') : '';
+  const normalizePhoneNumber = (phone) => phone ? phone.replace(/[\s\-()+]/g, '') : '';
 
   const phoneMatch = user?.phone && devPhones.some(devPhone => {
     const normalizedUserPhone = normalizePhoneNumber(user.phone);

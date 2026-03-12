@@ -318,7 +318,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
 
   const getVoiceLabel = (voice) => {
     // Extract accent/region from voice name
-    const nameParts = voice.name.split(/[\(\)]/);
+    const nameParts = voice.name.split(/[()]/);
     const mainName = nameParts[0].trim();
     const region = nameParts[1] || '';
     

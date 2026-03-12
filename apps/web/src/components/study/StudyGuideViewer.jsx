@@ -22,7 +22,7 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
     user.premium_override === true ||
     (user.premium_until && new Date(user.premium_until) > new Date()) ||
     ['buckeye7066@gmail.com', 'anyawhite@rocketmail.com', 'whiterobert1201@icloud.com', 'tishka1201@icloud.com'].includes(user.email?.toLowerCase()) ||
-    ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'].some(p => user.phone?.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, '')))
+    ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'].some(p => user.phone?.replace(/[\s\-()]/g, '').includes(p.replace(/[\s\-()+]/g, '')))
   );
 
   const handleExport = async (format) => {

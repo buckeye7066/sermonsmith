@@ -38,7 +38,7 @@ export default function Community() {
       const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
       const emailMatch = currentUser.email && devEmails.includes(currentUser.email.toLowerCase());
       const phoneMatch = currentUser.phone && devPhones.some(p => 
-        currentUser.phone.replace(/[\s\-\(\)]/g, '').includes(p.replace(/[\s\-\(\)\+]/g, ''))
+        currentUser.phone.replace(/[\s\-()]/g, '').includes(p.replace(/[\s\-()+]/g, ''))
       );
       const premium = currentUser.subscription_tier === 'premium' || 
                       currentUser.premium_override === true ||
