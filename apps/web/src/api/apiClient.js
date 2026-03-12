@@ -124,7 +124,11 @@ const auth = {
   },
 
   logout: async (returnUrl) => {
-    try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch { /* best-effort */ }
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.warn('Logout request failed (cookie may already be expired):', err.message);
+    }
     if (returnUrl) window.location.href = returnUrl;
   },
 };

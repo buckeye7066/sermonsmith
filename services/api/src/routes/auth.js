@@ -88,7 +88,7 @@ router.post('/login', async (req, res, next) => {
 });
 
 router.post('/logout', (_req, res) => {
-  res.clearCookie(AUTH_COOKIE, { httpOnly: true, path: '/' });
+  res.clearCookie(AUTH_COOKIE, cookieOptions());
   res.json({ message: 'Logged out' });
 });
 

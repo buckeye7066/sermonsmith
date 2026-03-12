@@ -35,10 +35,10 @@ export const AuthProvider = ({ children }) => {
   }, [checkAuth]);
 
   const logout = useCallback(async (shouldRedirect = true) => {
+    try { await api.auth.logout(); } catch { /* best-effort: cookie may already be expired */ }
     setUser(null);
     setIsAuthenticated(false);
     setAuthError(null);
-    await api.auth.logout();
     if (shouldRedirect) {
       window.location.href = '/Login';
     }
