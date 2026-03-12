@@ -2,36 +2,12 @@
  * SermonSmith API client.
  * Provides auth, entity CRUD, AI integrations, and cloud function calls
  * against the self-hosted Express/Prisma backend (Railway).
+ *
+ * Authentication uses httpOnly cookies set by the server — no tokens
+ * are stored in localStorage or sessionStorage (OWASP best practice).
  */
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const TOKEN_KEY = 'ss_token';
-
-// ---------------------------------------------------------------------------
-// Token helpers
-// ---------------------------------------------------------------------------
-
-function getToken() {
-  if (typeof window === 'undefined') return null;
-
-  const params = new URLSearchParams(window.location.search);
-  const urlToken = params.get('access_token');
-  if (urlToken) {
-    localStorage.setItem(TOKEN_KEY, urlToken);
-    params.delete('access_token');
-    const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', clean);
-    return urlToken;
-  }
-
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-function setToken(token) {
-  if (typeof window === 'undefined') return;
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-}
 
 // ---------------------------------------------------------------------------
 // Fetch wrapper
@@ -42,10 +18,8 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
 
 async function apiFetch(path, options = {}, _retryCount = 0) {
-  const token = getToken();
   const headers = {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
 
@@ -63,6 +37,7 @@ async function apiFetch(path, options = {}, _retryCount = 0) {
       ...options,
       headers,
       signal,
+      credentials: 'include', // send/receive httpOnly auth cookies
     });
   } catch (err) {
     if (timeout) clearTimeout(timeout);
@@ -129,23 +104,17 @@ const auth = {
   me:       ()            => apiFetch('/api/auth/me'),
   updateMe: (data)        => apiFetch('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
 
-  login: async (email, password) => {
-    const result = await apiFetch('/api/auth/login', {
+  login: (email, password) =>
+    apiFetch('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
-    });
-    if (result.token) setToken(result.token);
-    return result;
-  },
+    }),
 
-  register: async (email, password, name) => {
-    const result = await apiFetch('/api/auth/register', {
+  register: (email, password, name) =>
+    apiFetch('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, password, name }),
-    });
-    if (result.token) setToken(result.token);
-    return result;
-  },
+    }),
 
   redirectToLogin: (returnUrl) => {
     const target = returnUrl
@@ -154,13 +123,10 @@ const auth = {
     window.location.href = target;
   },
 
-  logout: (returnUrl) => {
-    setToken(null);
+  logout: async (returnUrl) => {
+    try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch { /* best-effort */ }
     if (returnUrl) window.location.href = returnUrl;
   },
-
-  setToken,
-  getToken,
 };
 
 // ---------------------------------------------------------------------------

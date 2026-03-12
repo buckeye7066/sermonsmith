@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { prisma, authenticateToken, signToken, requireAdmin } from '../middleware/auth.js';
+import { prisma, authenticateToken, signToken, requireAdmin, AUTH_COOKIE, cookieOptions } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -46,7 +46,8 @@ router.post('/register', async (req, res, next) => {
     });
 
     const token = signToken(user.id);
-    res.json({ token, user: sanitizeUser(user) });
+    res.cookie(AUTH_COOKIE, token, cookieOptions());
+    res.json({ user: sanitizeUser(user) });
   } catch (err) {
     next(err);
   }
@@ -79,10 +80,16 @@ router.post('/login', async (req, res, next) => {
     }
 
     const token = signToken(currentUser.id);
-    res.json({ token, user: sanitizeUser(currentUser) });
+    res.cookie(AUTH_COOKIE, token, cookieOptions());
+    res.json({ user: sanitizeUser(currentUser) });
   } catch (err) {
     next(err);
   }
+});
+
+router.post('/logout', (_req, res) => {
+  res.clearCookie(AUTH_COOKIE, { httpOnly: true, path: '/' });
+  res.json({ message: 'Logged out' });
 });
 
 router.get('/me', authenticateToken, async (req, res, next) => {

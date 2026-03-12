@@ -11,13 +11,39 @@ export const prisma = globalForPrisma.__prisma || (globalForPrisma.__prisma = ne
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_OPTS = { algorithms: ['HS256'] };
 
+/** Cookie name for the httpOnly auth token */
+export const AUTH_COOKIE = 'ss_token';
+
+/** Cookie options — httpOnly, Secure in production, SameSite=Lax */
+export function cookieOptions() {
+  const isProd = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days (matches JWT expiry)
+    path: '/',
+  };
+}
+
 export function signToken(userId) {
   return jwt.sign({ userId }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '30d' });
 }
 
+/**
+ * Extract the JWT from the request.
+ * Prefers the httpOnly cookie; falls back to Authorization header for
+ * backward compatibility (e.g., mobile/Electron clients during migration).
+ */
+function extractToken(req) {
+  return req.cookies?.[AUTH_COOKIE]
+    || (req.headers['authorization']?.startsWith('Bearer ')
+      ? req.headers['authorization'].slice(7)
+      : null);
+}
+
 export async function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = extractToken(req);
 
   if (!token) {
     return res.status(401).json({ message: 'Authentication required' });
@@ -40,8 +66,7 @@ export async function authenticateToken(req, res, next) {
 }
 
 export function optionalAuth(req, _res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = extractToken(req);
 
   if (token) {
     try {

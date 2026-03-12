@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.js';
 import entityRoutes from './routes/entities.js';
 import aiRoutes from './routes/ai.js';
@@ -43,6 +44,7 @@ const allowedOrigins = process.env.CORS_ORIGIN
   : ['http://localhost:5173'];
 
 app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(cookieParser());
 
 // Stripe webhook needs raw body for signature verification — mount before JSON parser
 app.post('/api/functions/stripeWebhook', express.raw({ type: 'application/json' }), handleStripeWebhook);

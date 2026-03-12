@@ -10,24 +10,21 @@ export const AuthProvider = ({ children }) => {
   const [authError, setAuthError] = useState(null);
 
   const checkAuth = useCallback(async () => {
-    const token = api.auth.getToken();
-    if (!token) {
-      setIsLoadingAuth(false);
-      return;
-    }
-
     try {
       const currentUser = await api.auth.me();
       setUser(currentUser);
       setIsAuthenticated(true);
       setAuthError(null);
     } catch (error) {
-      console.error('Auth check failed:', error);
+      // 401 means no valid cookie — user is simply not logged in
       if (error.status === 401) {
-        api.auth.setToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
+      } else {
+        console.error('Auth check failed:', error);
+        const errType = error.data?.type;
+        setAuthError(errType ? { type: errType } : null);
       }
-      const errType = error.data?.type;
-      setAuthError(errType ? { type: errType } : null);
     } finally {
       setIsLoadingAuth(false);
     }
@@ -37,11 +34,11 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, [checkAuth]);
 
-  const logout = useCallback((shouldRedirect = true) => {
+  const logout = useCallback(async (shouldRedirect = true) => {
     setUser(null);
     setIsAuthenticated(false);
     setAuthError(null);
-    api.auth.setToken(null);
+    await api.auth.logout();
     if (shouldRedirect) {
       window.location.href = '/Login';
     }
