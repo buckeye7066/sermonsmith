@@ -27,6 +27,9 @@
     "electron:build:all": "npm run build:all -w @sermonsmith/desktop",
     "cap:sync": "npm run sync -w @sermonsmith/mobile",
     "cap:open:android": "npm run open:android -w @sermonsmith/mobile",
+    "cap:open:ios": "npm run open:ios -w @sermonsmith/mobile",
+    "cap:sync:android": "npm run sync:android -w @sermonsmith/mobile",
+    "cap:sync:ios": "npm run sync:ios -w @sermonsmith/mobile",
     "generate:icons": "npm run generate:icons -w @sermonsmith/web"
   },
   "devDependencies": {}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ export default function Settings() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
       
       // Load notification settings from user object
@@ -45,7 +45,7 @@ export default function Settings() {
       });
     } catch (error) {
       console.error("Error loading user:", error);
-      await base44.auth.redirectToLogin();
+      await api.auth.redirectToLogin();
     } finally {
       setIsLoading(false);
     }
@@ -56,7 +56,7 @@ export default function Settings() {
     
     setIsSavingNotifications(true);
     try {
-      await base44.entities.User.update(user.id, {
+      await api.entities.User.update(user.id, {
         email_new_features: notificationSettings.email_new_features,
         email_weekly_digest: notificationSettings.email_weekly_digest,
         email_tips: notificationSettings.email_tips
@@ -102,7 +102,7 @@ export default function Settings() {
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
             <p className="text-lg font-medium mb-4">Please log in to access settings</p>
-            <Button onClick={() => base44.auth.redirectToLogin()}>Sign In</Button>
+            <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
           </CardContent>
         </Card>
       </div>

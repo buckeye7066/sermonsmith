@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { useLocation } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ export default function GroupDetail() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       toast.error("Please log in");
@@ -44,9 +44,9 @@ export default function GroupDetail() {
   const loadGroupData = async () => {
     try {
       const [groupData, groupMembers, userMembership] = await Promise.all([
-        base44.entities.StudyGroup.filter({ id: groupId }),
-        base44.entities.GroupMembership.filter({ group_id: groupId }),
-        base44.entities.GroupMembership.filter({ group_id: groupId, user_id: user.id })
+        api.entities.StudyGroup.filter({ id: groupId }),
+        api.entities.GroupMembership.filter({ group_id: groupId }),
+        api.entities.GroupMembership.filter({ group_id: groupId, user_id: user.id })
       ]);
 
       if (groupData.length === 0) {
@@ -70,8 +70,8 @@ export default function GroupDetail() {
     if (!confirm("Are you sure you want to leave this group?")) return;
 
     try {
-      await base44.entities.GroupMembership.delete(membership.id);
-      await base44.entities.StudyGroup.update(group.id, {
+      await api.entities.GroupMembership.delete(membership.id);
+      await api.entities.StudyGroup.update(group.id, {
         member_count: Math.max(0, (group.member_count || 1) - 1)
       });
 
@@ -86,7 +86,7 @@ export default function GroupDetail() {
     if (membership?.role !== 'leader') return;
 
     try {
-      await base44.entities.GroupMembership.update(member.id, { role: 'leader' });
+      await api.entities.GroupMembership.update(member.id, { role: 'leader' });
       toast.success(`${member.user_name} is now a leader`);
       loadGroupData();
     } catch (error) {

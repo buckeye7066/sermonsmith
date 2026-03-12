@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { X, Plus, Save, Tag, FileText } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function SermonTagsNotesDialog({ open, onClose, sermon, onSave }) {
@@ -39,7 +39,7 @@ export default function SermonTagsNotesDialog({ open, onClose, sermon, onSave })
 
   const handleSave = async () => {
     try {
-      await base44.entities.Sermon.update(sermon.id, {
+      await api.entities.Sermon.update(sermon.id, {
         user_tags: tags,
         user_notes: notes
       });

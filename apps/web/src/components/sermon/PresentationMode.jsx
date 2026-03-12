@@ -42,7 +42,7 @@ import {
   Target,
   Brain
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const formatTime = (seconds) => {
@@ -224,7 +224,7 @@ Provide brief vocal feedback in your ${assistantPersonality} style:
 
 Keep it VERY brief (2-3 sentences max) and ${assistantPersonality === 'encouraging' ? 'encouraging' : assistantPersonality === 'direct' ? 'direct' : assistantPersonality === 'analytical' ? 'analytical' : 'conversational'}.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -264,7 +264,7 @@ Suggest ONE specific way to engage the audience RIGHT NOW. Options:
 
 Keep it ${assistantPersonality === 'encouraging' ? 'encouraging and positive' : assistantPersonality === 'direct' ? 'brief and actionable' : assistantPersonality === 'analytical' ? 'strategic' : 'warm and conversational'}.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -299,7 +299,7 @@ Find and return 2-3 relevant Bible verses that address this. Include:
 
 Keep each verse brief and directly applicable to preaching context.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -391,7 +391,7 @@ I've paused. Provide ONE brief suggestion in your ${assistantPersonality} style:
 
 Match the ${personalityData.description} tone!`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",

@@ -1,4 +1,4 @@
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 
 // Queue to batch activity logs
 let activityQueue = [];
@@ -14,7 +14,7 @@ const processQueue = async () => {
   
   try {
     // Get user once for the entire batch
-    const user = await base44.auth.me();
+    const user = await api.auth.me();
     if (!user) {
       console.log("No user logged in, skipping activity logs");
       isProcessing = false;
@@ -24,7 +24,7 @@ const processQueue = async () => {
     // Create all activities
     for (const activity of batch) {
       try {
-        await base44.entities.UserActivity.create({
+        await api.entities.UserActivity.create({
           user_id: user.id,
           user_email: user.email,
           ...activity

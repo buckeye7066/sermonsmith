@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import { User, Plus, X, Save, Shield, BookOpen, Heart } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const PREACHING_STYLES = [
@@ -65,7 +65,7 @@ export default function ProfileEditor({ user, onUpdate }) {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await base44.auth.updateMe({
+      await api.auth.updateMe({
         preferred_preaching_style: preachingStyle,
         ministry_focus: ministryFocus,
         denominational_background: denominationalBackground,

@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Link2, Plus, X, FileText, BookOpen, StickyNote, Brain, Folder } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const RESOURCE_TYPES = [
@@ -49,7 +49,7 @@ export default function ResourceLinker({ open, onClose, sourceType, sourceId, us
 
   const loadLinkedResources = async () => {
     try {
-      const links = await base44.entities.ResourceLink.filter({
+      const links = await api.entities.ResourceLink.filter({
         user_id: userId,
         source_id: sourceId,
         source_type: sourceType
@@ -61,13 +61,13 @@ export default function ResourceLinker({ open, onClose, sourceType, sourceId, us
           let resource = null;
           
           if (link.target_type === 'sermon') {
-            const sermons = await base44.entities.Sermon.filter({ id: link.target_id });
+            const sermons = await api.entities.Sermon.filter({ id: link.target_id });
             resource = sermons[0];
           } else if (link.target_type === 'study') {
-            const studies = await base44.entities.BibleStudy.filter({ id: link.target_id });
+            const studies = await api.entities.BibleStudy.filter({ id: link.target_id });
             resource = studies[0];
           } else if (link.target_type === 'collection') {
-            const collections = await base44.entities.Collection.filter({ id: link.target_id });
+            const collections = await api.entities.Collection.filter({ id: link.target_id });
             resource = collections[0];
           }
           
@@ -86,13 +86,13 @@ export default function ResourceLinker({ open, onClose, sourceType, sourceId, us
       let resources = [];
       
       if (selectedType === 'sermon') {
-        resources = await base44.entities.Sermon.filter({ user_id: userId });
+        resources = await api.entities.Sermon.filter({ user_id: userId });
       } else if (selectedType === 'study') {
-        resources = await base44.entities.BibleStudy.filter({ user_id: userId });
+        resources = await api.entities.BibleStudy.filter({ user_id: userId });
       } else if (selectedType === 'quiz') {
-        resources = await base44.entities.Quiz.filter({ user_id: userId });
+        resources = await api.entities.Quiz.filter({ user_id: userId });
       } else if (selectedType === 'collection') {
-        resources = await base44.entities.Collection.filter({ user_id: userId });
+        resources = await api.entities.Collection.filter({ user_id: userId });
       }
 
       // Filter out already linked and self
@@ -127,7 +127,7 @@ export default function ResourceLinker({ open, onClose, sourceType, sourceId, us
     }
 
     try {
-      await base44.entities.ResourceLink.create({
+      await api.entities.ResourceLink.create({
         user_id: userId,
         source_type: sourceType,
         source_id: sourceId,
@@ -150,7 +150,7 @@ export default function ResourceLinker({ open, onClose, sourceType, sourceId, us
 
   const handleRemoveLink = async (linkId) => {
     try {
-      await base44.entities.ResourceLink.delete(linkId);
+      await api.entities.ResourceLink.delete(linkId);
       toast.success("Link removed");
       loadLinkedResources();
       loadAvailableResources();

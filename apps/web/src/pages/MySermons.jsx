@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Button } from "@/components/ui/button";
@@ -70,7 +70,7 @@ export default function MySermons() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       toast.error("Please log in to view your sermons");
@@ -81,7 +81,7 @@ export default function MySermons() {
 
   const loadSermons = async () => {
     try {
-      const userSermons = await base44.entities.Sermon.filter({ user_id: user.id }, '-created_date');
+      const userSermons = await api.entities.Sermon.filter({ user_id: user.id }, '-created_date');
       setSermons(userSermons);
       setFilteredSermons(userSermons);
       
@@ -100,7 +100,7 @@ export default function MySermons() {
 
   const loadCollections = async () => {
     try {
-      const userCollections = await base44.entities.Collection.filter({
+      const userCollections = await api.entities.Collection.filter({
         user_id: user.id,
         resource_type: 'sermon'
       });
@@ -112,7 +112,7 @@ export default function MySermons() {
 
   const loadTags = async () => {
     try {
-      const userTags = await base44.entities.ResourceTag.filter({
+      const userTags = await api.entities.ResourceTag.filter({
         user_id: user.id,
         resource_type: 'sermon'
       });
@@ -126,21 +126,21 @@ export default function MySermons() {
     if (!confirm("Are you sure you want to delete this sermon?")) return;
 
     try {
-      await base44.entities.Sermon.delete(sermonId);
+      await api.entities.Sermon.delete(sermonId);
       
       // Delete associated tags
       const sermonTags = tags.filter(t => t.resource_id === sermonId);
       for (const tag of sermonTags) {
-        await base44.entities.ResourceTag.delete(tag.id);
+        await api.entities.ResourceTag.delete(tag.id);
       }
       
       // Delete collection items
-      const collectionItems = await base44.entities.CollectionItem.filter({
+      const collectionItems = await api.entities.CollectionItem.filter({
         resource_id: sermonId,
         resource_type: 'sermon'
       });
       for (const item of collectionItems) {
-        await base44.entities.CollectionItem.delete(item.id);
+        await api.entities.CollectionItem.delete(item.id);
       }
       
       toast.success("Sermon deleted");
@@ -226,7 +226,7 @@ export default function MySermons() {
 
     // Collections filter
     if (filters.collections.length > 0) {
-      const collectionItems = await base44.entities.CollectionItem.filter({
+      const collectionItems = await api.entities.CollectionItem.filter({
         user_id: user.id,
         resource_type: 'sermon'
       });
@@ -289,7 +289,7 @@ export default function MySermons() {
 
   const loadCollectionSermons = async (collectionId) => {
     try {
-      const items = await base44.entities.CollectionItem.filter({
+      const items = await api.entities.CollectionItem.filter({
         collection_id: collectionId,
         resource_type: 'sermon'
       });
@@ -311,7 +311,7 @@ export default function MySermons() {
 
   const handleSaveAdaptedSermon = async (adaptedData) => {
     try {
-      await base44.entities.Sermon.create({
+      await api.entities.Sermon.create({
         user_id: user.id,
         title: `${adaptedData.title} (Adapted)`,
         topic: adaptingSermon.topic,
@@ -352,7 +352,7 @@ export default function MySermons() {
           <CardContent className="pt-6 text-center">
             <FileText className="w-12 h-12 mx-auto mb-4 text-gray-400" />
             <p className="text-lg font-medium mb-4">Please log in to view your sermons</p>
-            <Button onClick={() => base44.auth.redirectToLogin()}>Sign In</Button>
+            <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
           </CardContent>
         </Card>
       </div>

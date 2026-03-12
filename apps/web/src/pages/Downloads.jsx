@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -15,7 +15,7 @@ export default function Downloads() {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const currentUser = await base44.auth.me();
+        const currentUser = await api.auth.me();
         setUser(currentUser);
       } catch (error) {
         console.log("User not logged in");
@@ -44,7 +44,7 @@ export default function Downloads() {
             <p className="text-gray-600 dark:text-gray-400 mb-4">
               Log in to start reading the Bible instantly
             </p>
-            <Button onClick={() => base44.auth.redirectToLogin()}>
+            <Button onClick={() => api.auth.redirectToLogin()}>
               Sign In
             </Button>
           </CardContent>

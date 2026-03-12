@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from './utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Book, FileText, Settings, PlusCircle, MapPin, GraduationCap, Crown, LogOut, Home, Brain, BookOpen, Users, Globe, Scale, Heart, MessageSquare, Shield, Code } from 'lucide-react';
@@ -52,13 +52,13 @@ export default function Layout({ children, currentPageName }) {
       "categories": ["education", "productivity", "lifestyle"],
       "icons": [
         {
-          "src": "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png",
+          "src": "/icon.png",
           "sizes": "192x192",
           "type": "image/png",
           "purpose": "any maskable"
         },
         {
-          "src": "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png",
+          "src": "/icon.png",
           "sizes": "512x512",
           "type": "image/png",
           "purpose": "any maskable"
@@ -70,21 +70,21 @@ export default function Layout({ children, currentPageName }) {
           "short_name": "Read Bible",
           "description": "Open Bible Reader",
           "url": "/pages/Reader?source=shortcut",
-          "icons": [{ "src": "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png", "sizes": "192x192" }]
+          "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
         },
         {
           "name": "Sermon Builder",
           "short_name": "New Sermon",
           "description": "Create new sermon",
           "url": "/pages/SermonBuilder?source=shortcut",
-          "icons": [{ "src": "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png", "sizes": "192x192" }]
+          "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
         },
         {
           "name": "Bible Study",
           "short_name": "Study",
           "description": "Create Bible study",
           "url": "/pages/BibleStudy?source=shortcut",
-          "icons": [{ "src": "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png", "sizes": "192x192" }]
+          "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
         }
       ],
       "share_target": {
@@ -167,7 +167,7 @@ export default function Layout({ children, currentPageName }) {
         link.sizes = sizes;
         document.head.appendChild(link);
       }
-      link.href = 'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png';
+      link.href = '/icon.png';
     };
 
     addAppleTouchIcon('180x180');
@@ -212,7 +212,7 @@ export default function Layout({ children, currentPageName }) {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
       
       if (currentUser && !currentUser.onboarding_completed) {
@@ -226,7 +226,7 @@ export default function Layout({ children, currentPageName }) {
               className: "text-lg"
             });
             // Clear the message after showing
-            base44.auth.updateMe({ special_message: null }).catch(() => {});
+            api.auth.updateMe({ special_message: null }).catch(() => {});
           }, 1000);
         }
         
@@ -245,7 +245,7 @@ export default function Layout({ children, currentPageName }) {
 
   const handleLogout = async () => {
     try {
-      await base44.auth.logout();
+      await api.auth.logout();
       toast.success("Logged out successfully");
       window.location.reload();
     } catch (error) {
@@ -263,7 +263,7 @@ export default function Layout({ children, currentPageName }) {
         // Force direct navigation for in-app browsers to avoid popup blocking
         window.location.href = window.location.origin + '/auth/login';
       } else {
-        await base44.auth.redirectToLogin();
+        await api.auth.redirectToLogin();
       }
     } catch (error) {
       toast.error("Failed to login");
@@ -309,7 +309,7 @@ export default function Layout({ children, currentPageName }) {
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full space-y-8 text-center">
           <SafeImg
-            src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png"
+            src="/icon.png"
             alt="SermonSmith"
             className="mx-auto h-24 w-24 rounded-full shadow-lg"
             useFallbackIcon={true}
@@ -339,11 +339,11 @@ export default function Layout({ children, currentPageName }) {
     <SidebarProvider>
       <EmbeddedBrowserDetector />
       <div className="flex h-screen bg-gray-50">
-        <Sidebar className="border-r border-gray-200 hidden md:block">
+        <Sidebar className="border-r border-gray-200 hidden md:flex">
           <SidebarHeader className="p-6 border-b border-gray-200">
             <div className="flex items-center space-x-3">
               <SafeImg
-                src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68b8e99cb327a0a00150c183/99dd4ccc2_logo.png"
+                src="/icon.png"
                 alt="SermonSmith"
                 className="h-10 w-10 rounded-full"
                 useFallbackIcon={true}
@@ -400,7 +400,7 @@ export default function Layout({ children, currentPageName }) {
           </SidebarContent>
         </Sidebar>
 
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto pb-16 md:pb-0">
           <div className="p-4 md:p-6">
             <div className="flex items-center justify-between mb-6 md:mb-4">
               <SidebarTrigger />
@@ -408,6 +408,35 @@ export default function Layout({ children, currentPageName }) {
             {children}
           </div>
         </main>
+
+        {/* Mobile Bottom Navigation */}
+        <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 md:hidden z-50 safe-area-bottom">
+          <div className="grid grid-cols-5 h-16">
+            {[
+              { icon: Home, label: 'Home', page: 'Home' },
+              { icon: Book, label: 'Bible', page: 'Reader' },
+              { icon: FileText, label: 'Sermon', page: 'SermonBuilder' },
+              { icon: GraduationCap, label: 'Study', page: 'BibleStudy' },
+              { icon: Settings, label: 'More', page: 'Settings' },
+            ].map((item) => {
+              const isActive = currentPageName === item.page;
+              return (
+                <Link
+                  key={item.page}
+                  to={createPageUrl(item.page)}
+                  className={`flex flex-col items-center justify-center gap-0.5 text-xs transition-colors ${
+                    isActive
+                      ? 'text-indigo-600 dark:text-indigo-400'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  <item.icon className={`w-5 h-5 ${isActive ? 'text-indigo-600' : ''}`} />
+                  <span className="font-medium">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
       </div>
       <PWAInstallPrompt />
       <EmbeddedBrowserDetector />
@@ -426,7 +455,7 @@ export default function Layout({ children, currentPageName }) {
           // Mark as seen
           if (user) {
             try {
-              await base44.auth.updateMe({ last_seen_version: CURRENT_VERSION });
+              await api.auth.updateMe({ last_seen_version: CURRENT_VERSION });
             } catch (error) {
               console.error('Failed to update version:', error);
             }

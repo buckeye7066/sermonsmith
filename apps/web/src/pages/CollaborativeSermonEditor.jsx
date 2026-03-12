@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -42,18 +42,18 @@ export default function CollaborativeSermonEditor() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       toast.error("Please log in");
-      await base44.auth.redirectToLogin();
+      await api.auth.redirectToLogin();
     }
   };
 
   const loadSermon = async () => {
     setIsLoading(true);
     try {
-      const sermonData = await base44.entities.Sermon.filter({ id: sermonId });
+      const sermonData = await api.entities.Sermon.filter({ id: sermonId });
       if (sermonData.length === 0) {
         toast.error("Sermon not found");
         navigate(createPageUrl('MySermons'));
@@ -65,7 +65,7 @@ export default function CollaborativeSermonEditor() {
 
       // Check if user has edit access
       const isOwner = s.user_id === user.id;
-      const collabAccess = await base44.entities.SermonCollaborator.filter({
+      const collabAccess = await api.entities.SermonCollaborator.filter({
         sermon_id: sermonId,
         user_id: user.id,
         status: "accepted"
@@ -87,14 +87,14 @@ export default function CollaborativeSermonEditor() {
 
   const loadCollaborators = async () => {
     try {
-      const collab = await base44.entities.SermonCollaborator.filter({
+      const collab = await api.entities.SermonCollaborator.filter({
         sermon_id: sermonId,
         status: "accepted"
       });
       setCollaborators(collab);
 
       // Check who's currently editing
-      const edits = await base44.entities.SermonEdit.filter({ sermon_id: sermonId });
+      const edits = await api.entities.SermonEdit.filter({ sermon_id: sermonId });
       const now = new Date();
       const active = edits.filter(e => new Date(e.locked_until) > now);
       setActiveEditors(active);
@@ -108,7 +108,7 @@ export default function CollaborativeSermonEditor() {
 
     setIsSaving(true);
     try {
-      await base44.entities.Sermon.update(sermon.id, {
+      await api.entities.Sermon.update(sermon.id, {
         title: sermon.title,
         topic: sermon.topic,
         anchor_passage: sermon.anchor_passage,

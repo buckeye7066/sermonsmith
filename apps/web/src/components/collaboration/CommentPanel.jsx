@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquare, Send, Check, Trash2 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -23,7 +23,7 @@ export default function CommentPanel({ sermon, user, pointIndex = null }) {
 
   const loadComments = async () => {
     try {
-      const allComments = await base44.entities.SermonComment.filter({ sermon_id: sermon.id });
+      const allComments = await api.entities.SermonComment.filter({ sermon_id: sermon.id });
       const filtered = pointIndex !== null
         ? allComments.filter(c => c.point_index === pointIndex)
         : allComments.filter(c => c.point_index === null || c.point_index === undefined);
@@ -39,7 +39,7 @@ export default function CommentPanel({ sermon, user, pointIndex = null }) {
 
     setIsPosting(true);
     try {
-      await base44.entities.SermonComment.create({
+      await api.entities.SermonComment.create({
         sermon_id: sermon.id,
         user_id: user.id,
         user_name: user.full_name || user.email,
@@ -61,7 +61,7 @@ export default function CommentPanel({ sermon, user, pointIndex = null }) {
 
   const toggleResolved = async (commentId, currentStatus) => {
     try {
-      await base44.entities.SermonComment.update(commentId, { resolved: !currentStatus });
+      await api.entities.SermonComment.update(commentId, { resolved: !currentStatus });
       loadComments();
     } catch (error) {
       console.error("Error updating comment:", error);
@@ -72,7 +72,7 @@ export default function CommentPanel({ sermon, user, pointIndex = null }) {
     if (!confirm("Delete this comment?")) return;
 
     try {
-      await base44.entities.SermonComment.delete(commentId);
+      await api.entities.SermonComment.delete(commentId);
       loadComments();
       toast.success("Comment deleted");
     } catch (error) {

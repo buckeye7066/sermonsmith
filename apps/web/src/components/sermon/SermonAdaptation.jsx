@@ -24,7 +24,7 @@ import {
   Zap,
   BookOpen
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const SERMON_LENGTHS = [
@@ -132,7 +132,7 @@ Maintain the same biblical truth and theology. Adjust ONLY the length and depth 
 
 Return the adapted sermon in the same JSON format with title, big_idea, points array, and conclusion.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -225,7 +225,7 @@ Maintain the same core message and biblical truth. Adjust ONLY the theological d
 
 Return the adapted sermon in the same JSON format.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -302,7 +302,7 @@ Translate EVERYTHING into ${languageInfo.name}:
 
 Return the full translated sermon in the same JSON format.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -394,7 +394,7 @@ Create a TWEET THREAD (3-5 tweets):
 Make it compelling and share-worthy!`;
 
       if (summaryType === 'tweet') {
-        const response = await base44.integrations.Core.InvokeLLM({
+        const response = await api.integrations.Core.InvokeLLM({
           prompt,
           response_json_schema: {
             type: "object",
@@ -413,7 +413,7 @@ Make it compelling and share-worthy!`;
           metadata: { summaryType: summaryInfo.label }
         });
       } else {
-        const response = await base44.integrations.Core.InvokeLLM({ prompt });
+        const response = await api.integrations.Core.InvokeLLM({ prompt });
 
         setAdaptedContent({
           type: 'summary',

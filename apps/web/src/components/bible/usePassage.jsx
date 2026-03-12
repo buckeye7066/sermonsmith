@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 
 /**
  * React hook to fetch Bible passages on-demand
@@ -37,7 +37,7 @@ export function usePassage({ translationId, bookCode, chapter, verses }) {
           params.set("verses", verses);
         }
 
-        const response = await base44.functions.invoke("biblePassage", {
+        const response = await api.functions.invoke("biblePassage", {
           translationId: translationId || "en-kjv",
           bookCode: bookCode || "JHN",
           chapter: String(chapter || 1),
@@ -87,7 +87,7 @@ export function usePassage({ translationId, bookCode, chapter, verses }) {
  */
 export async function fetchPassage({ translationId, bookCode, chapter, verses }) {
   try {
-    const response = await base44.functions.invoke("biblePassage", {
+    const response = await api.functions.invoke("biblePassage", {
       translationId: translationId || "en-kjv",
       bookCode: bookCode || "JHN",
       chapter: String(chapter || 1),

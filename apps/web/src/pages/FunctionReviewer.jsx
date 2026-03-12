@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -147,7 +147,7 @@ export default function FunctionReviewer() {
   const discoverFunctions = async () => {
     setDiscovering(true);
     try {
-      const response = await base44.functions.invoke('discoverFunctions', { scope: 'all' });
+      const response = await api.functions.invoke('discoverFunctions', { scope: 'all' });
       if (response.data?.ok) {
         const data = response.data.data;
         setAllFiles({
@@ -212,7 +212,7 @@ export default function FunctionReviewer() {
     setSelectedFunction(func);
     
     try {
-      const response = await base44.functions.invoke('getFunctionDetails', {
+      const response = await api.functions.invoke('getFunctionDetails', {
         functionId: func.functionId
       });
       
@@ -280,7 +280,7 @@ export default function FunctionReviewer() {
         const batchPromises = batch.map(async (file) => {
           try {
             if (file.type === 'function') {
-              const response = await base44.functions.invoke('getFunctionDetails', { functionId: file.id });
+              const response = await api.functions.invoke('getFunctionDetails', { functionId: file.id });
               if (response.data?.ok && response.data?.data?.sourceCode) {
                 return { path: file.path, content: response.data.data.sourceCode };
               }
@@ -309,9 +309,9 @@ export default function FunctionReviewer() {
 
       setSyncProgress({ phase: 'uploading', collected: filesToSync.length, total: filesToSync.length });
 
-      const response = await base44.functions.invoke('syncToGitHub', {
+      const response = await api.functions.invoke('syncToGitHub', {
         files: filesToSync,
-        message: `Auto-sync ${filesToSync.length} files from Base44`
+        message: `Auto-sync ${filesToSync.length} files from server`
       });
 
       if (response.data?.ok) {
@@ -582,7 +582,7 @@ export default function FunctionReviewer() {
                             <AlertCircle className="w-4 h-4" />
                             <AlertDescription>
                               Source code not available in runtime cache. 
-                              View in Base44 Dashboard → Code → Functions.
+                              View in the API dashboard to manage functions.
                             </AlertDescription>
                           </Alert>
                         )}

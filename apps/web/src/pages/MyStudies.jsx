@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44Promise } from '@/api/base44Client';
+import { apiPromise } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,8 +24,8 @@ export default function MyStudies() {
         if (!currentUser) return;
         setIsLoading(true);
         try {
-            const base44 = await base44Promise;
-            const userStudies = await base44.entities.BibleStudy.filter({ user_id: currentUser.id }, '-created_date');
+            const apiClient = await apiPromise;
+            const userStudies = await api.entities.BibleStudy.filter({ user_id: currentUser.id }, '-created_date');
             setStudies(userStudies);
         } catch (error) {
             toast.error("Failed to load your Bible studies.");
@@ -36,8 +36,8 @@ export default function MyStudies() {
     useEffect(() => {
         const fetchUserAndStudies = async () => {
             try {
-                const base44 = await base44Promise;
-                const userData = await base44.auth.me();
+                const apiClient = await apiPromise;
+                const userData = await api.auth.me();
                 setUser(userData);
                 loadStudies(userData);
             } catch (error) {
@@ -53,8 +53,8 @@ export default function MyStudies() {
             return;
         }
         try {
-            const base44 = await base44Promise;
-            await base44.entities.BibleStudy.delete(studyId);
+            const apiClient = await apiPromise;
+            await api.entities.BibleStudy.delete(studyId);
             setStudies(studies.filter(s => s.id !== studyId));
             toast.success("Bible study deleted.");
         } catch (error) {

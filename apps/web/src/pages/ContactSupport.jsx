@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ export default function ContactSupport() {
 
   const loadUser = async () => {
     try {
-      const userData = await base44.auth.me();
+      const userData = await api.auth.me();
       setUser(userData);
       
       // Load saved theme preferences
@@ -57,7 +57,7 @@ export default function ContactSupport() {
 
   const saveThemePreference = async (newTheme) => {
     try {
-      await base44.auth.updateMe({ message_theme: newTheme });
+      await api.auth.updateMe({ message_theme: newTheme });
       setTheme(newTheme);
       toast.success("Theme saved!");
     } catch (error) {
@@ -67,7 +67,7 @@ export default function ContactSupport() {
 
   const loadMyMessages = async (userId) => {
     try {
-      const messages = await base44.entities.Message.filter({ user_id: userId }, '-created_date');
+      const messages = await api.entities.Message.filter({ user_id: userId }, '-created_date');
       setMyMessages(messages);
     } catch (error) {
       console.error("Error loading messages:", error);
@@ -94,7 +94,7 @@ Write a clear, professional message that:
 
 Return only the message text, nothing else.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         add_context_from_internet: false
       });
@@ -117,7 +117,7 @@ Return only the message text, nothing else.`;
 
     setIsSending(true);
     try {
-      await base44.entities.Message.create({
+      await api.entities.Message.create({
         user_id: user.id,
         user_email: user.email,
         user_name: user.full_name || user.email,

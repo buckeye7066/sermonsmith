@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Share2, Copy, Check, ExternalLink, Loader2 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function ShareDialog({ open, onClose, resourceType, resourceId, title }) {
@@ -26,7 +26,7 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
   const handleGenerateLink = async () => {
     setIsGenerating(true);
     try {
-      const response = await base44.functions.invoke('createShareableLink', {
+      const response = await api.functions.invoke('createShareableLink', {
         resourceType,
         resourceId,
         title: shareTitle,

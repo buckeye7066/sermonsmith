@@ -14,7 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, GitFork, Wand2, Copy, Sparkles } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const ADAPTATION_OPTIONS = [
@@ -108,7 +108,7 @@ Keep the most crucial points, tighten illustrations, focus on core message. Make
         };
 
         if (adaptationPrompt[forkType]) {
-          const response = await base44.integrations.Core.InvokeLLM({
+          const response = await api.integrations.Core.InvokeLLM({
             prompt: adaptationPrompt[forkType],
             response_json_schema: {
               type: "object",
@@ -145,10 +145,10 @@ Keep the most crucial points, tighten illustrations, focus on core message. Make
       }
 
       // Save forked sermon
-      await base44.entities.Sermon.create(forkedSermon);
+      await api.entities.Sermon.create(forkedSermon);
 
       // Update fork count
-      await base44.entities.SharedSermon.update(sermon.id, {
+      await api.entities.SharedSermon.update(sermon.id, {
         forks_count: (sermon.forks_count || 0) + 1
       });
 

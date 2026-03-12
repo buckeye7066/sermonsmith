@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { CheckCircle2, Star, Zap, Settings, ExternalLink, Loader2, Crown } from "lucide-react";
@@ -21,12 +21,15 @@ const freeFeatures = [
 const premiumFeatures = [
     "All Free features, plus:",
     "Access to All Bible Translations",
+    "Multi-Perspective Bible Study (Catholic, Orthodox, Reformed, etc.)",
     "Multi-Language Verse Translation (50+ Languages)",
+    "Worldview Explorer (50+ Belief Systems)",
     "Export Sermons to PDF & PPTX",
     "Interactive Bible Maps & Journeys",
+    "Teaching Context Adaptation (VBS, Sunday School, Youth, etc.)",
     "Advanced AI Study Tools",
     "Priority Support",
-    "Cloud Sync Across Devices"
+    "Cloud Sync Across All Devices (iOS, Android, Windows, Mac)"
 ];
 
 export default function Pricing() {
@@ -38,7 +41,7 @@ export default function Pricing() {
     useEffect(() => {
         const fetchUser = async () => {
             try {
-                const userData = await base44.auth.me();
+                const userData = await api.auth.me();
                 setUser(userData);
             } catch (e) {
                 console.log("User not logged in", e);
@@ -64,7 +67,7 @@ export default function Pricing() {
         
         setIsProcessing(true);
         try {
-            const response = await base44.functions.invoke('createCheckoutSession');
+            const response = await api.functions.invoke('createCheckoutSession');
             
             if (response.data.error) {
                 throw new Error(response.data.error);

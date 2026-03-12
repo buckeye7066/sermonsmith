@@ -5,124 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sermon Smith - First Run Setup</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 20px;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 20px;
     }
-    
     .container {
-      background: white;
-      border-radius: 12px;
+      background: white; border-radius: 12px;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      padding: 40px;
-      max-width: 500px;
-      width: 100%;
+      padding: 40px; max-width: 500px; width: 100%;
     }
-    
-    .icon {
-      width: 80px;
-      height: 80px;
-      margin: 0 auto 20px;
-      display: block;
-    }
-    
-    h1 {
-      text-align: center;
-      color: #333;
-      margin-bottom: 10px;
-      font-size: 24px;
-    }
-    
-    .subtitle {
-      text-align: center;
-      color: #666;
-      margin-bottom: 30px;
-      font-size: 14px;
-    }
-    
-    .form-group {
-      margin-bottom: 20px;
-    }
-    
-    label {
-      display: block;
-      margin-bottom: 8px;
-      color: #333;
-      font-weight: 500;
-      font-size: 14px;
-    }
-    
+    .icon { width: 80px; height: 80px; margin: 0 auto 20px; display: block; }
+    h1 { text-align: center; color: #333; margin-bottom: 10px; font-size: 24px; }
+    .subtitle { text-align: center; color: #666; margin-bottom: 30px; font-size: 14px; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 8px; color: #333; font-weight: 500; font-size: 14px; }
     input {
-      width: 100%;
-      padding: 12px;
-      border: 2px solid #e0e0e0;
-      border-radius: 6px;
-      font-size: 14px;
-      transition: border-color 0.3s;
+      width: 100%; padding: 12px; border: 2px solid #e0e0e0;
+      border-radius: 6px; font-size: 14px; transition: border-color 0.3s;
     }
-    
-    input:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-    
-    .help-text {
-      font-size: 12px;
-      color: #888;
-      margin-top: 5px;
-    }
-    
+    input:focus { outline: none; border-color: #667eea; }
+    .help-text { font-size: 12px; color: #888; margin-top: 5px; }
     button {
-      width: 100%;
-      padding: 14px;
+      width: 100%; padding: 14px;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.2s;
+      color: white; border: none; border-radius: 6px;
+      font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s;
     }
-    
-    button:hover {
-      transform: translateY(-2px);
-    }
-    
-    button:active {
-      transform: translateY(0);
-    }
-    
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-    }
-    
-    .error {
-      color: #e74c3c;
-      font-size: 13px;
-      margin-top: 10px;
-      text-align: center;
-    }
-    
-    .success {
-      color: #27ae60;
-      font-size: 13px;
-      margin-top: 10px;
-      text-align: center;
-    }
+    button:hover { transform: translateY(-2px); }
+    button:active { transform: translateY(0); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .error { color: #e74c3c; font-size: 13px; margin-top: 10px; text-align: center; }
+    .success { color: #27ae60; font-size: 13px; margin-top: 10px; text-align: center; }
   </style>
 </head>
 <body>
@@ -139,86 +55,62 @@
       <rect x="226" y="106" width="60" height="300" rx="10" fill="white"/>
       <rect x="136" y="226" width="240" height="60" rx="10" fill="white"/>
     </svg>
-    
+
     <h1>Welcome to Sermon Smith</h1>
-    <p class="subtitle">Let's configure your Base44 backend connection</p>
-    
+    <p class="subtitle">Connect to your SermonSmith API server</p>
+
     <form id="setupForm">
       <div class="form-group">
-        <label for="appId">Base44 App ID</label>
-        <input 
-          type="text" 
-          id="appId" 
-          name="appId" 
-          placeholder="e.g., app_123456789"
+        <label for="apiUrl">API Server URL</label>
+        <input
+          type="url"
+          id="apiUrl"
+          name="apiUrl"
+          placeholder="https://your-api.up.railway.app"
+          value="http://localhost:3001"
           required
         />
-        <div class="help-text">Your Base44 application identifier</div>
+        <div class="help-text">The URL of your SermonSmith backend (Railway or local)</div>
       </div>
-      
-      <div class="form-group">
-        <label for="backendUrl">Backend URL</label>
-        <input 
-          type="url" 
-          id="backendUrl" 
-          name="backendUrl" 
-          placeholder="https://your-backend.base44.io"
-          required
-        />
-        <div class="help-text">The URL of your Base44 backend instance</div>
-      </div>
-      
-      <button type="submit" id="submitBtn">
-        Continue
-      </button>
-      
+
+      <button type="submit" id="submitBtn">Continue</button>
       <div id="message"></div>
     </form>
   </div>
-  
+
   <script>
     const form = document.getElementById('setupForm');
     const submitBtn = document.getElementById('submitBtn');
     const message = document.getElementById('message');
-    
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      
-      const appId = document.getElementById('appId').value.trim();
-      const backendUrl = document.getElementById('backendUrl').value.trim();
-      
-      if (!appId || !backendUrl) {
+      const apiUrl = document.getElementById('apiUrl').value.trim();
+
+      if (!apiUrl) {
         message.className = 'error';
-        message.textContent = 'Please fill in all fields';
+        message.textContent = 'Please enter the API URL';
         return;
       }
-      
-      // Validate URL format
-      try {
-        new URL(backendUrl);
-      } catch (err) {
+
+      try { new URL(apiUrl); } catch {
         message.className = 'error';
         message.textContent = 'Please enter a valid URL';
         return;
       }
-      
+
       submitBtn.disabled = true;
       submitBtn.textContent = 'Saving...';
       message.textContent = '';
-      
+
       try {
-        const result = await window.electron.saveConfig({
-          appId,
-          backendUrl
-        });
-        
+        const result = await window.electron.saveConfig({ apiUrl });
         if (result.success) {
           message.className = 'success';
           message.textContent = 'Configuration saved! Opening app...';
-          // Window will close automatically from main process
         } else {
           message.className = 'error';
-          message.textContent = 'Error: ' + (result.error || 'Failed to save configuration');
+          message.textContent = 'Error: ' + (result.error || 'Failed to save');
           submitBtn.disabled = false;
           submitBtn.textContent = 'Continue';
         }

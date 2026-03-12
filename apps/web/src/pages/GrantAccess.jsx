@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Crown, Loader2, CheckCircle } from "lucide-react";
@@ -12,7 +12,7 @@ export default function GrantAccess() {
   const grantAccess = async () => {
     setLoading(true);
     try {
-      const response = await base44.functions.invoke('grantMePremium');
+      const response = await api.functions.invoke('grantMePremium');
       if (response.data.success) {
         setGranted(true);
         toast.success('Premium access granted!');

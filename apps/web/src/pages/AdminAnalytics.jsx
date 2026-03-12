@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,7 @@ export default function AdminAnalytics() {
 
   const loadCurrentUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
       
       if (currentUser.role !== 'admin') {
@@ -51,7 +51,7 @@ export default function AdminAnalytics() {
 
   const loadAnalytics = async () => {
     try {
-      const allActivities = await base44.entities.UserActivity.list('-created_date', 5000);
+      const allActivities = await api.entities.UserActivity.list('-created_date', 5000);
       setActivities(allActivities);
 
       // Calculate stats

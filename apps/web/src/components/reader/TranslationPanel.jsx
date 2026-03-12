@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Languages, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 
 const languages = [
   // Current languages
@@ -82,7 +82,7 @@ Original verse (${verse.book_name} ${verse.chapter}:${verse.verse}):
 
 Provide only the translated verse text in ${targetLangName}:`;
 
-      const result = await base44.integrations.Core.InvokeLLM({
+      const result = await api.integrations.Core.InvokeLLM({
         prompt: prompt
       });
       

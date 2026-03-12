@@ -22,7 +22,7 @@ import {
   GraduationCap,
   User as UserIcon
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const DENOMINATION_CATEGORIES = {
@@ -162,7 +162,7 @@ export default function OnboardingWizard({ open, onClose, user }) {
 
   const handleComplete = async () => {
     try {
-      await base44.auth.updateMe({
+      await api.auth.updateMe({
         denomination: preferences.denomination,
         study_preferences: {
           preferredStudyType: "personal",

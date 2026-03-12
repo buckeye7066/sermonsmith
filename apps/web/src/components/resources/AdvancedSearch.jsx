@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Search, Filter, X, Calendar } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 
 export default function AdvancedSearch({ 
   open, 
@@ -48,7 +48,7 @@ export default function AdvancedSearch({
         ? { user_id: userId }
         : { user_id: userId, resource_type: resourceType };
       
-      const tags = await base44.entities.ResourceTag.filter(tagFilter);
+      const tags = await api.entities.ResourceTag.filter(tagFilter);
       const uniqueTags = [...new Set(tags.map(t => t.tag))];
       setAvailableTags(uniqueTags);
 
@@ -57,7 +57,7 @@ export default function AdvancedSearch({
         ? { user_id: userId }
         : { user_id: userId, resource_type: resourceType };
       
-      const collections = await base44.entities.Collection.filter(collectionFilter);
+      const collections = await api.entities.Collection.filter(collectionFilter);
       setAvailableCollections(collections);
     } catch (error) {
       console.error('Error loading filters:', error);

@@ -46,7 +46,7 @@ Click **"Add endpoint"** and enter:
 
 **Webhook URL:**
 ```
-https://sermon-smith.base44.app/api/functions/stripeWebhook
+https://your-api.up.railway.app/api/functions/stripeWebhook
 ```
 
 ### Step 3: Select Events to Listen For
@@ -59,7 +59,7 @@ Check these 3 events:
 After creating the webhook:
 1. Click on your new webhook
 2. Copy the **Signing secret** (starts with `whsec_`)
-3. Compare it with your `STRIPE_WEBHOOK_SECRET` in Base44 settings
+3. Compare it with your `STRIPE_WEBHOOK_SECRET` in SermonSmith API settings
 4. They should match! ✓
 
 ---
@@ -70,7 +70,7 @@ After creating the webhook:
 
 1. **Open your app**
    ```
-   https://sermon-smith.base44.app
+   https://your-api.up.railway.app
    ```
 
 2. **Navigate to Pricing page**
@@ -104,14 +104,14 @@ After creating the webhook:
 - Click on your webhook
 - View "Recent events" to see webhook calls
 
-**Base44 Function Logs:**
+**SermonSmith API Function Logs:**
 👉 Dashboard → Code → Functions → stripeWebhook
 - See detailed logs of webhook processing
 
 ### Check User Subscriptions
 ```javascript
 // In browser console on Settings page:
-const user = await base44.auth.me();
+const user = await api.auth.me();
 console.log('Subscription Tier:', user.subscription_tier);
 console.log('Stripe Customer:', user.stripe_customer_id);
 console.log('Premium Override:', user.premium_override);
@@ -174,12 +174,12 @@ When you're ready to accept real payments:
 👉 Toggle from "Test mode" to "Live mode" in Stripe Dashboard
 
 ### 2. Create Live Webhook
-- Same URL: `https://sermon-smith.base44.app/api/functions/stripeWebhook`
+- Same URL: `https://your-api.up.railway.app/api/functions/stripeWebhook`
 - Same events: `checkout.session.completed`, `customer.subscription.deleted`, `customer.subscription.updated`
 - **Copy the NEW live webhook secret**
 
 ### 3. Update Environment Variables
-In Base44 Dashboard → Settings → Environment Variables:
+In SermonSmith API Dashboard → Settings → Environment Variables:
 - Replace `STRIPE_API_KEY` with your **live** key (starts with `sk_live_`)
 - Replace `STRIPE_WEBHOOK_SECRET` with your **live** webhook secret (starts with `whsec_`)
 
@@ -199,7 +199,7 @@ In Base44 Dashboard → Settings → Environment Variables:
 ### Track Subscribers
 Query your User entity for premium users:
 ```javascript
-const premiumUsers = await base44.entities.User.filter({ 
+const premiumUsers = await api.entities.User.filter({ 
   subscription_tier: 'premium' 
 });
 console.log('Premium Subscribers:', premiumUsers.length);
@@ -212,13 +212,13 @@ console.log('Premium Subscribers:', premiumUsers.length);
 ### "Upgrade" button does nothing
 - Check browser console for errors
 - Verify user is logged in
-- Check function logs in Base44 dashboard
+- Check function logs in SermonSmith API dashboard
 
 ### Payment succeeds but user not upgraded
 - Check webhook is configured in Stripe
 - Verify webhook secret matches in both places
 - Check webhook logs in Stripe dashboard
-- Check `stripeWebhook` function logs in Base44
+- Check `stripeWebhook` function logs in SermonSmith API
 
 ### User stuck on "Loading..." after payment
 - Check success_url in `createCheckoutSession.js`
@@ -237,8 +237,8 @@ console.log('Premium Subscribers:', premiumUsers.length);
 
 Need help?
 - **Stripe Docs:** https://stripe.com/docs
-- **Base44 Support:** support@base44.com
-- **Your Function Logs:** Base44 Dashboard → Code → Functions
+- **SermonSmith API Support:** support@sermonsmith.app
+- **Your Function Logs:** SermonSmith API Dashboard → Code → Functions
 
 ---
 

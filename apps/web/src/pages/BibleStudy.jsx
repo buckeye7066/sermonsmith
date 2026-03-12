@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,12 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, BookOpen, Save, Loader2, MessageCircle, Lightbulb, Link2, Bot, GraduationCap, Calendar } from "lucide-react";
+import { Sparkles, BookOpen, Save, Loader2, MessageCircle, Lightbulb, Link2, Bot, GraduationCap, Calendar, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Link as RouterLink } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import StudyGuideViewer from "@/components/study/StudyGuideViewer";
-import StudyPlanGenerator from "@/components/study/StudyPlanGenerator"; // New import
+import StudyPlanGenerator from "@/components/study/StudyPlanGenerator";
+import MultiPerspectiveStudy from "@/components/study/MultiPerspectiveStudy";
 
 const STUDY_TYPES = [
   { value: "personal", label: "Personal Study" },
@@ -64,7 +65,8 @@ export default function BibleStudy() {
     relatedStudies: [],
     relatedScriptures: []
   });
-  const [showPlanGenerator, setShowPlanGenerator] = useState(false); // New state
+  const [showPlanGenerator, setShowPlanGenerator] = useState(false);
+  const [showMultiPerspective, setShowMultiPerspective] = useState(false);
 
   useEffect(() => {
     loadUser();
@@ -73,7 +75,7 @@ export default function BibleStudy() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
       
       // Apply user preferences
@@ -121,7 +123,7 @@ Generate a Bible study guide that includes:
 
 Make it engaging, biblically sound, and appropriate for ${studyType} study. Use clear, accessible language.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: studyGenerationSchema
       });
@@ -167,7 +169,7 @@ Key Sections: ${generatedStudy.study_sections.map(s => s.title).join(', ')}
 
 Give me a powerful summary that captures the heart of this study.`;
 
-      const summary = await base44.integrations.Core.InvokeLLM({ prompt });
+      const summary = await api.integrations.Core.InvokeLLM({ prompt });
       
       setAiSuggestions(prev => ({ ...prev, summary }));
       toast.success("Larry created a summary!");
@@ -193,7 +195,7 @@ Current key verses: ${generatedStudy.key_verses.join(', ')}
 
 Provide verses that complement but don't duplicate what's already included. Format as a JSON array of strings, where each string is a verse reference (e.g., "John 3:16", "Romans 8:28").`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -234,7 +236,7 @@ Think about:
 
 Return as a JSON array of objects, each with "title" and "reason" fields explaining why it's related.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -290,7 +292,7 @@ Generate questions that:
 
 Return as JSON array of strings.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -328,7 +330,7 @@ Return as JSON array of strings.`;
     }
 
     try {
-      const saved = await base44.entities.BibleStudy.create({
+      const saved = await api.entities.BibleStudy.create({
         user_id: user.id,
         title: generatedStudy.title,
         topic: generatedStudy.topic,
@@ -396,6 +398,32 @@ Return as JSON array of strings.`;
               >
                 <Calendar className="w-4 h-4 mr-2" />
                 Create Plan
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Multi-Perspective Study Card */}
+        <Card className="mb-6 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 border-indigo-200">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Eye className="w-8 h-8 text-indigo-600" />
+                <div>
+                  <h3 className="font-semibold text-indigo-900 dark:text-indigo-100">
+                    Multi-Perspective Bible Study
+                  </h3>
+                  <p className="text-sm text-indigo-700 dark:text-indigo-300">
+                    See how Catholic, Orthodox, Reformed, Wesleyan, and other traditions interpret the same passage
+                  </p>
+                </div>
+              </div>
+              <Button 
+                onClick={() => setShowMultiPerspective(true)}
+                className="bg-indigo-600 hover:bg-indigo-700"
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                Explore Perspectives
               </Button>
             </div>
           </CardContent>
@@ -622,6 +650,11 @@ Return as JSON array of strings.`;
         <StudyPlanGenerator
           open={showPlanGenerator}
           onClose={() => setShowPlanGenerator(false)}
+          user={user}
+        />
+        <MultiPerspectiveStudy
+          open={showMultiPerspective}
+          onClose={() => setShowMultiPerspective(false)}
           user={user}
         />
       </div>

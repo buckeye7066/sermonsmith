@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Layers, Plus, Mail, Trash2, UserCog, CheckCircle, Clock, XCircle } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const SERIES_ROLES = [
@@ -37,7 +37,7 @@ export default function SeriesCollabManager({ open, onClose, series, sermons, us
 
   const loadCollaborators = async () => {
     try {
-      const collab = await base44.entities.SeriesCollaborator.filter({ series_id: series.id });
+      const collab = await api.entities.SeriesCollaborator.filter({ series_id: series.id });
       setCollaborators(collab);
     } catch (error) {
       console.error("Error loading collaborators:", error);
@@ -52,7 +52,7 @@ export default function SeriesCollabManager({ open, onClose, series, sermons, us
 
     setIsInviting(true);
     try {
-      await base44.entities.SeriesCollaborator.create({
+      await api.entities.SeriesCollaborator.create({
         series_id: series.id,
         user_id: email,
         user_email: email,
@@ -78,7 +78,7 @@ export default function SeriesCollabManager({ open, onClose, series, sermons, us
     if (!confirm("Remove this collaborator?")) return;
 
     try {
-      await base44.entities.SeriesCollaborator.delete(collabId);
+      await api.entities.SeriesCollaborator.delete(collabId);
       toast.success("Collaborator removed");
       loadCollaborators();
     } catch (error) {
@@ -89,7 +89,7 @@ export default function SeriesCollabManager({ open, onClose, series, sermons, us
 
   const updateRole = async (collabId, newRole) => {
     try {
-      await base44.entities.SeriesCollaborator.update(collabId, { role: newRole });
+      await api.entities.SeriesCollaborator.update(collabId, { role: newRole });
       toast.success("Role updated");
       loadCollaborators();
     } catch (error) {

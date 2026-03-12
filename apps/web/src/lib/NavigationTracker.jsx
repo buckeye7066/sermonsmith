@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
-import { base44Promise } from '@/api/base44Client';
+import { apiPromise } from '@/api/apiClient';
 import { pagesConfig } from '@/pages.config';
 
 export default function NavigationTracker() {
@@ -40,8 +40,8 @@ export default function NavigationTracker() {
         }
 
         if (isAuthenticated && pageName) {
-            base44Promise
-                .then((base44) => base44.appLogs.logUserInApp(pageName))
+            apiPromise
+                .then((client) => client.appLogs?.logUserInApp?.(pageName))
                 .catch(() => {
                     // Silently fail - logging shouldn't break the app
                 });

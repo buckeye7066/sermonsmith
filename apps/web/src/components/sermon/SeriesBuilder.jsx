@@ -32,7 +32,7 @@ import {
   Lightbulb,
   Target
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const SERIES_LENGTHS = [
@@ -41,6 +41,19 @@ const SERIES_LENGTHS = [
   { value: 6, label: "6-Part Series" },
   { value: 8, label: "8-Part Series" },
   { value: 12, label: "12-Part Series" }
+];
+
+const TEACHING_CONTEXTS = [
+  { value: "sunday_service", label: "Sunday Service", desc: "Standard worship service" },
+  { value: "sunday_school", label: "Sunday School", desc: "Age-graded teaching" },
+  { value: "vbs", label: "VBS (Vacation Bible School)", desc: "5-day themed experience" },
+  { value: "youth_group", label: "Youth Group", desc: "Teen-focused ministry" },
+  { value: "small_group", label: "Small Group / Cell Group", desc: "Intimate discussion-based" },
+  { value: "christian_school", label: "Christian School / Chapel", desc: "Academic chapel service" },
+  { value: "midweek", label: "Midweek Bible Study", desc: "Deep-dive teaching" },
+  { value: "retreat", label: "Retreat / Conference", desc: "Multi-session intensive" },
+  { value: "mens_group", label: "Men's Ministry", desc: "Men-specific content" },
+  { value: "womens_group", label: "Women's Ministry", desc: "Women-specific content" },
 ];
 
 const BIBLE_BOOKS = [
@@ -64,6 +77,7 @@ export default function SeriesBuilder({ open, onClose, user }) {
   const [outlineTopic, setOutlineTopic] = useState("");
   const [outlinePassage, setOutlinePassage] = useState("");
   const [outlineTheme, setOutlineTheme] = useState("");
+  const [outlineContext, setOutlineContext] = useState("sunday_service");
   const [generatedOutline, setGeneratedOutline] = useState(null);
 
   // Series mode state (existing)
@@ -71,6 +85,7 @@ export default function SeriesBuilder({ open, onClose, user }) {
   const [themeInput, setThemeInput] = useState("");
   const [bookInput, setBookInput] = useState("");
   const [seriesLength, setSeriesLength] = useState(4);
+  const [seriesContext, setSeriesContext] = useState("sunday_service");
   const [seriesOutline, setSeriesOutline] = useState(null);
   const [currentSermonIndex, setCurrentSermonIndex] = useState(0);
   const [generatedSermons, setGeneratedSermons] = useState([]);
@@ -87,6 +102,7 @@ export default function SeriesBuilder({ open, onClose, user }) {
     setIsGenerating(true);
 
     try {
+      const contextInfo = TEACHING_CONTEXTS.find(c => c.value === outlineContext);
       const prompt = `Hi, I'm Arlynn - your AI sermon outline specialist! I create comprehensive, preaching-ready sermon outlines.
 
 Request:
@@ -94,6 +110,7 @@ Topic: ${outlineTopic || 'Not specified'}
 Scripture: ${outlinePassage || 'Choose best passage'}
 Theme: ${outlineTheme || 'Not specified'}
 Denomination: ${user?.denomination || 'Non-Denominational'}
+Teaching Context: ${contextInfo?.label || 'Sunday Service'} (${contextInfo?.desc || ''})
 
 Create a complete sermon outline with:
 
@@ -142,7 +159,7 @@ Create a complete sermon outline with:
 
 Make this biblically accurate, ${user?.denomination || 'theologically sound'}, and ready to preach!`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -219,6 +236,7 @@ Make this biblically accurate, ${user?.denomination || 'theologically sound'}, a
 
     try {
       const seriesSource = seriesType === 'theme' ? themeInput : `Book of ${bookInput}`;
+      const contextInfo = TEACHING_CONTEXTS.find(c => c.value === seriesContext);
 
       const prompt = `Hi, I'm Arlynn - your AI Series Specialist! I create comprehensive, multi-week sermon series that build on each other.
 
@@ -227,6 +245,9 @@ Type: ${seriesType === 'theme' ? 'Thematic Series' : 'Book Study'}
 ${seriesType === 'theme' ? `Theme: ${themeInput}` : `Book: ${bookInput}`}
 Length: ${seriesLength} sermons
 Denomination: ${user?.denomination || 'Non-Denominational'}
+Teaching Context: ${contextInfo?.label || 'Sunday Service'} (${contextInfo?.desc || ''})
+
+IMPORTANT: Adapt all content, language, illustrations, and applications for a ${contextInfo?.label || 'Sunday Service'} context.
 
 Please create a complete series outline with:
 
@@ -267,7 +288,7 @@ Please create a complete series outline with:
 
 Make this comprehensive but practical. Ensure each sermon clearly connects to the next!`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -382,7 +403,7 @@ Include:
 - Series connection notes
 - Conclusion with next week teaser (if applicable)`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -448,7 +469,7 @@ Include:
         supporting_scriptures: point.supporting_scriptures
       }));
 
-      await base44.entities.Sermon.create({
+      await api.entities.Sermon.create({
         user_id: user.id,
         title: generatedOutline.title,
         topic: outlineTopic || outlineTheme || outlinePassage, // Use passage if topic/theme not explicitly provided
@@ -474,7 +495,7 @@ Include:
 
     try {
       for (const sermon of generatedSermons) {
-        await base44.entities.Sermon.create({
+        await api.entities.Sermon.create({
           user_id: user.id,
           title: `${seriesOutline.series_title} - Week ${sermon.week}: ${sermon.title}`,
           topic: seriesOutline.series_title,
@@ -585,6 +606,22 @@ Include:
                         onChange={(e) => setOutlineTheme(e.target.value)}
                         rows={2}
                       />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Teaching Context</label>
+                      <Select value={outlineContext} onValueChange={setOutlineContext}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TEACHING_CONTEXTS.map((ctx) => (
+                            <SelectItem key={ctx.value} value={ctx.value}>
+                              {ctx.label} - {ctx.desc}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     <Button
@@ -866,6 +903,22 @@ Include:
                           {SERIES_LENGTHS.map((length) => (
                             <SelectItem key={length.value} value={length.value.toString()}>
                               {length.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Teaching Context</label>
+                      <Select value={seriesContext} onValueChange={setSeriesContext}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TEACHING_CONTEXTS.map((ctx) => (
+                            <SelectItem key={ctx.value} value={ctx.value}>
+                              {ctx.label} - {ctx.desc}
                             </SelectItem>
                           ))}
                         </SelectContent>

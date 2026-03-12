@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Button } from "@/components/ui/button";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -199,7 +199,7 @@ export default function Reader() {
     // Load from user preferences if available, otherwise localStorage
     const loadReaderSettings = async () => {
       try {
-        const userData = await base44.auth.me();
+        const userData = await api.auth.me();
         if (userData?.reading_preferences) {
           setReaderSettings({
             fontSize: userData.reading_preferences.fontSize || 18,
@@ -218,7 +218,7 @@ export default function Reader() {
           }
         }
       } catch (error) {
-        // If base44.auth.me() fails (e.g., not logged in), fall back to localStorage
+        // If api.auth.me() fails (e.g., not logged in), fall back to localStorage
         const savedSettings = localStorage.getItem('readerSettings');
         if (savedSettings) {
           setReaderSettings(JSON.parse(savedSettings));
@@ -236,7 +236,7 @@ export default function Reader() {
 
       if (user) {
         try {
-          await base44.auth.updateMe({
+          await api.auth.updateMe({
             reading_preferences: {
               ...(user.reading_preferences || {}), // Spread existing preferences or an empty object
               fontSize: readerSettings.fontSize,
@@ -275,7 +275,7 @@ export default function Reader() {
 
   const loadUser = useCallback(async () => {
     try {
-      const userData = await base44.auth.me();
+      const userData = await api.auth.me();
       setUser(userData);
 
       const premium = userData.subscription_tier === 'premium' ||
@@ -360,7 +360,7 @@ export default function Reader() {
         }
       }
 
-      const response = await base44.functions.invoke('biblePassage', {
+      const response = await api.functions.invoke('biblePassage', {
         translationId: normalizedTranslation,
         bookCode: bookCode,
         chapter: currentChapter
@@ -488,8 +488,8 @@ export default function Reader() {
   const loadUserData = useCallback(async () => {
     if (user) {
       try {
-        const userHighlights = await base44.entities.Highlight.filter({ user_id: user.id });
-        const userNotes = await base44.entities.Note.filter({ user_id: user.id });
+        const userHighlights = await api.entities.Highlight.filter({ user_id: user.id });
+        const userNotes = await api.entities.Note.filter({ user_id: user.id });
         setHighlights(userHighlights);
         setNotes(userNotes);
       } catch (error) {
@@ -633,7 +633,7 @@ export default function Reader() {
       // Ensure we have all required fields
       const verseId = selectedVerse.id || `${currentBook}-${currentChapter}-${selectedVerse.verse}`;
       
-      const created = await base44.entities.Highlight.create({
+      const created = await api.entities.Highlight.create({
         user_id: user.id,
         verse_id: verseId,
         color,
@@ -673,7 +673,7 @@ export default function Reader() {
     if (!selectedVerse || !user || !content.trim()) return;
 
     try {
-      await base44.entities.Note.create({
+      await api.entities.Note.create({
         user_id: user.id,
         verse_id: selectedVerse.id,
         content: content.trim(),
@@ -843,7 +843,7 @@ export default function Reader() {
       useEffect(() => {
         const loadTranslations = async () => {
           try {
-            const response = await base44.functions.invoke('listAvailableTranslations');
+            const response = await api.functions.invoke('listAvailableTranslations');
             if (response.data.translations) {
               setAvailableTranslations(response.data.translations);
             }

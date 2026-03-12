@@ -5,7 +5,7 @@
  * This helper unwraps the envelope and throws on errors.
  */
 
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 
 /**
  * Call a backend function and unwrap the unified envelope
@@ -16,7 +16,7 @@ import { base44 } from '@/api/base44Client';
  */
 export async function apiCall(functionName, payload = {}) {
   try {
-    const response = await base44.functions.invoke(functionName, payload);
+    const response = await api.functions.invoke(functionName, payload);
     
     // Handle non-object responses
     if (!response || typeof response.data !== 'object') {
@@ -58,7 +58,7 @@ export async function apiCall(functionName, payload = {}) {
  * @returns {Promise<{blob: Blob, filename: string}>}
  */
 export async function apiBinaryCall(functionName, payload = {}) {
-  const response = await base44.functions.invoke(functionName, payload);
+  const response = await api.functions.invoke(functionName, payload);
   
   // Check if it's an error response
   if (response.data && typeof response.data === 'object' && response.data.ok === false) {

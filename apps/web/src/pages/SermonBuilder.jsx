@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Button } from "@/components/ui/button";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Input } from "@/components/ui/input";
@@ -79,7 +79,7 @@ export default function SermonBuilder() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
       
       // Apply user preferences as defaults
@@ -114,7 +114,7 @@ Consider:
 
 Return as JSON array of objects with "reference" and "reason" fields.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -191,7 +191,7 @@ Create a sermon that includes:
 Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblically accurate, engaging, and practical.`;
 
       console.log('[SermonBuilder] Calling InvokeLLM...');
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: sermonGenerationSchema
       });
@@ -255,7 +255,7 @@ Can you create a more engaging ${tone} illustration that:
 
 Give me just the new illustration (2-3 paragraphs).`;
 
-      const newIllustration = await base44.integrations.Core.InvokeLLM({ prompt });
+      const newIllustration = await api.integrations.Core.InvokeLLM({ prompt });
       
       const updatedSermon = { ...generatedSermon };
       updatedSermon.points[pointIndex].illustration = newIllustration;
@@ -294,7 +294,7 @@ Suggest 3-5 additional Bible verses that:
 
 Return as JSON array of verse references.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -358,7 +358,7 @@ Please adapt the sermon for ${audienceDescriptions[newAudience]}:
 
 Return the full adapted sermon in the same JSON format.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: sermonGenerationSchema
       });
@@ -391,7 +391,7 @@ Return the full adapted sermon in the same JSON format.`;
     const sermon = sermonToSave || generatedSermon;
 
     try {
-      const saved = await base44.entities.Sermon.create({
+      const saved = await api.entities.Sermon.create({
         user_id: user.id,
         title: sermon.title,
         topic: sermon.topic,

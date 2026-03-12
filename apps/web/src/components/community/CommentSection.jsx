@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MessageSquare, Send, Heart, Pin, Loader2, Trash2 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function CommentSection({ contentType, contentId, contentCreatorId, user }) {
@@ -23,7 +23,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
   const loadComments = async () => {
     setIsLoading(true);
     try {
-      const contentComments = await base44.entities.Comment.filter(
+      const contentComments = await api.entities.Comment.filter(
         { content_type: contentType, content_id: contentId },
         '-created_date',
         100
@@ -50,7 +50,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
     setIsSubmitting(true);
 
     try {
-      await base44.entities.Comment.create({
+      await api.entities.Comment.create({
         user_id: user.id,
         user_name: user.full_name || user.email,
         content_type: contentType,
@@ -78,7 +78,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
     }
 
     try {
-      await base44.entities.Comment.update(comment.id, {
+      await api.entities.Comment.update(comment.id, {
         likes_count: (comment.likes_count || 0) + 1
       });
       loadComments();
@@ -93,7 +93,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
     if (!confirm("Delete this comment?")) return;
 
     try {
-      await base44.entities.Comment.delete(comment.id);
+      await api.entities.Comment.delete(comment.id);
       toast.success("Comment deleted");
       loadComments();
     } catch (error) {
@@ -105,7 +105,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
     if (!user || contentCreatorId !== user.id) return;
 
     try {
-      await base44.entities.Comment.update(comment.id, {
+      await api.entities.Comment.update(comment.id, {
         is_pinned: !comment.is_pinned
       });
       toast.success(comment.is_pinned ? "Comment unpinned" : "Comment pinned!");

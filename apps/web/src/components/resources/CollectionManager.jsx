@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Folder, Plus, CheckCircle2 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const ICONS = ['folder', 'book', 'star', 'heart', 'bookmark', 'lightbulb', 'target'];
@@ -51,11 +51,11 @@ export default function CollectionManager({
 
   const loadCollections = async () => {
     try {
-      const userCollections = await base44.entities.Collection.filter({ user_id: userId });
+      const userCollections = await api.entities.Collection.filter({ user_id: userId });
       setCollections(userCollections);
 
       // Load which collections already contain this resource
-      const items = await base44.entities.CollectionItem.filter({
+      const items = await api.entities.CollectionItem.filter({
         user_id: userId,
         resource_id: resourceId,
         resource_type: resourceType
@@ -74,7 +74,7 @@ export default function CollectionManager({
     }
 
     try {
-      const collection = await base44.entities.Collection.create({
+      const collection = await api.entities.Collection.create({
         user_id: userId,
         ...newCollection
       });
@@ -105,19 +105,19 @@ export default function CollectionManager({
       // Check if already in collection
       if (selectedCollections.includes(collectionId)) {
         // Remove from collection
-        const items = await base44.entities.CollectionItem.filter({
+        const items = await api.entities.CollectionItem.filter({
           collection_id: collectionId,
           resource_id: resourceId
         });
         
         if (items[0]) {
-          await base44.entities.CollectionItem.delete(items[0].id);
+          await api.entities.CollectionItem.delete(items[0].id);
           setSelectedCollections(selectedCollections.filter(id => id !== collectionId));
           
           // Update count
           const collection = collections.find(c => c.id === collectionId);
           if (collection) {
-            await base44.entities.Collection.update(collectionId, {
+            await api.entities.Collection.update(collectionId, {
               items_count: Math.max(0, (collection.items_count || 1) - 1)
             });
           }
@@ -126,7 +126,7 @@ export default function CollectionManager({
         }
       } else {
         // Add to collection
-        await base44.entities.CollectionItem.create({
+        await api.entities.CollectionItem.create({
           collection_id: collectionId,
           user_id: userId,
           resource_type: resourceType,
@@ -139,7 +139,7 @@ export default function CollectionManager({
         // Update count
         const collection = collections.find(c => c.id === collectionId);
         if (collection) {
-          await base44.entities.Collection.update(collectionId, {
+          await api.entities.Collection.update(collectionId, {
             items_count: (collection.items_count || 0) + 1
           });
         }

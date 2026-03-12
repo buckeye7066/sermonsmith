@@ -18,7 +18,7 @@ import {
   User as UserIcon,
   Heart
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const POPULAR_TOPICS = [
@@ -89,7 +89,7 @@ export default function PreferencesManager({ user, onUpdate }) {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await base44.auth.updateMe({
+      await api.auth.updateMe({
         reading_preferences: preferences.reading,
         study_preferences: preferences.study,
         content_preferences: preferences.content

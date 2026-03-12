@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,7 +64,7 @@ export default function PlanLibrary() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       console.log("User not logged in");
@@ -74,7 +74,7 @@ export default function PlanLibrary() {
   const loadPlans = async () => {
     setIsLoading(true);
     try {
-      const publicPlans = await base44.entities.ReadingPlan.filter(
+      const publicPlans = await api.entities.ReadingPlan.filter(
         { is_public: true },
         sortBy === 'rating' ? '-average_rating' : sortBy === 'popular' ? '-followers_count' : '-created_date',
         100

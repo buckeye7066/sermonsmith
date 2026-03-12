@@ -51,7 +51,7 @@ const isPremium = user.subscription_tier === 'premium' ||
 Created `functions/_ADMIN_AUTH_TEMPLATE.js` for admin-only functions.
 
 All admin functions should follow this pattern:
-1. Authenticate user with `base44.auth.me()`
+1. Authenticate user with `api.auth.me()`
 2. Check if user exists (401 if not)
 3. Check if `user.role === 'admin'` (403 if not)
 4. Proceed with function logic
@@ -83,7 +83,7 @@ All 12 admin-only backend functions now require proper admin authorization:
 
 **Option 2:** Manually set in database:
 ```javascript
-await base44.asServiceRole.entities.User.update(userId, {
+await api.entities.User.update(userId, {
   premium_override: true
 });
 ```

@@ -4,7 +4,7 @@
  * Static registry of all backend functions and helper modules in this app.
  * This registry MUST be manually maintained when adding/removing functions.
  * 
- * PORTABLE: Copy this file to any Base44 app and update the entries.
+ * PORTABLE: Copy this file to any SermonSmith deployment and update the entries.
  */
 
 export const KNOWN_FUNCTIONS = [

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ export default function Forum() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       toast.error("Please log in to view the forum");
@@ -50,7 +50,7 @@ export default function Forum() {
 
   const loadPosts = async () => {
     try {
-      const allPosts = await base44.entities.CommunityPost.list('-created_date', 50);
+      const allPosts = await api.entities.CommunityPost.list('-created_date', 50);
       setPosts(allPosts);
     } catch (error) {
       console.error('Error loading posts:', error);
@@ -59,7 +59,7 @@ export default function Forum() {
 
   const loadReplies = async (postId) => {
     try {
-      const postReplies = await base44.entities.CommunityReply.filter({ post_id: postId }, 'created_date');
+      const postReplies = await api.entities.CommunityReply.filter({ post_id: postId }, 'created_date');
       setReplies(postReplies);
     } catch (error) {
       console.error('Error loading replies:', error);
@@ -73,7 +73,7 @@ export default function Forum() {
     }
 
     try {
-      await base44.entities.CommunityPost.create({
+      await api.entities.CommunityPost.create({
         user_id: user.id,
         user_name: user.full_name || user.email,
         ...newPost
@@ -95,7 +95,7 @@ export default function Forum() {
     }
 
     try {
-      await base44.entities.CommunityReply.create({
+      await api.entities.CommunityReply.create({
         post_id: selectedPost.id,
         user_id: user.id,
         user_name: user.full_name || user.email,
@@ -103,7 +103,7 @@ export default function Forum() {
       });
 
       // Update reply count
-      await base44.entities.CommunityPost.update(selectedPost.id, {
+      await api.entities.CommunityPost.update(selectedPost.id, {
         replies_count: (selectedPost.replies_count || 0) + 1
       });
 
@@ -135,9 +135,9 @@ Provide a helpful, encouraging response that:
 
 Keep response under 300 words.`;
 
-      const aiResponse = await base44.integrations.Core.InvokeLLM({ prompt });
+      const aiResponse = await api.integrations.Core.InvokeLLM({ prompt });
 
-      await base44.entities.CommunityReply.create({
+      await api.entities.CommunityReply.create({
         post_id: selectedPost.id,
         user_id: user.id,
         user_name: "AI Assistant",
@@ -146,7 +146,7 @@ Keep response under 300 words.`;
       });
 
       // Update reply count
-      await base44.entities.CommunityPost.update(selectedPost.id, {
+      await api.entities.CommunityPost.update(selectedPost.id, {
         replies_count: (selectedPost.replies_count || 0) + 1
       });
 
@@ -172,7 +172,7 @@ Keep response under 300 words.`;
           <CardContent className="pt-6 text-center">
             <MessageSquare className="w-12 h-12 mx-auto mb-4 text-gray-400" />
             <p className="text-lg font-medium mb-4">Please log in to access the forum</p>
-            <Button onClick={() => base44.auth.redirectToLogin()}>Sign In</Button>
+            <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
           </CardContent>
         </Card>
       </div>

@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Edit3, Lock, Users } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function CollaborativeEditor({ 
@@ -32,7 +32,7 @@ export default function CollaborativeEditor({
 
   const checkLocks = async () => {
     try {
-      const edits = await base44.entities.SermonEdit.filter({ 
+      const edits = await api.entities.SermonEdit.filter({ 
         sermon_id: sermon.id,
         field: field
       });
@@ -51,7 +51,7 @@ export default function CollaborativeEditor({
     try {
       const lockUntil = new Date(Date.now() + 30000); // 30 second lock
       
-      await base44.entities.SermonEdit.create({
+      await api.entities.SermonEdit.create({
         sermon_id: sermon.id,
         user_id: user.id,
         user_name: user.full_name || user.email,
@@ -73,7 +73,7 @@ export default function CollaborativeEditor({
     timeoutRef.current = setTimeout(async () => {
       if (isEditing) {
         try {
-          const edits = await base44.entities.SermonEdit.filter({
+          const edits = await api.entities.SermonEdit.filter({
             sermon_id: sermon.id,
             user_id: user.id,
             field: field
@@ -81,7 +81,7 @@ export default function CollaborativeEditor({
 
           for (const edit of edits) {
             const lockUntil = new Date(Date.now() + 30000);
-            await base44.entities.SermonEdit.update(edit.id, {
+            await api.entities.SermonEdit.update(edit.id, {
               locked_until: lockUntil.toISOString()
             });
           }
@@ -96,14 +96,14 @@ export default function CollaborativeEditor({
 
   const releaseLock = async () => {
     try {
-      const edits = await base44.entities.SermonEdit.filter({
+      const edits = await api.entities.SermonEdit.filter({
         sermon_id: sermon.id,
         user_id: user.id,
         field: field
       });
 
       for (const edit of edits) {
-        await base44.entities.SermonEdit.delete(edit.id);
+        await api.entities.SermonEdit.delete(edit.id);
       }
 
       setIsEditing(false);

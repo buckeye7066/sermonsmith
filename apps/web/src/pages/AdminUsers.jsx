@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -50,7 +50,7 @@ export default function AdminUsers() {
 
   const loadCurrentUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
       
       if (currentUser.role !== 'admin') {
@@ -63,14 +63,14 @@ export default function AdminUsers() {
 
   const loadUsers = async () => {
     try {
-      const allUsers = await base44.entities.User.list('-created_date', 1000);
+      const allUsers = await api.entities.User.list('-created_date', 1000);
       setUsers(allUsers);
       
       // Load last login for each user
       const lastLoginData = {};
       for (const u of allUsers) {
         try {
-          const activities = await base44.entities.UserActivity.filter(
+          const activities = await api.entities.UserActivity.filter(
             { user_id: u.id },
             '-created_date',
             1
@@ -93,7 +93,7 @@ export default function AdminUsers() {
 
   const deleteUser = async (userId) => {
     try {
-      await base44.entities.User.delete(userId);
+      await api.entities.User.delete(userId);
       toast.success("User deleted successfully");
       setDeleteConfirm(null);
       loadUsers();
@@ -105,7 +105,7 @@ export default function AdminUsers() {
 
   const banUser = async (userId) => {
     try {
-      await base44.entities.User.update(userId, { 
+      await api.entities.User.update(userId, { 
         is_banned: true,
         banned_at: new Date().toISOString()
       });
@@ -120,7 +120,7 @@ export default function AdminUsers() {
 
   const unbanUser = async (userId) => {
     try {
-      await base44.entities.User.update(userId, { 
+      await api.entities.User.update(userId, { 
         is_banned: false,
         banned_at: null
       });
@@ -134,7 +134,7 @@ export default function AdminUsers() {
 
   const viewUserActivity = async (userId, userEmail) => {
     try {
-      const activities = await base44.entities.UserActivity.filter({ 
+      const activities = await api.entities.UserActivity.filter({ 
         user_id: userId 
       }, '-created_date', 100);
       

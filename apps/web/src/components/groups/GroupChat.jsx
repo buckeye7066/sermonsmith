@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,7 @@ export default function GroupChat({ group, user }) {
 
   const loadMessages = async () => {
     try {
-      const msgs = await base44.entities.GroupMessage.filter(
+      const msgs = await api.entities.GroupMessage.filter(
         { group_id: group.id },
         '-created_date',
         100
@@ -48,7 +48,7 @@ export default function GroupChat({ group, user }) {
     if (!newMessage.trim()) return;
 
     try {
-      await base44.entities.GroupMessage.create({
+      await api.entities.GroupMessage.create({
         group_id: group.id,
         user_id: user.id,
         user_name: user.full_name || user.email,

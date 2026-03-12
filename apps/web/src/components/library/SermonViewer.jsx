@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Star, GitFork, Eye, Users, BookOpen, Lightbulb, Target, Sparkles } from "lucide-react";
 import ThematicLinker from "../discovery/ThematicLinker";
 import CommentSection from "../community/CommentSection";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 
 export default function SermonViewer({ open, onClose, sermon, onFork, onRate }) {
   const [reviews, setReviews] = useState([]);
@@ -29,7 +29,7 @@ export default function SermonViewer({ open, onClose, sermon, onFork, onRate }) 
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       console.log("User not logged in");
@@ -39,7 +39,7 @@ export default function SermonViewer({ open, onClose, sermon, onFork, onRate }) 
 
   const loadReviews = async () => {
     try {
-      const sermonReviews = await base44.entities.SermonRating.filter(
+      const sermonReviews = await api.entities.SermonRating.filter(
         { sermon_id: sermon.id },
         '-created_date',
         10

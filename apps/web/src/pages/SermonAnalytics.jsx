@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -32,11 +32,11 @@ export default function SermonAnalytics() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       toast.error("Please log in");
-      await base44.auth.redirectToLogin();
+      await api.auth.redirectToLogin();
     }
   };
 
@@ -44,10 +44,10 @@ export default function SermonAnalytics() {
     setIsLoading(true);
     try {
       const [userSermons, publicSermons, allRatings, userSeries] = await Promise.all([
-        base44.entities.Sermon.filter({ user_id: user.id }),
-        base44.entities.SharedSermon.filter({ creator_id: user.id }),
-        base44.entities.SermonRating.list(),
-        base44.entities.SermonSeries.filter({ user_id: user.id })
+        api.entities.Sermon.filter({ user_id: user.id }),
+        api.entities.SharedSermon.filter({ creator_id: user.id }),
+        api.entities.SermonRating.list(),
+        api.entities.SermonSeries.filter({ user_id: user.id })
       ]);
 
       setSermons(userSermons);

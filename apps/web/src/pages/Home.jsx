@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -61,7 +61,7 @@ export default function Home() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
       
       // Show onboarding for new users
@@ -138,6 +138,13 @@ export default function Home() {
       description: "Original language analysis, historical context, and theological interpretation",
       color: "amber",
       link: "SermonBuilder"
+    },
+    {
+      icon: Globe,
+      title: "Multi-Perspective Study",
+      description: "See how Catholic, Orthodox, Reformed, Wesleyan, and other traditions interpret the same passage",
+      color: "teal",
+      link: "BibleStudy"
     }
   ];
 
@@ -218,10 +225,11 @@ export default function Home() {
               <span className="text-purple-600 dark:text-purple-400 font-semibold"> Teaching Builder</span>
             </p>
             
-            <p className="text-xl text-gray-500 dark:text-gray-400 max-w-3xl mx-auto mb-12">
+              <p className="text-xl text-gray-500 dark:text-gray-400 max-w-3xl mx-auto mb-12">
               Meet <strong className="text-blue-600">Larry</strong> and <strong className="text-purple-600">Arlynn</strong> - 
               your AI teaching assistants. Perfect for pastors, Sunday School teachers, VBS leaders, and Christian educators. 
-              Generate complete lessons in 30 seconds, explore ethics and worldview topics, and share with your community.
+              Generate complete lessons in 30 seconds, study Scripture through multiple interpretive lenses, 
+              explore 50+ worldviews, and share with your community.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 flex-wrap">
@@ -230,7 +238,7 @@ export default function Home() {
                   <Button
                     size="lg"
                     className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-lg px-8 py-6"
-                    onClick={() => base44.auth.redirectToLogin()}
+                    onClick={() => api.auth.redirectToLogin()}
                   >
                     <Zap className="w-5 h-5 mr-2" />
                     Get Started Free
@@ -955,7 +963,7 @@ export default function Home() {
                   <Button
                     size="lg"
                     className="bg-white text-indigo-600 hover:bg-gray-100 text-lg px-10 py-7"
-                    onClick={() => base44.auth.redirectToLogin()}
+                    onClick={() => api.auth.redirectToLogin()}
                   >
                     <Zap className="w-5 h-5 mr-2" />
                     Start Free Today
@@ -1041,7 +1049,7 @@ export default function Home() {
           
           <div className="border-t border-gray-800 mt-12 pt-8">
             <div className="text-center">
-              <p className="text-gray-400 mb-4">© 2024 SermonSmith. Created by Dr. John White. All rights reserved.</p>
+              <p className="text-gray-400 mb-4">© 2024-2026 SermonSmith. Created by Dr. John White. All rights reserved.</p>
               <div className="max-w-2xl mx-auto">
                 <p className="text-sm text-gray-500 leading-relaxed">
                   Dr. John White is a family man and father of two who has served in pastoral ministry. 

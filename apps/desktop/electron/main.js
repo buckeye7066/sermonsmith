@@ -2,18 +2,15 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 
-// Initialize electron-store for persistent configuration
 const store = new Store();
 
 let mainWindow;
 let firstRunWindow;
 
-// Check if this is the first run (no config stored)
 function isFirstRun() {
-  return !store.has('base44Config');
+  return !store.has('sermonsmithConfig');
 }
 
-// Create the main application window
 function createMainWindow() {
   const iconPath = path.join(app.getAppPath(), '..', 'web', 'src', 'assets', 'icons', 'icon.png');
   mainWindow = new BrowserWindow({
@@ -27,12 +24,11 @@ function createMainWindow() {
       preload: path.join(__dirname, 'preload.js')
     },
     icon: iconPath,
-    show: false // Don't show until ready
+    show: false
   });
 
-  // Load the app
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  
+
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
@@ -40,12 +36,10 @@ function createMainWindow() {
     mainWindow.loadFile(path.join(__dirname, '..', '..', 'web', 'dist', 'index.html'));
   }
 
-  // Show window when ready
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
 
-  // Save window position and size on close
   mainWindow.on('close', () => {
     const bounds = mainWindow.getBounds();
     store.set('windowWidth', bounds.width);
@@ -59,12 +53,11 @@ function createMainWindow() {
   });
 }
 
-// Create first-run setup wizard window
 function createFirstRunWindow() {
   const iconPath = path.join(app.getAppPath(), '..', 'web', 'src', 'assets', 'icons', 'icon.png');
   firstRunWindow = new BrowserWindow({
     width: 600,
-    height: 500,
+    height: 400,
     resizable: false,
     webPreferences: {
       nodeIntegration: false,
@@ -78,28 +71,21 @@ function createFirstRunWindow() {
 
   firstRunWindow.on('closed', () => {
     firstRunWindow = null;
-    // If setup was cancelled, quit the app
     if (isFirstRun()) {
       app.quit();
     }
   });
 }
 
-// Handle configuration save from first-run wizard
-ipcMain.handle('save-config', async (event, config) => {
+ipcMain.handle('save-config', async (_event, config) => {
   try {
-    store.set('base44Config', config);
-    
-    // Set environment variables for the app
-    process.env.VITE_BASE44_APP_ID = config.appId;
-    process.env.VITE_BASE44_BACKEND_URL = config.backendUrl;
-    
-    // Close first-run window and open main window
+    store.set('sermonsmithConfig', config);
+    process.env.VITE_API_URL = config.apiUrl;
+
     if (firstRunWindow) {
       firstRunWindow.close();
     }
     createMainWindow();
-    
     return { success: true };
   } catch (error) {
     console.error('Error saving config:', error);
@@ -107,20 +93,14 @@ ipcMain.handle('save-config', async (event, config) => {
   }
 });
 
-// Handle configuration retrieval
 ipcMain.handle('get-config', async () => {
-  return store.get('base44Config');
+  return store.get('sermonsmithConfig');
 });
 
-// Handle configuration update from settings
-ipcMain.handle('update-config', async (event, config) => {
+ipcMain.handle('update-config', async (_event, config) => {
   try {
-    store.set('base44Config', config);
-    
-    // Update environment variables
-    process.env.VITE_BASE44_APP_ID = config.appId;
-    process.env.VITE_BASE44_BACKEND_URL = config.backendUrl;
-    
+    store.set('sermonsmithConfig', config);
+    process.env.VITE_API_URL = config.apiUrl;
     return { success: true };
   } catch (error) {
     console.error('Error updating config:', error);
@@ -128,13 +108,10 @@ ipcMain.handle('update-config', async (event, config) => {
   }
 });
 
-// App ready event
 app.whenReady().then(() => {
-  // Load config if it exists and set environment variables
   if (!isFirstRun()) {
-    const config = store.get('base44Config');
-    process.env.VITE_BASE44_APP_ID = config.appId;
-    process.env.VITE_BASE44_BACKEND_URL = config.backendUrl;
+    const config = store.get('sermonsmithConfig');
+    process.env.VITE_API_URL = config.apiUrl;
     createMainWindow();
   } else {
     createFirstRunWindow();
@@ -151,14 +128,12 @@ app.whenReady().then(() => {
   });
 });
 
-// Quit when all windows are closed (except on macOS)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
-// Handle errors
 process.on('uncaughtException', (error) => {
   console.error('Uncaught exception:', error);
 });

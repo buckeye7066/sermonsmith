@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +38,7 @@ export default function StudyGroups() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       toast.error("Please log in to view study groups");
@@ -50,8 +50,8 @@ export default function StudyGroups() {
   const loadGroups = async () => {
     try {
       const [allGroups, memberships] = await Promise.all([
-        base44.entities.StudyGroup.list('-member_count', 50),
-        base44.entities.GroupMembership.filter({ user_id: user.id })
+        api.entities.StudyGroup.list('-member_count', 50),
+        api.entities.GroupMembership.filter({ user_id: user.id })
       ]);
 
       setGroups(allGroups);
@@ -72,14 +72,14 @@ export default function StudyGroups() {
     }
 
     try {
-      const group = await base44.entities.StudyGroup.create({
+      const group = await api.entities.StudyGroup.create({
         creator_id: user.id,
         ...newGroup,
         member_count: 1
       });
 
       // Add creator as leader
-      await base44.entities.GroupMembership.create({
+      await api.entities.GroupMembership.create({
         group_id: group.id,
         user_id: user.id,
         user_name: user.full_name || user.email,
@@ -99,7 +99,7 @@ export default function StudyGroups() {
   const handleJoinGroup = async (group) => {
     try {
       // Check if already a member
-      const existing = await base44.entities.GroupMembership.filter({
+      const existing = await api.entities.GroupMembership.filter({
         group_id: group.id,
         user_id: user.id
       });
@@ -109,7 +109,7 @@ export default function StudyGroups() {
         return;
       }
 
-      await base44.entities.GroupMembership.create({
+      await api.entities.GroupMembership.create({
         group_id: group.id,
         user_id: user.id,
         user_name: user.full_name || user.email,
@@ -118,7 +118,7 @@ export default function StudyGroups() {
       });
 
       // Update member count
-      await base44.entities.StudyGroup.update(group.id, {
+      await api.entities.StudyGroup.update(group.id, {
         member_count: (group.member_count || 1) + 1
       });
 
@@ -140,7 +140,7 @@ export default function StudyGroups() {
           <CardContent className="pt-6 text-center">
             <Users className="w-12 h-12 mx-auto mb-4 text-gray-400" />
             <p className="text-lg font-medium mb-4">Please log in to view study groups</p>
-            <Button onClick={() => base44.auth.redirectToLogin()}>Sign In</Button>
+            <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
           </CardContent>
         </Card>
       </div>

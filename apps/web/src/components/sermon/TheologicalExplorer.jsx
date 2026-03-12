@@ -23,7 +23,7 @@ import {
   Copy,
   Check
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function TheologicalExplorer({ open, onClose, topic, passage, denomination }) {
@@ -89,7 +89,7 @@ Please provide comprehensive theological analysis:
 
 Make this scholarly but accessible. Include scripture references throughout.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",

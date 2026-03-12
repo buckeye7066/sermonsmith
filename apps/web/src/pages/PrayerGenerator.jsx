@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,7 +97,7 @@ export default function PrayerGenerator() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       console.log("User not logged in");
@@ -160,7 +160,7 @@ Structure:
 
 Make it heartfelt, not formulaic. Use concrete imagery. Be personal yet universal.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: prayerSchema
       });
@@ -251,7 +251,7 @@ Create a fresh prayer that:
 
 Same structure as before.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: prayerSchema
       });
@@ -283,7 +283,7 @@ Same structure as before.`;
               <p className="text-gray-600 dark:text-gray-400 mb-6">
                 Access the Prayer Generator to create biblically sound prayers
               </p>
-              <Button onClick={() => base44.auth.redirectToLogin()}>Sign In</Button>
+              <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
             </CardContent>
           </Card>
         </div>

@@ -23,7 +23,7 @@ import {
   Check,
   Search
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function ExegesisHelper({ open, onClose, initialPassage = "", denomination }) {
@@ -87,7 +87,7 @@ Provide deep exegetical analysis:
 
 Be scholarly but accessible. Include specific examples.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",

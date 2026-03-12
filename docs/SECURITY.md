@@ -84,7 +84,7 @@ This security review covers all changes made for desktop (Electron) and mobile (
 ✅ **No Data Collection**
 - No analytics or telemetry
 - No external service dependencies for core functionality
-- User data stays local or in configured Base44 backend
+- User data stays local or in the self-hosted PostgreSQL database
 
 ✅ **Offline Mode Privacy**
 - Only caches explicitly viewed content
@@ -93,7 +93,7 @@ This security review covers all changes made for desktop (Electron) and mobile (
 
 ### 7. Authentication Security
 ✅ **Secure Configuration**
-- Base44 credentials stored securely via electron-store
+- API configuration stored securely via electron-store
 - No credentials in source code
 - First-run wizard validates URLs
 - Configuration can be updated securely
@@ -132,7 +132,7 @@ This security review covers all changes made for desktop (Electron) and mobile (
    - Keep Electron, Capacitor, and dependencies updated
    - Subscribe to security advisories
 2. **Monitoring**
-   - Monitor Base44 backend access logs
+   - Monitor API server access logs
    - Track failed authentication attempts
 3. **User Education**
    - Document secure configuration practices

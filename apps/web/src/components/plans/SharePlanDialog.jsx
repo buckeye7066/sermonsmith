@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Loader2, Share2, Sparkles } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function SharePlanDialog({ open, onClose, plan, user }) {
@@ -37,7 +37,7 @@ Generate:
 
 Make it discoverable for the community.`;
 
-      const tagsResponse = await base44.integrations.Core.InvokeLLM({
+      const tagsResponse = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -56,7 +56,7 @@ Make it discoverable for the community.`;
       });
 
       // Share the plan publicly
-      await base44.entities.ReadingPlan.create({
+      await api.entities.ReadingPlan.create({
         creator_id: user.id,
         creator_name: user.full_name || user.email,
         name: plan.plan_title,

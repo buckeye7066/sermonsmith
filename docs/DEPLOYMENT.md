@@ -189,9 +189,8 @@ VITE_GOOGLE_ANALYTICS_ID=G-...
 VITE_SENTRY_DSN=https://...
 ```
 
-**Note:** Remove old Base44 variables:
-- ~~`VITE_BASE44_APP_ID`~~
-- ~~`VITE_BASE44_BACKEND_URL`~~
+**Note:** Required environment variable:
+- `VITE_API_URL` — Backend API URL (e.g. `https://your-api.up.railway.app`)
 
 ### 2.3 Vercel Configuration
 
@@ -865,7 +864,7 @@ NODE_ENV=production
 ### Internal Team
 - For deployment issues: Create GitHub issue
 - For DNS issues: Contact GoDaddy admin
-- For API bugs: See `docs/MIGRATION_OFF_BASE44.md`
+- For API bugs: Check `services/api/` logs and Prisma errors
 
 ---
 

@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Share2, Users, Globe, Lock } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function ShareMenu({ open, onClose, content, contentType, user }) {
@@ -32,11 +32,11 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
 
   const loadStudyGroups = async () => {
     try {
-      const memberships = await base44.entities.GroupMembership.filter({ user_id: user.id });
+      const memberships = await api.entities.GroupMembership.filter({ user_id: user.id });
       const groupIds = memberships.map(m => m.group_id);
       
       if (groupIds.length > 0) {
-        const groups = await base44.entities.StudyGroup.filter({ id: { $in: groupIds } });
+        const groups = await api.entities.StudyGroup.filter({ id: { $in: groupIds } });
         setStudyGroups(groups);
       }
     } catch (error) {
@@ -81,7 +81,7 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
         group_id: visibility === 'group' ? selectedGroup : null
       };
 
-      await base44.entities.SharedContent.create(sharedContent);
+      await api.entities.SharedContent.create(sharedContent);
       
       toast.success("Content shared successfully!");
       onClose();

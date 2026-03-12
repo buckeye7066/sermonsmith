@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 
 export function usePremiumAccess() {
   const [accessData, setAccessData] = useState({
@@ -15,7 +15,7 @@ export function usePremiumAccess() {
 
     async function fetchAccess() {
       try {
-        const user = await base44.auth.me();
+        const user = await api.auth.me();
         
         if (!user) {
           if (mounted) {
@@ -30,20 +30,21 @@ export function usePremiumAccess() {
           return;
         }
 
-        // Check for premium override (set by admins)
-        const devOverride = user.premium_override === true;
+        // Admin and dev roles always get full access
+        const isAdmin = user.role === 'admin' || user.role === 'dev';
+        const devOverride = isAdmin || user.premium_override === true;
 
-        // Check premium status
         let isPremium = false;
-        
-        if (devOverride) {
+
+        if (isAdmin || devOverride) {
+          isPremium = true;
+        } else if (user.premium === true) {
           isPremium = true;
         } else if (user.subscription_tier === 'premium') {
           isPremium = true;
         } else if (user.premium_until) {
           const premiumUntil = new Date(user.premium_until);
-          const now = new Date();
-          if (premiumUntil > now) {
+          if (premiumUntil > new Date()) {
             isPremium = true;
           }
         }

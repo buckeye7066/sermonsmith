@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -108,7 +108,7 @@ export default function SermonLibrary() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       console.log("User not logged in");
@@ -124,8 +124,8 @@ export default function SermonLibrary() {
         '-created_date'; // Default to recent if no specific sort applies
 
       const [fetchedSermons, fetchedSeries] = await Promise.all([
-        base44.entities.SharedSermon.list(currentSortBy, 100),
-        base44.entities.SharedSeries.list('-average_rating', 50)
+        api.entities.SharedSermon.list(currentSortBy, 100),
+        api.entities.SharedSeries.list('-average_rating', 50)
       ]);
 
       setSermons(fetchedSermons); // Update sermons state (renamed from sharedSermons)
@@ -147,7 +147,7 @@ export default function SermonLibrary() {
 
   const loadMySermons = async () => {
     try {
-      const userSermons = await base44.entities.Sermon.filter({ user_id: user.id });
+      const userSermons = await api.entities.Sermon.filter({ user_id: user.id });
       setMySermons(userSermons);
     } catch (error) {
       console.error('Error loading my sermons:', error);
@@ -258,7 +258,7 @@ Recommend 5-8 sermons that:
 
 Return sermon IDs with brief reason for recommendation.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -326,7 +326,7 @@ Return the indices (1-based) of the 5 most relevant sermons for this user, prior
 
 Be strategic and personalized.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -360,7 +360,7 @@ Be strategic and personalized.`;
 
     // Increment view count
     try {
-      await base44.entities.SharedSermon.update(sermon.id, {
+      await api.entities.SharedSermon.update(sermon.id, {
         views_count: (sermon.views_count || 0) + 1
       });
       // Optionally update the sermon in `sermons` locally

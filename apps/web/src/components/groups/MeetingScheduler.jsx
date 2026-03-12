@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +33,7 @@ export default function MeetingScheduler({ group, user, members }) {
 
   const loadMeetings = async () => {
     try {
-      const mtgs = await base44.entities.GroupMeeting.filter(
+      const mtgs = await api.entities.GroupMeeting.filter(
         { group_id: group.id },
         '-scheduled_date',
         50
@@ -51,7 +51,7 @@ export default function MeetingScheduler({ group, user, members }) {
     }
 
     try {
-      await base44.entities.GroupMeeting.create({
+      await api.entities.GroupMeeting.create({
         ...newMeeting,
         group_id: group.id
       });
@@ -78,15 +78,15 @@ export default function MeetingScheduler({ group, user, members }) {
 
   const handleRSVP = async (meeting, status) => {
     try {
-      const existing = await base44.entities.MeetingAttendance.filter({
+      const existing = await api.entities.MeetingAttendance.filter({
         meeting_id: meeting.id,
         user_id: user.id
       });
 
       if (existing.length > 0) {
-        await base44.entities.MeetingAttendance.update(existing[0].id, { status });
+        await api.entities.MeetingAttendance.update(existing[0].id, { status });
       } else {
-        await base44.entities.MeetingAttendance.create({
+        await api.entities.MeetingAttendance.create({
           meeting_id: meeting.id,
           user_id: user.id,
           user_name: user.full_name || user.email,

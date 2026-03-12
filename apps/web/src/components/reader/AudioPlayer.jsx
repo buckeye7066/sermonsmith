@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Play, Pause, Volume2, VolumeX, Loader2, Crown, Settings, Globe, AlertTriangle, Info, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import {
   Select,
   SelectContent,

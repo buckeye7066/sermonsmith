@@ -1,9 +1,9 @@
-import { base44 } from './base44Client';
+import { api } from './apiClient';
 
 
-export const Query = base44.entities.Query;
+export const Query = api.entities.Query;
 
 
 
 // auth sdk:
-export const User = base44.auth;
+export const User = api.auth;

@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Sparkles, BookOpen, FileText, TrendingUp, Link2, Calendar } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -81,7 +81,7 @@ Identify:
 Help users discover sermons and verses that deepen this study.`;
       }
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -125,7 +125,7 @@ Help users discover sermons and verses that deepen this study.`;
       
       if (user) {
         try {
-          const sharedSermons = await base44.entities.SharedSermon.list('-views_count', 50);
+          const sharedSermons = await api.entities.SharedSermon.list('-views_count', 50);
           
           const filterPrompt = `Given these themes: ${themes.join(', ')}
 And topics: ${topics.join(', ')}
@@ -135,7 +135,7 @@ ${sharedSermons.slice(0, 20).map((s, i) => `${i+1}. "${s.title}" - ${s.topic}`).
 
 Return indices (1-based) of the 5 most relevant.`;
 
-          const relevantIndices = await base44.integrations.Core.InvokeLLM({
+          const relevantIndices = await api.integrations.Core.InvokeLLM({
             prompt: filterPrompt,
             response_json_schema: {
               type: "object",
@@ -150,7 +150,7 @@ Return indices (1-based) of the 5 most relevant.`;
 
           // Fetch related plans if applicable
           if (sourceType !== 'plan') { // Only suggest plans if the source is not already a plan
-            const publicPlans = await base44.entities.ReadingPlan.filter(
+            const publicPlans = await api.entities.ReadingPlan.filter(
               { is_public: true },
               '-followers_count',
               20
@@ -165,7 +165,7 @@ ${publicPlans.slice(0, 10).map((p, i) => `${i+1}. "${p.name}" - ${p.description?
 
 Return indices (1-based).`;
 
-              const planIndices = await base44.integrations.Core.InvokeLLM({
+              const planIndices = await api.integrations.Core.InvokeLLM({
                 prompt: planFilterPrompt,
                 response_json_schema: {
                   type: "object",

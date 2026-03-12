@@ -14,7 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, GitFork, Wand2, Copy, Baby, GraduationCap, User, Heart } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const AGE_GROUPS = [
@@ -123,7 +123,7 @@ Make it punchier while preserving the journey.`
         };
 
         if (adaptationPrompt[forkType]) {
-          const response = await base44.integrations.Core.InvokeLLM({
+          const response = await api.integrations.Core.InvokeLLM({
             prompt: adaptationPrompt[forkType],
             response_json_schema: {
               type: "object",
@@ -178,10 +178,10 @@ Make it punchier while preserving the journey.`
       }
 
       // Save forked plan
-      await base44.entities.ReadingPlan.create(forkedPlan);
+      await api.entities.ReadingPlan.create(forkedPlan);
 
       // Update fork count
-      await base44.entities.ReadingPlan.update(plan.id, {
+      await api.entities.ReadingPlan.update(plan.id, {
         followers_count: (plan.followers_count || 0) + 1
       });
 

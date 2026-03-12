@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Users, Plus, Mail, Trash2, Shield, CheckCircle, XCircle, Clock } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const ROLES = [
@@ -36,7 +36,7 @@ export default function CollaboratorManager({ open, onClose, sermon, user }) {
 
   const loadCollaborators = async () => {
     try {
-      const collab = await base44.entities.SermonCollaborator.filter({ sermon_id: sermon.id });
+      const collab = await api.entities.SermonCollaborator.filter({ sermon_id: sermon.id });
       setCollaborators(collab);
     } catch (error) {
       console.error("Error loading collaborators:", error);
@@ -51,7 +51,7 @@ export default function CollaboratorManager({ open, onClose, sermon, user }) {
 
     setIsInviting(true);
     try {
-      await base44.entities.SermonCollaborator.create({
+      await api.entities.SermonCollaborator.create({
         sermon_id: sermon.id,
         user_id: email, // Will be resolved on acceptance
         user_email: email,
@@ -76,7 +76,7 @@ export default function CollaboratorManager({ open, onClose, sermon, user }) {
     if (!confirm("Remove this collaborator?")) return;
 
     try {
-      await base44.entities.SermonCollaborator.delete(collabId);
+      await api.entities.SermonCollaborator.delete(collabId);
       toast.success("Collaborator removed");
       loadCollaborators();
     } catch (error) {
@@ -87,7 +87,7 @@ export default function CollaboratorManager({ open, onClose, sermon, user }) {
 
   const updateRole = async (collabId, newRole) => {
     try {
-      await base44.entities.SermonCollaborator.update(collabId, { role: newRole });
+      await api.entities.SermonCollaborator.update(collabId, { role: newRole });
       toast.success("Role updated");
       loadCollaborators();
     } catch (error) {

@@ -42,13 +42,13 @@ A Deno serverless function that fetches passages on-demand:
 **Manual Testing:**
 ```bash
 # Fetch John 3:16 (KJV)
-curl "https://your-app.base44.io/functions/biblePassage?translationId=en-kjv&bookCode=JHN&chapter=3&verses=16"
+curl "https://your-api.up.railway.app/functions/biblePassage?translationId=en-kjv&bookCode=JHN&chapter=3&verses=16"
 
 # Fetch entire Psalm 23 (KJV)
-curl "https://your-app.base44.io/functions/biblePassage?translationId=en-kjv&bookCode=PSA&chapter=23"
+curl "https://your-api.up.railway.app/functions/biblePassage?translationId=en-kjv&bookCode=PSA&chapter=23"
 
 # Fetch Genesis 1:1-3 (WEB)
-curl "https://your-app.base44.io/functions/biblePassage?translationId=en-web&bookCode=GEN&chapter=1&verses=1-3"
+curl "https://your-api.up.railway.app/functions/biblePassage?translationId=en-web&bookCode=GEN&chapter=1&verses=1-3"
 ```
 
 **Response Format:**
@@ -216,10 +216,10 @@ if (source.type === "api-bible") {
 
 ```bash
 # Test KJV John 3:16
-curl "https://your-app.base44.io/functions/biblePassage?translationId=en-kjv&bookCode=JHN&chapter=3&verses=16"
+curl "https://your-api.up.railway.app/functions/biblePassage?translationId=en-kjv&bookCode=JHN&chapter=3&verses=16"
 
 # Test WEB Romans 8
-curl "https://your-app.base44.io/functions/biblePassage?translationId=en-web&bookCode=ROM&chapter=8"
+curl "https://your-api.up.railway.app/functions/biblePassage?translationId=en-web&bookCode=ROM&chapter=8"
 ```
 
 ### Test in the UI:

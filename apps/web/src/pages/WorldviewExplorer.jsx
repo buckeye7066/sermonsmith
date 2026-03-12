@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -223,7 +223,7 @@ export default function WorldviewExplorer() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       console.log("User not logged in");
@@ -265,7 +265,7 @@ export default function WorldviewExplorer() {
 
 Be concise, accurate, and respectful.`;
 
-      const summary = await base44.integrations.Core.InvokeLLM({ prompt });
+      const summary = await api.integrations.Core.InvokeLLM({ prompt });
       
       setSystemSummaries(prev => ({ ...prev, [systemName]: summary }));
     } catch (error) {
@@ -302,7 +302,7 @@ Provide analysis covering:
 
 Be objective, fair, theologically sound.`;
 
-      const comparison = await base44.integrations.Core.InvokeLLM({
+      const comparison = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -364,7 +364,7 @@ Cover:
 
 Be respectful, accurate, pastoral.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: analysisSchema
       });
@@ -442,7 +442,7 @@ Be respectful, accurate, pastoral.`;
               <p className="text-gray-600 dark:text-gray-400 mb-6">
                 Study 50+ belief systems through a Christian lens
               </p>
-              <Button onClick={() => base44.auth.redirectToLogin()}>Sign In</Button>
+              <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
             </CardContent>
           </Card>
         </div>

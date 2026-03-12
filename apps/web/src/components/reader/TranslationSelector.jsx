@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Globe, Loader2, Code, ChevronDown } from "lucide-react";
@@ -27,7 +27,7 @@ export default function TranslationSelector({ currentTranslation = "KJV", onTran
 
   const loadTranslations = async () => {
     try {
-      const response = await base44.functions.invoke('listAvailableTranslations');
+      const response = await api.functions.invoke('listAvailableTranslations');
       
       // Handle unified envelope
       const result = response.data;

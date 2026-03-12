@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +50,7 @@ export default function TranslationBrowser({
   const loadTranslations = async () => {
     setIsLoading(true);
     try {
-      const response = await base44.functions.invoke('listAvailableTranslations');
+      const response = await api.functions.invoke('listAvailableTranslations');
       
       // Handle unified envelope
       const result = response.data;

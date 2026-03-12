@@ -2,31 +2,86 @@
 <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="bg-gradient" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e40af;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#020617;stop-opacity:1" />
     </radialGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
-      <feOffset dx="0" dy="0" result="offsetblur"/>
-      <feComponentTransfer>
-        <feFuncA type="linear" slope="2"/>
-      </feComponentTransfer>
+
+    <radialGradient id="glow-core" cx="50%" cy="45%" r="35%">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.95" />
+      <stop offset="40%" style="stop-color:#3b82f6;stop-opacity:0.6" />
+      <stop offset="70%" style="stop-color:#2563eb;stop-opacity:0.25" />
+      <stop offset="100%" style="stop-color:#1e3a8a;stop-opacity:0" />
+    </radialGradient>
+
+    <radialGradient id="glow-outer" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" style="stop-color:#93c5fd;stop-opacity:0.4" />
+      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.15" />
+      <stop offset="100%" style="stop-color:#1e3a8a;stop-opacity:0" />
+    </radialGradient>
+
+    <radialGradient id="glow-halo" cx="50%" cy="42%" r="25%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.5" />
+      <stop offset="50%" style="stop-color:#bfdbfe;stop-opacity:0.2" />
+      <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0" />
+    </radialGradient>
+
+    <linearGradient id="cross-gradient" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#f0f9ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e0f2fe;stop-opacity:1" />
+    </linearGradient>
+
+    <filter id="cross-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur1"/>
+      <feColorMatrix in="blur1" type="matrix" values="0 0 0 0 0.36  0 0 0 0 0.51  0 0 0 0 0.98  0 0 0 1.5 0" result="glow"/>
       <feMerge>
-        <feMergeNode/>
+        <feMergeNode in="glow"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
+
+    <filter id="soft-glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="20"/>
+    </filter>
+
+    <filter id="light-rays" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="15" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.36  0 0 0 0 0.51  0 0 0 0 0.98  0 0 0 2 0"/>
+    </filter>
   </defs>
-  
-  <!-- Background circle with gradient -->
+
+  <!-- Dark background circle -->
   <circle cx="256" cy="256" r="256" fill="url(#bg-gradient)"/>
-  
-  <!-- Cross with glow effect -->
-  <g filter="url(#glow)">
-    <!-- Vertical bar of cross -->
-    <rect x="226" y="106" width="60" height="300" rx="10" fill="white"/>
-    <!-- Horizontal bar of cross -->
-    <rect x="136" y="226" width="240" height="60" rx="10" fill="white"/>
+
+  <!-- Subtle ring -->
+  <circle cx="256" cy="256" r="240" fill="none" stroke="#1e3a8a" stroke-width="1" opacity="0.3"/>
+
+  <!-- Outer glow layer -->
+  <circle cx="256" cy="230" r="200" fill="url(#glow-outer)" filter="url(#soft-glow)"/>
+
+  <!-- Core blue glow behind cross -->
+  <circle cx="256" cy="230" r="160" fill="url(#glow-core)"/>
+
+  <!-- White halo at center -->
+  <circle cx="256" cy="220" r="100" fill="url(#glow-halo)"/>
+
+  <!-- Light ray streaks -->
+  <g opacity="0.15" filter="url(#soft-glow)">
+    <line x1="256" y1="60" x2="256" y2="440" stroke="#60a5fa" stroke-width="3"/>
+    <line x1="80" y1="230" x2="432" y2="230" stroke="#60a5fa" stroke-width="3"/>
+    <line x1="130" y1="104" x2="382" y2="356" stroke="#60a5fa" stroke-width="2"/>
+    <line x1="382" y1="104" x2="130" y2="356" stroke="#60a5fa" stroke-width="2"/>
   </g>
+
+  <!-- Cross with glow effect -->
+  <g filter="url(#cross-glow)">
+    <!-- Vertical bar -->
+    <rect x="230" y="100" width="52" height="310" rx="8" fill="url(#cross-gradient)"/>
+    <!-- Horizontal bar -->
+    <rect x="148" y="200" width="216" height="52" rx="8" fill="url(#cross-gradient)"/>
+  </g>
+
+  <!-- Subtle cross highlight -->
+  <rect x="234" y="104" width="6" height="302" rx="3" fill="white" opacity="0.3"/>
+  <rect x="152" y="204" width="208" height="6" rx="3" fill="white" opacity="0.3"/>
 </svg>

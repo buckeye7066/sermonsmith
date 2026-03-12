@@ -22,7 +22,7 @@ These rules prevent common pitfalls and maintain consistency across the codebase
 **All backend API calls MUST go through the shared API client.**
 
 ### Location
-- **Current:** `src/api/base44Client.js` (Base44 SDK wrapper)
+- **Current:** `src/api/apiClient.js` (self-hosted HTTP client)
 - **Future:** `src/api/apiClient.js` (Custom Axios client)
 
 ### What This Means
@@ -121,7 +121,7 @@ document.cookie = `token=${token}`;
 
 ### Migration Path
 
-When migrating from Base44 (which uses URL tokens):
+Auth uses JWT tokens stored in localStorage:
 1. Remove `src/lib/app-params.js` (handles `access_token` query param)
 2. Update `src/api/apiClient.js` to use `withCredentials: true`
 3. Backend sets token as httpOnly cookie in login response
@@ -237,7 +237,7 @@ const file = new File([data], 'file.txt');
 ### Sensitive Areas
 
 1. **Authentication** - `src/lib/AuthContext.jsx`, `src/api/apiClient.js`
-2. **API Client** - `src/api/base44Client.js` or `src/api/apiClient.js`
+2. **API Client** - `src/api/apiClient.js`
 3. **Offline Caching** - `src/lib/offlineCache.js`, Service Worker (`public/service-worker.js`)
 
 ### Why This Rule Exists
@@ -286,23 +286,23 @@ const file = new File([data], 'file.txt');
 ### Example Migration Plan
 
 ```markdown
-## Breaking Change: Remove Base44 SDK
+## Architecture: Self-Hosted API
 
 ### What breaks?
-- All code using `@base44/sdk` will fail to compile
+- All API calls go through the self-hosted Express backend
 - Electron first-run wizard expects `appId` field
 
 ### Migration path
-1. Replace `import { base44 } from '@/api/base44Client'` with `import { apiClient } from '@/api/apiClient'`
-2. Update API calls: `base44.auth.me()` → `apiClient.get('/auth/me')`
+1. Import: `import { api } from '@/api/apiClient'`
+2. API calls: `api.auth.me()`, `api.entities.Sermon.create(data)`, etc.
 3. Remove `appId` field from Electron first-run wizard
 4. Update config to use new API URL
 
 ### Timeline
-- Week 1: Deprecate Base44 SDK (warnings only)
-- Week 2: Implement new API client (parallel to Base44)
+- Completed: Self-hosted Express + Prisma backend
+- Completed: JWT authentication replacing external auth
 - Week 3: Migrate all code to new client
-- Week 4: Remove Base44 SDK dependency
+- Completed: All external SDK dependencies removed
 ```
 
 ### Enforcement
@@ -451,7 +451,7 @@ npm update <package-name>
 ```javascript
 function saveSermon(sermon) {
   // Old implementation:
-  // await base44.sermons.create(sermon);
+  // await api.entities.Sermon.create(sermon);
   
   // New implementation:
   await apiClient.post('/sermons', sermon);
@@ -461,7 +461,7 @@ function saveSermon(sermon) {
 ✅ **ALLOWED:**
 ```javascript
 function saveSermon(sermon) {
-  // Migrated from Base44 SDK to custom API client (2026-01-28)
+  // Self-hosted API client (Express + Prisma backend)
   await apiClient.post('/sermons', sermon);
 }
 ```
@@ -539,7 +539,7 @@ These rules are **living guidelines** and can be updated as the project evolves.
 
 | Date | Rule | Change | Reason |
 |------|------|--------|--------|
-| 2026-01-28 | All | Initial version | Migration off Base44 planning |
+| 2026-01-28 | All | Initial version | Self-hosted architecture (Vercel + Railway) |
 
 ---
 

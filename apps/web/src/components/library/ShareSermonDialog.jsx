@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Share2, Sparkles } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function ShareSermonDialog({ open, onClose, user, mySermons }) {
@@ -46,7 +46,7 @@ Generate:
 
 Return comprehensive tags for discoverability.`;
 
-      const tagsResponse = await base44.integrations.Core.InvokeLLM({
+      const tagsResponse = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -67,7 +67,7 @@ Return comprehensive tags for discoverability.`;
       setIsGeneratingTags(false);
 
       // Create shared sermon
-      await base44.entities.SharedSermon.create({
+      await api.entities.SharedSermon.create({
         user_id: user.id,
         user_name: user.full_name || user.email,
         title: sermon.title,

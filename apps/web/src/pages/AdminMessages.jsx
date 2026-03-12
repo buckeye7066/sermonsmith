@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,7 +36,7 @@ export default function AdminMessages() {
 
   const loadUser = async () => {
     try {
-      const userData = await base44.auth.me();
+      const userData = await api.auth.me();
       if (userData.role !== 'admin') {
         toast.error("Admin access required");
         return;
@@ -52,7 +52,7 @@ export default function AdminMessages() {
 
   const loadMessages = async () => {
     try {
-      const allMessages = await base44.entities.Message.list('-created_date');
+      const allMessages = await api.entities.Message.list('-created_date');
       setMessages(allMessages);
       
       // Load last activity for each user
@@ -61,7 +61,7 @@ export default function AdminMessages() {
       
       for (const userId of uniqueUserIds) {
         try {
-          const userActivities = await base44.entities.UserActivity.filter(
+          const userActivities = await api.entities.UserActivity.filter(
             { user_id: userId },
             '-created_date',
             1
@@ -89,7 +89,7 @@ export default function AdminMessages() {
 
     setIsSending(true);
     try {
-      await base44.entities.Message.update(selectedMessage.id, {
+      await api.entities.Message.update(selectedMessage.id, {
         admin_response: response.trim(),
         responded_at: new Date().toISOString(),
         status: "resolved"
@@ -128,7 +128,7 @@ export default function AdminMessages() {
       const message = messages.find(m => m.id === messageId);
       const oldStatus = message?.status;
       
-      await base44.entities.Message.update(messageId, { status: newStatus });
+      await api.entities.Message.update(messageId, { status: newStatus });
       
       logActivity('message_status_changed', {
         page_name: 'AdminMessages',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -18,7 +18,7 @@ export default function AdminFunctionTester() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       console.log("User not logged in");
@@ -34,7 +34,7 @@ export default function AdminFunctionTester() {
     try {
       toast.info("Running full test suite...");
       
-      const response = await base44.functions.invoke('testAllFunctions', {});
+      const response = await api.functions.invoke('testAllFunctions', {});
       
       if (response.data) {
         setResults(response.data);
@@ -85,7 +85,7 @@ export default function AdminFunctionTester() {
           <CardContent className="pt-6 text-center">
             <Shield className="w-12 h-12 mx-auto mb-4 text-gray-400" />
             <p className="text-lg font-medium mb-4">Please log in</p>
-            <Button onClick={() => base44.auth.redirectToLogin()}>Sign In</Button>
+            <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
           </CardContent>
         </Card>
       </div>

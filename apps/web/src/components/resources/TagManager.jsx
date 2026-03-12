@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { X, Plus, Tag, Sparkles, Loader2 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 const TAG_COLORS = [
@@ -46,7 +46,7 @@ export default function TagManager({ open, onClose, resourceType, resourceId, us
 
   const loadExistingTags = async () => {
     try {
-      const userTags = await base44.entities.ResourceTag.filter({
+      const userTags = await api.entities.ResourceTag.filter({
         user_id: userId,
         resource_type: resourceType
       });
@@ -66,12 +66,12 @@ export default function TagManager({ open, onClose, resourceType, resourceId, us
       let content = "";
       
       if (resourceType === 'sermon') {
-        const sermon = await base44.entities.Sermon.filter({ id: resourceId });
+        const sermon = await api.entities.Sermon.filter({ id: resourceId });
         if (sermon[0]) {
           content = `${sermon[0].title} ${sermon[0].topic} ${sermon[0].big_idea}`;
         }
       } else if (resourceType === 'study') {
-        const study = await base44.entities.BibleStudy.filter({ id: resourceId });
+        const study = await api.entities.BibleStudy.filter({ id: resourceId });
         if (study[0]) {
           content = `${study[0].title} ${study[0].topic} ${study[0].overview}`;
         }
@@ -84,7 +84,7 @@ Content: ${content}
 
 Return ONLY a JSON array of tag suggestions (strings), nothing else. Example: ["Faith", "Gospel of John", "Salvation", "Evangelism"]`;
 
-        const response = await base44.integrations.Core.InvokeLLM({
+        const response = await api.integrations.Core.InvokeLLM({
           prompt,
           response_json_schema: {
             type: "object",
@@ -121,7 +121,7 @@ Return ONLY a JSON array of tag suggestions (strings), nothing else. Example: ["
     }
 
     try {
-      const newTagObj = await base44.entities.ResourceTag.create({
+      const newTagObj = await api.entities.ResourceTag.create({
         user_id: userId,
         resource_type: resourceType,
         resource_id: resourceId,
@@ -145,7 +145,7 @@ Return ONLY a JSON array of tag suggestions (strings), nothing else. Example: ["
 
   const removeTag = async (tagId) => {
     try {
-      await base44.entities.ResourceTag.delete(tagId);
+      await api.entities.ResourceTag.delete(tagId);
       setTags(tags.filter(t => t.id !== tagId));
       toast.success("Tag removed");
     } catch (error) {

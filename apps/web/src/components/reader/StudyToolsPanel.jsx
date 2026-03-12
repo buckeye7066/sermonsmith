@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, BookOpen, Brain, MessageSquare, Lightbulb, Save, X } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function StudyToolsPanel({ open, onClose, verse, user }) {
@@ -48,7 +48,7 @@ Create questions that:
 
 Mix question types: observation, interpretation, application, and reflection.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -103,7 +103,7 @@ Include:
 
 Make it detailed but accessible, about 400-500 words total.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -153,7 +153,7 @@ Provide:
 
 Be scholarly yet accessible. About 400 words.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -198,7 +198,7 @@ Share:
 
 Make it personal, practical, and profound. About 350 words.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -233,7 +233,7 @@ Make it personal, practical, and profound. About 350 words.`;
     try {
       const tags = noteTags.split(',').map(t => t.trim()).filter(Boolean);
       
-      await base44.entities.StudyNote.create({
+      await api.entities.StudyNote.create({
         user_id: user.id,
         content: noteContent,
         scripture_reference: `${verse.book_name} ${verse.chapter}:${verse.verse}`,

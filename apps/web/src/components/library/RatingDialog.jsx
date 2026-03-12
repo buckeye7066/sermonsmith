@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Star, Loader2, CheckCircle } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function RatingDialog({ open, onClose, sermon, user }) {
@@ -29,7 +29,7 @@ export default function RatingDialog({ open, onClose, sermon, user }) {
 
   const checkExistingRating = async () => {
     try {
-      const existing = await base44.entities.SermonRating.filter({
+      const existing = await api.entities.SermonRating.filter({
         sermon_id: sermon.id,
         user_id: user.id
       });
@@ -56,14 +56,14 @@ export default function RatingDialog({ open, onClose, sermon, user }) {
     try {
       if (existingRating) {
         // Update existing rating
-        await base44.entities.SermonRating.update(existingRating.id, {
+        await api.entities.SermonRating.update(existingRating.id, {
           rating,
           review_text: reviewText.trim(),
           used_in_ministry: usedInMinistry
         });
       } else {
         // Create new rating
-        await base44.entities.SermonRating.create({
+        await api.entities.SermonRating.create({
           sermon_id: sermon.id,
           user_id: user.id,
           user_name: user.full_name || user.email,
@@ -74,10 +74,10 @@ export default function RatingDialog({ open, onClose, sermon, user }) {
       }
 
       // Update sermon's average rating
-      const allRatings = await base44.entities.SermonRating.filter({ sermon_id: sermon.id });
+      const allRatings = await api.entities.SermonRating.filter({ sermon_id: sermon.id });
       const avgRating = allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length;
 
-      await base44.entities.SharedSermon.update(sermon.id, {
+      await api.entities.SharedSermon.update(sermon.id, {
         average_rating: avgRating,
         ratings_count: allRatings.length
       });

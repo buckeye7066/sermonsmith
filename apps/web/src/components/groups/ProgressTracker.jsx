@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -18,14 +18,14 @@ export default function ProgressTracker({ group, isLeader }) {
 
   const loadProgress = async () => {
     try {
-      const groupProgress = await base44.entities.GroupProgress.filter({ group_id: group.id });
+      const groupProgress = await api.entities.GroupProgress.filter({ group_id: group.id });
       
       if (groupProgress.length > 0) {
         const prog = groupProgress[0];
         setProgress(prog);
         
         if (prog.plan_id) {
-          const readingPlan = await base44.entities.ReadingPlan.filter({ id: prog.plan_id });
+          const readingPlan = await api.entities.ReadingPlan.filter({ id: prog.plan_id });
           if (readingPlan.length > 0) {
             setPlan(readingPlan[0]);
           }
@@ -45,7 +45,7 @@ export default function ProgressTracker({ group, isLeader }) {
       const completedDays = [...(progress.completed_days || []), day];
       const completionPercentage = (completedDays.length / progress.total_days) * 100;
 
-      await base44.entities.GroupProgress.update(progress.id, {
+      await api.entities.GroupProgress.update(progress.id, {
         completed_days: completedDays,
         current_day: day + 1,
         completion_percentage: Math.round(completionPercentage)

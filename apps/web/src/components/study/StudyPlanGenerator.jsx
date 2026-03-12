@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, Calendar, Users, Sparkles, Save, Baby, User, GraduationCap, Heart, Share2 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import SharePlanDialog from "../plans/SharePlanDialog";
 
@@ -128,7 +128,7 @@ ${ageGroup === 'children' ? `
 
 Make it engaging, age-appropriate, and progressively building toward deeper understanding of "${topic}".`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -193,7 +193,7 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
     if (!user || !generatedPlan) return;
 
     try {
-      await base44.entities.ReadingPlan.create({
+      await api.entities.ReadingPlan.create({
         creator_id: user.id,
         creator_name: user.full_name || user.email,
         name: generatedPlan.plan_title,

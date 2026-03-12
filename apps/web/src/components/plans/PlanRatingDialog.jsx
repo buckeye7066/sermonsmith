@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Star, Loader2, CheckCircle } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function PlanRatingDialog({ open, onClose, plan, user }) {
@@ -30,7 +30,7 @@ export default function PlanRatingDialog({ open, onClose, plan, user }) {
 
   const checkExistingRating = async () => {
     try {
-      const existing = await base44.entities.SharedPlanRating.filter({
+      const existing = await api.entities.SharedPlanRating.filter({
         plan_id: plan.id,
         user_id: user.id
       });
@@ -56,13 +56,13 @@ export default function PlanRatingDialog({ open, onClose, plan, user }) {
 
     try {
       if (existingRating) {
-        await base44.entities.SharedPlanRating.update(existingRating.id, {
+        await api.entities.SharedPlanRating.update(existingRating.id, {
           rating,
           review_text: reviewText.trim(),
           used_plan: usedPlan
         });
       } else {
-        await base44.entities.SharedPlanRating.create({
+        await api.entities.SharedPlanRating.create({
           plan_id: plan.id,
           user_id: user.id,
           user_name: user.full_name || user.email,
@@ -73,10 +73,10 @@ export default function PlanRatingDialog({ open, onClose, plan, user }) {
       }
 
       // Update plan's average rating
-      const allRatings = await base44.entities.SharedPlanRating.filter({ plan_id: plan.id });
+      const allRatings = await api.entities.SharedPlanRating.filter({ plan_id: plan.id });
       const avgRating = allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length;
 
-      await base44.entities.ReadingPlan.update(plan.id, {
+      await api.entities.ReadingPlan.update(plan.id, {
         average_rating: avgRating,
         ratings_count: allRatings.length
       });

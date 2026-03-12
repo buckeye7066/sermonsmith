@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,7 +74,7 @@ export default function BibleMaps() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const currentUser = await base44.auth.me();
+        const currentUser = await api.auth.me();
         setUser(currentUser);
       } catch (error) {
         console.log('User not logged in', error);
@@ -110,7 +110,7 @@ Query: "${searchQuery}"
 
 Respond with just one word: location, timeline, or visual`;
 
-      const classification = await base44.integrations.Core.InvokeLLM({
+      const classification = await api.integrations.Core.InvokeLLM({
         prompt: classificationPrompt
       });
 
@@ -139,7 +139,7 @@ Format as JSON:
   ]
 }`;
 
-        const mapData = await base44.integrations.Core.InvokeLLM({
+        const mapData = await api.integrations.Core.InvokeLLM({
           prompt: mapPrompt,
           response_json_schema: {
             type: "object",
@@ -190,7 +190,7 @@ Format as JSON:
   ]
 }`;
 
-        const timelineData = await base44.integrations.Core.InvokeLLM({
+        const timelineData = await api.integrations.Core.InvokeLLM({
           prompt: timelinePrompt,
           response_json_schema: {
             type: "object",
@@ -228,14 +228,14 @@ Format as JSON:
 
 Be detailed and descriptive for creating a visual representation.`;
 
-        const description = await base44.integrations.Core.InvokeLLM({
+        const description = await api.integrations.Core.InvokeLLM({
           prompt: descriptionPrompt
         });
 
         // Generate image
         const imagePrompt = `Biblical illustration: ${searchQuery}. Detailed, reverent, historically accurate artistic depiction based on Scripture. High quality, appropriate for religious study.`;
 
-        const imageResult = await base44.integrations.Core.GenerateImage({
+        const imageResult = await api.integrations.Core.GenerateImage({
           prompt: imagePrompt
         });
 

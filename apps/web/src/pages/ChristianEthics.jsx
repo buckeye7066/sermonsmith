@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -200,7 +200,7 @@ export default function ChristianEthics() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       console.log("User not logged in");
@@ -254,7 +254,7 @@ TONE: Pastoral, wise, conversational. Use Scripture liberally. Acknowledge compl
 
 REMEMBER: "Speaking the truth in love" (Ephesians 4:15) - always both.`;
 
-      const larryResponse = await base44.integrations.Core.InvokeLLM({
+      const larryResponse = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: ethicsSchema
       });

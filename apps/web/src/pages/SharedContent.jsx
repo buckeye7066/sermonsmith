@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,7 @@ export default function SharedContent() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
     } catch (error) {
       toast.error("Please log in to view shared content");
@@ -40,15 +40,15 @@ export default function SharedContent() {
       let allContent;
       
       if (filter === 'all') {
-        allContent = await base44.entities.SharedContent.filter({ visibility: 'public' }, '-created_date', 50);
+        allContent = await api.entities.SharedContent.filter({ visibility: 'public' }, '-created_date', 50);
       } else {
-        allContent = await base44.entities.SharedContent.filter({ 
+        allContent = await api.entities.SharedContent.filter({ 
           visibility: 'public',
           content_type: filter
         }, '-created_date', 50);
       }
 
-      const userContent = await base44.entities.SharedContent.filter({ user_id: user.id }, '-created_date');
+      const userContent = await api.entities.SharedContent.filter({ user_id: user.id }, '-created_date');
 
       setSharedContent(allContent);
       setMyShared(userContent);
@@ -59,7 +59,7 @@ export default function SharedContent() {
 
   const handleLike = async (content) => {
     try {
-      await base44.entities.SharedContent.update(content.id, {
+      await api.entities.SharedContent.update(content.id, {
         likes_count: (content.likes_count || 0) + 1
       });
       toast.success("Liked!");
@@ -71,7 +71,7 @@ export default function SharedContent() {
 
   const handleSave = async (content) => {
     try {
-      await base44.entities.SharedContent.update(content.id, {
+      await api.entities.SharedContent.update(content.id, {
         saves_count: (content.saves_count || 0) + 1
       });
       toast.success("Saved to your collection!");
@@ -88,7 +88,7 @@ export default function SharedContent() {
           <CardContent className="pt-6 text-center">
             <Share2 className="w-12 h-12 mx-auto mb-4 text-gray-400" />
             <p className="text-lg font-medium mb-4">Please log in to view shared content</p>
-            <Button onClick={() => base44.auth.redirectToLogin()}>Sign In</Button>
+            <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
           </CardContent>
         </Card>
       </div>

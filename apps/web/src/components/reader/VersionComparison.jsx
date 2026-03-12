@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,7 +29,7 @@ export default function VersionComparison({ book, chapter, onClose }) {
 
   const loadAvailableTranslations = async () => {
     try {
-      const response = await base44.functions.invoke('listAvailableTranslations');
+      const response = await api.functions.invoke('listAvailableTranslations');
       if (response.data?.translations) {
         // Show all translations, not just available ones
         setAvailableTranslations(response.data.translations);
@@ -52,7 +52,7 @@ export default function VersionComparison({ book, chapter, onClose }) {
       }
 
       const dataPromises = selectedVersions.map(async (translationId) => {
-        const response = await base44.functions.invoke('biblePassage', {
+        const response = await api.functions.invoke('biblePassage', {
           translationId,
           bookCode,
           chapter
@@ -114,7 +114,7 @@ Provide:
 
 Be scholarly yet accessible. About 300-350 words.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",

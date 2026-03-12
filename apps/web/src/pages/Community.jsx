@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +30,7 @@ export default function Community() {
 
   const loadUser = async () => {
     try {
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
       
       // Check premium status
@@ -55,10 +55,10 @@ export default function Community() {
   const loadCommunityData = async () => {
     try {
       const [posts, shared, groups, plans] = await Promise.all([
-        base44.entities.CommunityPost.list('-created_date', 5),
-        base44.entities.SharedContent.list('-likes_count', 5),
-        base44.entities.StudyGroup.list('-member_count', 5),
-        base44.entities.ReadingPlan.list('-followers_count', 5)
+        api.entities.CommunityPost.list('-created_date', 5),
+        api.entities.SharedContent.list('-likes_count', 5),
+        api.entities.StudyGroup.list('-member_count', 5),
+        api.entities.ReadingPlan.list('-followers_count', 5)
       ]);
 
       setRecentPosts(posts);
@@ -86,7 +86,7 @@ export default function Community() {
             <Users className="w-16 h-16 mx-auto mb-4" />
             <h2 className="text-3xl font-bold mb-4">Join the Community</h2>
             <p className="text-lg mb-6">Connect with fellow believers, share insights, and grow together in faith.</p>
-            <Button onClick={() => base44.auth.redirectToLogin()} className="bg-white text-indigo-600 hover:bg-gray-100">
+            <Button onClick={() => api.auth.redirectToLogin()} className="bg-white text-indigo-600 hover:bg-gray-100">
               Sign In to Join
             </Button>
           </div>

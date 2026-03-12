@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Layers, Plus, Save, Trash2, GripVertical, Users } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import SeriesCollabManager from "@/components/collaboration/SeriesCollabManager";
 
@@ -40,8 +40,8 @@ export default function SeriesManager({ open, onClose, user }) {
   const loadData = async () => {
     try {
       const [userSeries, userSermons] = await Promise.all([
-        base44.entities.SermonSeries.filter({ user_id: user.id }),
-        base44.entities.Sermon.filter({ user_id: user.id })
+        api.entities.SermonSeries.filter({ user_id: user.id }),
+        api.entities.Sermon.filter({ user_id: user.id })
       ]);
       
       setMySeries(userSeries);
@@ -59,7 +59,7 @@ export default function SeriesManager({ open, onClose, user }) {
     }
 
     try {
-      const createdSeries = await base44.entities.SermonSeries.create({
+      const createdSeries = await api.entities.SermonSeries.create({
         user_id: user.id,
         title: newSeries.title,
         description: newSeries.description,
@@ -70,7 +70,7 @@ export default function SeriesManager({ open, onClose, user }) {
 
       // Update selected sermons with series info
       for (let i = 0; i < selectedSermons.length; i++) {
-        await base44.entities.Sermon.update(selectedSermons[i], {
+        await api.entities.Sermon.update(selectedSermons[i], {
           series_id: createdSeries.id,
           series_order: i + 1
         });
@@ -96,13 +96,13 @@ export default function SeriesManager({ open, onClose, user }) {
       // Remove series reference from sermons
       const sermonsInSeries = sermons.filter(s => s.series_id === seriesId);
       for (const sermon of sermonsInSeries) {
-        await base44.entities.Sermon.update(sermon.id, {
+        await api.entities.Sermon.update(sermon.id, {
           series_id: null,
           series_order: null
         });
       }
 
-      await base44.entities.SermonSeries.delete(seriesId);
+      await api.entities.SermonSeries.delete(seriesId);
       toast.success("Series deleted");
       loadData();
     } catch (error) {
