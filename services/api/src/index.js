@@ -46,6 +46,26 @@ const allowedOrigins = process.env.CORS_ORIGIN
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(cookieParser());
 
+// ---------------------------------------------------------------------------
+// CSRF protection — validate Origin header on state-changing requests.
+// Combined with SameSite=Lax cookies, this provides defense-in-depth
+// against cross-site request forgery.
+// ---------------------------------------------------------------------------
+app.use((req, res, next) => {
+  // Safe methods don't need CSRF protection
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+
+  const origin = req.headers.origin || req.headers.referer;
+  if (!origin) return next(); // Non-browser clients (curl, mobile) have no Origin
+
+  try {
+    const reqOrigin = new URL(origin).origin;
+    if (allowedOrigins.includes(reqOrigin)) return next();
+  } catch { /* malformed Origin */ }
+
+  return res.status(403).json({ message: 'Forbidden — origin not allowed' });
+});
+
 // Stripe webhook needs raw body for signature verification — mount before JSON parser
 app.post('/api/functions/stripeWebhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
