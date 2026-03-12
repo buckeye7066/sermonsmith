@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Link2, Sparkles, BookOpen, TrendingUp, RefreshCw } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 
 export default function CrossReferencePanel({ open, onClose, verse, onNavigate }) {
@@ -68,6 +69,7 @@ For each reference provide:
 Make it useful for Bible study and sermon prep!`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

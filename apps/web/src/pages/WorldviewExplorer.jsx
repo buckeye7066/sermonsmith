@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -265,7 +266,7 @@ export default function WorldviewExplorer() {
 
 Be concise, accurate, and respectful.`;
 
-      const summary = await api.integrations.Core.InvokeLLM({ prompt });
+      const summary = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
       
       setSystemSummaries(prev => ({ ...prev, [systemName]: summary }));
     } catch (error) {
@@ -303,6 +304,7 @@ Provide analysis covering:
 Be objective, fair, theologically sound.`;
 
       const comparison = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -365,6 +367,7 @@ Cover:
 Be respectful, accurate, pastoral.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: analysisSchema
       });

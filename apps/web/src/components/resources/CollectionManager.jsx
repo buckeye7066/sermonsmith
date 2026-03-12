@@ -24,6 +24,15 @@ import { toast } from "sonner";
 const ICONS = ['folder', 'book', 'star', 'heart', 'bookmark', 'lightbulb', 'target'];
 const COLORS = ['blue', 'green', 'purple', 'red', 'orange', 'pink', 'teal', 'indigo'];
 
+const COLOR_BG = {
+  blue: 'bg-blue-100', green: 'bg-green-100', purple: 'bg-purple-100', red: 'bg-red-100',
+  orange: 'bg-orange-100', pink: 'bg-pink-100', teal: 'bg-teal-100', indigo: 'bg-indigo-100'
+};
+const COLOR_TEXT = {
+  blue: 'text-blue-600', green: 'text-green-600', purple: 'text-purple-600', red: 'text-red-600',
+  orange: 'text-orange-600', pink: 'text-pink-600', teal: 'text-teal-600', indigo: 'text-indigo-600'
+};
+
 export default function CollectionManager({ 
   open, 
   onClose, 
@@ -194,8 +203,8 @@ export default function CollectionManager({
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg bg-${collection.color}-100`}>
-                              <Folder className={`w-5 h-5 text-${collection.color}-600`} />
+                            <div className={`p-2 rounded-lg ${COLOR_BG[collection.color] || 'bg-blue-100'}`}>
+                              <Folder className={`w-5 h-5 ${COLOR_TEXT[collection.color] || 'text-blue-600'}`} />
                             </div>
                             <div>
                               <h4 className="font-medium">{collection.name}</h4>

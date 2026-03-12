@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import { OfflineProvider } from '@/lib/offlineDetector.jsx';
 import OfflineBanner from '@/components/OfflineBanner';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 const Login = lazy(() => import('./pages/Login'));
 
@@ -73,18 +74,20 @@ const AuthenticatedApp = () => {
 
 function App() {
   return (
-    <OfflineProvider>
-      <AuthProvider>
-        <QueryClientProvider client={queryClientInstance}>
-          <Router>
-            <NavigationTracker />
-            <OfflineBanner />
-            <AuthenticatedApp />
-          </Router>
-          <Toaster />
-        </QueryClientProvider>
-      </AuthProvider>
-    </OfflineProvider>
+    <ErrorBoundary>
+      <OfflineProvider>
+        <AuthProvider>
+          <QueryClientProvider client={queryClientInstance}>
+            <Router>
+              <NavigationTracker />
+              <OfflineBanner />
+              <AuthenticatedApp />
+            </Router>
+            <Toaster />
+          </QueryClientProvider>
+        </AuthProvider>
+      </OfflineProvider>
+    </ErrorBoundary>
   )
 }
 

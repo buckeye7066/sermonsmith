@@ -12,8 +12,8 @@ export default function GrantAccess() {
   const grantAccess = async () => {
     setLoading(true);
     try {
-      const response = await api.functions.invoke('grantMePremium');
-      if (response.data.success) {
+      const result = await api.functions.invoke('grantMePremium');
+      if (result.success) {
         setGranted(true);
         toast.success('Premium access granted!');
         setTimeout(() => {

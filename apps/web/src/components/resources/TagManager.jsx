@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { X, Plus, Tag, Sparkles, Loader2 } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 
 const TAG_COLORS = [
@@ -85,6 +86,7 @@ Content: ${content}
 Return ONLY a JSON array of tag suggestions (strings), nothing else. Example: ["Faith", "Gospel of John", "Salvation", "Evangelism"]`;
 
         const response = await api.integrations.Core.InvokeLLM({
+          system_prompt: LARRY_SYSTEM_PROMPT,
           prompt,
           response_json_schema: {
             type: "object",

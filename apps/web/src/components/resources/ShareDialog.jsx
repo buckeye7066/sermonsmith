@@ -26,7 +26,7 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
   const handleGenerateLink = async () => {
     setIsGenerating(true);
     try {
-      const response = await api.functions.invoke('createShareableLink', {
+      const result = await api.functions.invoke('createShareableLink', {
         resourceType,
         resourceId,
         title: shareTitle,
@@ -35,11 +35,11 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
         expiresInDays: expiresInDays ? parseInt(expiresInDays) : null
       });
 
-      if (response.data.error) {
-        throw new Error(response.data.error);
+      if (result.error) {
+        throw new Error(result.error);
       }
 
-      setShareUrl(response.data.shareUrl);
+      setShareUrl(result.shareUrl);
       toast.success("Share link generated!");
     } catch (error) {
       console.error('Error generating link:', error);

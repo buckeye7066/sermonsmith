@@ -23,19 +23,6 @@ export default function Layout({ children, currentPageName }) {
   useEffect(() => {
     loadUser();
 
-    // Register service worker only in production (not in preview/dev mode)
-    if ('serviceWorker' in navigator && window.location.hostname !== 'localhost' && !window.location.hostname.includes('preview')) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then(registration => {
-            console.log('SW registered:', registration);
-          })
-          .catch(err => {
-            console.log('SW registration failed:', err);
-          });
-      });
-    }
-
     // Enhanced PWA Setup with better mobile support
     document.querySelectorAll('link[rel="manifest"]').forEach(link => link.remove());
 
@@ -69,26 +56,26 @@ export default function Layout({ children, currentPageName }) {
           "name": "Bible Reader",
           "short_name": "Read Bible",
           "description": "Open Bible Reader",
-          "url": "/pages/Reader?source=shortcut",
+          "url": "/Reader?source=shortcut",
           "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
         },
         {
           "name": "Sermon Builder",
           "short_name": "New Sermon",
           "description": "Create new sermon",
-          "url": "/pages/SermonBuilder?source=shortcut",
+          "url": "/SermonBuilder?source=shortcut",
           "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
         },
         {
           "name": "Bible Study",
           "short_name": "Study",
           "description": "Create Bible study",
-          "url": "/pages/BibleStudy?source=shortcut",
+          "url": "/BibleStudy?source=shortcut",
           "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
         }
       ],
       "share_target": {
-        "action": "/pages/Reader?share=true",
+        "action": "/Reader?share=true",
         "method": "GET",
         "params": {
           "title": "title",
@@ -99,7 +86,7 @@ export default function Layout({ children, currentPageName }) {
       "protocol_handlers": [
         {
           "protocol": "web+bible",
-          "url": "/pages/Reader?verse=%s"
+          "url": "/Reader?verse=%s"
         }
       ]
     };
@@ -141,21 +128,12 @@ export default function Layout({ children, currentPageName }) {
     };
     addHttpEquivMeta('Content-Security-Policy', 'upgrade-insecure-requests');
 
-    // Cross-browser localStorage fix for iOS in-app browsers
+    // Cross-browser localStorage availability check for iOS in-app browsers
     try {
       localStorage.setItem("__storage_test__", "1");
       localStorage.removeItem("__storage_test__");
     } catch (e) {
-      console.warn("localStorage disabled — using fallback memory store");
-      const memoryStore = {};
-      window.localStorage = {
-        setItem: (k, v) => { memoryStore[k] = v; },
-        getItem: (k) => memoryStore[k] || null,
-        removeItem: (k) => { delete memoryStore[k]; },
-        clear: () => { Object.keys(memoryStore).forEach(k => delete memoryStore[k]); },
-        key: (i) => Object.keys(memoryStore)[i] || null,
-        get length() { return Object.keys(memoryStore).length; }
-      };
+      console.warn("localStorage unavailable — some preferences may not persist across sessions");
     }
 
     // iOS splash screens and icons
@@ -189,11 +167,10 @@ export default function Layout({ children, currentPageName }) {
       const share = params.get('share');
 
       if (verse) {
-        // Parse verse reference like "John 3:16" and navigate
         const match = verse.match(/(.+?)\s+(\d+):(\d+)/);
         if (match) {
           const [, book, chapter, verseNum] = match;
-          window.location.href = `/pages/Reader?book=${encodeURIComponent(book)}&chapter=${chapter}&verse=${verseNum}`;
+          window.location.href = `/Reader?book=${encodeURIComponent(book)}&chapter=${chapter}&verse=${verseNum}`;
         }
       }
 

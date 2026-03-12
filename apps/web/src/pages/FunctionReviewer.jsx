@@ -147,9 +147,9 @@ export default function FunctionReviewer() {
   const discoverFunctions = async () => {
     setDiscovering(true);
     try {
-      const response = await api.functions.invoke('discoverFunctions', { scope: 'all' });
-      if (response.data?.ok) {
-        const data = response.data.data;
+      const result = await api.functions.invoke('discoverFunctions', { scope: 'all' });
+      if (result?.ok) {
+        const data = result.data || result;
         setAllFiles({
           functions: data.functions || [],
           pages: data.pages || [],
@@ -160,7 +160,7 @@ export default function FunctionReviewer() {
         setFunctions(data.functions || []);
         toast.success(`Discovered ${data.totals?.all || 0} files`);
       } else {
-        toast.error(response.data?.error || 'Discovery failed');
+        toast.error(result?.error || 'Discovery failed');
       }
     } catch (err) {
       toast.error(err.message || 'Discovery failed');
@@ -212,14 +212,14 @@ export default function FunctionReviewer() {
     setSelectedFunction(func);
     
     try {
-      const response = await api.functions.invoke('getFunctionDetails', {
+      const result = await api.functions.invoke('getFunctionDetails', {
         functionId: func.functionId
       });
       
-      if (response.data?.ok) {
-        setFunctionDetails(response.data.data);
+      if (result?.ok) {
+        setFunctionDetails(result.data || result);
       } else {
-        setError(response.data?.error || 'Failed to load function details');
+        setError(result?.error || 'Failed to load function details');
         setFunctionDetails(null);
       }
     } catch (err) {
@@ -280,9 +280,10 @@ export default function FunctionReviewer() {
         const batchPromises = batch.map(async (file) => {
           try {
             if (file.type === 'function') {
-              const response = await api.functions.invoke('getFunctionDetails', { functionId: file.id });
-              if (response.data?.ok && response.data?.data?.sourceCode) {
-                return { path: file.path, content: response.data.data.sourceCode };
+              const r = await api.functions.invoke('getFunctionDetails', { functionId: file.id });
+              const rd = r?.data || r;
+              if (r?.ok && rd?.sourceCode) {
+                return { path: file.path, content: rd.sourceCode };
               }
             }
             // For non-functions, content should already be available from discovery if includeContent was true
@@ -309,20 +310,20 @@ export default function FunctionReviewer() {
 
       setSyncProgress({ phase: 'uploading', collected: filesToSync.length, total: filesToSync.length });
 
-      const response = await api.functions.invoke('syncToGitHub', {
+      const syncResult = await api.functions.invoke('syncToGitHub', {
         files: filesToSync,
         message: `Auto-sync ${filesToSync.length} files from server`
       });
 
-      if (response.data?.ok) {
-        const { success, failed } = response.data.data;
+      if (syncResult?.ok) {
+        const { success, failed } = syncResult.data || syncResult;
         if (failed > 0) {
           toast.warning(`Synced ${success} files, ${failed} failed`);
         } else {
           toast.success(`Synced ${success} files to GitHub (parallel mode)`);
         }
       } else {
-        toast.error(response.data?.error || "Sync failed");
+        toast.error(syncResult?.error || "Sync failed");
       }
     } catch (err) {
       toast.error(err.message || "Sync failed");

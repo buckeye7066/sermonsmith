@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma, authenticateToken, optionalAuth } from '../middleware/auth.js';
+import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -9,21 +9,44 @@ if (process.env.STRIPE_SECRET_KEY) {
   stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 }
 
-// Bible passage
+// Bible passage — accepts both frontend naming (translationId/bookCode) and direct naming (book/translation)
 router.post('/biblePassage', optionalAuth, async (req, res, next) => {
   try {
-    const { book, chapter, translation = 'kjv' } = req.body;
-    const ref = `${book} ${chapter}`;
-    const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translation}`;
+    const book = req.body.bookCode || req.body.book;
+    const chapter = req.body.chapter;
+    const translation = req.body.translationId || req.body.translation || 'kjv';
+    const verses = req.body.verses;
 
-    const response = await fetch(url);
+    if (!book || !chapter) {
+      return res.status(400).json({ message: 'book/bookCode and chapter are required' });
+    }
+
+    const ref = verses ? `${book} ${chapter}:${verses}` : `${book} ${chapter}`;
+    const translationId = translation.replace(/^en-/, '');
+    const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translationId}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+
     if (!response.ok) {
       return res.status(response.status).json({ message: `Bible API returned ${response.status}` });
     }
 
     const data = await response.json();
-    res.json(data);
+
+    res.json({
+      reference: data.reference || ref,
+      translationLabel: translation,
+      verses: data.verses || [],
+      text: data.text || '',
+    });
   } catch (err) {
+    if (err.name === 'AbortError') {
+      return res.status(504).json({ message: 'Bible API request timed out' });
+    }
     next(err);
   }
 });
@@ -100,12 +123,8 @@ router.post('/stripeWebhook', (_req, res) => {
 });
 
 // Grant premium (admin/dev only)
-router.post('/grantMePremium', authenticateToken, async (req, res, next) => {
+router.post('/grantMePremium', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'dev')) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
     await prisma.user.update({
       where: { id: req.userId },
       data: { premium: true },
@@ -117,13 +136,8 @@ router.post('/grantMePremium', authenticateToken, async (req, res, next) => {
 });
 
 // List users (admin)
-router.post('/listUsers', authenticateToken, async (req, res, next) => {
+router.post('/listUsers', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'dev')) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
     const users = await prisma.user.findMany({
       select: {
         id: true, email: true, name: true, full_name: true,

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -80,6 +81,7 @@ export default function QuizBuilder() {
 
     try {
       const result = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt: `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.\n\n${prompt}`,
         response_json_schema: QUIZ_SCHEMA
       });

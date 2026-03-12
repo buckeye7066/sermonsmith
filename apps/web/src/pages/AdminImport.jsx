@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { apiPromise } from '@/api/apiClient';
+import { api } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,12 +16,11 @@ export default function AdminImport() {
     setProgress('Starting Bible import from bible-api.com...');
     
     try {
-      const apiClient = await apiPromise;
-      const response = await api.functions.invoke('importFullBible', {
+      const result = await api.functions.invoke('importFullBible', {
         translation: 'KJV'
       });
       
-      setProgress(response.data.message);
+      setProgress(result.message || 'Import complete');
       toast.success('Bible import completed!');
     } catch (error) {
       toast.error('Import failed: ' + error.message);
@@ -36,12 +35,11 @@ export default function AdminImport() {
     setProgress('Starting import from Scripture API...');
     
     try {
-      const apiClient = await apiPromise;
-      const response = await api.functions.invoke('importFromScriptureAPI', {
+      const result = await api.functions.invoke('importFromScriptureAPI', {
         bibleId: 'de4e12af7f28f599-02' // KJV
       });
       
-      setProgress(response.data.message);
+      setProgress(result.message || 'Import complete');
       toast.success('Scripture API import completed!');
     } catch (error) {
       toast.error('Import failed: ' + error.message);
@@ -60,7 +58,6 @@ export default function AdminImport() {
     setProgress('Uploading and processing CSV file...');
 
     try {
-      const apiClient = await apiPromise;
       // Upload file
       const { file_url } = await api.integrations.Core.UploadFile({ file: uploadedFile });
       

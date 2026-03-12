@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, Sparkles, X } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 
 export default function AIExplanation({ open, onClose, verse, user }) {
@@ -47,6 +48,7 @@ Include:
 Keep it accessible, encouraging, and practical in a ${preachingStyle} tone. About 250-300 words.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

@@ -265,11 +265,6 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
       return;
     }
 
-    if (!isOnline) {
-      toast.error("Audio requires an internet connection");
-      return;
-    }
-
     if (!selectedVoice) {
       toast.error("No voice available for this language", {
         description: "Click 'Install Voice' for instructions"

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Share2, Sparkles } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 
 export default function ShareSermonDialog({ open, onClose, user, mySermons }) {
@@ -47,6 +48,7 @@ Generate:
 Return comprehensive tags for discoverability.`;
 
       const tagsResponse = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

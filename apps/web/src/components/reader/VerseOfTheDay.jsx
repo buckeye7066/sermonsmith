@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Sparkles, Share2, Copy, RefreshCw, Heart } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -54,6 +55,7 @@ Create:
 Make it warm, personal, and actionable.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

@@ -186,5 +186,3 @@ const functions = {
 // ---------------------------------------------------------------------------
 
 export const api = { auth, entities: entitiesProxy, integrations, functions };
-export const apiPromise = Promise.resolve(api);
-export async function getApiClient() { return api; }

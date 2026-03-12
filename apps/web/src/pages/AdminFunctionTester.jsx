@@ -34,15 +34,15 @@ export default function AdminFunctionTester() {
     try {
       toast.info("Running full test suite...");
       
-      const response = await api.functions.invoke('testAllFunctions', {});
+      const result = await api.functions.invoke('testAllFunctions', {});
       
-      if (response.data) {
-        setResults(response.data);
-        
-        if (response.data.ok) {
-          toast.success(`All ${response.data.data?.passed || 0} functions passed!`);
+      if (result) {
+        setResults(result);
+        const rd = result.data || result;
+        if (result.ok) {
+          toast.success(`All ${rd.passed || 0} functions passed!`);
         } else {
-          toast.error(`${response.data.data?.failed || 0} function(s) failed`);
+          toast.error(`${rd.failed || 0} function(s) failed`);
         }
       }
     } catch (error) {

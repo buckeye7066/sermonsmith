@@ -4,11 +4,13 @@ import { authenticateToken } from '../middleware/auth.js';
 
 const router = Router();
 
+let _openai = null;
 function getOpenAI() {
   if (!process.env.OPENAI_API_KEY) {
     throw Object.assign(new Error('OpenAI API key not configured'), { status: 503 });
   }
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
 }
 
 // LLM invocation

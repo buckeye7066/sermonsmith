@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Sparkles, BookOpen, FileText, TrendingUp, Link2, Calendar } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -82,6 +83,7 @@ Help users discover sermons and verses that deepen this study.`;
       }
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -136,6 +138,7 @@ ${sharedSermons.slice(0, 20).map((s, i) => `${i+1}. "${s.title}" - ${s.topic}`).
 Return indices (1-based) of the 5 most relevant.`;
 
           const relevantIndices = await api.integrations.Core.InvokeLLM({
+            system_prompt: LARRY_SYSTEM_PROMPT,
             prompt: filterPrompt,
             response_json_schema: {
               type: "object",
@@ -166,6 +169,7 @@ ${publicPlans.slice(0, 10).map((p, i) => `${i+1}. "${p.name}" - ${p.description?
 Return indices (1-based).`;
 
               const planIndices = await api.integrations.Core.InvokeLLM({
+                system_prompt: LARRY_SYSTEM_PROMPT,
                 prompt: planFilterPrompt,
                 response_json_schema: {
                   type: "object",

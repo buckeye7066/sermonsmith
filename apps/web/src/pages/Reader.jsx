@@ -360,20 +360,14 @@ export default function Reader() {
         }
       }
 
-      const response = await api.functions.invoke('biblePassage', {
+      const result = await api.functions.invoke('biblePassage', {
         translationId: normalizedTranslation,
         bookCode: bookCode,
         chapter: currentChapter
       });
 
-      // Handle unified envelope
-      const result = response.data;
-
-      // Support both envelope format and direct format - check for fallback first
       const responseData = result.data || result;
       const verses = responseData?.verses || [];
-
-      console.log('[Reader] Response:', { ok: result.ok, hasVerses: verses.length, fallbackUsed: responseData?.fallbackUsed });
 
       if (verses && verses.length > 0) {
         const formattedVerses = verses.map((v) => ({
@@ -387,34 +381,25 @@ export default function Reader() {
         setVerses(formattedVerses);
         setIsCached(true);
         setIsOfflineMode(false);
-        setError(null); // Clear any previous errors
-
-        // If fallback was used, notify the user
-        const fallbackUsed = responseData?.fallbackUsed;
-        if (fallbackUsed) {
-          const reason = responseData?.fallbackReason || `${currentTranslation} not available for this book`;
-          toast.info(reason + " - showing KJV", {
-            duration: 4000
-          });
-        }
-
-        // Clear any previous errors since we have verses now
         setError(null);
 
-        // Log Bible reading with granular details
+        if (responseData?.fallbackUsed) {
+          const reason = responseData.fallbackReason || `${currentTranslation} not available for this book`;
+          toast.info(reason + " - showing KJV", { duration: 4000 });
+        }
+
         logActivity('bible_read', { 
           page_name: 'Reader',
           data_viewed: `${currentBook} ${currentChapter}`,
           metadata: { 
             book: currentBook, 
             chapter: currentChapter, 
-            translation: response.data.fallbackUsed ? "kjv" : normalizedTranslation,
+            translation: responseData?.fallbackUsed ? "kjv" : normalizedTranslation,
             verse_count: formattedVerses.length,
             is_cached: true
           }
         });
       } else {
-        // No verses returned - show error
         const errorMsg = result.error || `${currentBook} ${currentChapter} is not available in this translation.`;
         console.log('[Reader] No verses, showing error:', errorMsg);
         setError({
@@ -843,9 +828,9 @@ export default function Reader() {
       useEffect(() => {
         const loadTranslations = async () => {
           try {
-            const response = await api.functions.invoke('listAvailableTranslations');
-            if (response.data.translations) {
-              setAvailableTranslations(response.data.translations);
+            const payload = await api.functions.invoke('listAvailableTranslations');
+            if (payload.translations) {
+              setAvailableTranslations(payload.translations);
             }
           } catch (error) {
             console.error('Failed to load translations:', error);

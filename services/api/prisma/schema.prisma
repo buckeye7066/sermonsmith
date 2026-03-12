@@ -39,6 +39,7 @@ model Entity {
 
   @@index([type, userId])
   @@index([type])
+  @@index([userId])
   @@index([createdAt])
   @@map("entities")
 }

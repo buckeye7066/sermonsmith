@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiPromise } from '@/api/apiClient';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,6 @@ export default function MyStudies() {
         if (!currentUser) return;
         setIsLoading(true);
         try {
-            const apiClient = await apiPromise;
             const userStudies = await api.entities.BibleStudy.filter({ user_id: currentUser.id }, '-created_date');
             setStudies(userStudies);
         } catch (error) {
@@ -36,7 +35,6 @@ export default function MyStudies() {
     useEffect(() => {
         const fetchUserAndStudies = async () => {
             try {
-                const apiClient = await apiPromise;
                 const userData = await api.auth.me();
                 setUser(userData);
                 loadStudies(userData);
@@ -53,7 +51,6 @@ export default function MyStudies() {
             return;
         }
         try {
-            const apiClient = await apiPromise;
             await api.entities.BibleStudy.delete(studyId);
             setStudies(studies.filter(s => s.id !== studyId));
             toast.success("Bible study deleted.");

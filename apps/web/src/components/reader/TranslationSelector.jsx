@@ -27,16 +27,12 @@ export default function TranslationSelector({ currentTranslation = "KJV", onTran
 
   const loadTranslations = async () => {
     try {
-      const response = await api.functions.invoke('listAvailableTranslations');
-      
-      // Handle unified envelope
-      const result = response.data;
-      
+      const result = await api.functions.invoke('listAvailableTranslations');
+
       if (result.ok === false) {
         throw new Error(result.error || 'Failed to load translations');
       }
 
-      // Data is inside result.data for envelope format
       const data = result.data || result;
 
       setTranslations(data.translations || []);

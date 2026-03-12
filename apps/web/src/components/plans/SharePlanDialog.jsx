@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Loader2, Share2, Sparkles } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 
 export default function SharePlanDialog({ open, onClose, plan, user }) {
@@ -38,6 +39,7 @@ Generate:
 Make it discoverable for the community.`;
 
       const tagsResponse = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -62,7 +64,7 @@ Make it discoverable for the community.`;
         name: plan.plan_title,
         description: plan.plan_overview,
         duration_days: plan.duration,
-        daily_readings: plan.daily_lessons.map(lesson => ({
+        daily_readings: (plan.daily_lessons || []).map(lesson => ({
           day: lesson.day,
           passages: lesson.scripture_reading,
           reflection: lesson.devotional_context,

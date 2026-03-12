@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiPromise } from '@/api/apiClient';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,6 @@ export default function MyQuizzes() {
         if (!currentUser) return;
         setIsLoading(true);
         try {
-            const apiClient = await apiPromise;
             const userQuizzes = await api.entities.Quiz.filter({ user_id: currentUser.id }, '-created_date');
             setQuizzes(userQuizzes);
         } catch (error) {
@@ -36,7 +35,6 @@ export default function MyQuizzes() {
     useEffect(() => {
         const fetchUserAndQuizzes = async () => {
             try {
-                const apiClient = await apiPromise;
                 const userData = await api.auth.me();
                 setUser(userData);
                 loadQuizzes(userData);
@@ -53,7 +51,6 @@ export default function MyQuizzes() {
             return;
         }
         try {
-            const apiClient = await apiPromise;
             await api.entities.Quiz.delete(quizId);
             setQuizzes(quizzes.filter(q => q.id !== quizId));
             toast.success("Quiz deleted.");

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiPromise } from '@/api/apiClient';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,7 +31,6 @@ export default function StudyNotes() {
 
   const loadUser = async () => {
     try {
-      const apiClient = await apiPromise;
       const userData = await api.auth.me();
       setUser(userData);
       loadNotes(userData);
@@ -46,7 +45,6 @@ export default function StudyNotes() {
     
     setIsLoading(true);
     try {
-      const apiClient = await apiPromise;
       const userNotes = await api.entities.StudyNote.filter(
         { user_id: currentUser.id },
         '-created_date'
@@ -64,7 +62,6 @@ export default function StudyNotes() {
     if (!confirm("Delete this study note?")) return;
     
     try {
-      const apiClient = await apiPromise;
       await api.entities.StudyNote.delete(noteId);
       setNotes(notes.filter(n => n.id !== noteId));
       toast.success("Note deleted");
@@ -75,7 +72,6 @@ export default function StudyNotes() {
 
   const togglePin = async (note) => {
     try {
-      const apiClient = await apiPromise;
       await api.entities.StudyNote.update(note.id, {
         is_pinned: !note.is_pinned
       });

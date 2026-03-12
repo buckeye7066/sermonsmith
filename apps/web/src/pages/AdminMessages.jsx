@@ -18,7 +18,7 @@ import {
   Activity
 } from "lucide-react";
 import { toast } from "sonner";
-import logActivity from "../components/admin/UserActivityLogger";
+import { logActivity } from "../components/admin/UserActivityLogger";
 
 export default function AdminMessages() {
   const [user, setUser] = useState(null);

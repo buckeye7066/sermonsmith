@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -111,6 +112,7 @@ Query: "${searchQuery}"
 Respond with just one word: location, timeline, or visual`;
 
       const classification = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt: classificationPrompt
       });
 
@@ -140,6 +142,7 @@ Format as JSON:
 }`;
 
         const mapData = await api.integrations.Core.InvokeLLM({
+          system_prompt: LARRY_SYSTEM_PROMPT,
           prompt: mapPrompt,
           response_json_schema: {
             type: "object",
@@ -191,6 +194,7 @@ Format as JSON:
 }`;
 
         const timelineData = await api.integrations.Core.InvokeLLM({
+          system_prompt: LARRY_SYSTEM_PROMPT,
           prompt: timelinePrompt,
           response_json_schema: {
             type: "object",
@@ -229,6 +233,7 @@ Format as JSON:
 Be detailed and descriptive for creating a visual representation.`;
 
         const description = await api.integrations.Core.InvokeLLM({
+          system_prompt: LARRY_SYSTEM_PROMPT,
           prompt: descriptionPrompt
         });
 

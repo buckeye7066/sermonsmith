@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -95,6 +96,7 @@ Write a clear, professional message that:
 Return only the message text, nothing else.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         add_context_from_internet: false
       });

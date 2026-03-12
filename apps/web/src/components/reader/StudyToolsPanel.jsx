@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, BookOpen, Brain, MessageSquare, Lightbulb, Save, X } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 
 export default function StudyToolsPanel({ open, onClose, verse, user }) {
@@ -25,6 +26,15 @@ export default function StudyToolsPanel({ open, onClose, verse, user }) {
   const [noteCategory, setNoteCategory] = useState("observation");
   const [noteTags, setNoteTags] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
+  const [lastVerse, setLastVerse] = useState(null);
+
+  React.useEffect(() => {
+    const verseKey = verse ? `${verse.book_name}:${verse.chapter}:${verse.verse}` : null;
+    if (verseKey !== lastVerse) {
+      setLastVerse(verseKey);
+      setStudyContent({ questions: [], outline: null, connections: null, insights: null });
+    }
+  }, [verse]);
 
   const generateStudyQuestions = async () => {
     setIsGenerating(true);
@@ -49,6 +59,7 @@ Create questions that:
 Mix question types: observation, interpretation, application, and reflection.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -104,6 +115,7 @@ Include:
 Make it detailed but accessible, about 400-500 words total.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -154,6 +166,7 @@ Provide:
 Be scholarly yet accessible. About 400 words.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -199,6 +212,7 @@ Share:
 Make it personal, practical, and profound. About 350 words.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

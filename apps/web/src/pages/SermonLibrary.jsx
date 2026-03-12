@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -259,6 +260,7 @@ Recommend 5-8 sermons that:
 Return sermon IDs with brief reason for recommendation.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -327,6 +329,7 @@ Return the indices (1-based) of the 5 most relevant sermons for this user, prior
 Be strategic and personalized.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

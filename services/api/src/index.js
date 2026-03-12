@@ -15,27 +15,57 @@ if (!process.env.JWT_SECRET) {
   process.exit(1);
 }
 
+// ---------------------------------------------------------------------------
+// Security & performance middleware (optional packages — graceful fallback)
+// ---------------------------------------------------------------------------
+try {
+  const { default: helmet } = await import('helmet');
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+} catch { /* helmet not installed */ }
+
+try {
+  const { default: compression } = await import('compression');
+  app.use(compression());
+} catch { /* compression not installed */ }
+
+try {
+  const { default: rateLimit } = await import('express-rate-limit');
+  app.use('/api/ai', rateLimit({ windowMs: 60_000, max: 30, message: { message: 'Too many AI requests — try again shortly' } }));
+  app.use('/api/auth/login', rateLimit({ windowMs: 15 * 60_000, max: 20, message: { message: 'Too many login attempts — try again later' } }));
+  app.use('/api/auth/register', rateLimit({ windowMs: 60 * 60_000, max: 10, message: { message: 'Too many registration attempts — try again later' } }));
+} catch { /* express-rate-limit not installed */ }
+
+// ---------------------------------------------------------------------------
+// CORS
+// ---------------------------------------------------------------------------
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
   : ['http://localhost:5173'];
 
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-}));
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 // Stripe webhook needs raw body for signature verification — mount before JSON parser
 app.post('/api/functions/stripeWebhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
 app.use(express.json({ limit: '10mb' }));
 
+// ---------------------------------------------------------------------------
+// Health check
+// ---------------------------------------------------------------------------
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
 app.use('/api/auth', authRoutes);
 app.use('/api/entities', entityRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/functions', functionRoutes);
 
+// ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
 app.use((_req, res) => {
   res.status(404).json({ message: 'Not found' });
 });
@@ -48,6 +78,9 @@ app.use((err, _req, res, _next) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Start server
+// ---------------------------------------------------------------------------
 const server = app.listen(PORT, () => {
   console.log(`SermonSmith API running on port ${PORT}`);
 });

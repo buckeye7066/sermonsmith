@@ -38,7 +38,7 @@ export function OfflineProvider({ children }) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
         
-        await fetch('/favicon.ico', {
+        await fetch('/icon.png', {
           method: 'HEAD',
           cache: 'no-store',
           signal: controller.signal

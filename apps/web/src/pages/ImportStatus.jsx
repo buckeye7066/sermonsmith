@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiPromise } from '@/api/apiClient';
+import { api } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, CheckCircle2, Clock, Database, RefreshCw } from 'lucide-react';
@@ -19,10 +19,8 @@ export default function ImportStatus() {
   const checkStatus = async () => {
     if (status) setRefreshing(true);
     try {
-      const apiClient = await apiPromise;
-      const response = await api.functions.invoke('getImportStatus', {});
-      console.log('Import Status:', response.data);
-      setStatus(response.data);
+      const data = await api.functions.invoke('getImportStatus', {});
+      setStatus(data);
     } catch (error) {
       console.error('Error checking status:', error);
       toast.error('Failed to check import status');

@@ -43,3 +43,20 @@ export function optionalAuth(req, _res, next) {
   }
   next();
 }
+
+/**
+ * Middleware: require admin or dev role.
+ * Must be used AFTER authenticateToken.
+ */
+export async function requireAdmin(req, res, next) {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { role: true } });
+    if (!user || (user.role !== 'admin' && user.role !== 'dev')) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    req.userRole = user.role;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}

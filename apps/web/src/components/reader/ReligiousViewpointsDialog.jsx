@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Scale, X } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 
 export default function ReligiousViewpointsDialog({ open, onClose, verse, user }) {
@@ -12,7 +13,7 @@ export default function ReligiousViewpointsDialog({ open, onClose, verse, user }
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (open && verse) {
+    if (open && verse && !viewpoints) {
       generateViewpoints();
     }
   }, [open, verse]);
@@ -46,6 +47,7 @@ Then add:
 Be respectful, accurate, and balanced. About 400-500 words total.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",

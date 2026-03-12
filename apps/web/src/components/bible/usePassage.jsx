@@ -27,17 +27,7 @@ export function usePassage({ translationId, bookCode, chapter, verses }) {
       setState((s) => ({ ...s, loading: true, error: null }));
 
       try {
-        const params = new URLSearchParams({
-          translationId: translationId || "en-kjv",
-          bookCode: bookCode || "JHN",
-          chapter: String(chapter || 1),
-        });
-
-        if (verses) {
-          params.set("verses", verses);
-        }
-
-        const response = await api.functions.invoke("biblePassage", {
+        const data = await api.functions.invoke("biblePassage", {
           translationId: translationId || "en-kjv",
           bookCode: bookCode || "JHN",
           chapter: String(chapter || 1),
@@ -46,16 +36,16 @@ export function usePassage({ translationId, bookCode, chapter, verses }) {
 
         if (cancelled) return;
 
-        if (response.data.error) {
-          throw new Error(response.data.error);
+        if (data.error) {
+          throw new Error(data.error);
         }
 
         setState({
           loading: false,
           error: null,
-          reference: response.data.reference || null,
-          translationLabel: response.data.translationLabel || null,
-          verses: response.data.verses || [],
+          reference: data.reference || null,
+          translationLabel: data.translationLabel || null,
+          verses: data.verses || [],
         });
       } catch (err) {
         if (cancelled) return;
@@ -87,18 +77,18 @@ export function usePassage({ translationId, bookCode, chapter, verses }) {
  */
 export async function fetchPassage({ translationId, bookCode, chapter, verses }) {
   try {
-    const response = await api.functions.invoke("biblePassage", {
+    const data = await api.functions.invoke("biblePassage", {
       translationId: translationId || "en-kjv",
       bookCode: bookCode || "JHN",
       chapter: String(chapter || 1),
       verses: verses || null,
     });
 
-    if (response.data.error) {
-      throw new Error(response.data.error);
+    if (data.error) {
+      throw new Error(data.error);
     }
 
-    return response.data;
+    return data;
   } catch (err) {
     console.error("Error fetching passage:", err);
     throw err;

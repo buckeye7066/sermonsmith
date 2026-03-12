@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { prisma, authenticateToken, signToken } from '../middleware/auth.js';
+import { prisma, authenticateToken, signToken, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -140,13 +140,8 @@ router.patch('/me', authenticateToken, async (req, res, next) => {
 });
 
 // Admin: list all users
-router.get('/users', authenticateToken, async (req, res, next) => {
+router.get('/users', authenticateToken, requireAdmin, async (_req, res, next) => {
   try {
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'dev')) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
     const users = await prisma.user.findMany({
       select: {
         id: true, email: true, name: true, full_name: true,
@@ -163,13 +158,8 @@ router.get('/users', authenticateToken, async (req, res, next) => {
 });
 
 // Admin: update user
-router.patch('/users/:id', authenticateToken, async (req, res, next) => {
+router.patch('/users/:id', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'dev')) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
     const { role, premium, name, full_name } = req.body;
     const data = {};
     if (role !== undefined) data.role = role;
@@ -185,13 +175,8 @@ router.patch('/users/:id', authenticateToken, async (req, res, next) => {
 });
 
 // Admin: delete user
-router.delete('/users/:id', authenticateToken, async (req, res, next) => {
+router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    const currentUser = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'dev')) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
     await prisma.user.delete({ where: { id: req.params.id } });
     res.status(204).send();
   } catch (err) {

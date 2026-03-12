@@ -60,38 +60,45 @@ export default function CollaborativeEditor({
       });
 
       setIsEditing(true);
-      renewLock();
+      startLockRenewal();
     } catch (error) {
       console.error("Error acquiring lock:", error);
       toast.error("Failed to start editing");
     }
   };
 
-  const renewLock = () => {
+  const isEditingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    isEditingRef.current = isEditing;
+  }, [isEditing]);
+
+  const startLockRenewal = () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     
-    timeoutRef.current = setTimeout(async () => {
-      if (isEditing) {
-        try {
-          const edits = await api.entities.SermonEdit.filter({
-            sermon_id: sermon.id,
-            user_id: user.id,
-            field: field
+    const tick = async () => {
+      if (!isEditingRef.current) return;
+      try {
+        const edits = await api.entities.SermonEdit.filter({
+          sermon_id: sermon.id,
+          user_id: user.id,
+          field: field
+        });
+
+        for (const edit of edits) {
+          const lockUntil = new Date(Date.now() + 30000);
+          await api.entities.SermonEdit.update(edit.id, {
+            locked_until: lockUntil.toISOString()
           });
-
-          for (const edit of edits) {
-            const lockUntil = new Date(Date.now() + 30000);
-            await api.entities.SermonEdit.update(edit.id, {
-              locked_until: lockUntil.toISOString()
-            });
-          }
-
-          renewLock();
-        } catch (error) {
-          console.error("Error renewing lock:", error);
         }
+      } catch (error) {
+        console.error("Error renewing lock:", error);
       }
-    }, 20000); // Renew every 20 seconds
+      if (isEditingRef.current) {
+        timeoutRef.current = setTimeout(tick, 20000);
+      }
+    };
+    timeoutRef.current = setTimeout(tick, 20000);
   };
 
   const releaseLock = async () => {

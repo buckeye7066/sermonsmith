@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,10 +30,9 @@ export default function VersionComparison({ book, chapter, onClose }) {
 
   const loadAvailableTranslations = async () => {
     try {
-      const response = await api.functions.invoke('listAvailableTranslations');
-      if (response.data?.translations) {
-        // Show all translations, not just available ones
-        setAvailableTranslations(response.data.translations);
+      const payload = await api.functions.invoke('listAvailableTranslations');
+      if (payload.translations) {
+        setAvailableTranslations(payload.translations);
       }
     } catch (error) {
       console.error('Failed to load translations:', error);
@@ -52,7 +52,7 @@ export default function VersionComparison({ book, chapter, onClose }) {
       }
 
       const dataPromises = selectedVersions.map(async (translationId) => {
-        const response = await api.functions.invoke('biblePassage', {
+        const result = await api.functions.invoke('biblePassage', {
           translationId,
           bookCode,
           chapter
@@ -60,7 +60,7 @@ export default function VersionComparison({ book, chapter, onClose }) {
         return {
           translationId,
           translation: availableTranslations.find(t => t.id === translationId),
-          verses: response.data?.verses || []
+          verses: result?.verses || []
         };
       });
 
@@ -115,6 +115,7 @@ Provide:
 Be scholarly yet accessible. About 300-350 words.`;
 
       const response = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
@@ -267,7 +268,7 @@ Be scholarly yet accessible. About 300-350 words.`;
                                 )}
                               </div>
                               <div className="text-xs text-gray-500">
-                                {data.translation?.year} • {data.translation?.language.toUpperCase()}
+                                {data.translation?.year} • {data.translation?.language?.toUpperCase()}
                               </div>
                             </CardHeader>
                             <CardContent>

@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, GitFork, Wand2, Copy, Baby, GraduationCap, User, Heart } from "lucide-react";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 
 const AGE_GROUPS = [
@@ -124,6 +125,7 @@ Make it punchier while preserving the journey.`
 
         if (adaptationPrompt[forkType]) {
           const response = await api.integrations.Core.InvokeLLM({
+            system_prompt: LARRY_SYSTEM_PROMPT,
             prompt: adaptationPrompt[forkType],
             response_json_schema: {
               type: "object",

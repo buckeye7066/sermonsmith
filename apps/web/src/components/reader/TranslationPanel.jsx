@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Languages, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from '@/api/apiClient';
+import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 
 const languages = [
   // Current languages
@@ -83,10 +84,12 @@ Original verse (${verse.book_name} ${verse.chapter}:${verse.verse}):
 Provide only the translated verse text in ${targetLangName}:`;
 
       const result = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
         prompt: prompt
       });
       
-      setTranslatedText(result);
+      const text = typeof result === 'string' ? result : (result?.response || result?.text || JSON.stringify(result));
+      setTranslatedText(text);
       toast.success("Translation complete!");
       
     } catch (error) {
