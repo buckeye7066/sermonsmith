@@ -11,7 +11,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { toast } from "react-hot-toast"; // Assuming react-hot-toast for toast notifications
+import { toast } from "sonner";
 
 export default function QuizViewer({ quizData, onSave, user }) {
   const [selectedAnswers, setSelectedAnswers] = useState({});
