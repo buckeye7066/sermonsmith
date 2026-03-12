@@ -49,32 +49,41 @@ async function apiFetch(path, options = {}, _retryCount = 0) {
     ...(options.headers || {}),
   };
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  // Only create an internal AbortController when the caller hasn't supplied their own signal.
+  // This avoids allocating a wasted controller (and its timeout) for every caller-cancelled request.
+  const ownController = options.signal ? null : new AbortController();
+  const timeout = ownController
+    ? setTimeout(() => ownController.abort(), REQUEST_TIMEOUT_MS)
+    : null;
+  const signal = ownController ? ownController.signal : options.signal;
 
   let res;
   try {
     res = await fetch(`${API_URL}${path}`, {
       ...options,
       headers,
-      signal: options.signal || controller.signal,
+      signal,
     });
   } catch (err) {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
     // Retry on network errors / timeouts (not on user-abort)
     if (_retryCount < MAX_RETRIES && err.name !== 'AbortError') {
-      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (_retryCount + 1)));
+      const jitter = Math.random() * RETRY_DELAY_MS;
+      const backoff = Math.min(RETRY_DELAY_MS * Math.pow(2, _retryCount), 10_000);
+      await new Promise(r => setTimeout(r, backoff + jitter));
       return apiFetch(path, options, _retryCount + 1);
     }
     throw err;
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
 
   if (!res.ok) {
     // Retry on 5xx server errors
     if (res.status >= 500 && _retryCount < MAX_RETRIES) {
-      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (_retryCount + 1)));
+      const jitter = Math.random() * RETRY_DELAY_MS;
+      const backoff = Math.min(RETRY_DELAY_MS * Math.pow(2, _retryCount), 10_000);
+      await new Promise(r => setTimeout(r, backoff + jitter));
       return apiFetch(path, options, _retryCount + 1);
     }
     const body = await res.json().catch(() => ({ message: res.statusText }));

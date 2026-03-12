@@ -47,7 +47,7 @@ app.use(cors({ origin: allowedOrigins, credentials: true }));
 // Stripe webhook needs raw body for signature verification — mount before JSON parser
 app.post('/api/functions/stripeWebhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
 
 // ---------------------------------------------------------------------------
 // Health check
