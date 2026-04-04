@@ -11,9 +11,23 @@ import { handleStripeWebhook } from './routes/functions.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-if (!process.env.JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET environment variable is required');
+// ---------------------------------------------------------------------------
+// Environment validation — fail fast with clear messages
+// ---------------------------------------------------------------------------
+const REQUIRED_ENV = ['JWT_SECRET', 'DATABASE_URL'];
+const RECOMMENDED_ENV = ['OPENAI_API_KEY', 'STRIPE_SECRET_KEY', 'CORS_ORIGIN'];
+
+const missingRequired = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missingRequired.length > 0) {
+  console.error(`FATAL: Missing required environment variables: ${missingRequired.join(', ')}`);
+  console.error('Copy .env.example to .env and fill in the values.');
   process.exit(1);
+}
+
+const missingRecommended = RECOMMENDED_ENV.filter(k => !process.env[k]);
+if (missingRecommended.length > 0) {
+  console.warn(`WARNING: Missing recommended env vars: ${missingRecommended.join(', ')}`);
+  console.warn('Some features (AI, payments, CORS) may not work correctly.');
 }
 
 // ---------------------------------------------------------------------------
@@ -34,6 +48,8 @@ try {
   app.use('/api/ai', rateLimit({ windowMs: 60_000, max: 30, message: { message: 'Too many AI requests — try again shortly' } }));
   app.use('/api/auth/login', rateLimit({ windowMs: 15 * 60_000, max: 20, message: { message: 'Too many login attempts — try again later' } }));
   app.use('/api/auth/register', rateLimit({ windowMs: 60 * 60_000, max: 10, message: { message: 'Too many registration attempts — try again later' } }));
+  app.use('/api/auth/forgot-password', rateLimit({ windowMs: 15 * 60_000, max: 5, message: { message: 'Too many reset attempts — try again later' } }));
+  app.use('/api/auth/reset-password', rateLimit({ windowMs: 15 * 60_000, max: 10, message: { message: 'Too many reset attempts — try again later' } }));
 } catch { /* express-rate-limit not installed */ }
 
 // ---------------------------------------------------------------------------

@@ -63,14 +63,76 @@ const biblicalJourneys = [
   }
 ];
 
+const biblicalTimelines = [
+  {
+    id: 1,
+    title: "Old Testament Overview",
+    description: "Key events from Creation to the return from exile",
+    events: [
+      { event: "Creation", date: "Beginning", description: "God creates the heavens, earth, and humanity", scripture: "Genesis 1-2" },
+      { event: "The Fall", date: "Beginning", description: "Adam and Eve disobey God in the Garden of Eden", scripture: "Genesis 3" },
+      { event: "The Flood", date: "~2300 BC", description: "God judges the earth with a flood; Noah and his family are saved", scripture: "Genesis 6-9" },
+      { event: "Call of Abraham", date: "~2000 BC", description: "God calls Abram and promises to make him a great nation", scripture: "Genesis 12:1-3" },
+      { event: "The Exodus", date: "~1446 BC", description: "God delivers Israel from slavery in Egypt through Moses", scripture: "Exodus 12-14" },
+      { event: "The Law at Sinai", date: "~1446 BC", description: "God gives the Ten Commandments and the Law to Moses", scripture: "Exodus 19-20" },
+      { event: "Conquest of Canaan", date: "~1406 BC", description: "Joshua leads Israel into the Promised Land", scripture: "Joshua 1-12" },
+      { event: "United Kingdom", date: "~1050-930 BC", description: "Saul, David, and Solomon rule over a united Israel", scripture: "1 Samuel – 1 Kings 11" },
+      { event: "Kingdom Divides", date: "930 BC", description: "Israel splits into northern (Israel) and southern (Judah) kingdoms", scripture: "1 Kings 12" },
+      { event: "Fall of Israel", date: "722 BC", description: "Assyria conquers the northern kingdom of Israel", scripture: "2 Kings 17" },
+      { event: "Fall of Judah", date: "586 BC", description: "Babylon destroys Jerusalem and the temple; exile begins", scripture: "2 Kings 25" },
+      { event: "Return from Exile", date: "538 BC", description: "Cyrus allows Jews to return and rebuild the temple", scripture: "Ezra 1" }
+    ]
+  },
+  {
+    id: 2,
+    title: "Life of Jesus Christ",
+    description: "Major events from birth to ascension",
+    events: [
+      { event: "Birth of Jesus", date: "~4 BC", description: "Jesus is born in Bethlehem to Mary and Joseph", scripture: "Luke 2:1-20" },
+      { event: "Flight to Egypt", date: "~4 BC", description: "Joseph takes the family to Egypt to escape Herod", scripture: "Matthew 2:13-15" },
+      { event: "Baptism by John", date: "~AD 26", description: "Jesus is baptized in the Jordan River; the Spirit descends like a dove", scripture: "Matthew 3:13-17" },
+      { event: "Temptation in the Wilderness", date: "~AD 26", description: "Jesus fasts 40 days and is tempted by Satan", scripture: "Matthew 4:1-11" },
+      { event: "Sermon on the Mount", date: "~AD 27", description: "Jesus delivers his most famous teaching on the kingdom of God", scripture: "Matthew 5-7" },
+      { event: "Feeding the 5,000", date: "~AD 29", description: "Jesus multiplies five loaves and two fish to feed a multitude", scripture: "John 6:1-14" },
+      { event: "Transfiguration", date: "~AD 29", description: "Jesus is glorified on the mountain before Peter, James, and John", scripture: "Matthew 17:1-9" },
+      { event: "Triumphal Entry", date: "~AD 30", description: "Jesus enters Jerusalem on a donkey; crowds shout Hosanna", scripture: "Matthew 21:1-11" },
+      { event: "Last Supper", date: "~AD 30", description: "Jesus shares the Passover meal and institutes communion", scripture: "Luke 22:14-20" },
+      { event: "Crucifixion", date: "~AD 30", description: "Jesus is crucified at Golgotha for the sins of the world", scripture: "John 19:16-30" },
+      { event: "Resurrection", date: "~AD 30", description: "Jesus rises from the dead on the third day", scripture: "Matthew 28:1-10" },
+      { event: "Ascension", date: "~AD 30", description: "Jesus ascends to heaven from the Mount of Olives", scripture: "Acts 1:9-11" }
+    ]
+  },
+  {
+    id: 3,
+    title: "Early Church & Apostolic Age",
+    description: "From Pentecost through the spread of Christianity",
+    events: [
+      { event: "Day of Pentecost", date: "~AD 30", description: "The Holy Spirit falls on the disciples; 3,000 are saved", scripture: "Acts 2" },
+      { event: "Stoning of Stephen", date: "~AD 34", description: "Stephen becomes the first Christian martyr", scripture: "Acts 7:54-60" },
+      { event: "Conversion of Paul", date: "~AD 34", description: "Saul encounters the risen Christ on the road to Damascus", scripture: "Acts 9:1-19" },
+      { event: "Gospel to the Gentiles", date: "~AD 40", description: "Peter's vision leads to Cornelius's household receiving the Spirit", scripture: "Acts 10" },
+      { event: "Paul's First Journey", date: "~AD 47-48", description: "Paul and Barnabas plant churches in Cyprus and Asia Minor", scripture: "Acts 13-14" },
+      { event: "Council of Jerusalem", date: "~AD 49", description: "Church leaders decide Gentiles need not follow the Law of Moses", scripture: "Acts 15" },
+      { event: "Paul's Second Journey", date: "~AD 49-52", description: "Paul brings the gospel to Europe: Philippi, Thessalonica, Corinth", scripture: "Acts 15:36-18:22" },
+      { event: "Paul's Third Journey", date: "~AD 53-57", description: "Paul strengthens churches in Asia Minor and Greece; writes Romans", scripture: "Acts 18:23-21:17" },
+      { event: "Paul's Arrest & Trials", date: "~AD 57-59", description: "Paul is arrested in Jerusalem and appeals to Caesar", scripture: "Acts 21-26" },
+      { event: "Paul Arrives in Rome", date: "~AD 60", description: "Paul reaches Rome under house arrest; preaches freely", scripture: "Acts 28" },
+      { event: "Destruction of the Temple", date: "AD 70", description: "Roman armies destroy Jerusalem and the Second Temple", scripture: "Matthew 24:1-2 (prophesied)" },
+      { event: "John Writes Revelation", date: "~AD 95", description: "The apostle John receives the Revelation on the island of Patmos", scripture: "Revelation 1:9-11" }
+    ]
+  }
+];
+
 export default function BibleMaps() {
   const [user, setUser] = useState(null);
   const [selectedJourney, setSelectedJourney] = useState(biblicalJourneys[0]);
+  const [selectedTimeline, setSelectedTimeline] = useState(biblicalTimelines[0]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState(null);
   const [viewMode, setViewMode] = useState("preset"); // "preset", "search"
+  const [presetTab, setPresetTab] = useState("journeys"); // "journeys", "timelines"
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -465,87 +527,165 @@ Be detailed and descriptive for creating a visual representation.`;
           </div>
         )}
 
-        {/* Preset Journeys (Original Content) */}
+        {/* Preset Content (Journeys & Timelines) */}
         {viewMode === "preset" && (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <div className="lg:col-span-1">
-              <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Navigation className="w-5 h-5 text-green-500" />
-                    Preset Journeys
-                  </CardTitle>
-                  <CardDescription>
-                    Select a classic biblical journey.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {biblicalJourneys.map((journey) => (
-                      <Button
-                        key={journey.id}
-                        variant={selectedJourney.id === journey.id ? "default" : "outline"}
-                        className="w-full justify-start h-auto p-3 text-left"
-                        onClick={() => setSelectedJourney(journey)}
-                      >
-                        <div className="flex flex-col gap-1 min-w-0 flex-1">
-                          <div className="font-medium truncate">{journey.title}</div>
-                          <div className="text-xs opacity-70 break-words whitespace-normal">{journey.description}</div>
-                        </div>
-                      </Button>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+          <div>
+            {/* Tab toggle for journeys vs timelines */}
+            <div className="flex gap-2 mb-6 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg w-fit">
+              <Button
+                variant={presetTab === "journeys" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setPresetTab("journeys")}
+              >
+                <Navigation className="w-4 h-4 mr-1" />
+                Map Journeys
+              </Button>
+              <Button
+                variant={presetTab === "timelines" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setPresetTab("timelines")}
+              >
+                <Clock className="w-4 h-4 mr-1" />
+                Timelines
+              </Button>
             </div>
 
-            <div className="lg:col-span-3 space-y-6">
-              <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-5 h-5 text-blue-500" />
-                      {selectedJourney.title}
-                    </div>
-                    <Badge variant="outline" style={{ color: selectedJourney.color }}>
-                      {selectedJourney.locations.length} locations
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <InteractiveMap journey={selectedJourney} />
-                </CardContent>
-              </Card>
+            {/* Journeys tab */}
+            {presetTab === "journeys" && (
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <div className="lg:col-span-1">
+                  <Card className="shadow-lg">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Navigation className="w-5 h-5 text-green-500" />
+                        Preset Journeys
+                      </CardTitle>
+                      <CardDescription>
+                        Select a classic biblical journey.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {biblicalJourneys.map((journey) => (
+                          <Button
+                            key={journey.id}
+                            variant={selectedJourney.id === journey.id ? "default" : "outline"}
+                            className="w-full justify-start h-auto p-3 text-left"
+                            onClick={() => setSelectedJourney(journey)}
+                          >
+                            <div className="flex flex-col gap-1 min-w-0 flex-1">
+                              <div className="font-medium truncate">{journey.title}</div>
+                              <div className="text-xs opacity-70 break-words whitespace-normal">{journey.description}</div>
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
 
-              <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Book className="w-5 h-5 text-purple-500" />
-                    Journey Details
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="font-semibold text-lg">{selectedJourney.title}</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">{selectedJourney.description}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <h4 className="font-medium flex items-center gap-2">
-                        <MapPin className="w-4 h-4" />
-                        Key Locations ({selectedJourney.locations.length})
-                      </h4>
-                      {selectedJourney.locations.map((location, index) => (
-                        <div key={index} className="p-2 bg-gray-50 dark:bg-gray-800 rounded break-words">
-                          <div className="font-medium text-sm break-words">{location.name}</div>
-                          <div className="text-xs text-gray-600 dark:text-gray-400 break-words">{location.description}</div>
+                <div className="lg:col-span-3 space-y-6">
+                  <Card className="shadow-lg">
+                    <CardHeader>
+                      <CardTitle className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-5 h-5 text-blue-500" />
+                          {selectedJourney.title}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                        <Badge variant="outline" style={{ color: selectedJourney.color }}>
+                          {selectedJourney.locations.length} locations
+                        </Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <InteractiveMap journey={selectedJourney} />
+                    </CardContent>
+                  </Card>
+
+                  <Card className="shadow-lg">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <Book className="w-5 h-5 text-purple-500" />
+                        Journey Details
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div>
+                          <h3 className="font-semibold text-lg">{selectedJourney.title}</h3>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">{selectedJourney.description}</p>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="font-medium flex items-center gap-2">
+                            <MapPin className="w-4 h-4" />
+                            Key Locations ({selectedJourney.locations.length})
+                          </h4>
+                          {selectedJourney.locations.map((location, index) => (
+                            <div key={index} className="p-2 bg-gray-50 dark:bg-gray-800 rounded break-words">
+                              <div className="font-medium text-sm break-words">{location.name}</div>
+                              <div className="text-xs text-gray-600 dark:text-gray-400 break-words">{location.description}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            )}
+
+            {/* Timelines tab */}
+            {presetTab === "timelines" && (
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <div className="lg:col-span-1">
+                  <Card className="shadow-lg">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Clock className="w-5 h-5 text-blue-500" />
+                        Biblical Timelines
+                      </CardTitle>
+                      <CardDescription>
+                        Explore key events in biblical history.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {biblicalTimelines.map((timeline) => (
+                          <Button
+                            key={timeline.id}
+                            variant={selectedTimeline.id === timeline.id ? "default" : "outline"}
+                            className="w-full justify-start h-auto p-3 text-left"
+                            onClick={() => setSelectedTimeline(timeline)}
+                          >
+                            <div className="flex flex-col gap-1 min-w-0 flex-1">
+                              <div className="font-medium truncate">{timeline.title}</div>
+                              <div className="text-xs opacity-70 break-words whitespace-normal">
+                                {timeline.events.length} events
+                              </div>
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="lg:col-span-3">
+                  <Card className="shadow-lg">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Clock className="w-5 h-5 text-blue-500" />
+                        {selectedTimeline.title}
+                      </CardTitle>
+                      <CardDescription>{selectedTimeline.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <TimelineViewer events={selectedTimeline.events} />
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

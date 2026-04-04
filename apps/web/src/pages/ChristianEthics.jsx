@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Scale, Sparkles, BookOpen, Loader2, Heart, Brain, MessageCircle, Mic, Send, History, HelpCircle, ExternalLink, FileText, AlertTriangle, Compass } from "lucide-react";
+import { Scale, Sparkles, BookOpen, Loader2, Heart, Brain, MessageCircle, Mic, Send, History, HelpCircle, ExternalLink, FileText, AlertTriangle, Compass, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -186,6 +186,42 @@ const ethicsSchema = {
   }
 };
 
+const DENOMINATIONS = [
+  "Catholic",
+  "Reformed / Calvinist",
+  "Lutheran",
+  "Methodist / Wesleyan",
+  "Baptist",
+  "Pentecostal / Charismatic",
+  "Anglican / Episcopal",
+  "Eastern Orthodox",
+  "Non-Denominational Evangelical",
+];
+
+const comparisonSchema = {
+  type: "object",
+  properties: {
+    topic_title: { type: "string" },
+    perspectives: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          denomination: { type: "string" },
+          position_summary: { type: "string" },
+          key_scriptures: { type: "array", items: { type: "string" } },
+          reasoning: { type: "string" },
+          pastoral_tone: { type: "string" },
+          notable_figures: { type: "string" }
+        }
+      }
+    },
+    common_ground: { type: "string" },
+    key_differences: { type: "string" },
+    pastoral_advice: { type: "string" }
+  }
+};
+
 export default function ChristianEthics() {
   const [user, setUser] = useState(null);
   const [question, setQuestion] = useState("");
@@ -193,6 +229,9 @@ export default function ChristianEthics() {
   const [isThinking, setIsThinking] = useState(false);
   const [searchHistory, setSearchHistory] = useState([]);
   const [isListening, setIsListening] = useState(false);
+  const [mode, setMode] = useState("single"); // "single" or "compare"
+  const [selectedDenominations, setSelectedDenominations] = useState(["Catholic", "Reformed / Calvinist", "Baptist"]);
+  const [comparisonResult, setComparisonResult] = useState(null);
 
   useEffect(() => {
     loadUser();
@@ -306,6 +345,84 @@ REMEMBER: "Speaking the truth in love" (Ephesians 4:15) - always both.`;
     recognition.start();
   };
 
+  const toggleDenomination = (denom) => {
+    setSelectedDenominations(prev =>
+      prev.includes(denom)
+        ? prev.filter(d => d !== denom)
+        : prev.length < 4 ? [...prev, denom] : prev
+    );
+  };
+
+  const compareAcrossDenominations = async (topicQuestion) => {
+    if (!topicQuestion.trim()) {
+      toast.error("Please enter a question or topic");
+      return;
+    }
+    if (selectedDenominations.length < 2) {
+      toast.error("Select at least 2 denominations to compare");
+      return;
+    }
+
+    setIsThinking(true);
+    setComparisonResult(null);
+    setResponse(null);
+
+    try {
+      const denomList = selectedDenominations.join(", ");
+      const prompt = `Compare how these Christian denominations approach the following ethical topic:
+
+Denominations: ${denomList}
+
+Topic/Question: "${topicQuestion}"
+
+For EACH denomination, provide:
+1. Their official or mainstream position summary
+2. Key Scripture passages they cite (just references)
+3. Their theological reasoning
+4. Their pastoral tone and approach
+5. Notable theologians or church figures who shaped this view
+
+Then provide:
+- Common ground shared across all listed denominations
+- Key differences that distinguish their approaches
+- Pastoral advice for navigating these differences in a mixed-denomination context
+
+Be fair and charitable to each tradition. Present each view from within that tradition's own logic, not as an outsider critique.`;
+
+      const result = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
+        prompt,
+        response_json_schema: comparisonSchema
+      });
+
+      setComparisonResult(result);
+      saveToHistory(topicQuestion, `Compare: ${result.topic_title}`);
+      toast.success("Comparison complete!");
+    } catch (error) {
+      console.error('Error comparing:', error);
+      toast.error("Comparison failed. Please try again.");
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  const saveAnalysis = async (data) => {
+    try {
+      await api.entities.EthicsAnalysis.create({
+        data: {
+          question,
+          mode,
+          result: mode === 'compare' ? comparisonResult : response,
+          denominations: mode === 'compare' ? selectedDenominations : [],
+        }
+      });
+      toast.success("Analysis saved to your library!");
+    } catch (error) {
+      console.error('Error saving analysis:', error);
+      toast.error("Failed to save. Are you logged in?");
+    }
+  };
+
   const handleTopicClick = (topicName) => {
     setQuestion(`What does the Bible say about ${topicName.toLowerCase()}?`);
   };
@@ -355,13 +472,61 @@ REMEMBER: "Speaking the truth in love" (Ephesians 4:15) - always both.`;
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              {/* Mode toggle */}
+              <div className="flex gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg w-fit">
+                <Button
+                  variant={mode === "single" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => { setMode("single"); setComparisonResult(null); }}
+                >
+                  <MessageCircle className="w-4 h-4 mr-1" />
+                  Ask Larry
+                </Button>
+                <Button
+                  variant={mode === "compare" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => { setMode("compare"); setResponse(null); }}
+                >
+                  <Compass className="w-4 h-4 mr-1" />
+                  Compare Denominations
+                </Button>
+              </div>
+
+              {/* Denomination selector (compare mode) */}
+              {mode === "compare" && (
+                <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                  <p className="text-sm font-medium mb-2 text-purple-900 dark:text-purple-200">
+                    Select 2–4 denominations to compare:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {DENOMINATIONS.map((denom) => (
+                      <Badge
+                        key={denom}
+                        variant={selectedDenominations.includes(denom) ? "default" : "outline"}
+                        className={`cursor-pointer transition-colors ${
+                          selectedDenominations.includes(denom)
+                            ? 'bg-purple-600 hover:bg-purple-700'
+                            : 'hover:bg-purple-100 dark:hover:bg-purple-900'
+                        }`}
+                        onClick={() => toggleDenomination(denom)}
+                      >
+                        {denom}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <div className="flex-1 relative">
                   <Input
-                    placeholder="e.g., What does the Bible say about abortion?"
+                    placeholder={mode === "compare"
+                      ? "e.g., What is the role of women in church leadership?"
+                      : "e.g., What does the Bible say about abortion?"
+                    }
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && askLarry(question)}
+                    onKeyPress={(e) => e.key === 'Enter' && (mode === 'compare' ? compareAcrossDenominations(question) : askLarry(question))}
                     className="pr-12"
                   />
                   <Button
@@ -374,13 +539,18 @@ REMEMBER: "Speaking the truth in love" (Ephesians 4:15) - always both.`;
                     <Mic className={`w-4 h-4 ${isListening ? 'text-red-500 animate-pulse' : ''}`} />
                   </Button>
                 </div>
-                <Button 
-                  onClick={() => askLarry(question)}
+                <Button
+                  onClick={() => mode === 'compare' ? compareAcrossDenominations(question) : askLarry(question)}
                   disabled={isThinking || !question.trim()}
                   size="lg"
                 >
                   {isThinking ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : mode === 'compare' ? (
+                    <>
+                      <Compass className="w-4 h-4 mr-2" />
+                      Compare
+                    </>
                   ) : (
                     <>
                       <Send className="w-4 h-4 mr-2" />
@@ -466,6 +636,105 @@ REMEMBER: "Speaking the truth in love" (Ephesians 4:15) - always both.`;
           </Card>
         )}
 
+        {/* Comparison Results */}
+        {comparisonResult && !isThinking && (
+          <div className="space-y-6">
+            <Card className="border-t-4 border-purple-600">
+              <CardHeader>
+                <div className="flex items-start gap-4">
+                  <div className="text-5xl">⚖️</div>
+                  <div className="flex-1">
+                    <CardTitle className="text-2xl mb-2">
+                      {comparisonResult.topic_title}
+                    </CardTitle>
+                    <div className="flex gap-2 flex-wrap mt-2">
+                      {selectedDenominations.map((d) => (
+                        <Badge key={d} variant="secondary">{d}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={saveAnalysis}>
+                      <Save className="w-4 h-4 mr-1" />
+                      Save
+                    </Button>
+                    <Button variant="outline" onClick={() => setComparisonResult(null)}>
+                      New Comparison
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+            </Card>
+
+            {comparisonResult.perspectives?.map((perspective, index) => (
+              <Card key={index} className="border-l-4" style={{ borderLeftColor: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b'][index % 4] }}>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <span className="text-2xl">{['⛪', '✝️', '🕊️', '📖'][index % 4]}</span>
+                    {perspective.denomination}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1">Position</h4>
+                    <p className="text-sm">{perspective.position_summary}</p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1">Theological Reasoning</h4>
+                    <p className="text-sm text-gray-700 dark:text-gray-300">{perspective.reasoning}</p>
+                  </div>
+                  {perspective.key_scriptures?.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-sm mb-1">Key Scriptures</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {perspective.key_scriptures.map((ref, i) => (
+                          <Badge key={i} variant="outline">{ref}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1">Pastoral Tone</h4>
+                    <p className="text-sm italic text-gray-600 dark:text-gray-400">{perspective.pastoral_tone}</p>
+                  </div>
+                  {perspective.notable_figures && (
+                    <div>
+                      <h4 className="font-semibold text-sm mb-1">Notable Figures</h4>
+                      <p className="text-xs text-gray-500">{perspective.notable_figures}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+
+            <Card className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
+              <CardContent className="pt-6 space-y-4">
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <Heart className="w-4 h-4 text-green-600" />
+                    Common Ground
+                  </h4>
+                  <p className="text-sm">{comparisonResult.common_ground}</p>
+                </div>
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <Scale className="w-4 h-4 text-orange-600" />
+                    Key Differences
+                  </h4>
+                  <p className="text-sm">{comparisonResult.key_differences}</p>
+                </div>
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <Heart className="w-4 h-4 text-pink-600" />
+                    Pastoral Advice
+                  </h4>
+                  <p className="text-sm">{comparisonResult.pastoral_advice}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {response && !isThinking && (
           <div className="space-y-6">
             <Card className="border-t-4 border-indigo-600">
@@ -481,9 +750,15 @@ REMEMBER: "Speaking the truth in love" (Ephesians 4:15) - always both.`;
                       {response.definition}
                     </CardDescription>
                   </div>
-                  <Button variant="outline" onClick={() => setResponse(null)}>
-                    Ask Another
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={saveAnalysis}>
+                      <Save className="w-4 h-4 mr-1" />
+                      Save
+                    </Button>
+                    <Button variant="outline" onClick={() => setResponse(null)}>
+                      Ask Another
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
             </Card>

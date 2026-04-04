@@ -133,6 +133,31 @@ router.post('/stripeWebhook', (_req, res) => {
   res.status(400).json({ message: 'Webhook must be processed at the app level' });
 });
 
+// Stripe billing portal — lets users manage their subscription, update payment, cancel, etc.
+router.post('/createBillingPortal', authenticateToken, async (req, res, next) => {
+  try {
+    if (!stripe) return res.status(503).json({ message: 'Stripe not configured. Set STRIPE_SECRET_KEY.' });
+
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    // Look up the Stripe customer by email
+    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+    if (customers.data.length === 0) {
+      return res.status(404).json({ message: 'No billing account found. Have you subscribed to Premium?' });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customers.data[0].id,
+      return_url: `${frontendUrl}/Settings`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Grant premium (admin/dev only)
 router.post('/grantMePremium', authenticateToken, requireAdmin, async (req, res, next) => {
   try {

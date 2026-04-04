@@ -123,6 +123,24 @@ const auth = {
     window.location.href = target;
   },
 
+  changePassword: (currentPassword, newPassword) =>
+    apiFetch('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
+  forgotPassword: (email) =>
+    apiFetch('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (token, newPassword) =>
+    apiFetch('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    }),
+
   logout: async (returnUrl) => {
     try {
       await apiFetch('/api/auth/logout', { method: 'POST' });
