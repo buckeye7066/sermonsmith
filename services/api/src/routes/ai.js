@@ -78,10 +78,22 @@ router.post('/image', authenticateToken, async (req, res, next) => {
   }
 });
 
-// Placeholder endpoints for other integrations
-router.post('/email', authenticateToken, async (req, res) => {
-  console.log('[Email] Would send:', req.body.to || req.body.email);
-  res.json({ success: true, message: 'Email sending not yet configured — add SendGrid or SES' });
+// Email integration — uses the shared email service
+router.post('/email', authenticateToken, async (req, res, next) => {
+  try {
+    const { sendEmail } = await import('../services/email.js');
+    const to = req.body.to || req.body.email;
+    if (!to) return res.status(400).json({ message: 'to/email is required' });
+    await sendEmail({
+      to,
+      subject: req.body.subject || 'SermonSmith Notification',
+      html: req.body.html || `<p>${req.body.body || req.body.message || ''}</p>`,
+      text: req.body.text || req.body.body || req.body.message || '',
+    });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post('/sms', authenticateToken, async (req, res) => {

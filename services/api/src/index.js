@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 3001;
 // Environment validation — fail fast with clear messages
 // ---------------------------------------------------------------------------
 const REQUIRED_ENV = ['JWT_SECRET', 'DATABASE_URL'];
-const RECOMMENDED_ENV = ['OPENAI_API_KEY', 'STRIPE_SECRET_KEY', 'CORS_ORIGIN'];
+const RECOMMENDED_ENV = ['OPENAI_API_KEY', 'STRIPE_SECRET_KEY', 'CORS_ORIGIN', 'RESEND_API_KEY'];
 
 const missingRequired = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missingRequired.length > 0) {

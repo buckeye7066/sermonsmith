@@ -1,23 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { Loader2, ArrowLeft, Mail, KeyRound } from 'lucide-react';
 
 export default function Login() {
-  const [isRegister, setIsRegister] = useState(false);
+  // Modes: 'login' | 'register' | 'forgot' | 'reset'
+  const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('return');
+  const resetToken = searchParams.get('reset_token');
 
-  const handleSubmit = async (e) => {
+  // Auto-switch to reset mode when a reset token is in the URL
+  useEffect(() => {
+    if (resetToken) setMode('reset');
+  }, [resetToken]);
+
+  const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      if (isRegister) {
+      if (mode === 'register') {
         await api.auth.register(email, password, name);
         toast.success('Account created successfully!');
       } else {
@@ -28,6 +37,48 @@ export default function Login() {
       window.location.href = safeReturn;
     } catch (error) {
       toast.error(error.message || 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      toast.error('Please enter your email address');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.auth.forgotPassword(email);
+      toast.success('If an account with that email exists, a reset link has been sent.');
+    } catch (error) {
+      // Always show success to prevent email enumeration
+      toast.success('If an account with that email exists, a reset link has been sent.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (password.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.auth.resetPassword(resetToken, password);
+      toast.success('Password reset successful! Please sign in.');
+      setMode('login');
+      setPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      toast.error(error.message || 'Reset failed — the link may have expired');
     } finally {
       setLoading(false);
     }
@@ -47,67 +98,194 @@ export default function Login() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8">
-          <h2 className="text-xl font-semibold mb-6 text-center">
-            {isRegister ? 'Create Account' : 'Sign In'}
-          </h2>
+          {/* ── Sign In / Register ── */}
+          {(mode === 'login' || mode === 'register') && (
+            <>
+              <h2 className="text-xl font-semibold mb-6 text-center">
+                {mode === 'register' ? 'Create Account' : 'Sign In'}
+              </h2>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {isRegister && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
-                  placeholder="Your name"
-                />
+              <form onSubmit={handleLogin} className="space-y-4">
+                {mode === 'register' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                      placeholder="Your name"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                    placeholder="you@example.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                    placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 text-base"
+                >
+                  {loading ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Please wait...</>
+                  ) : mode === 'register' ? 'Create Account' : 'Sign In'}
+                </Button>
+              </form>
+
+              {mode === 'login' && (
+                <button
+                  type="button"
+                  onClick={() => setMode('forgot')}
+                  className="block w-full text-center text-sm text-gray-500 hover:text-indigo-600 mt-4"
+                >
+                  Forgot your password?
+                </button>
+              )}
+
+              <div className="mt-4 text-center">
+                <button
+                  type="button"
+                  onClick={() => setMode(mode === 'register' ? 'login' : 'register')}
+                  className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
+                >
+                  {mode === 'register' ? 'Already have an account? Sign In' : "Don't have an account? Register"}
+                </button>
               </div>
-            )}
+            </>
+          )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
-                placeholder="you@example.com"
-              />
-            </div>
+          {/* ── Forgot Password ── */}
+          {mode === 'forgot' && (
+            <>
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Mail className="w-6 h-6 text-indigo-600" />
+                </div>
+                <h2 className="text-xl font-semibold">Reset Password</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Enter your email and we'll send you a reset link
+                </p>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
-                placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
-              />
-            </div>
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                    placeholder="you@example.com"
+                    autoFocus
+                  />
+                </div>
 
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 text-base"
-            >
-              {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Sign In'}
-            </Button>
-          </form>
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 text-base"
+                >
+                  {loading ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Sending...</>
+                  ) : 'Send Reset Link'}
+                </Button>
+              </form>
 
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={() => setIsRegister(!isRegister)}
-              className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
-            >
-              {isRegister ? 'Already have an account? Sign In' : "Don't have an account? Register"}
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => setMode('login')}
+                className="flex items-center justify-center gap-1 w-full text-sm text-gray-500 hover:text-indigo-600 mt-4"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back to Sign In
+              </button>
+            </>
+          )}
+
+          {/* ── Reset Password (from email link) ── */}
+          {mode === 'reset' && (
+            <>
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <KeyRound className="w-6 h-6 text-green-600" />
+                </div>
+                <h2 className="text-xl font-semibold">Set New Password</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Choose a strong password (8+ characters)
+                </p>
+              </div>
+
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={8}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                    placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    minLength={8}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                    placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 text-base"
+                >
+                  {loading ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Resetting...</>
+                  ) : 'Reset Password'}
+                </Button>
+              </form>
+
+              <button
+                type="button"
+                onClick={() => setMode('login')}
+                className="flex items-center justify-center gap-1 w-full text-sm text-gray-500 hover:text-indigo-600 mt-4"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back to Sign In
+              </button>
+            </>
+          )}
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">

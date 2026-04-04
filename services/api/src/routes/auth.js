@@ -2,6 +2,7 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { prisma, authenticateToken, signToken, requireAdmin, AUTH_COOKIE, cookieOptions } from '../middleware/auth.js';
+import { sendPasswordResetEmail } from '../services/email.js';
 
 const router = Router();
 
@@ -203,9 +204,8 @@ router.post('/forgot-password', async (req, res, next) => {
       { algorithm: 'HS256', expiresIn: '15m' }
     );
 
-    // TODO: Send reset email via SendGrid/SES with link containing resetToken
-    // For dev, log the token so it can be used manually
-    console.log(`[Auth] Password reset token for ${email}: ${resetToken}`);
+    // Send reset email (falls back to console.log if Resend is not configured)
+    await sendPasswordResetEmail(email, resetToken);
 
     res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
   } catch (err) {
