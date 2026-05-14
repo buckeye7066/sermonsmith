@@ -1,0 +1,15 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "services/api/Dockerfile",
+    "buildCommand": "echo 'Built via Dockerfile'"
+  },
+  "deploy": {
+    "startCommand": "sh -c \"npx prisma migrate deploy && node src/index.js\"",
+    "healthcheckPath": "/readyz",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
+  }
+}

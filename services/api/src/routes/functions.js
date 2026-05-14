@@ -3,10 +3,18 @@ import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middle
 
 const router = Router();
 
-let stripe = null;
-if (process.env.STRIPE_SECRET_KEY) {
-  const Stripe = (await import('stripe')).default;
-  stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// Stripe SDK is lazy-loaded — see getStripe() below. The previous
+// top-level await meant the API would crash at import time if the SDK was
+// missing or the key was unset; now booting works in test/dev without
+// Stripe credentials.
+let _stripe = null;
+async function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY || process.env.DISABLE_BILLING === '1') return null;
+  if (!_stripe) {
+    const { default: Stripe } = await import('stripe');
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  }
+  return _stripe;
 }
 
 // Bible passage — accepts both frontend naming (translationId/bookCode) and direct naming (book/translation)
@@ -106,7 +114,9 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
 // Stripe checkout
 router.post('/createCheckoutSession', authenticateToken, async (req, res, next) => {
   try {
+    const stripe = await getStripe();
     if (!stripe) return res.status(503).json({ message: 'Stripe not configured. Set STRIPE_SECRET_KEY.' });
+    if (!process.env.STRIPE_PRICE_ID) return res.status(503).json({ message: 'Stripe price not configured.' });
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -136,12 +146,12 @@ router.post('/stripeWebhook', (_req, res) => {
 // Stripe billing portal — lets users manage their subscription, update payment, cancel, etc.
 router.post('/createBillingPortal', authenticateToken, async (req, res, next) => {
   try {
+    const stripe = await getStripe();
     if (!stripe) return res.status(503).json({ message: 'Stripe not configured. Set STRIPE_SECRET_KEY.' });
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-    // Look up the Stripe customer by email
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
     if (customers.data.length === 0) {
       return res.status(404).json({ message: 'No billing account found. Have you subscribed to Premium?' });
@@ -388,11 +398,12 @@ router.post('/testAllFunctions', authenticateToken, requireAdmin, async (_req, r
     ...(process.env.OPENAI_API_KEY ? {} : { error: 'Not configured' }),
   });
 
-  // Check Stripe
+  // Check Stripe — does NOT instantiate the SDK; just inspects the env.
+  const billingConfigured = Boolean(process.env.STRIPE_SECRET_KEY) && process.env.DISABLE_BILLING !== '1';
   checks.push({
     name: 'Stripe',
-    status: stripe ? 'pass' : 'warn',
-    ...(stripe ? {} : { error: 'Not configured' }),
+    status: billingConfigured ? 'pass' : 'warn',
+    ...(billingConfigured ? {} : { error: 'Not configured' }),
   });
 
   const passed = checks.filter(c => c.status === 'pass').length;
@@ -579,28 +590,81 @@ router.post('/syncToGitHub', authenticateToken, requireAdmin, async (_req, res) 
 
 // Exported so index.js can mount it with express.raw() for signature verification
 export async function handleStripeWebhook(req, res) {
-  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    return res.status(503).json({ message: 'Stripe webhooks not configured' });
+  }
+  const stripe = await getStripe();
+  if (!stripe) {
     return res.status(503).json({ message: 'Stripe webhooks not configured' });
   }
 
+  let event;
   try {
     const sig = req.headers['stripe-signature'];
-    const event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data?.object;
-      const userId = session?.metadata?.userId;
-      if (userId) {
-        await prisma.user.update({ where: { id: userId }, data: { premium: true } });
-        console.log(`[Stripe] Premium granted to user ${userId}`);
-      }
-    }
-
-    res.json({ received: true });
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
-    console.error('[Stripe Webhook Error]', err.message);
-    res.status(400).json({ message: err.message });
+    // Never log the body — Stripe payloads carry customer email and PII.
+    console.error('[Stripe Webhook] signature verification failed:', err.message);
+    return res.status(400).json({ message: 'Invalid signature' });
   }
+
+  // Idempotency: short-circuit duplicate deliveries. Stripe will retry on
+  // any non-2xx, so we must record `processed` AFTER the side effect
+  // succeeds — recording before-the-fact would mean a transient downstream
+  // failure leaves the event "seen but never applied".
+  const existing = await prisma.stripeEvent.findUnique({ where: { stripeEventId: event.id } }).catch(() => null);
+  if (existing) {
+    return res.json({ received: true, duplicate: true });
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data?.object;
+        const userId = session?.metadata?.userId;
+        if (userId) {
+          await prisma.user.update({ where: { id: userId }, data: { premium: true } });
+        }
+        break;
+      }
+      case 'customer.subscription.deleted':
+      case 'customer.subscription.canceled': {
+        const sub = event.data?.object;
+        const customerId = sub?.customer;
+        if (customerId) {
+          // Look up the user by Stripe customer email — keeps us schemaless
+          // (we don't store stripeCustomerId on User today).
+          const customer = await stripe.customers.retrieve(customerId).catch(() => null);
+          if (customer?.email) {
+            await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium: false } });
+          }
+        }
+        break;
+      }
+      default:
+        // Unknown event types are accepted (Stripe expects 2xx) but not acted on.
+        break;
+    }
+  } catch (err) {
+    console.error('[Stripe Webhook] processing failed:', err.message);
+    // Returning 500 here lets Stripe retry. We deliberately do NOT mark
+    // the event processed.
+    return res.status(500).json({ message: 'Webhook processing failed' });
+  }
+
+  // Mark processed only after success.
+  try {
+    await prisma.stripeEvent.create({ data: { stripeEventId: event.id, type: event.type } });
+  } catch (e) {
+    if (e.code !== 'P2002') {
+      console.error('[Stripe Webhook] failed to record processed event:', e.message);
+    }
+  }
+
+  res.json({ received: true });
 }
+
+// Test-only export so unit tests can drive the SDK lookup.
+export const __test = { getStripe };
 
 export default router;
