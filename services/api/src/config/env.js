@@ -55,7 +55,7 @@ const baseSchema = z.object({
   DISABLE_PASSWORD_RESET: z.string().optional(),
 });
 
-const PRODUCTION_REQUIRED = ['DATABASE_URL', 'JWT_SECRET', 'CORS_ORIGIN'];
+const PRODUCTION_REQUIRED = ['DATABASE_URL', 'JWT_SECRET', 'COOKIE_SECRET', 'CORS_ORIGIN'];
 
 function isWeakSecret(value) {
   if (!value) return true;

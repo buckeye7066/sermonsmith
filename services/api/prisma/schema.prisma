@@ -72,3 +72,22 @@ model StripeEvent {
   @@index([type])
   @@map("stripe_events")
 }
+
+// Per-user, per-day AI usage counter. Replaces the previous in-memory
+// Map-based counter so that limits survive process restarts and apply
+// across multiple API replicas.
+//
+// `bucket` is a UTC date in YYYY-MM-DD; the (userId, bucket) compound
+// uniqueness lets us upsert atomically on each call.
+model AiUsage {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  bucket    String
+  count     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, bucket])
+  @@index([userId])
+  @@map("ai_usage")
+}

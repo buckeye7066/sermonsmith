@@ -19,16 +19,47 @@ function jwtSecret() {
   return s;
 }
 
-/** Cookie options — httpOnly, Secure in production, SameSite=Lax */
+/**
+ * Cookie options.
+ *
+ * - httpOnly: always
+ * - secure:  true in production (required when sameSite='none')
+ * - sameSite:
+ *     - dev/test: 'lax' (works for same-origin local dev)
+ *     - production: configurable via COOKIE_SAMESITE; defaults to 'none'
+ *       so that the SermonSmith web app deployed on Vercel can authenticate
+ *       against the API deployed on Railway (different eTLD+1).
+ *
+ *       If you instead deploy the API and web on the same registered domain
+ *       (e.g. api.example.com + app.example.com) you can set
+ *       COOKIE_SAMESITE=lax for stricter CSRF properties.
+ *
+ *       SameSite=none REQUIRES secure=true; we enforce that here.
+ * - domain: when COOKIE_DOMAIN is set we scope the cookie to that registered
+ *   domain so api.example.com and app.example.com can share auth.
+ */
 export function cookieOptions() {
   const isProd = process.env.NODE_ENV === 'production';
-  return {
+  const sameSiteRaw = (process.env.COOKIE_SAMESITE || (isProd ? 'none' : 'lax')).toLowerCase();
+  const sameSite = ['lax', 'strict', 'none'].includes(sameSiteRaw) ? sameSiteRaw : 'lax';
+
+  // SameSite=none MUST have secure=true. In dev, force lax to avoid surprising
+  // browser warnings.
+  const secure = isProd || sameSite === 'none';
+
+  const opts = {
     httpOnly: true,
-    secure: isProd,
-    sameSite: 'lax',
+    secure,
+    sameSite,
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     path: '/',
   };
+
+  if (process.env.COOKIE_DOMAIN) {
+    opts.domain = process.env.COOKIE_DOMAIN;
+  }
+
+  return opts;
 }
 
 export function signToken(userId) {
@@ -59,12 +90,16 @@ export async function authenticateToken(req, res, next) {
     req.userId = decoded.userId;
     // Cache the user role once so route handlers never need a second DB lookup.
     // Also acts as a revocation check — deleted users are rejected immediately.
-    const user = await prisma.user.findUnique({ where: { id: decoded.userId }, select: { role: true, premium: true } });
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { role: true, premium: true, email: true },
+    });
     if (!user) {
       return res.status(401).json({ message: 'User account not found' });
     }
     req.userRole = user.role;
     req.userPremium = !!user.premium;
+    req.userEmail = user.email;
     next();
   } catch {
     return res.status(401).json({ message: 'Invalid or expired token' });

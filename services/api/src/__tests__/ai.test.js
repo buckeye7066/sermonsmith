@@ -21,6 +21,7 @@ vi.mock('../middleware/auth.js', () => ({
       const u = prisma._store.user.find((x) => x.id === decoded.userId);
       req.userRole = u?.role;
       req.userPremium = !!u?.premium;
+      req.userEmail = u?.email;
       next();
     } catch {
       return res.status(401).json({ message: 'Invalid token' });
@@ -28,6 +29,10 @@ vi.mock('../middleware/auth.js', () => ({
   },
   requireAdmin: (req, res, next) => next(),
   optionalAuth: (req, _res, next) => next(),
+}));
+
+vi.mock('../services/email.js', () => ({
+  sendEmail: vi.fn(async () => ({ ok: true })),
 }));
 
 const { default: aiRoutes, __test: aiInternals } = await import('../routes/ai.js');
@@ -74,14 +79,43 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(aiInternals.clampTemperature('not-a-number')).toBe(0.7);
   });
 
-  it('enforces a daily usage cap', () => {
+  it('enforces a daily usage cap (DB-backed, persistent across calls)', async () => {
     const userId = 'u-quota';
-    let allowed = true;
-    for (let i = 0; i < 50 && allowed; i++) {
-      const r = aiInternals.consumeUsage(userId, false);
-      allowed = r.allowed;
+    let lastResult;
+    let denied = false;
+    for (let i = 0; i < 35; i++) {
+      lastResult = await aiInternals.consumeUsageDb(userId, false, prisma);
+      if (!lastResult.allowed) {
+        denied = true;
+        break;
+      }
     }
-    expect(allowed).toBe(false);
+    expect(denied).toBe(true);
+    expect(lastResult.count).toBeGreaterThan(lastResult.limit);
+    // The store has exactly one row for this user / today
+    const rows = prisma._store.aiUsage.filter((r) => r.userId === userId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].count).toBeGreaterThan(lastResult.limit);
+  });
+
+  it('DB-backed counter survives "process restart" (fresh consumeUsageDb call sees prior count)', async () => {
+    const userId = 'u-restart';
+    for (let i = 0; i < 10; i++) {
+      await aiInternals.consumeUsageDb(userId, false, prisma);
+    }
+    // Simulate a new process by calling again with the same userId — the
+    // stored row still has count=10, next call yields count=11.
+    const next = await aiInternals.consumeUsageDb(userId, false, prisma);
+    expect(next.count).toBe(11);
+    expect(next.allowed).toBe(true);
+  });
+
+  it('premium users get the premium limit', async () => {
+    const userId = 'u-prem';
+    for (let i = 0; i < 100; i++) {
+      const r = await aiInternals.consumeUsageDb(userId, true, prisma);
+      expect(r.allowed).toBe(true);
+    }
   });
 
   it('returns 503 when DISABLE_AI=1 (the default in tests)', async () => {
@@ -99,3 +133,76 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(upload.status).toBe(501);
   });
 });
+
+describe('ai routes — /email lockdown', () => {
+  let app;
+  beforeEach(() => {
+    prisma._reset();
+    app = buildApp();
+    delete process.env.DISABLE_AI;
+  });
+
+  it('rejects anonymous /email', async () => {
+    const res = await request(app).post('/api/ai/email').send({ message: 'hi' });
+    expect(res.status).toBe(401);
+  });
+
+  it('IGNORES caller-supplied to: address — only sends to the authenticated user email', async () => {
+    prisma._store.user.push({ id: 'u-mail', role: 'user', premium: false, email: 'me@example.com' });
+    const { sendEmail } = await import('../services/email.js');
+    sendEmail.mockClear();
+
+    const res = await request(app)
+      .post('/api/ai/email')
+      .set('Cookie', [`ss_token=${tokenFor('u-mail')}`])
+      .send({ to: 'attacker@evil.com', message: 'hello' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sentTo).toBe('me@example.com');
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'me@example.com' }));
+  });
+
+  it('REJECTS caller-supplied raw HTML and uses a server-controlled template', async () => {
+    prisma._store.user.push({ id: 'u-mail2', role: 'user', premium: false, email: 'me2@example.com' });
+    const { sendEmail } = await import('../services/email.js');
+    sendEmail.mockClear();
+
+    const evil = '<script>alert(1)</script><img src=x onerror=alert(2)>';
+    const res = await request(app)
+      .post('/api/ai/email')
+      .set('Cookie', [`ss_token=${tokenFor('u-mail2')}`])
+      .send({ html: evil, message: evil });
+
+    expect(res.status).toBe(200);
+    const sentArg = sendEmail.mock.calls[0][0];
+    // The injected HTML must be escaped — never present verbatim. Both the
+    // <script> tag and the <img onerror=> XSS payload must end up in the
+    // body as escaped TEXT rather than as raw markup.
+    expect(sentArg.html).not.toContain('<script>');
+    expect(sentArg.html).not.toMatch(/<img[^>]*onerror/i);
+    expect(sentArg.html).toContain('&lt;script&gt;');
+    expect(sentArg.html).toContain('&lt;img src=x onerror=alert(2)&gt;');
+    // And nothing the caller submitted ended up driving the recipient field.
+    expect(sentArg.to).toBe('me2@example.com');
+  });
+
+  it('400s on unknown templates', async () => {
+    prisma._store.user.push({ id: 'u-mail3', role: 'user', premium: false, email: 'me3@example.com' });
+    const res = await request(app)
+      .post('/api/ai/email')
+      .set('Cookie', [`ss_token=${tokenFor('u-mail3')}`])
+      .send({ template: 'phishing-campaign', message: 'click here' });
+    expect(res.status).toBe(400);
+  });
+
+  it('400s when message is missing', async () => {
+    prisma._store.user.push({ id: 'u-mail4', role: 'user', premium: false, email: 'me4@example.com' });
+    const res = await request(app)
+      .post('/api/ai/email')
+      .set('Cookie', [`ss_token=${tokenFor('u-mail4')}`])
+      .send({});
+    expect(res.status).toBe(400);
+  });
+});
+

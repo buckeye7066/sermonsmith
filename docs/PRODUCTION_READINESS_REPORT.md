@@ -185,3 +185,61 @@ The following are **non-blocking** for v1 production but are tracked for the nex
 - `RESEND_API_KEY` if `DISABLE_PASSWORD_RESET` is not `true`
 
 If any of those are missing in `NODE_ENV=production`, the API will refuse to start — which is the desired fail-closed behavior.
+
+---
+
+## 8. Second-pass audit (2026-05-14)
+
+A second-pass production-readiness audit was performed targeting the residual
+blockers called out in §6 ("In-memory rate/usage limiting") and the external
+review findings around cross-domain cookie auth, `/api/ai/email` abuse, and
+production env validation.
+
+### 8.1 Fixed second-pass blockers
+
+| Blocker (external review) | Where it lived | Fix | Test that proves it |
+|---|---|---|---|
+| **Cross-domain auth was broken on Vercel + Railway.** Default `sameSite=lax` cookies are dropped on cross-site requests from `*.vercel.app` to `*.railway.app`, so an authenticated SPA could not actually authenticate to the API. | `services/api/src/middleware/auth.js` (`cookieOptions`) | In production, default to `sameSite='none'` + `secure=true`, and accept `COOKIE_SAMESITE` / `COOKIE_DOMAIN` overrides for the same-site proxy case. Documented both modes in `services/api/.env.example`. | `cookies.test.js` → "defaults to sameSite=none + secure=true so Vercel→Railway cross-domain auth works", "honours COOKIE_SAMESITE override when team chooses a same-site API proxy", "stays sameSite=lax + secure=false in development". |
+| **`COOKIE_SECRET` was not in `PRODUCTION_REQUIRED`.** A production boot with no `COOKIE_SECRET` would silently fall back to a default and ship signed cookies under that default. | `services/api/src/config/env.js` | Added `COOKIE_SECRET` to `PRODUCTION_REQUIRED` and to the strong-secret entropy check. | `env.test.js` → "throws when COOKIE_SECRET is missing in production", "throws when COOKIE_SECRET is present but too short in production". |
+| **`/api/ai/email` accepted arbitrary `to` and arbitrary `html` from any authenticated user.** A logged-in customer could pivot the API into an outbound mailer for arbitrary HTML to arbitrary addresses. | `services/api/src/routes/ai.js` (`/email`) | The endpoint now (1) **only** sends to `req.userEmail` (server-derived from the JWT, never from the body), (2) **rejects** any client-supplied `to` or `html` field, (3) renders HTML server-side from a fixed `EMAIL_TEMPLATES` allow-list (`sermon_share`, `study_plan`, `prayer`), and (4) HTML-escapes any user-provided `message`. | `ai.test.js → /email lockdown` (5 tests): anonymous → 401, ignores `to`, rejects `html`, renders only allow-listed templates, returns 400 on unknown templates / missing message. |
+| **Per-user AI usage was in-memory.** A single Railway instance restart, or a horizontally-scaled deployment, would silently reset/duplicate the cap. | `services/api/src/routes/ai.js` + `services/api/prisma/schema.prisma` | New `AiUsage` Prisma model (`@@unique([userId, bucket])`). New `consumeUsageDb` performs an atomic `upsert` with `count: { increment: 1 }` and compares against the per-tier cap. The in-memory `usageByUser` Map is gone. New migration `services/api/prisma/migrations/20260514_ai_usage/`. | `ai.test.js → consumeUsageDb` (3 tests): persistent count across calls, "process restart" preserves count, premium tier honours the higher cap. `integration.test.js` covers the same path against a real Postgres in CI. |
+| **No integration tests against a real database.** All API tests ran against an in-process Prisma mock. | `.github/workflows/ci.yml` + `services/api/src/__tests__/integration.test.js` | New `integration-test` CI job spins up `postgres:16` as a service container, runs `prisma migrate deploy`, and executes `vitest run src/__tests__/integration.test.js`. Locally, the same suite runs when `RUN_INTEGRATION=1` is set; otherwise it's `describe.skip`. | `integration.test.js` (4 tests): `AiUsage` upsert serialises concurrent consume calls without double-counting, free-tier ceiling of 30 enforced and denied thereafter, tenant-scoped `deleteMany`, `StripeEvent.stripeEventId` unique constraint blocks duplicate webhook processing. |
+
+### 8.2 New / extended tests
+
+`services/api/src/__tests__/`:
+
+- `cookies.test.js` (new, 6 tests): isolated tests for `cookieOptions` so module
+  cache pollution from other tests cannot mask regressions.
+- `env.test.js` (extended): `COOKIE_SECRET` required in production, weak
+  `COOKIE_SECRET` rejected.
+- `ai.test.js` (extended): `consumeUsageDb` persistence and per-tier limits;
+  `/api/ai/email` lockdown suite.
+- `integration.test.js` (new, 4 tests, gated on `RUN_INTEGRATION=1` locally,
+  always-on in CI's `integration-test` job).
+
+```
+Test Files  6 passed | 1 skipped (7)   # local default (integration skipped without RUN_INTEGRATION)
+     Tests  57 passed | 4 skipped (61)
+```
+
+CI runs the integration-test job against a real Postgres so the four skipped
+tests above run on every PR.
+
+### 8.3 Commands run locally (second pass, all passed)
+
+```text
+npm install
+npm run lint            # 0 errors
+npm run typecheck       # passes
+npm run test            # 57/57 passing (4 integration skipped without RUN_INTEGRATION=1)
+npm run build           # vite build succeeds
+npm run audit           # 0 vulnerabilities
+npm run release:check   # exit 0
+```
+
+### 8.4 Updated readiness
+
+Residual caveat §6.1 (in-memory rate/usage) is now closed for AI usage (DB-backed via `AiUsage`); the express-rate-limit memory store remains in-memory (a known follow-up for multi-instance scaling). All other external-review blockers in this pass are fixed and tested.
+
+**Updated readiness score: 0.93 — GO** for the API + web stack on a Postgres-backed Railway + Vercel deployment.
