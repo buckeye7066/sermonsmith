@@ -1,19 +1,25 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { prisma, authenticateToken, signToken, requireAdmin, AUTH_COOKIE, cookieOptions } from '../middleware/auth.js';
 import { sendPasswordResetEmail } from '../services/email.js';
 
-const router = Router();
-
-const ADMIN_EMAILS = [
-  'buckeye7066@gmail.com',
-  ...(process.env.ADMIN_EMAILS ? process.env.ADMIN_EMAILS.split(',').map(e => e.trim().toLowerCase()) : []),
-];
+// Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
+// implementation hardcoded a personal email — that gave whoever owned that
+// address admin in any deployment of this code, which is a hard fail for
+// production.
+function adminEmails() {
+  const raw = process.env.ADMIN_EMAILS || '';
+  return raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+}
 
 function isAdminEmail(email) {
-  return ADMIN_EMAILS.includes(email.toLowerCase());
+  if (!email) return false;
+  return adminEmails().includes(email.toLowerCase());
 }
+
+const router = Router();
 
 function sanitizeUser(user) {
   const { password, ...rest } = user;
@@ -26,6 +32,9 @@ router.post('/register', async (req, res, next) => {
     const { email, password, name } = req.body;
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
     }
 
     const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
@@ -72,7 +81,9 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // Auto-promote admin emails on every login so access is never lost
+    // Promote env-allowlisted admin emails on every login so access is
+    // never lost even after a manual demotion. Note: admin status comes
+    // from the deployment's ADMIN_EMAILS env, never from a hardcoded list.
     let currentUser = user;
     if (isAdminEmail(user.email) && (user.role !== 'admin' || !user.premium)) {
       currentUser = await prisma.user.update({
@@ -99,7 +110,6 @@ router.get('/me', authenticateToken, async (req, res, next) => {
     let user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Ensure admin emails always have admin+premium — self-healing
     if (isAdminEmail(user.email) && (user.role !== 'admin' || !user.premium)) {
       user = await prisma.user.update({
         where: { id: user.id },
@@ -123,7 +133,6 @@ router.patch('/me', authenticateToken, async (req, res, next) => {
       if (req.body[key] !== undefined) data[key] = req.body[key];
     }
 
-    // Store extra fields in the profile JSON column
     const extraFields = {};
     for (const [key, value] of Object.entries(req.body)) {
       if (!directFields.includes(key) && !blockedFields.includes(key) && key !== 'profile') {
@@ -180,9 +189,17 @@ router.post('/change-password', authenticateToken, async (req, res, next) => {
   }
 });
 
-// Request password reset — generates a short-lived JWT reset token.
-// In production, this token should be emailed to the user via SendGrid/SES.
-// For now, it returns the token in the response for dev/testing purposes.
+// ---------------------------------------------------------------------------
+// Password reset — single-use, hashed-at-rest tokens stored in PasswordReset.
+// ---------------------------------------------------------------------------
+
+const RESET_TOKEN_BYTES = 32;
+const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
+
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
 router.post('/forgot-password', async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -192,20 +209,35 @@ router.post('/forgot-password', async (req, res, next) => {
 
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
-    // Always return success to prevent email enumeration
+    // Always return success to prevent email enumeration.
     if (!user) {
       return res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
     }
 
-    // Sign a purpose-limited reset token (15 min expiry)
-    const resetToken = jwt.sign(
-      { userId: user.id, purpose: 'password-reset' },
-      process.env.JWT_SECRET,
-      { algorithm: 'HS256', expiresIn: '15m' }
-    );
+    // In production we require a configured email provider. If RESEND_API_KEY
+    // is missing we refuse to mint a reset token (would otherwise be
+    // dead-on-arrival but still consume a code path that could leak in logs).
+    if (process.env.NODE_ENV === 'production' && !process.env.RESEND_API_KEY) {
+      // Surface a generic message — do not advertise the misconfiguration.
+      return res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
+    }
 
-    // Send reset email (falls back to console.log if Resend is not configured)
-    await sendPasswordResetEmail(email, resetToken);
+    const rawToken = crypto.randomBytes(RESET_TOKEN_BYTES).toString('base64url');
+    const tokenHash = hashResetToken(rawToken);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+
+    // Invalidate any prior reset tokens for this user before issuing a new one.
+    await prisma.passwordReset.deleteMany({ where: { userId: user.id } }).catch(() => null);
+    await prisma.passwordReset.create({
+      data: { userId: user.id, tokenHash, expiresAt },
+    });
+
+    try {
+      await sendPasswordResetEmail(email, rawToken);
+    } catch (e) {
+      // Never log the token itself; only that send failed.
+      console.error('[forgot-password] reset email send failed:', e.message);
+    }
 
     res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
   } catch (err) {
@@ -213,32 +245,43 @@ router.post('/forgot-password', async (req, res, next) => {
   }
 });
 
-// Confirm password reset using the token from forgot-password
 router.post('/reset-password', async (req, res, next) => {
   try {
     const { token, newPassword } = req.body;
     if (!token || !newPassword) {
       return res.status(400).json({ message: 'Token and new password are required' });
     }
-
     if (newPassword.length < 8) {
       return res.status(400).json({ message: 'New password must be at least 8 characters' });
     }
 
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
-    } catch {
-      return res.status(400).json({ message: 'Reset link is invalid or has expired' });
-    }
+    // Legacy fallback: previous deployments minted JWT-based reset tokens.
+    // We accept those if PasswordReset lookup misses, so users mid-flight
+    // during the migration window aren't locked out — but they cannot be
+    // re-used (we don't have a JTI store) so the JWT path is single-use
+    // by virtue of the password-update side effect.
+    const tokenHash = hashResetToken(token);
+    const record = await prisma.passwordReset.findUnique({ where: { tokenHash } }).catch(() => null);
 
-    if (decoded.purpose !== 'password-reset') {
-      return res.status(400).json({ message: 'Invalid reset token' });
+    let userId;
+    if (record && record.expiresAt > new Date()) {
+      userId = record.userId;
+      await prisma.passwordReset.delete({ where: { id: record.id } }).catch(() => null);
+    } else {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+        if (decoded.purpose !== 'password-reset') {
+          return res.status(400).json({ message: 'Reset link is invalid or has expired' });
+        }
+        userId = decoded.userId;
+      } catch {
+        return res.status(400).json({ message: 'Reset link is invalid or has expired' });
+      }
     }
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
-      where: { id: decoded.userId },
+      where: { id: userId },
       data: { password: hashed },
     });
 

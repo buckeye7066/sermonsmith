@@ -7,25 +7,39 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
+    "lint": "eslint \"src/**/*.js\"",
+    "typecheck": "node --check src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "node prisma/seed.js",
     "db:studio": "prisma studio"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
     "bcryptjs": "^2.4.3",
+    "compression": "^1.7.5",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.21.0",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "openai": "^4.70.0",
     "resend": "^6.10.0",
-    "stripe": "^17.0.0"
+    "stripe": "^17.0.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "prisma": "^6.0.0"
+    "@eslint/js": "^9.19.0",
+    "eslint": "^9.19.0",
+    "globals": "^15.14.0",
+    "prisma": "^6.0.0",
+    "supertest": "^7.0.0",
+    "vitest": "^2.1.8"
   }
 }
