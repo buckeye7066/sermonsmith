@@ -16,17 +16,22 @@ vi.mock('../middleware/auth.js', () => ({
 }));
 
 // Mock Stripe SDK so we don't need real keys.
+//
+// Note: under vitest 4 `vi.fn()` no longer supports being invoked with
+// `new`, so we expose a real class as the default export. The shape of
+// the instance is identical to what the production code touches.
 const mockConstructEvent = vi.fn();
 const mockCustomersList = vi.fn();
 const mockCustomersRetrieve = vi.fn();
-vi.mock('stripe', () => ({
-  default: vi.fn(() => ({
-    webhooks: { constructEvent: mockConstructEvent },
-    customers: { list: mockCustomersList, retrieve: mockCustomersRetrieve },
-    checkout: { sessions: { create: vi.fn() } },
-    billingPortal: { sessions: { create: vi.fn() } },
-  })),
-}));
+class MockStripe {
+  constructor() {
+    this.webhooks = { constructEvent: mockConstructEvent };
+    this.customers = { list: mockCustomersList, retrieve: mockCustomersRetrieve };
+    this.checkout = { sessions: { create: vi.fn() } };
+    this.billingPortal = { sessions: { create: vi.fn() } };
+  }
+}
+vi.mock('stripe', () => ({ default: MockStripe }));
 
 process.env.STRIPE_SECRET_KEY = 'sk_test_x';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_x';
