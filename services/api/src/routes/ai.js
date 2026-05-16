@@ -203,15 +203,12 @@ function escapeHtml(s) {
 router.post('/email', authenticateToken, async (req, res, next) => {
   try {
     if (req.body && (req.body.html || req.body.to || req.body.email)) {
-      // Surface this once in logs so we can track any callers that still
-      // try to override these fields after the lockdown.
-       
-      console.warn('[ai/email] rejected client-supplied to/html field', {
-        userId: req.userId,
-        triedTo: Boolean(req.body.to || req.body.email),
-        triedHtml: Boolean(req.body.html),
+             // Hard fail on any attempt to override the recipient or supply raw HTML.
+      // The API always emails the authenticated user with a server-rendered template.
+      return res.status(400).json({
+        message: 'Providing custom "html" or recipient fields is not allowed. This endpoint always emails the authenticated user with a server‑rendered template.',
       });
-    }
+
 
     const templateId = String(req.body?.template || 'notification');
     const template = EMAIL_TEMPLATES[templateId];
