@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { logError } from '@/lib/logError';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Globe, Loader2, Code, ChevronDown } from "lucide-react";
@@ -44,8 +45,12 @@ export default function TranslationSelector({ currentTranslation = "KJV", onTran
         setCurrentTranslationName(translation.shortName || translation.id);
       }
     } catch (error) {
-      console.error('Failed to load translations:', error);
-      toast.error('Failed to load translation list');
+      const msg = logError('Failed to load translations', error, {
+        endpoint: 'listAvailableTranslations',
+        component: 'TranslationSelector',
+        currentTranslation,
+      });
+      toast.error(`Failed to load translation list: ${msg}`);
     } finally {
       setIsLoading(false);
     }

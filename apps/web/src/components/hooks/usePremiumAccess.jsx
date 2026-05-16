@@ -1,85 +1,57 @@
-import { useState, useEffect } from 'react';
-import { api } from '@/api/apiClient';
+import { useMemo } from 'react';
+import { useAuth } from '@/lib/AuthContext';
 
+/**
+ * Returns the current user's premium / dev-access state.
+ *
+ * IMPORTANT: this hook used to call `api.auth.me()` itself, which meant every
+ * component that called `usePremiumAccess()` triggered an additional auth
+ * round-trip. Layout AND WorldviewExplorer (and a few other pages) both call
+ * this hook, which is how /api/auth/me ended up being fetched 4× per page
+ * load. We now derive everything from the single AuthContext fetch so the
+ * hook is free to call from anywhere.
+ */
 export function usePremiumAccess() {
-  const [accessData, setAccessData] = useState({
-    isPremium: false,
-    devOverride: false,
-    tier: 'free',
-    loading: true,
-    error: null
-  });
+  const { user, isLoadingAuth, authError } = useAuth();
 
-  useEffect(() => {
-    let mounted = true;
+  return useMemo(() => {
+    if (isLoadingAuth) {
+      return { isPremium: false, devOverride: false, tier: 'free', loading: true, error: null };
+    }
 
-    async function fetchAccess() {
-      try {
-        const user = await api.auth.me();
-        
-        if (!user) {
-          if (mounted) {
-            setAccessData({
-              isPremium: false,
-              devOverride: false,
-              tier: 'free',
-              loading: false,
-              error: null
-            });
-          }
-          return;
-        }
+    if (!user) {
+      return {
+        isPremium: false,
+        devOverride: false,
+        tier: 'free',
+        loading: false,
+        error: authError?.message || null,
+      };
+    }
 
-        // Admin and dev roles always get full access
-        const isAdmin = user.role === 'admin' || user.role === 'dev';
-        const devOverride = isAdmin || user.premium_override === true;
+    const isAdmin = user.role === 'admin' || user.role === 'dev';
+    const devOverride = isAdmin || user.premium_override === true;
 
-        let isPremium = false;
-
-        if (isAdmin || devOverride) {
-          isPremium = true;
-        } else if (user.premium === true) {
-          isPremium = true;
-        } else if (user.subscription_tier === 'premium') {
-          isPremium = true;
-        } else if (user.premium_until) {
-          const premiumUntil = new Date(user.premium_until);
-          if (premiumUntil > new Date()) {
-            isPremium = true;
-          }
-        }
-
-        if (mounted) {
-          setAccessData({
-            isPremium,
-            devOverride,
-            tier: isPremium ? 'premium' : 'free',
-            loading: false,
-            error: null
-          });
-        }
-
-      } catch (error) {
-        console.error('Error checking premium access:', error);
-        
-        if (mounted) {
-          setAccessData({
-            isPremium: false,
-            devOverride: false,
-            tier: 'free',
-            loading: false,
-            error: error.message
-          });
-        }
+    let isPremium = false;
+    if (isAdmin || devOverride) {
+      isPremium = true;
+    } else if (user.premium === true) {
+      isPremium = true;
+    } else if (user.subscription_tier === 'premium') {
+      isPremium = true;
+    } else if (user.premium_until) {
+      const premiumUntil = new Date(user.premium_until);
+      if (!Number.isNaN(premiumUntil.getTime()) && premiumUntil > new Date()) {
+        isPremium = true;
       }
     }
 
-    fetchAccess();
-
-    return () => {
-      mounted = false;
+    return {
+      isPremium,
+      devOverride,
+      tier: isPremium ? 'premium' : 'free',
+      loading: false,
+      error: null,
     };
-  }, []);
-
-  return accessData;
+  }, [user, isLoadingAuth, authError]);
 }

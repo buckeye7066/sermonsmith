@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -192,7 +193,8 @@ const analysisSchema = {
 };
 
 export default function WorldviewExplorer() {
-  const [user, setUser] = useState(null);
+  // User comes from the shared AuthContext — no per-page api.auth.me() call.
+  const { user, isLoadingAuth } = useAuth();
   const { isPremium, loading: accessLoading } = usePremiumAccess();
   const [selectedSystem, setSelectedSystem] = useState(null);
   const [analysis, setAnalysis] = useState(null);
@@ -212,7 +214,6 @@ export default function WorldviewExplorer() {
   const [showNotesDialog, setShowNotesDialog] = useState(false);
 
   useEffect(() => {
-    loadUser();
     loadUserNotes();
   }, []);
 
@@ -221,15 +222,6 @@ export default function WorldviewExplorer() {
       setCurrentNote(userNotes[selectedSystem] || '');
     }
   }, [showNotesDialog, selectedSystem, userNotes]);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
-      console.log("User not logged in");
-    }
-  };
 
   const loadUserNotes = () => {
     try {
@@ -426,7 +418,7 @@ Be respectful, accurate, pastoral.`;
     'indigenous_american', 'central_asian', 'modern_movement', 'new_age', 'philosophy'
   ];
 
-  if (accessLoading) {
+  if (isLoadingAuth || accessLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />

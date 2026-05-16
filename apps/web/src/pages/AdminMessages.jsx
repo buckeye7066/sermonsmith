@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,7 +23,7 @@ import { toast } from "sonner";
 import { logActivity } from "../components/admin/UserActivityLogger";
 
 export default function AdminMessages() {
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMessage, setSelectedMessage] = useState(null);
@@ -31,24 +33,19 @@ export default function AdminMessages() {
   const [userActivities, setUserActivities] = useState({});
 
   useEffect(() => {
-    loadUser();
-  }, []);
-
-  const loadUser = async () => {
-    try {
-      const userData = await api.auth.me();
-      if (userData.role !== 'admin') {
-        toast.error("Admin access required");
-        return;
-      }
-      setUser(userData);
-      await loadMessages();
-    } catch (error) {
-      console.error("Error loading user:", error);
-    } finally {
+    if (isLoadingAuth) return;
+    if (!user) {
+      logError('AdminMessages: no authenticated user');
       setIsLoading(false);
+      return;
     }
-  };
+    if (user.role !== 'admin') {
+      toast.error("Admin access required");
+      setIsLoading(false);
+      return;
+    }
+    loadMessages().finally(() => setIsLoading(false));
+  }, [isLoadingAuth, user]);
 
   const loadMessages = async () => {
     try {

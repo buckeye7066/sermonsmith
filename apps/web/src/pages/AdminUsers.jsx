@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -32,34 +33,24 @@ export default function AdminUsers() {
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [banConfirm, setBanConfirm] = useState(null);
   const [selectedUserActivities, setSelectedUserActivities] = useState(null);
   const [userLastLogin, setUserLastLogin] = useState({});
 
   useEffect(() => {
-    loadCurrentUser();
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      loadUsers();
-    }
-  }, [user]);
-
-  const loadCurrentUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-      
-      if (currentUser.role !== 'admin') {
-        toast.error("Admin access required");
-      }
-    } catch (error) {
+    if (isLoadingAuth) return;
+    if (!user) {
       toast.error("Please log in");
+      return;
     }
-  };
+    if (user.role !== 'admin') {
+      toast.error("Admin access required");
+      return;
+    }
+    loadUsers();
+  }, [isLoadingAuth, user]);
 
   const loadUsers = async () => {
     try {

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +14,7 @@ import { format, subDays, startOfDay } from "date-fns";
 const COLORS = ['#4f46e5', '#06b6d4', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
 
 export default function SermonAnalytics() {
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [sermons, setSermons] = useState([]);
   const [sharedSermons, setSharedSermons] = useState([]);
   const [ratings, setRatings] = useState([]);
@@ -21,24 +23,14 @@ export default function SermonAnalytics() {
   const [timeRange, setTimeRange] = useState(30); // days
 
   useEffect(() => {
-    loadUser();
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      loadAnalyticsData();
-    }
-  }, [user, timeRange]);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
+    if (isLoadingAuth) return;
+    if (!user) {
       toast.error("Please log in");
-      await api.auth.redirectToLogin();
+      api.auth.redirectToLogin?.();
+      return;
     }
-  };
+    loadAnalyticsData();
+  }, [isLoadingAuth, user, timeRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAnalyticsData = async () => {
     setIsLoading(true);
@@ -55,8 +47,7 @@ export default function SermonAnalytics() {
       setRatings(allRatings);
       setSeries(userSeries);
     } catch (error) {
-      console.error("Error loading analytics:", error);
-      toast.error("Failed to load analytics data");
+      toast.error(logError('Failed to load analytics data', error));
     } finally {
       setIsLoading(false);
     }

@@ -7,7 +7,53 @@
  * are stored in localStorage or sessionStorage (OWASP best practice).
  */
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// ---------------------------------------------------------------------------
+// API base URL resolution.
+//
+// Vite inlines `import.meta.env.VITE_API_URL` at build time, which means
+// the Electron desktop app's first-run prompt (where the user types their
+// API URL) cannot influence the already-bundled renderer just by setting
+// `process.env.VITE_API_URL` in the main process. We resolve the base
+// dynamically:
+//
+//   1. If we're running inside Electron and a config has been saved,
+//      `window.electron.getApiUrl()` returns it.
+//   2. Otherwise we fall back to the bundled VITE_API_URL.
+//   3. Otherwise (custom-domain proxy setup) we fall back to the same
+//      origin as the document.
+//
+// We cache the resolved base in module scope after the first call so we
+// don't pay an IPC round-trip on every request.
+// ---------------------------------------------------------------------------
+const BUNDLED_API_URL = import.meta.env.VITE_API_URL || '';
+
+let _cachedApiBase = null;
+async function getApiBaseUrl() {
+  if (_cachedApiBase !== null) return _cachedApiBase;
+
+  let resolved = '';
+  try {
+    if (typeof window !== 'undefined' && window.electron?.getApiUrl) {
+      const configured = await window.electron.getApiUrl();
+      if (configured) resolved = configured;
+    }
+  } catch {
+    // Electron bridge unavailable or threw — fall through to bundled value.
+  }
+
+  if (!resolved) resolved = BUNDLED_API_URL;
+  if (!resolved && typeof window !== 'undefined') resolved = window.location.origin;
+  if (!resolved) resolved = 'http://localhost:3001';
+
+  _cachedApiBase = resolved.replace(/\/+$/, '');
+  return _cachedApiBase;
+}
+
+// Test-only: lets unit/integration code blow the cache when it monkey-patches
+// window.electron between runs.
+export function __resetApiBaseCache() {
+  _cachedApiBase = null;
+}
 
 // ---------------------------------------------------------------------------
 // Fetch wrapper
@@ -31,9 +77,11 @@ async function apiFetch(path, options = {}, _retryCount = 0) {
     : null;
   const signal = ownController ? ownController.signal : options.signal;
 
+  const apiBase = await getApiBaseUrl();
+
   let res;
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    res = await fetch(`${apiBase}${path}`, {
       ...options,
       headers,
       signal,
@@ -76,16 +124,52 @@ async function apiFetch(path, options = {}, _retryCount = 0) {
 // Entity CRUD (generic document store)
 // ---------------------------------------------------------------------------
 
+// Pages call these methods with positional sort/limit/offset arguments
+// like `filter(query, '-created_date', 50)` and `list('-created_date')`.
+// The previous implementation silently discarded those — pages then
+// rendered unsorted, oversized lists and the bug looked like a backend
+// regression. The signatures here intentionally mirror what the pages
+// already pass.
 function createEntityMethods(entityName) {
   const base = `/api/entities/${entityName}`;
+  const safeId = (id) => encodeURIComponent(String(id));
   return {
-    create:     (data)       => apiFetch(base, { method: 'POST', body: JSON.stringify(data) }),
-    list:       ()           => apiFetch(base),
-    get:        (id)         => apiFetch(`${base}/${id}`),
-    update:     (id, data)   => apiFetch(`${base}/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete:     (id)         => apiFetch(`${base}/${id}`, { method: 'DELETE' }),
-    filter:     (query)      => apiFetch(`${base}/filter`, { method: 'POST', body: JSON.stringify(query) }),
-    bulkCreate: (items)      => apiFetch(`${base}/bulk`, { method: 'POST', body: JSON.stringify({ items }) }),
+    create: (data) =>
+      apiFetch(base, { method: 'POST', body: JSON.stringify(data) }),
+
+    list: (orderBy = '-created_date', limit = 200, offset = 0) =>
+      apiFetch(`${base}/filter`, {
+        method: 'POST',
+        body: JSON.stringify({ _orderBy: orderBy, _limit: limit, _offset: offset }),
+      }),
+
+    get: (id) => apiFetch(`${base}/${safeId(id)}`),
+
+    update: (id, data) =>
+      apiFetch(`${base}/${safeId(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id) =>
+      apiFetch(`${base}/${safeId(id)}`, { method: 'DELETE' }),
+
+    filter: (query = {}, orderBy = '-created_date', limit = 200, offset = 0) =>
+      apiFetch(`${base}/filter`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...(query || {}),
+          _orderBy: orderBy,
+          _limit: limit,
+          _offset: offset,
+        }),
+      }),
+
+    bulkCreate: (items) =>
+      apiFetch(`${base}/bulk`, {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      }),
   };
 }
 
@@ -179,7 +263,25 @@ const functions = {
 };
 
 // ---------------------------------------------------------------------------
+// Community / share routes — dedicated, public-where-public.
+//
+// SharedContent's "public" tab tried to use the generic entity API, which
+// scopes to the calling user. That meant the community feed only ever
+// showed the viewer's own content. These routes hit a server-side
+// allow-public path that bypasses tenant scoping safely.
+// ---------------------------------------------------------------------------
+const community = {
+  sharedContent: (type) => {
+    const q = type && type !== 'all' ? `?type=${encodeURIComponent(type)}` : '';
+    return apiFetch(`/api/community/shared-content${q}`);
+  },
+  share: (slug) => apiFetch(`/api/community/share/${encodeURIComponent(slug)}`),
+  like: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/like`, { method: 'POST' }),
+  save: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/save`, { method: 'POST' }),
+};
+
+// ---------------------------------------------------------------------------
 // Public exports
 // ---------------------------------------------------------------------------
 
-export const api = { auth, entities: entitiesProxy, integrations, functions };
+export const api = { auth, entities: entitiesProxy, integrations, functions, community };

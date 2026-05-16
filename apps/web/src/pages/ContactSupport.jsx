@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,7 +22,7 @@ const MESSAGE_TYPES = [
 ];
 
 export default function ContactSupport() {
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("other");
@@ -34,27 +36,18 @@ export default function ContactSupport() {
     fontFamily: 'sans'
   });
 
+  // Whenever a user resolves from AuthContext, sync theme + messages.
   useEffect(() => {
-    loadUser();
-  }, []);
-
-  const loadUser = async () => {
-    try {
-      const userData = await api.auth.me();
-      setUser(userData);
-      
-      // Load saved theme preferences
-      if (userData.message_theme) {
-        setTheme(userData.message_theme);
-      }
-      
-      await loadMyMessages(userData.id);
-    } catch (error) {
-      console.error("Error loading user:", error);
-    } finally {
+    if (isLoadingAuth) return;
+    if (!user) {
       setIsLoading(false);
+      return;
     }
-  };
+    if (user.message_theme) setTheme(user.message_theme);
+    loadMyMessages(user.id)
+      .catch((err) => logError('Failed to load support messages', err))
+      .finally(() => setIsLoading(false));
+  }, [isLoadingAuth, user]);
 
   const saveThemePreference = async (newTheme) => {
     try {

@@ -4,6 +4,8 @@
  * Data is hosted on GitHub and fetched as needed
  */
 
+import { logError } from '@/lib/logError';
+
 const GITHUB_BASE_URL = 'https://buckeye7066.github.io/Bible-app';
 
 const BIBLE_BOOKS = [
@@ -92,14 +94,24 @@ class BibleDataService {
     try {
       const response = await fetch(`${GITHUB_BASE_URL}/translations.json`);
       if (!response.ok) {
-        throw new Error('Failed to load translations');
+        // Preserve status / statusText so the catch block below can log
+        // a useful, debuggable record rather than just "Error".
+        const err = new Error(`translations.json ${response.status} ${response.statusText}`);
+        err.status = response.status;
+        try { err.data = await response.text(); } catch { /* ignore */ }
+        throw err;
       }
       const data = await response.json();
       this.translations = data.translations;
       return this.translations;
     } catch (error) {
-      console.error('Error loading translations:', error);
-      // Return default KJV if translations.json fails
+      logError('Error loading translations', error, {
+        source: 'BibleDataService',
+        url: `${GITHUB_BASE_URL}/translations.json`,
+      });
+      // Return default KJV if translations.json fails. The previous code
+      // also swallowed the error; we keep that behaviour because callers
+      // rely on this method *always* returning something usable.
       return [{
         id: "KJV",
         name: "King James Version",

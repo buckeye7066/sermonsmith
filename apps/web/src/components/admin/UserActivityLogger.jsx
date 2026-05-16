@@ -5,9 +5,19 @@ let isProcessing = false;
 let cachedUser = null;
 let userFetchPromise = null;
 
+// The AuthContext primes this cache via `primeCachedUser` so that the
+// activity logger never has to issue its own `/api/auth/me` request when
+// the centralised auth fetch has already happened. This is what keeps the
+// per-page-load count of `/api/auth/me` calls at exactly one.
+export function primeCachedUser(user) {
+  cachedUser = user || null;
+}
+
 async function resolveUser() {
   if (cachedUser) return cachedUser;
   if (userFetchPromise) return userFetchPromise;
+  // Fallback: only fires if logActivity is invoked before AuthContext has
+  // primed the cache (rare — typically only on very early boot events).
   userFetchPromise = api.auth.me()
     .then(u => { cachedUser = u; return u; })
     .catch(() => null)

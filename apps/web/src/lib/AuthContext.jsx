@@ -1,5 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useMemo, useCallback } from 'react';
 import { api } from '@/api/apiClient';
+import { logError } from '@/lib/logError';
+import { primeCachedUser } from '@/components/admin/UserActivityLogger';
 
 const AuthContext = createContext();
 
@@ -15,13 +17,17 @@ export const AuthProvider = ({ children }) => {
       setUser(currentUser);
       setIsAuthenticated(true);
       setAuthError(null);
+      // Share the just-fetched user with the activity logger so it doesn't
+      // issue its own duplicate /api/auth/me call.
+      primeCachedUser(currentUser);
     } catch (error) {
       // 401 means no valid cookie — user is simply not logged in
       if (error.status === 401) {
         setUser(null);
         setIsAuthenticated(false);
+        primeCachedUser(null);
       } else {
-        console.error('Auth check failed:', error);
+        logError('Auth check failed', error);
         const errType = error.data?.type;
         setAuthError(errType ? { type: errType } : null);
       }
@@ -39,6 +45,7 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     setIsAuthenticated(false);
     setAuthError(null);
+    primeCachedUser(null);
     if (shouldRedirect) {
       window.location.href = '/Login';
     }

@@ -30,6 +30,8 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "../utils";
 import { BOOK_NAME_TO_OSIS } from "../components/bible/bibleSources";
+import { logError } from "@/lib/logError";
+import { useAuth } from "@/lib/AuthContext";
 
 import VerseCard from "../components/reader/VerseCard";
 import HighlightDrawer from "../components/reader/HighlightDrawer";
@@ -154,7 +156,8 @@ export default function Reader() {
   const [currentTranslation, setCurrentTranslation] = useState("kjv");
   const [highlights, setHighlights] = useState([]);
   const [notes, setNotes] = useState([]);
-  const [user, setUser] = useState(null);
+  // Read user from shared AuthContext (no extra fetch).
+  const { user } = useAuth();
   const [selectedVerse, setSelectedVerse] = useState(null);
   const [showHighlightDrawer, setShowHighlightDrawer] = useState(false);
   const [showNoteDrawer, setShowNoteDrawer] = useState(false);
@@ -195,39 +198,25 @@ export default function Reader() {
 
   const verseRefs = useRef({});
 
+  // Pull reader-settings from the shared user object (or fall back to
+  // localStorage if signed out / preferences missing).
   useEffect(() => {
-    // Load from user preferences if available, otherwise localStorage
-    const loadReaderSettings = async () => {
-      try {
-        const userData = await api.auth.me();
-        if (userData?.reading_preferences) {
-          setReaderSettings({
-            fontSize: userData.reading_preferences.fontSize || 18,
-            lineHeight: userData.reading_preferences.lineHeight || 1.8,
-            theme: userData.reading_preferences.theme || 'light'
-          });
-
-          // Set default translation if available
-          if (userData.reading_preferences.defaultTranslation) {
-            setCurrentTranslation(userData.reading_preferences.defaultTranslation);
-          }
-        } else {
-          const savedSettings = localStorage.getItem('readerSettings');
-          if (savedSettings) {
-            setReaderSettings(JSON.parse(savedSettings));
-          }
-        }
-      } catch (error) {
-        // If api.auth.me() fails (e.g., not logged in), fall back to localStorage
-        const savedSettings = localStorage.getItem('readerSettings');
-        if (savedSettings) {
-          setReaderSettings(JSON.parse(savedSettings));
-        }
+    if (user?.reading_preferences) {
+      setReaderSettings({
+        fontSize: user.reading_preferences.fontSize || 18,
+        lineHeight: user.reading_preferences.lineHeight || 1.8,
+        theme: user.reading_preferences.theme || 'light'
+      });
+      if (user.reading_preferences.defaultTranslation) {
+        setCurrentTranslation(user.reading_preferences.defaultTranslation);
       }
-    };
-
-    loadReaderSettings();
-  }, [setCurrentTranslation]);
+      return;
+    }
+    const savedSettings = localStorage.getItem('readerSettings');
+    if (savedSettings) {
+      try { setReaderSettings(JSON.parse(savedSettings)); } catch { /* ignore */ }
+    }
+  }, [user]);
 
   useEffect(() => {
     // Save to both user profile and localStorage
@@ -273,20 +262,17 @@ export default function Reader() {
     };
   }, []);
 
-  const loadUser = useCallback(async () => {
-    try {
-      const userData = await api.auth.me();
-      setUser(userData);
-
-      const premium = userData.subscription_tier === 'premium' ||
-                      userData.premium_override === true ||
-                      (userData.premium_until && new Date(userData.premium_until) > new Date());
-
-      setIsPremium(premium);
-    } catch (error) {
-      console.log("User not logged in");
+  // Derive premium flag from the shared user object — no extra fetch.
+  useEffect(() => {
+    if (!user) {
+      setIsPremium(false);
+      return;
     }
-  }, []);
+    const premium = user.subscription_tier === 'premium' ||
+                    user.premium_override === true ||
+                    (user.premium_until && new Date(user.premium_until) > new Date());
+    setIsPremium(premium);
+  }, [user]);
 
   const loadCurrentChapter = useCallback(async () => {
     setIsLoading(true);
@@ -409,8 +395,16 @@ export default function Reader() {
         setVerses([]);
       }
     } catch (error) {
-      console.error("Error loading verses:", error);
-      
+      // Surface FULL error context — message, name, HTTP status, server
+      // payload, and stack. The old console.error('Error loading verses:',
+      // error) line printed "Error loading verses: tr" in production
+      // builds because the minifier collapsed the Error.toString() output.
+      const errMsg = logError('Error loading verses', error, {
+        translationId: normalizeTranslationId(currentTranslation),
+        bookCode: BOOK_NAME_TO_OSIS[currentBook],
+        chapter: currentChapter,
+      });
+
       // Try offline fallback
       const bookCode = BOOK_NAME_TO_OSIS[currentBook];
       const normalizedTranslation = normalizeTranslationId(currentTranslation);
@@ -458,13 +452,16 @@ export default function Reader() {
       }
       
       // Extract user-friendly error message from the API response
-      const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to load verses. Please try again.';
+      const errorMessage = errMsg || 'Failed to load verses. Please try again.';
 
       setError({
         message: errorMessage,
         canRetry: true
       });
       setVerses([]);
+      // Surface in a toast too so users on /Reader don't have to look at
+      // a static empty state to realise something went wrong.
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -484,8 +481,6 @@ export default function Reader() {
   }, [user]);
 
   useEffect(() => {
-    loadUser();
-    
     // Log page view
     logActivity('page_view', { page_name: 'Reader' });
     
@@ -512,7 +507,7 @@ export default function Reader() {
         console.error('Failed to parse shared content');
       }
     }
-  }, [loadUser]);
+  }, []);
 
   useEffect(() => {
     loadCurrentChapter();
@@ -826,29 +821,59 @@ export default function Reader() {
 
   // Load available translations for offline manager and check current translation books
       useEffect(() => {
+        // Guard: don't fire either request until we actually have valid
+        // translation / book identifiers. Without this the effect runs on
+        // the very first render with whatever the initial state happens to
+        // be, and a stray empty / "tr"-truncated value hits the API.
+        const safeTranslation = normalizeTranslationId(currentTranslation);
+        if (!safeTranslation || !currentBook) {
+          return;
+        }
+
+        let cancelled = false;
+
         const loadTranslations = async () => {
           try {
             const payload = await api.functions.invoke('listAvailableTranslations');
-            if (payload.translations) {
+            if (cancelled) return;
+            if (payload?.translations) {
               setAvailableTranslations(payload.translations);
             }
           } catch (error) {
-            console.error('Failed to load translations:', error);
+            if (cancelled) return;
+            // Full structured log — no more "Failed to load translations: tr".
+            const msg = logError('Failed to load translations', error, {
+              endpoint: 'listAvailableTranslations',
+            });
+            // Non-fatal: the reader still works with the default translation,
+            // we just can't render the picker. Surface so the user knows.
+            toast.error(`Translation list unavailable: ${msg}`, { duration: 4000 });
           }
         };
         loadTranslations();
 
         // Check current translation's available books
         const checkTranslationBooks = async () => {
-          const bookInfo = await getTranslationBooks(currentTranslation);
-          setTranslationBookInfo(bookInfo);
+          try {
+            const bookInfo = await getTranslationBooks(safeTranslation);
+            if (cancelled) return;
+            setTranslationBookInfo(bookInfo);
 
-          // If current book isn't available, show alert
-          if (bookInfo && !isBookInTranslation(currentBook, bookInfo)) {
-            setShowNTOnlyAlert(true);
+            // If current book isn't available, show alert
+            if (bookInfo && !isBookInTranslation(currentBook, bookInfo)) {
+              setShowNTOnlyAlert(true);
+            }
+          } catch (error) {
+            if (cancelled) return;
+            logError('Failed to inspect translation books', error, {
+              translationId: safeTranslation,
+              currentBook,
+            });
           }
         };
         checkTranslationBooks();
+
+        return () => { cancelled = true; };
       }, [currentTranslation, currentBook]);
 
   const themeClasses = THEME_CLASSES[readerSettings.theme];

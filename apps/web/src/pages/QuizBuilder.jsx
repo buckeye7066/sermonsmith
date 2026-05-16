@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -48,19 +50,7 @@ export default function QuizBuilder() {
   const [difficulty, setDifficulty] = useState("medium");
   const [quizData, setQuizData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const userData = await api.auth.me();
-        setUser(userData);
-      } catch (e) {
-        toast.error("Please log in to create quizzes");
-      }
-    };
-    fetchUser();
-  }, []);
+  const { user } = useAuth();
 
   const handleGenerateQuiz = async () => {
     if (!user) {

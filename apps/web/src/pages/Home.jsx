@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -48,32 +49,27 @@ const testimonials = [
 ];
 
 export default function Home() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Single source of truth — no redundant api.auth.me() fetch here.
+  const { user, isLoadingAuth: loading, checkAppState } = useAuth();
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
   const [showPrayer, setShowPrayer] = useState(false);
+  const [hasCheckedOnboarding, setHasCheckedOnboarding] = useState(false);
 
   useEffect(() => {
-    loadUser();
     logActivity('page_view', { page_name: 'Home' });
   }, []);
 
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-      
-      // Show onboarding for new users
-      if (currentUser && !currentUser.onboarding_completed) {
-        setTimeout(() => setShowOnboarding(true), 2000);
-      }
-    } catch (error) {
-      console.log("User not logged in");
-    } finally {
-      setLoading(false);
+  // Onboarding nudge fires once the AuthContext has resolved a user and
+  // we haven't already triggered it for this mount.
+  useEffect(() => {
+    if (loading || !user || hasCheckedOnboarding) return;
+    setHasCheckedOnboarding(true);
+    if (!user.onboarding_completed) {
+      const t = setTimeout(() => setShowOnboarding(true), 2000);
+      return () => clearTimeout(t);
     }
-  };
+  }, [loading, user, hasCheckedOnboarding]);
 
   const features = [
     {
@@ -1066,7 +1062,8 @@ export default function Home() {
         open={showOnboarding}
         onClose={() => {
           setShowOnboarding(false);
-          loadUser();
+          // Refresh shared auth state instead of re-fetching locally.
+          checkAppState?.();
         }}
         user={user}
       />

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ import SermonTagsNotesDialog from "@/components/library/SermonTagsNotesDialog";
 import SeriesManager from "@/components/library/SeriesManager";
 
 export default function SermonLibrary() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [sermons, setSermons] = useState([]); // Renamed from sharedSermons
   const [sharedSeries, setSharedSeries] = useState([]);
   const [mySermons, setMySermons] = useState([]);
@@ -71,10 +72,7 @@ export default function SermonLibrary() {
   const [showTagsNotesDialog, setShowTagsNotesDialog] = useState(false);
   const [showSeriesManager, setShowSeriesManager] = useState(false);
 
-  // Effect for initial user load
-  useEffect(() => {
-    loadUser();
-  }, []);
+  // User now comes from AuthContext — no local fetch needed here.
 
   // Effect for loading data based on user and sortBy, and generating personalized recommendations
   useEffect(() => {
@@ -106,16 +104,6 @@ export default function SermonLibrary() {
   useEffect(() => {
     filterContent();
   }, [sermons, sharedSeries, searchQuery, selectedTags, selectedDenomination, selectedSeries, dateRange, viewMode]); // Removed sortBy because loadData now handles sort order for sermons
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
-      console.log("User not logged in");
-      setUser(null); // Explicitly set user to null if not logged in
-    }
-  };
 
   const loadData = async () => {
     try {

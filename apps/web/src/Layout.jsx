@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Book, FileText, Settings, PlusCircle, MapPin, GraduationCap, Crown, LogOut, Home, Brain, BookOpen, Users, Globe, Scale, Heart, MessageSquare, Shield, Code } from 'lucide-react';
@@ -13,89 +14,34 @@ import OnboardingWizard from './components/profile/OnboardingWizard';
 import EmbeddedBrowserDetector from './components/EmbeddedBrowserDetector';
 import WhatsNewDialog, { CURRENT_VERSION } from './components/WhatsNewDialog';
 
+// The app logo is served as an SVG from /public so it works without an
+// external image host. We also keep a remote-friendly PNG fallback path in
+// the manifest so installed PWAs that don't yet support SVG icons still get
+// a usable image.
+const APP_ICON_URL = '/icon.svg';
+
 export default function Layout({ children, currentPageName }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Auth state comes from the single AuthContext fetch — DO NOT call
+  // api.auth.me() here. The legacy code path triggered /api/auth/me 4×
+  // per page load (AuthProvider + Layout + Layout-via-usePremiumAccess +
+  // page-via-usePremiumAccess). All consumers now read the cached user.
+  const { user, isLoadingAuth, checkAppState } = useAuth();
   const { isPremium, devOverride, loading: accessLoading } = usePremiumAccess();
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
 
+  // Track which one-shot side effects we've already fired for this user so
+  // an auth refresh doesn't re-toast / re-clear the special message.
+  const [hasShownOnboarding, setHasShownOnboarding] = useState(false);
+  const [hasShownSpecial, setHasShownSpecial] = useState(false);
+
   useEffect(() => {
-    loadUser();
-
-    // Enhanced PWA Setup with better mobile support
-    document.querySelectorAll('link[rel="manifest"]').forEach(link => link.remove());
-
-    const manifest = {
-      "name": "SermonSmith - AI Bible Study & Sermon Builder",
-      "short_name": "SermonSmith",
-      "description": "AI-Powered Bible Study, Sermon Builder, and Scripture Reader",
-      "start_url": "/?source=pwa",
-      "scope": "/",
-      "display": "standalone",
-      "orientation": "portrait-primary",
-      "background_color": "#ffffff",
-      "theme_color": "#4f46e5",
-      "categories": ["education", "productivity", "lifestyle"],
-      "icons": [
-        {
-          "src": "/icon.png",
-          "sizes": "192x192",
-          "type": "image/png",
-          "purpose": "any maskable"
-        },
-        {
-          "src": "/icon.png",
-          "sizes": "512x512",
-          "type": "image/png",
-          "purpose": "any maskable"
-        }
-      ],
-      "shortcuts": [
-        {
-          "name": "Bible Reader",
-          "short_name": "Read Bible",
-          "description": "Open Bible Reader",
-          "url": "/Reader?source=shortcut",
-          "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
-        },
-        {
-          "name": "Sermon Builder",
-          "short_name": "New Sermon",
-          "description": "Create new sermon",
-          "url": "/SermonBuilder?source=shortcut",
-          "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
-        },
-        {
-          "name": "Bible Study",
-          "short_name": "Study",
-          "description": "Create Bible study",
-          "url": "/BibleStudy?source=shortcut",
-          "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
-        }
-      ],
-      "share_target": {
-        "action": "/Reader?share=true",
-        "method": "GET",
-        "params": {
-          "title": "title",
-          "text": "text",
-          "url": "url"
-        }
-      },
-      "protocol_handlers": [
-        {
-          "protocol": "web+bible",
-          "url": "/Reader?verse=%s"
-        }
-      ]
-    };
-
-    const manifestDataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(manifest));
-    const manifestLink = document.createElement('link');
-    manifestLink.rel = 'manifest';
-    manifestLink.href = manifestDataUri;
-    document.head.appendChild(manifestLink);
+    // PWA manifest is now served as a static file from
+    // apps/web/public/manifest.webmanifest and referenced from index.html.
+    // The previous dynamic data-URI manifest was fragile for install
+    // prompts, crawler discovery, and the iOS/Android install banner
+    // heuristics. Mobile meta tags below remain runtime-added so we can
+    // tweak the viewport on iOS in-app browsers.
 
     // Mobile-optimized meta tags
     const addMetaTag = (name, content) => {
@@ -145,7 +91,7 @@ export default function Layout({ children, currentPageName }) {
         link.sizes = sizes;
         document.head.appendChild(link);
       }
-      link.href = '/icon.png';
+      link.href = APP_ICON_URL;
     };
 
     addAppleTouchIcon('180x180');
@@ -187,38 +133,39 @@ export default function Layout({ children, currentPageName }) {
 
     }, []);
 
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-      
-      if (currentUser && !currentUser.onboarding_completed) {
-        setTimeout(() => setShowOnboarding(true), 1000);
-      } else if (currentUser) {
-        // Check for special message
-        if (currentUser.special_message) {
-          setTimeout(() => {
-            toast.success(currentUser.special_message, {
-              duration: 8000,
-              className: "text-lg"
-            });
-            // Clear the message after showing
-            api.auth.updateMe({ special_message: null }).catch(() => {});
-          }, 1000);
-        }
-        
-        // Check if user has seen the latest updates
-        const lastSeenVersion = currentUser.last_seen_version || "";
-        if (lastSeenVersion !== CURRENT_VERSION) {
-          setTimeout(() => setShowWhatsNew(true), 1500);
-        }
-      }
-    } catch (error) {
-      console.log('User not logged in');
-    } finally {
-      setLoading(false);
+  // Once auth has loaded and we have a user, run the one-shot "first
+  // visit" / "special message" / "what's new" checks. Guarded by
+  // `hasShown*` so they don't replay if AuthContext refreshes the user.
+  useEffect(() => {
+    if (isLoadingAuth || !user) return;
+
+    if (!user.onboarding_completed && !hasShownOnboarding) {
+      setHasShownOnboarding(true);
+      const t = setTimeout(() => setShowOnboarding(true), 1000);
+      return () => clearTimeout(t);
     }
-  };
+
+    if (user.onboarding_completed && !hasShownSpecial) {
+      setHasShownSpecial(true);
+
+      if (user.special_message) {
+        const t = setTimeout(() => {
+          toast.success(user.special_message, {
+            duration: 8000,
+            className: 'text-lg',
+          });
+          api.auth.updateMe({ special_message: null }).catch(() => {});
+        }, 1000);
+        return () => clearTimeout(t);
+      }
+
+      const lastSeenVersion = user.last_seen_version || '';
+      if (lastSeenVersion !== CURRENT_VERSION) {
+        const t = setTimeout(() => setShowWhatsNew(true), 1500);
+        return () => clearTimeout(t);
+      }
+    }
+  }, [isLoadingAuth, user, hasShownOnboarding, hasShownSpecial]);
 
   const handleLogout = () => {
     api.auth.logout();
@@ -268,7 +215,7 @@ export default function Layout({ children, currentPageName }) {
         { name: 'Function Reviewer', icon: Code, page: 'FunctionReviewer', devOnly: true }
   ];
 
-  if (loading || accessLoading) {
+  if (isLoadingAuth || accessLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
@@ -281,7 +228,7 @@ export default function Layout({ children, currentPageName }) {
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full space-y-8 text-center">
           <SafeImg
-            src="/icon.png"
+            src={APP_ICON_URL}
             alt="SermonSmith"
             className="mx-auto h-24 w-24 rounded-full shadow-lg"
             useFallbackIcon={true}
@@ -315,7 +262,7 @@ export default function Layout({ children, currentPageName }) {
           <SidebarHeader className="p-6 border-b border-gray-200">
             <div className="flex items-center space-x-3">
               <SafeImg
-                src="/icon.png"
+                src={APP_ICON_URL}
                 alt="SermonSmith"
                 className="h-10 w-10 rounded-full"
                 useFallbackIcon={true}
@@ -415,7 +362,9 @@ export default function Layout({ children, currentPageName }) {
         open={showOnboarding}
         onClose={() => {
           setShowOnboarding(false);
-          loadUser();
+          // Pull fresh user state through the shared AuthContext rather
+          // than firing another local api.auth.me() call.
+          checkAppState?.();
         }}
         user={user}
       />

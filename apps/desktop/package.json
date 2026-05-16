@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "electron/main.js",
+  "main": "electron/main.cjs",
   "author": {
     "name": "Sermon Smith Team",
     "email": "support@sermonsmith.app"

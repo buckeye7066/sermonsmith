@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { logError } from '@/lib/logError';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,10 @@ export default function VersionComparison({ book, chapter, onClose }) {
   }, []);
 
   useEffect(() => {
-    if (selectedVersions.length > 0) {
+    // Guard: don't try to fetch passages until we have the bare minimum
+    // inputs. Otherwise we hit /biblePassage with empty body and rack up
+    // a string of "Bible API returned 400" failures every render.
+    if (selectedVersions.length > 0 && book && chapter) {
       loadComparisonData();
     }
   }, [selectedVersions, book, chapter]);
@@ -31,11 +35,15 @@ export default function VersionComparison({ book, chapter, onClose }) {
   const loadAvailableTranslations = async () => {
     try {
       const payload = await api.functions.invoke('listAvailableTranslations');
-      if (payload.translations) {
+      if (payload?.translations) {
         setAvailableTranslations(payload.translations);
       }
     } catch (error) {
-      console.error('Failed to load translations:', error);
+      const msg = logError('Failed to load translations', error, {
+        endpoint: 'listAvailableTranslations',
+        component: 'VersionComparison',
+      });
+      toast.error(`Translation list unavailable: ${msg}`);
     }
   };
 
@@ -67,8 +75,14 @@ export default function VersionComparison({ book, chapter, onClose }) {
       const results = await Promise.all(dataPromises);
       setComparisonData(results);
     } catch (error) {
-      console.error('Error loading comparison:', error);
-      toast.error('Failed to load comparison data');
+      const msg = logError('Error loading comparison', error, {
+        endpoint: 'biblePassage',
+        book,
+        chapter,
+        selectedVersions,
+        component: 'VersionComparison',
+      });
+      toast.error(`Couldn't load comparison: ${msg}`);
     } finally {
       setIsLoading(false);
     }

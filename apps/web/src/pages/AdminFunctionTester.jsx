@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -7,25 +8,9 @@ import { PlayCircle, Loader2, Shield, Lock } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminFunctionTester() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { user, isLoadingAuth: loading } = useAuth();
   const [isRunning, setIsRunning] = useState(false);
   const [results, setResults] = useState(null);
-
-  useEffect(() => {
-    loadUser();
-  }, []);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
-      console.log("User not logged in");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const runFullTestSuite = async () => {
     setIsRunning(true);

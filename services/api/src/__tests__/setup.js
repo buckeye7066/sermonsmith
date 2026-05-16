@@ -75,8 +75,20 @@ export function createPrismaMock() {
         const key = Object.keys(where)[0];
         const idx = arr.findIndex((x) => x[key] === where[key]);
         if (idx === -1) throw new Error(`${name}.update: not found`);
-        arr[idx] = { ...arr[idx], ...data, updatedAt: new Date() };
-        return arr[idx];
+        const next = { ...arr[idx], updatedAt: new Date() };
+        for (const [k, v] of Object.entries(data)) {
+          // Mirror Prisma's atomic-number operations so route code that
+          // uses `{ increment: 1 }` works against the mock.
+          if (v && typeof v === 'object' && !Array.isArray(v) && 'increment' in v) {
+            next[k] = (next[k] || 0) + v.increment;
+          } else if (v && typeof v === 'object' && !Array.isArray(v) && 'decrement' in v) {
+            next[k] = (next[k] || 0) - v.decrement;
+          } else {
+            next[k] = v;
+          }
+        }
+        arr[idx] = next;
+        return next;
       }),
       updateMany: vi.fn(async ({ where, data }) => {
         const arr = getStore(name);

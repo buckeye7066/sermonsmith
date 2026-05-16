@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,92 +10,91 @@ import { Heart, Bookmark, TrendingUp, BookOpen, Loader2, Share2 } from "lucide-r
 import { toast } from "sonner";
 
 export default function SharedContent() {
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [sharedContent, setSharedContent] = useState([]);
   const [myShared, setMyShared] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [sharedLink, setSharedLink] = useState(null);
 
   useEffect(() => {
-    loadUser();
+    // When the URL carries ?link=<slug> we resolve it through the dedicated
+    // share route — the generic entity API would tenant-scope the lookup
+    // away and return 404 even for legitimate share links.
+    const params = new URLSearchParams(window.location.search);
+    const linkSlug = params.get('link');
+    if (linkSlug) {
+      api.community.share(linkSlug)
+        .then((result) => setSharedLink(result))
+        .catch((err) => {
+          toast.error(logError('Could not load share link', err));
+        });
+    }
   }, []);
 
   useEffect(() => {
-    if (user) {
-      loadContent();
-    }
-  }, [user, filter]);
+    if (isLoadingAuth) return;
+    loadContent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoadingAuth, user, filter]);
 
-  const loadUser = async () => {
+  const loadContent = async () => {
+    setIsLoading(true);
     try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
+      // Public feed uses the dedicated /api/community route so we actually
+      // see other users' public content. Without this, the generic entity
+      // API tenant-scopes to the caller and the "public" tab is empty.
+      const allContent = await api.community.sharedContent(filter);
+      setSharedContent(allContent);
+
+      if (user) {
+        const userContent = await api.entities.SharedContent.filter(
+          {},
+          '-created_date',
+          50
+        );
+        setMyShared(userContent);
+      } else {
+        setMyShared([]);
+      }
     } catch (error) {
-      toast.error("Please log in to view shared content");
+      toast.error(logError('Error loading shared content', error));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const loadContent = async () => {
-    try {
-      let allContent;
-      
-      if (filter === 'all') {
-        allContent = await api.entities.SharedContent.filter({ visibility: 'public' }, '-created_date', 50);
-      } else {
-        allContent = await api.entities.SharedContent.filter({ 
-          visibility: 'public',
-          content_type: filter
-        }, '-created_date', 50);
-      }
-
-      const userContent = await api.entities.SharedContent.filter({ user_id: user.id }, '-created_date');
-
-      setSharedContent(allContent);
-      setMyShared(userContent);
-    } catch (error) {
-      console.error('Error loading content:', error);
-    }
-  };
-
   const handleLike = async (content) => {
+    if (!user) {
+      toast.error('Please log in to like content');
+      return;
+    }
     try {
-      await api.entities.SharedContent.update(content.id, {
-        likes_count: (content.likes_count || 0) + 1
-      });
-      toast.success("Liked!");
-      loadContent();
+      const updated = await api.community.like(content.id);
+      setSharedContent((prev) =>
+        prev.map((c) => (c.id === content.id ? { ...c, ...updated } : c))
+      );
+      toast.success('Liked!');
     } catch (error) {
-      toast.error("Failed to like");
+      toast.error(logError('Failed to like', error));
     }
   };
 
   const handleSave = async (content) => {
+    if (!user) {
+      toast.error('Please log in to save content');
+      return;
+    }
     try {
-      await api.entities.SharedContent.update(content.id, {
-        saves_count: (content.saves_count || 0) + 1
-      });
-      toast.success("Saved to your collection!");
-      loadContent();
+      const updated = await api.community.save(content.id);
+      setSharedContent((prev) =>
+        prev.map((c) => (c.id === content.id ? { ...c, ...updated } : c))
+      );
+      toast.success('Saved to your collection!');
     } catch (error) {
-      toast.error("Failed to save");
+      toast.error(logError('Failed to save', error));
     }
   };
-
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <Share2 className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-            <p className="text-lg font-medium mb-4">Please log in to view shared content</p>
-            <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
@@ -107,6 +108,37 @@ export default function SharedContent() {
             Discover notes, highlights, and insights shared by the community.
           </p>
         </div>
+
+        {sharedLink && (
+          <Card className="mb-6 border-purple-300 bg-purple-50 dark:bg-purple-950">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Share2 className="w-5 h-5 text-purple-600" />
+                Someone shared this with you
+              </CardTitle>
+              <CardDescription>
+                {sharedLink.link?.title || 'Shared resource'} — {sharedLink.resource?.created_date && new Date(sharedLink.resource.created_date).toLocaleDateString()}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+                {sharedLink.resource?.content || sharedLink.resource?.body || sharedLink.resource?.title || 'No preview available'}
+              </pre>
+            </CardContent>
+          </Card>
+        )}
+
+        {!user && (
+          <Card className="mb-6 border-indigo-200">
+            <CardContent className="py-4 flex items-center justify-between">
+              <div>
+                <p className="font-medium">Sign in to like, save, and share your own content.</p>
+                <p className="text-sm text-gray-500">Anyone can browse the public feed.</p>
+              </div>
+              <Button onClick={() => api.auth.redirectToLogin('/SharedContent' + window.location.search)}>Sign In</Button>
+            </CardContent>
+          </Card>
+        )}
 
         <Tabs defaultValue="popular" className="space-y-6">
           <TabsList>

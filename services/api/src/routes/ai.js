@@ -28,6 +28,44 @@ const FREE_MAX_TOKENS = 1500;
 const PREMIUM_MAX_TOKENS = 4096;
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 30_000);
 
+// ---------------------------------------------------------------------------
+// Model allowlist.
+//
+// The /invoke route previously trusted whatever model string the client
+// sent. That meant a free-tier user could ask the server to use any model
+// the OpenAI account had access to, including expensive flagship or
+// experimental ones — pure cost/abuse exposure.
+//
+// We now whitelist server-side: free accounts get exactly the cheap
+// default; premium accounts can choose a small allowlist. Unknown models
+// 403 with a clear message instead of being silently forwarded.
+//
+// Configurable via env in case the deployment wants to add a model
+// without touching code (comma-separated lists, e.g.
+// AI_FREE_MODELS=gpt-4o-mini,gpt-3.5-turbo).
+// ---------------------------------------------------------------------------
+function modelSet(envName, fallbackList) {
+  const raw = process.env[envName];
+  if (!raw) return new Set(fallbackList);
+  const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return list.length > 0 ? new Set(list) : new Set(fallbackList);
+}
+const FREE_MODELS = modelSet('AI_FREE_MODELS', ['gpt-4o-mini']);
+const PREMIUM_MODELS = modelSet('AI_PREMIUM_MODELS', ['gpt-4o-mini', 'gpt-4o']);
+
+function resolveModel(requested, isPremium) {
+  const fallback = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const model = String(requested || fallback).trim();
+  const allowed = isPremium ? PREMIUM_MODELS : FREE_MODELS;
+  if (!allowed.has(model)) {
+    throw Object.assign(
+      new Error(`Model '${model}' is not available for this account.`),
+      { status: 403 },
+    );
+  }
+  return model;
+}
+
 // Persistent per-user, per-day AI counter. Backed by the AiUsage table so
 // the limit survives process restarts and applies across multiple replicas.
 //
@@ -111,7 +149,7 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
     messages.push({ role: 'user', content: prompt });
 
     const params = {
-      model: model || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      model: resolveModel(model, req.userPremium),
       messages,
       max_tokens: clampTokens(max_tokens, req.userPremium),
       temperature: clampTemperature(temperature),
@@ -139,11 +177,21 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
   }
 });
 
-// Image generation
+// Image generation.
+//
+// DALL-E calls are significantly more expensive per request than text
+// completions, so the route is premium-only by default. Admins/devs are
+// allowed through for testing.
 router.post('/image', authenticateToken, async (req, res, next) => {
   try {
     const { prompt, size } = req.body;
     if (!prompt) return res.status(400).json({ message: 'prompt is required' });
+
+    if (!req.userPremium && req.userRole !== 'admin' && req.userRole !== 'dev') {
+      return res.status(402).json({
+        message: 'Image generation requires Premium.',
+      });
+    }
 
     const usage = await consumeUsageDb(req.userId, req.userPremium);
     if (!usage.allowed) {
@@ -264,6 +312,6 @@ router.post('/extract', authenticateToken, async (_req, res) => {
 });
 
 // Exposed for tests.
-export const __test = { clampTokens, clampTemperature, consumeUsage, consumeUsageDb, EMAIL_TEMPLATES };
+export const __test = { clampTokens, clampTemperature, consumeUsage, consumeUsageDb, resolveModel, EMAIL_TEMPLATES };
 
 export default router;

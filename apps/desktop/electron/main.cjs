@@ -1,3 +1,11 @@
+// Electron main process — CommonJS.
+//
+// The desktop workspace declares `"type": "module"`, which makes Node /
+// Electron treat every `.js` in the package as an ES module. `require()`
+// is not defined in ESM scope, so the previous `main.js` / `preload.js`
+// loaded as ESM and threw at startup. Renaming to `.cjs` opts those two
+// files back into CommonJS while leaving the rest of the package free to
+// stay ESM-first.
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
@@ -11,6 +19,21 @@ function isFirstRun() {
   return !store.has('sermonsmithConfig');
 }
 
+// Mirror of the renderer-side check so we never persist a config the
+// renderer would refuse anyway. Local HTTP is allowed for dev; everything
+// else MUST be HTTPS so a stolen first-run prompt cannot redirect users to
+// a plaintext attacker URL on the same network.
+function isValidConfig(config) {
+  if (!config || typeof config !== 'object') return false;
+  try {
+    const url = new URL(config.apiUrl);
+    const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+    return url.protocol === 'https:' || (url.protocol === 'http:' && isLocalhost);
+  } catch {
+    return false;
+  }
+}
+
 function createMainWindow() {
   const iconPath = path.join(app.getAppPath(), '..', 'web', 'src', 'assets', 'icons', 'icon.png');
   mainWindow = new BrowserWindow({
@@ -21,10 +44,10 @@ function createMainWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.cjs'),
     },
     icon: iconPath,
-    show: false
+    show: false,
   });
 
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -62,9 +85,9 @@ function createFirstRunWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.cjs'),
     },
-    icon: iconPath
+    icon: iconPath,
   });
 
   firstRunWindow.loadFile(path.join(__dirname, 'first-run.html'));
@@ -79,7 +102,14 @@ function createFirstRunWindow() {
 
 ipcMain.handle('save-config', async (_event, config) => {
   try {
+    if (!isValidConfig(config)) {
+      return { success: false, error: 'Invalid configuration: apiUrl must be HTTPS (or HTTP for localhost).' };
+    }
     store.set('sermonsmithConfig', config);
+    // Setting process.env.VITE_API_URL here is intentionally a no-op for
+    // the *built* renderer — Vite inlines import.meta.env.VITE_API_URL at
+    // build time. The renderer reads the live value via the preload's
+    // `getApiUrl()` bridge instead.
     process.env.VITE_API_URL = config.apiUrl;
 
     if (firstRunWindow) {
@@ -99,6 +129,9 @@ ipcMain.handle('get-config', async () => {
 
 ipcMain.handle('update-config', async (_event, config) => {
   try {
+    if (!isValidConfig(config)) {
+      return { success: false, error: 'Invalid configuration: apiUrl must be HTTPS (or HTTP for localhost).' };
+    }
     store.set('sermonsmithConfig', config);
     process.env.VITE_API_URL = config.apiUrl;
     return { success: true };

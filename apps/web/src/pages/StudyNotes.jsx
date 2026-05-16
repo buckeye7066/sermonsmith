@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,31 +20,26 @@ const CATEGORY_ICONS = {
 };
 
 export default function StudyNotes() {
+  const { user, isLoadingAuth } = useAuth();
   const [notes, setNotes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [user, setUser] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('');
 
+  // Trigger note-load once auth has resolved a user.
   useEffect(() => {
-    loadUser();
-  }, []);
-
-  const loadUser = async () => {
-    try {
-      const userData = await api.auth.me();
-      setUser(userData);
-      loadNotes(userData);
-    } catch (error) {
+    if (isLoadingAuth) return;
+    if (!user) {
       toast.error("Please log in to view your study notes");
       setIsLoading(false);
+      return;
     }
-  };
+    loadNotes(user);
+  }, [isLoadingAuth, user]);
 
   const loadNotes = async (currentUser) => {
     if (!currentUser) return;
-    
     setIsLoading(true);
     try {
       const userNotes = await api.entities.StudyNote.filter(
@@ -51,8 +48,7 @@ export default function StudyNotes() {
       );
       setNotes(userNotes);
     } catch (error) {
-      console.error('Failed to load notes:', error);
-      toast.error("Failed to load your study notes");
+      toast.error(logError('Failed to load study notes', error));
     } finally {
       setIsLoading(false);
     }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { SafeImg } from '@/components/ui/SafeImg';
 
 /**
  * WebGL availability checker and fallback component
@@ -37,9 +38,9 @@ export function WebGLFallback({ fallbackImage, altText = "3D content unavailable
     if (fallbackImage) {
       return (
         <div className="relative">
-          <img 
-            src={fallbackImage} 
-            alt={altText} 
+          <SafeImg
+            src={fallbackImage}
+            alt={altText}
             className="w-full h-64 object-cover rounded-lg"
           />
           <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded">

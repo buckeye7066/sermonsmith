@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { prisma, authenticateToken, requireAdmin } from '../middleware/auth.js';
 
 // Tenant-isolated entity API.
@@ -25,13 +26,38 @@ function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
 }
 
+// Same RESERVED_PROFILE_KEYS hardening as /api/auth — a malicious user could
+// otherwise store `profile.role = "admin"` and have an admin lookup of their
+// account leak elevated role/premium back to the frontend.
+const RESERVED_PROFILE_KEYS = new Set([
+  'id',
+  'email',
+  'password',
+  'role',
+  'premium',
+  'premium_override',
+  'subscription_tier',
+  'premium_until',
+  'tokenVersion',
+  'token_version',
+  'createdAt',
+  'updatedAt',
+  'created_at',
+  'updated_at',
+]);
+
+function cleanProfile(profile) {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return {};
+  return Object.fromEntries(
+    Object.entries(profile).filter(([key]) => !RESERVED_PROFILE_KEYS.has(key))
+  );
+}
+
 function sanitizeUser(u) {
-  // Strip password and any sensitive profile fields before returning to a
-  // caller. Note: callers should never receive arbitrary other users'
-  // profile JSON; admin lookups go through /api/auth/users.
-  const { password, ...rest } = u;
-  const profile = typeof rest.profile === 'object' && rest.profile !== null ? rest.profile : {};
-  return { id: rest.id, ...rest, ...profile };
+  // eslint-disable-next-line no-unused-vars
+  const { password, profile, ...safeUser } = u;
+  const safeProfile = cleanProfile(profile);
+  return { ...safeProfile, ...safeUser, profile: safeProfile };
 }
 
 function resolveOrderBy(raw) {
@@ -52,6 +78,97 @@ function clampLimit(raw) {
 
 function isAdmin(req) {
   return req.userRole === 'admin' || req.userRole === 'dev';
+}
+
+// ---------------------------------------------------------------------------
+// Entity type allowlist + per-type Zod validation.
+//
+// The generic entity API previously accepted arbitrary :type values and
+// arbitrary JSON for `data`. That made migrations, moderation, abuse
+// handling, and analytics intractable — a single user could spam unknown
+// entity types or oversized JSON blobs.
+//
+// Each known type now has a Zod schema that bounds field shape and length.
+// .passthrough() lets us carry additional client-side fields forward
+// (sermon outlines, study notes, etc.) without forcing a schema change for
+// every UI tweak — but it does NOT let payloads break the documented
+// invariants for fields the schema names.
+//
+// Unknown types are rejected outright with HTTP 400.
+// ---------------------------------------------------------------------------
+const SermonSchema = z.object({
+  title: z.string().min(1).max(200),
+  topic: z.string().max(200).optional(),
+  anchor_passage: z.string().max(200).optional(),
+  big_idea: z.string().max(2000).optional(),
+  points: z.array(z.any()).max(20).optional(),
+  conclusion: z.string().max(20000).optional(),
+  theological_notes: z.string().max(20000).optional(),
+  status: z.enum(['draft', 'published', 'archived', 'needs_review']).optional(),
+}).passthrough();
+
+const ENTITY_SCHEMAS = {
+  Sermon: SermonSchema,
+  Series: z.object({
+    title: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+  }).passthrough(),
+  StudyNote: z.object({
+    title: z.string().min(1).max(200).optional(),
+    content: z.string().max(50000).optional(),
+    scripture_reference: z.string().max(200).optional(),
+  }).passthrough(),
+  Quiz: z.object({
+    title: z.string().min(1).max(200),
+    questions: z.array(z.any()).max(100).optional(),
+  }).passthrough(),
+  Message: z.object({
+    subject: z.string().min(1).max(200),
+    message: z.string().min(1).max(5000),
+    message_type: z.enum(['bug_report', 'feature_request', 'question', 'feedback', 'other']).default('other'),
+    status: z.enum(['new', 'in_progress', 'resolved', 'closed']).default('new'),
+  }).passthrough(),
+  SharedContent: z.object({
+    title: z.string().min(1).max(200),
+    content: z.string().min(1).max(20000),
+    visibility: z.enum(['private', 'public']).default('private'),
+    content_type: z.enum(['note', 'highlight', 'study', 'sermon']),
+  }).passthrough(),
+  SharedLink: z.object({}).passthrough(),
+  ForumPost: z.object({
+    title: z.string().min(1).max(200),
+    body: z.string().max(20000).optional(),
+  }).passthrough(),
+  StudyGroup: z.object({
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+  }).passthrough(),
+  ActivityLog: z.object({}).passthrough(),
+  UserActivity: z.object({}).passthrough(),
+  Highlight: z.object({}).passthrough(),
+  Bookmark: z.object({}).passthrough(),
+  PrayerRequest: z.object({}).passthrough(),
+  Plan: z.object({}).passthrough(),
+  PlanProgress: z.object({}).passthrough(),
+  Verse: z.object({}).passthrough(),
+};
+
+function validateEntityPayload(type, body) {
+  const schema = ENTITY_SCHEMAS[type];
+  if (!schema) {
+    throw Object.assign(
+      new Error(`Unsupported entity type: ${type}`),
+      { status: 400 },
+    );
+  }
+  const parsed = schema.safeParse(body || {});
+  if (!parsed.success) {
+    throw Object.assign(
+      new Error(`Invalid ${type} payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`),
+      { status: 400, issues: parsed.error.issues },
+    );
+  }
+  return parsed.data;
 }
 
 // --- Filter (must be registered before /:type/:id to avoid route collision) ---
@@ -85,10 +202,17 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
 
     const conditions = [];
     for (const [key, value] of Object.entries(filterFields)) {
-      // Block client-supplied user_id override — auth context is the only
-      // authority. Otherwise a non-admin caller could request another
-      // user's data by passing { user_id: '...' }.
-      if (key === 'user_id' || key === 'userId') continue;
+      if (key === 'user_id' || key === 'userId') {
+        // Non-admin callers can never use user_id to read someone else's
+        // entities; the auth-context userId is already pinned above. But
+        // admins legitimately need this for support tasks (e.g. fetching
+        // a target user's last activity from AdminMessages) so we honour
+        // the filter for them only.
+        if (isAdmin(req) && value) {
+          where.userId = String(value);
+        }
+        continue;
+      }
       if (value !== undefined && value !== null) {
         conditions.push({ data: { path: [key], equals: value } });
       }
@@ -115,19 +239,26 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
     const arr = Array.isArray(items) ? items : [items];
     const now = new Date().toISOString();
 
+    // Validate every item BEFORE we open the transaction so a partial
+    // batch never lands in the DB.
+    const validated = arr.map((rawItem) => {
+      // Strip client-supplied user_id / userId so a caller can't claim
+      // they're creating an entity on someone else's behalf.
+      // eslint-disable-next-line no-unused-vars
+      const { user_id, userId, id, ...item } = rawItem || {};
+      return validateEntityPayload(req.params.type, item);
+    });
+
     const created = await prisma.$transaction(
-      arr.map((rawItem) => {
-        // Strip client-supplied user_id / userId so a caller can't claim
-        // they're creating an entity on someone else's behalf.
-        const { user_id: _u1, userId: _u2, id: _id, ...item } = rawItem || {};
-        return prisma.entity.create({
+      validated.map((item) =>
+        prisma.entity.create({
           data: {
             type: req.params.type,
             userId: req.userId,
             data: { ...item, user_id: req.userId, created_date: now },
           },
-        });
-      })
+        })
+      )
     );
 
     res.json(created.map(formatEntity));
@@ -139,7 +270,9 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
 // --- Create ---
 router.post('/:type', authenticateToken, async (req, res, next) => {
   try {
-    const { user_id: _u1, userId: _u2, id: _id, ...body } = req.body || {};
+    // eslint-disable-next-line no-unused-vars
+    const { user_id, userId, id, ...rawBody } = req.body || {};
+    const body = validateEntityPayload(req.params.type, rawBody);
     const entity = await prisma.entity.create({
       data: {
         type: req.params.type,
@@ -241,7 +374,27 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       return res.status(403).json({ message: 'You can only update your own items' });
     }
 
-    const { user_id: _u1, userId: _u2, id: _id, ...patch } = req.body || {};
+    // eslint-disable-next-line no-unused-vars
+    const { user_id, userId, id, ...rawPatch } = req.body || {};
+
+    // Validate the patch against the entity-type schema. We allow partial
+    // updates by validating ONLY the keys the caller is sending against a
+    // `.partial()` version of the schema. The full record on disk remains
+    // valid because we already validated it on create.
+    const schema = ENTITY_SCHEMAS[req.params.type];
+    let patch = rawPatch;
+    if (schema) {
+      const partial = schema.partial();
+      const parsed = partial.safeParse(rawPatch);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: `Invalid ${req.params.type} update: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          issues: parsed.error.issues,
+        });
+      }
+      patch = parsed.data;
+    }
+
     const entity = await prisma.entity.update({
       where: { id: req.params.id },
       data: {

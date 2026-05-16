@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,7 +38,7 @@ const AGE_GROUP_ICONS = {
 export default function PlanLibrary() {
   const [plans, setPlans] = useState([]);
   const [filteredPlans, setFilteredPlans] = useState([]);
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedAgeFilter, setSelectedAgeFilter] = useState("all");
@@ -50,26 +51,12 @@ export default function PlanLibrary() {
   const [sortBy, setSortBy] = useState('newest');
 
   useEffect(() => {
-    loadUser();
-    // Initial load of plans is handled by the sortBy useEffect
-  }, []);
-
-  useEffect(() => {
     loadPlans();
-  }, [sortBy]); // Re-fetch plans when sorting changes
+  }, [sortBy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     filterPlans();
-  }, [plans, searchTerm, selectedAgeFilter]); // Re-filter plans when base plans, search term, or age filter changes
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
-      console.log("User not logged in");
-    }
-  };
+  }, [plans, searchTerm, selectedAgeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadPlans = async () => {
     setIsLoading(true);

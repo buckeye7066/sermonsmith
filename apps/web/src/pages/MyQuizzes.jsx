@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,9 +16,9 @@ import {
 import QuizViewer from "../components/quiz/QuizViewer";
 
 export default function MyQuizzes() {
+    const { user, isLoadingAuth } = useAuth();
     const [quizzes, setQuizzes] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [user, setUser] = useState(null);
     const [selectedQuiz, setSelectedQuiz] = useState(null);
     const [showViewer, setShowViewer] = useState(false);
 
@@ -27,24 +29,20 @@ export default function MyQuizzes() {
             const userQuizzes = await api.entities.Quiz.filter({ user_id: currentUser.id }, '-created_date');
             setQuizzes(userQuizzes);
         } catch (error) {
-            toast.error("Failed to load your quizzes.");
+            toast.error(logError('Failed to load quizzes', error));
         }
         setIsLoading(false);
     };
-    
+
     useEffect(() => {
-        const fetchUserAndQuizzes = async () => {
-            try {
-                const userData = await api.auth.me();
-                setUser(userData);
-                loadQuizzes(userData);
-            } catch (error) {
-                toast.error("You must be logged in to view your quizzes.");
-                setIsLoading(false);
-            }
-        };
-        fetchUserAndQuizzes();
-    }, []);
+        if (isLoadingAuth) return;
+        if (!user) {
+            toast.error("You must be logged in to view your quizzes.");
+            setIsLoading(false);
+            return;
+        }
+        loadQuizzes(user);
+    }, [isLoadingAuth, user]);
 
     const handleDelete = async (quizId) => {
         if (!confirm("Are you sure you want to delete this quiz? This action cannot be undone.")) {
@@ -55,7 +53,7 @@ export default function MyQuizzes() {
             setQuizzes(quizzes.filter(q => q.id !== quizId));
             toast.success("Quiz deleted.");
         } catch (error) {
-            toast.error("Failed to delete quiz.");
+            toast.error(logError('Failed to delete quiz', error));
         }
     };
 

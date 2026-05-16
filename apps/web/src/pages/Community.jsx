@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,47 +12,31 @@ import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 
 export default function Community() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { user, isLoadingAuth: loading } = useAuth();
   const [recentPosts, setRecentPosts] = useState([]);
   const [popularShared, setPopularShared] = useState([]);
   const [activeGroups, setActiveGroups] = useState([]);
   const [readingPlans, setReadingPlans] = useState([]);
-  const [isPremium, setIsPremium] = useState(false);
 
-  useEffect(() => {
-    loadUser();
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      loadCommunityData();
-    }
+  // Derive premium status from the shared user object; keep the dev-list
+  // overrides that existed in the previous local fetch.
+  const isPremium = useMemo(() => {
+    if (!user) return false;
+    const devEmails = ['buckeye7066@gmail.com', 'anyawhite@rocketmail.com', 'whiterobert1201@icloud.com', 'tishka1201@icloud.com'];
+    const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
+    const emailMatch = user.email && devEmails.includes(user.email.toLowerCase());
+    const phoneMatch = user.phone && devPhones.some(p =>
+      user.phone.replace(/[\s\-()]/g, '').includes(p.replace(/[\s\-()+]/g, ''))
+    );
+    return user.subscription_tier === 'premium' ||
+           user.premium_override === true ||
+           emailMatch || phoneMatch ||
+           (user.premium_until && new Date(user.premium_until) > new Date());
   }, [user]);
 
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-      
-      // Check premium status
-      const devEmails = ['buckeye7066@gmail.com', 'anyawhite@rocketmail.com', 'whiterobert1201@icloud.com', 'tishka1201@icloud.com'];
-      const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
-      const emailMatch = currentUser.email && devEmails.includes(currentUser.email.toLowerCase());
-      const phoneMatch = currentUser.phone && devPhones.some(p => 
-        currentUser.phone.replace(/[\s\-()]/g, '').includes(p.replace(/[\s\-()+]/g, ''))
-      );
-      const premium = currentUser.subscription_tier === 'premium' || 
-                      currentUser.premium_override === true ||
-                      emailMatch || phoneMatch ||
-                      (currentUser.premium_until && new Date(currentUser.premium_until) > new Date());
-      setIsPremium(premium);
-    } catch (error) {
-      console.log("User not logged in");
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (user) loadCommunityData();
+  }, [user]);
 
   const loadCommunityData = async () => {
     try {
@@ -66,7 +52,7 @@ export default function Community() {
       setActiveGroups(groups);
       setReadingPlans(plans);
     } catch (error) {
-      console.error('Error loading community data:', error);
+      logError('Error loading community data', error);
     }
   };
 

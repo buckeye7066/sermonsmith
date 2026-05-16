@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,7 @@ export default function CollaborativeSermonEditor() {
   const navigate = useNavigate();
   const sermonId = searchParams.get('id');
 
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [sermon, setSermon] = useState(null);
   const [collaborators, setCollaborators] = useState([]);
   const [activeEditors, setActiveEditors] = useState([]);
@@ -28,8 +29,12 @@ export default function CollaborativeSermonEditor() {
   const [hasEditAccess, setHasEditAccess] = useState(false);
 
   useEffect(() => {
-    loadUser();
-  }, []);
+    if (isLoadingAuth) return;
+    if (!user) {
+      toast.error("Please log in");
+      api.auth.redirectToLogin?.();
+    }
+  }, [isLoadingAuth, user]);
 
   useEffect(() => {
     if (user && sermonId) {
@@ -38,17 +43,7 @@ export default function CollaborativeSermonEditor() {
       const interval = setInterval(loadCollaborators, 5000);
       return () => clearInterval(interval);
     }
-  }, [user, sermonId]);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
-      toast.error("Please log in");
-      await api.auth.redirectToLogin();
-    }
-  };
+  }, [user, sermonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadSermon = async () => {
     setIsLoading(true);

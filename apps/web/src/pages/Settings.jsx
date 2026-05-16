@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,8 +19,8 @@ import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import ProfileEditor from "@/components/profile/ProfileEditor";
 
 export default function Settings() {
-  const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { user, isLoadingAuth, authError, checkAppState } = useAuth();
+  const isLoading = isLoadingAuth;
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState({
@@ -28,28 +30,32 @@ export default function Settings() {
   });
 
   useEffect(() => {
-    loadUser();
     logActivity('page_view', { page_name: 'Settings' });
   }, []);
 
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-      
-      // Load notification settings from user object
-      setNotificationSettings({
-        email_new_features: currentUser.email_new_features ?? false,
-        email_weekly_digest: currentUser.email_weekly_digest ?? false,
-        email_tips: currentUser.email_tips ?? false
-      });
-    } catch (error) {
-      console.error("Error loading user:", error);
-      await api.auth.redirectToLogin();
-    } finally {
-      setIsLoading(false);
+  // Sync notification-toggle UI from the centralised user object whenever
+  // it refreshes (login, profile save, etc.).
+  useEffect(() => {
+    if (!user) return;
+    setNotificationSettings({
+      email_new_features: user.email_new_features ?? false,
+      email_weekly_digest: user.email_weekly_digest ?? false,
+      email_tips: user.email_tips ?? false
+    });
+  }, [user]);
+
+  // Settings requires authentication — if the shared auth resolves to no
+  // user (and there's no transient error we're retrying), kick to login.
+  useEffect(() => {
+    if (isLoadingAuth) return;
+    if (!user) {
+      logError('Settings: no authenticated user', authError);
+      api.auth.redirectToLogin?.();
     }
-  };
+  }, [isLoadingAuth, user, authError]);
+
+  // Stable refresh hook for child editors that update the profile.
+  const refreshUser = () => checkAppState?.();
 
   const saveNotificationSettings = async () => {
     if (!user) return;
@@ -68,8 +74,7 @@ export default function Settings() {
         setting_type: 'notifications'
       });
     } catch (error) {
-      console.error("Error saving notification settings:", error);
-      toast.error("Failed to save notification preferences");
+      toast.error(logError('Failed to save notification preferences', error));
     } finally {
       setIsSavingNotifications(false);
     }
@@ -169,12 +174,12 @@ export default function Settings() {
                 </CardContent>
               </Card>
 
-              <PreferencesManager user={user} onUpdate={loadUser} />
+              <PreferencesManager user={user} onUpdate={refreshUser} />
             </div>
           </TabsContent>
 
           <TabsContent value="profile">
-            <ProfileEditor user={user} onUpdate={loadUser} />
+            <ProfileEditor user={user} onUpdate={refreshUser} />
           </TabsContent>
 
           <TabsContent value="subscription">
@@ -316,7 +321,7 @@ export default function Settings() {
           open={showOnboarding}
           onClose={() => {
             setShowOnboarding(false);
-            loadUser();
+            refreshUser();
           }}
           user={user}
         />

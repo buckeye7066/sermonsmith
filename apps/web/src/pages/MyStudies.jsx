@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,9 +16,9 @@ import {
 import StudyGuideViewer from "../components/study/StudyGuideViewer";
 
 export default function MyStudies() {
+    const { user, isLoadingAuth } = useAuth();
     const [studies, setStudies] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [user, setUser] = useState(null);
     const [selectedStudy, setSelectedStudy] = useState(null);
     const [showViewer, setShowViewer] = useState(false);
 
@@ -27,24 +29,20 @@ export default function MyStudies() {
             const userStudies = await api.entities.BibleStudy.filter({ user_id: currentUser.id }, '-created_date');
             setStudies(userStudies);
         } catch (error) {
-            toast.error("Failed to load your Bible studies.");
+            toast.error(logError('Failed to load Bible studies', error));
         }
         setIsLoading(false);
     };
-    
+
     useEffect(() => {
-        const fetchUserAndStudies = async () => {
-            try {
-                const userData = await api.auth.me();
-                setUser(userData);
-                loadStudies(userData);
-            } catch (error) {
-                toast.error("You must be logged in to view your studies.");
-                setIsLoading(false);
-            }
-        };
-        fetchUserAndStudies();
-    }, []);
+        if (isLoadingAuth) return;
+        if (!user) {
+            toast.error("You must be logged in to view your studies.");
+            setIsLoading(false);
+            return;
+        }
+        loadStudies(user);
+    }, [isLoadingAuth, user]);
 
     const handleDelete = async (studyId) => {
         if (!confirm("Are you sure you want to delete this Bible study? This action cannot be undone.")) {
@@ -55,7 +53,7 @@ export default function MyStudies() {
             setStudies(studies.filter(s => s.id !== studyId));
             toast.success("Bible study deleted.");
         } catch (error) {
-            toast.error("Failed to delete study.");
+            toast.error(logError('Failed to delete study', error));
         }
     };
 

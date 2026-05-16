@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Button } from "@/components/ui/button";
@@ -58,7 +59,7 @@ export default function BibleStudy() {
   const [studyType, setStudyType] = useState("personal");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedStudy, setGeneratedStudy] = useState(null);
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [enhancementType, setEnhancementType] = useState(null);
   const [aiSuggestions, setAiSuggestions] = useState({
@@ -70,23 +71,15 @@ export default function BibleStudy() {
   const [showMultiPerspective, setShowMultiPerspective] = useState(false);
 
   useEffect(() => {
-    loadUser();
     logActivity('page_view', { page_name: 'BibleStudy' });
   }, []);
 
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-      
-      // Apply user preferences
-      if (currentUser?.study_preferences?.preferredStudyType) {
-        setStudyType(currentUser.study_preferences.preferredStudyType);
-      }
-    } catch (error) {
-      console.log("User not logged in");
+  // Apply user study preferences once they're available from AuthContext.
+  useEffect(() => {
+    if (user?.study_preferences?.preferredStudyType) {
+      setStudyType(user.study_preferences.preferredStudyType);
     }
-  };
+  }, [user]);
 
   const generateStudy = async () => {
     if (!topic.trim()) {

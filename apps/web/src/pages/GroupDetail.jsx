@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { useLocation } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,30 +17,23 @@ import ProgressTracker from "../components/groups/ProgressTracker";
 export default function GroupDetail() {
   const location = useLocation();
   const groupId = new URLSearchParams(location.search).get('id');
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [group, setGroup] = useState(null);
   const [members, setMembers] = useState([]);
   const [membership, setMembership] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadUser();
-  }, []);
+    if (!isLoadingAuth && !user) {
+      toast.error("Please log in");
+    }
+  }, [isLoadingAuth, user]);
 
   useEffect(() => {
     if (user && groupId) {
       loadGroupData();
     }
   }, [user, groupId]);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
-      toast.error("Please log in");
-    }
-  };
 
   const loadGroupData = async () => {
     try {

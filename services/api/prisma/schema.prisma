@@ -16,6 +16,11 @@ model User {
   avatar               String?
   role                 String   @default("user")
   premium              Boolean  @default(false)
+  // tokenVersion is bumped on password change / reset so any previously
+  // issued JWT for this user instantly becomes invalid. Without this,
+  // a leaked 30-day cookie remained valid until expiry even after the
+  // legitimate owner rotated their password.
+  tokenVersion         Int      @default(0) @map("token_version")
   profile              Json     @default("{}")
   onboarding_completed Boolean  @default(false)
   special_message      String?

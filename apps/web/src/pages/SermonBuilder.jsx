@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { validateAiSermon } from '@/lib/scriptureRefs';
+import { logError } from '@/lib/logError';
 import { Button } from "@/components/ui/button";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Input } from "@/components/ui/input";
@@ -65,7 +68,7 @@ export default function SermonBuilder() {
   const [audience, setAudience] = useState("general");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedSermon, setGeneratedSermon] = useState(null);
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [suggestedPassages, setSuggestedPassages] = useState([]);
   const [isLoadingPassages, setIsLoadingPassages] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
@@ -74,28 +77,19 @@ export default function SermonBuilder() {
   const [showSeriesBuilder, setShowSeriesBuilder] = useState(false);
 
   useEffect(() => {
-    loadUser();
     logActivity('page_view', { page_name: 'SermonBuilder' });
   }, []);
 
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-      
-      // Apply user preferences as defaults
-      if (currentUser?.study_preferences) {
-        if (currentUser.study_preferences.preferredSermonTone) {
-          setTone(currentUser.study_preferences.preferredSermonTone);
-        }
-        if (currentUser.study_preferences.preferredAudience) {
-          setAudience(currentUser.study_preferences.preferredAudience);
-        }
-      }
-    } catch (error) {
-      console.log("User not logged in");
+  // Apply user study preferences when AuthContext resolves the user.
+  useEffect(() => {
+    if (!user?.study_preferences) return;
+    if (user.study_preferences.preferredSermonTone) {
+      setTone(user.study_preferences.preferredSermonTone);
     }
-  };
+    if (user.study_preferences.preferredAudience) {
+      setAudience(user.study_preferences.preferredAudience);
+    }
+  }, [user]);
 
   const findPassages = async () => {
     if (!topic.trim()) {
@@ -396,6 +390,15 @@ Return the full adapted sermon in the same JSON format.`;
     const sermon = sermonToSave || generatedSermon;
 
     try {
+      // Verify every Scripture reference the model produced. Unknown books
+      // are flagged as `invalid_book` and we mark the entire sermon
+      // `needs_review` so the UI surfaces a warning instead of letting a
+      // hallucinated citation reach the pulpit.
+      const validation = validateAiSermon(sermon);
+      if (!validation.allValid) {
+        toast.warning('Some Scripture references look invalid — please verify before publishing.');
+      }
+
       const saved = await api.entities.Sermon.create({
         user_id: user.id,
         title: sermon.title,
@@ -408,7 +411,8 @@ Return the full adapted sermon in the same JSON format.`;
         tone: sermon.tone,
         audience: sermon.audience,
         denomination: sermon.denomination,
-        status: "draft"
+        scripture_validation: validation.refs,
+        status: validation.allValid ? 'draft' : 'needs_review',
       });
 
       logActivity('sermon_created', {
@@ -428,8 +432,7 @@ Return the full adapted sermon in the same JSON format.`;
       
       toast.success("Sermon saved successfully!");
     } catch (error) {
-      console.error("Save error:", error);
-      toast.error("Failed to save sermon: " + (error.message || "Please try again"));
+      toast.error('Failed to save sermon: ' + logError('SermonBuilder save', error));
     }
   };
 

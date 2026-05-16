@@ -16,7 +16,9 @@
   "scripts": {
     "dev": "npm run dev -w @sermonsmith/web",
     "dev:api": "npm run dev -w @sermonsmith/api",
-    "build": "npm run build -w @sermonsmith/web",
+    "build:web": "npm run build -w @sermonsmith/web",
+    "check:api": "npm run lint -w @sermonsmith/api && npm run typecheck -w @sermonsmith/api && npm test -w @sermonsmith/api",
+    "build": "npm run build:web && npm run check:api",
     "lint": "npm run lint -w @sermonsmith/web && npm run lint -w @sermonsmith/api",
     "lint:web": "npm run lint -w @sermonsmith/web",
     "lint:api": "npm run lint -w @sermonsmith/api",
@@ -24,7 +26,7 @@
     "test": "npm test -w @sermonsmith/api",
     "test:api": "npm test -w @sermonsmith/api",
     "audit": "npm audit --omit=dev --audit-level=high",
-    "release:check": "npm install && npm run lint && npm run typecheck && npm test && npm run build && npm run audit",
+    "release:check": "npm ci && npm run lint && npm run typecheck && npm test && npm run build && npm run audit",
     "preview": "npm run preview -w @sermonsmith/web",
     "db:generate": "npm run db:generate -w @sermonsmith/api",
     "db:migrate": "npm run db:migrate -w @sermonsmith/api",
@@ -41,6 +43,10 @@
     "cap:sync:android": "npm run sync:android -w @sermonsmith/mobile",
     "cap:sync:ios": "npm run sync:ios -w @sermonsmith/mobile",
     "generate:icons": "npm run generate:icons -w @sermonsmith/web"
+  },
+  "engines": {
+    "node": ">=20 <23",
+    "npm": ">=10"
   },
   "devDependencies": {}
 }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import { MessageSquare, Plus, Heart, CheckCircle2, Loader2, Sparkles } from "luc
 import { toast } from "sonner";
 
 export default function Forum() {
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [posts, setPosts] = useState([]);
   const [selectedPost, setSelectedPost] = useState(null);
   const [replies, setReplies] = useState([]);
@@ -29,25 +30,14 @@ export default function Forum() {
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
   useEffect(() => {
-    loadUser();
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      loadPosts();
-    }
-  }, [user]);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
+    if (isLoadingAuth) return;
+    if (!user) {
       toast.error("Please log in to view the forum");
-    } finally {
       setIsLoading(false);
+      return;
     }
-  };
+    loadPosts();
+  }, [isLoadingAuth, user]);
 
   const loadPosts = async () => {
     try {

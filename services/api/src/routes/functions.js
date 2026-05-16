@@ -1,7 +1,36 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// Public Bible proxy validation.
+//
+// The bible-api.com proxy used to accept whatever the client sent. A
+// malformed payload threw inside the fetch and bubbled up as a generic
+// 500 — bad UX and bad observability. Zod gives us a 400 with a
+// structured `issues` list and stops obviously-invalid requests from
+// hitting the upstream at all.
+//
+// `ALLOWED_TRANSLATIONS` keeps `getPassageMultiSource` from being a
+// generic translation enumerator that fans out to any string the client
+// sends; we cap to the ones our app actually surfaces.
+// ---------------------------------------------------------------------------
+const ALLOWED_TRANSLATIONS = new Set([
+  'kjv', 'web', 'bbe', 'asv', 'ylt', 'darby', 'clementine', 'almeida',
+]);
+
+const passageSchema = z.object({
+  book: z.string().min(1).max(40).optional(),
+  bookCode: z.string().min(1).max(40).optional(),
+  chapter: z.coerce.number().int().min(1).max(150),
+  verse: z.union([z.string().max(30), z.number()]).optional(),
+  verses: z.union([z.string().max(30), z.number()]).optional(),
+  translation: z.string().min(1).max(20).optional(),
+  translationId: z.string().min(1).max(20).optional(),
+  translations: z.array(z.string().min(1).max(20)).max(5).optional(),
+}).refine((d) => d.book || d.bookCode, { message: 'book or bookCode is required' });
 
 // Stripe SDK is lazy-loaded — see getStripe() below. The previous
 // top-level await meant the API would crash at import time if the SDK was
@@ -20,17 +49,25 @@ async function getStripe() {
 // Bible passage — accepts both frontend naming (translationId/bookCode) and direct naming (book/translation)
 router.post('/biblePassage', optionalAuth, async (req, res, next) => {
   try {
-    const book = req.body.bookCode || req.body.book;
-    const chapter = req.body.chapter;
-    const translation = req.body.translationId || req.body.translation || 'kjv';
-    const verses = req.body.verses;
+    const parsed = passageSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: 'Invalid passage request',
+        issues: parsed.error.issues,
+      });
+    }
+    const body = parsed.data;
+    const book = body.bookCode || body.book;
+    const chapter = body.chapter;
+    const translationRaw = body.translationId || body.translation || 'kjv';
+    const verses = body.verses;
 
-    if (!book || !chapter) {
-      return res.status(400).json({ message: 'book/bookCode and chapter are required' });
+    const translationId = String(translationRaw).replace(/^en-/, '');
+    if (!ALLOWED_TRANSLATIONS.has(translationId)) {
+      return res.status(400).json({ message: `Unsupported translation: ${translationId}` });
     }
 
     const ref = verses ? `${book} ${chapter}:${verses}` : `${book} ${chapter}`;
-    const translationId = translation.replace(/^en-/, '');
     const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translationId}`;
 
     const controller = new AbortController();
@@ -47,7 +84,7 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
 
     res.json({
       reference: data.reference || ref,
-      translationLabel: translation,
+      translationLabel: translationRaw,
       verses: data.verses || [],
       text: data.text || '',
     });
@@ -81,9 +118,26 @@ const MAX_TRANSLATIONS = 5;
 
 router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
   try {
-    const { book, chapter, verse } = req.body;
-    // Cap translations to prevent upstream abuse / DDoS
-    const translations = (req.body.translations || ['kjv', 'web', 'bbe']).slice(0, MAX_TRANSLATIONS);
+    const parsed = passageSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: 'Invalid passage request',
+        issues: parsed.error.issues,
+      });
+    }
+    const data = parsed.data;
+    const book = data.bookCode || data.book;
+    const { chapter, verse } = data;
+
+    // Cap translations and filter to the supported allowlist before
+    // fanning out to bible-api.com. Anything outside is dropped silently
+    // because callers can legitimately pass a mix of valid and unknown
+    // translation codes during UI migrations.
+    const requested = (data.translations || ['kjv', 'web', 'bbe']).slice(0, MAX_TRANSLATIONS);
+    const translations = requested.filter((t) => ALLOWED_TRANSLATIONS.has(String(t).replace(/^en-/, '')));
+    if (translations.length === 0) {
+      return res.status(400).json({ message: 'No supported translations requested' });
+    }
     const ref = verse ? `${book} ${chapter}:${verse}` : `${book} ${chapter}`;
 
     const results = await Promise.allSettled(

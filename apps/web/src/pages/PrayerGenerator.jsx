@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -75,7 +76,7 @@ const prayerSchema = {
 };
 
 export default function PrayerGenerator() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [prayerTheme, setPrayerTheme] = useState('');
   const [prayerType, setPrayerType] = useState('personal');
   const [occasion, setOccasion] = useState('General');
@@ -88,22 +89,11 @@ export default function PrayerGenerator() {
   const [speechSynthesis, setSpeechSynthesis] = useState(null);
 
   useEffect(() => {
-    loadUser();
     loadSavedPrayers();
-    
     if ('speechSynthesis' in window) {
       setSpeechSynthesis(window.speechSynthesis);
     }
   }, []);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
-      console.log("User not logged in");
-    }
-  };
 
   const loadSavedPrayers = () => {
     try {

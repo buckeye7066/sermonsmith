@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { CheckCircle2, Star, Zap, Settings, ExternalLink, Loader2, Crown } from "lucide-react";
@@ -33,24 +34,9 @@ const premiumFeatures = [
 ];
 
 export default function Pricing() {
-    const [user, setUser] = useState(null);
+    const { user, isLoadingAuth: isLoading } = useAuth();
     const [isProcessing, setIsProcessing] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
     const { isPremium, devOverride, loading: accessLoading } = usePremiumAccess();
-
-    useEffect(() => {
-        const fetchUser = async () => {
-            try {
-                const userData = await api.auth.me();
-                setUser(userData);
-            } catch (e) {
-                console.log("User not logged in", e);
-            } finally {
-                setIsLoading(false); // Corrected from setLoading(false) as per state variable name
-            }
-        };
-        fetchUser();
-    }, []);
     
     const handleUpgrade = async () => {
         if (!user) {

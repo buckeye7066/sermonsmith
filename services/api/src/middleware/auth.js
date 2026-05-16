@@ -62,8 +62,24 @@ export function cookieOptions() {
   return opts;
 }
 
-export function signToken(userId) {
-  return jwt.sign({ userId }, jwtSecret(), { algorithm: 'HS256', expiresIn: '30d' });
+/**
+ * Sign a JWT for a user.
+ *
+ * Accepts either a user object (preferred — encodes the user's
+ * tokenVersion as `tv`) or a bare userId string (back-compat for older
+ * callers and the test mocks). When given a string we omit `tv` from the
+ * payload; authenticateToken treats missing `tv` as "any version" for the
+ * migration window, so existing tests and pre-rollout tokens keep working.
+ */
+export function signToken(userOrId) {
+  const isString = typeof userOrId === 'string';
+  const userId = isString ? userOrId : userOrId?.id;
+  if (!userId) throw new Error('signToken: missing user id');
+  const payload = { userId };
+  if (!isString && typeof userOrId.tokenVersion === 'number') {
+    payload.tv = userOrId.tokenVersion;
+  }
+  return jwt.sign(payload, jwtSecret(), { algorithm: 'HS256', expiresIn: '30d' });
 }
 
 /**
@@ -92,11 +108,22 @@ export async function authenticateToken(req, res, next) {
     // Also acts as a revocation check — deleted users are rejected immediately.
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { role: true, premium: true, email: true },
+      select: { role: true, premium: true, email: true, tokenVersion: true },
     });
     if (!user) {
       return res.status(401).json({ message: 'User account not found' });
     }
+
+    // Session-revocation check. Any token issued before the latest
+    // password change / reset / forced-logout encodes an older `tv` and is
+    // rejected here. Tokens issued before this rollout have no `tv`
+    // claim; we accept those during the migration window so existing
+    // sessions keep working — they will be re-issued with `tv` on the
+    // next login/password event.
+    if (typeof decoded.tv === 'number' && decoded.tv !== (user.tokenVersion ?? 0)) {
+      return res.status(401).json({ message: 'Session expired — please sign in again' });
+    }
+
     req.userRole = user.role;
     req.userPremium = !!user.premium;
     req.userEmail = user.email;

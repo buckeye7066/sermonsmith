@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -117,7 +119,24 @@ const ETHICAL_CATEGORIES = [
   }
 ];
 
-const ethicsSchema = {
+// -----------------------------------------------------------------------------
+// Per-tab schemas
+//
+// The original implementation asked the LLM to fill ONE giant schema with
+// ~8 deeply-nested sections in a single call. Backend tokens are capped at
+// 1500 for free users (see services/api/src/routes/ai.js → FREE_MAX_TOKENS),
+// which routinely truncated the JSON before sections like
+// `historical_perspective`, `different_views`, `modern_application`, and
+// `pastoral_guidance` were emitted — leaving History/Views/Today/Pastoral as
+// empty card shells in the UI.
+//
+// Fix: split into one small "intro + biblical" schema for the initial call
+// (Biblical is the default open tab) and one focused schema per remaining
+// tab, fetched on demand when the user clicks that tab. Each focused call
+// fits comfortably within the token cap.
+// -----------------------------------------------------------------------------
+
+const introSchema = {
   type: "object",
   properties: {
     topic_title: { type: "string" },
@@ -139,16 +158,23 @@ const ethicsSchema = {
         },
         theological_principles: { type: "array", items: { type: "string" } }
       }
-    },
-    historical_perspective: {
-      type: "object",
-      properties: {
-        early_church: { type: "string" },
-        church_fathers: { type: "string" },
-        reformation_era: { type: "string" },
-        modern_church: { type: "string" }
-      }
-    },
+    }
+  }
+};
+
+const historySchema = {
+  type: "object",
+  properties: {
+    early_church: { type: "string" },
+    church_fathers: { type: "string" },
+    reformation_era: { type: "string" },
+    modern_church: { type: "string" }
+  }
+};
+
+const viewsSchema = {
+  type: "object",
+  properties: {
     different_views: {
       type: "array",
       items: {
@@ -159,8 +185,20 @@ const ethicsSchema = {
           biblical_support: { type: "string" }
         }
       }
-    },
-    modern_application: { type: "string" },
+    }
+  }
+};
+
+const todaySchema = {
+  type: "object",
+  properties: {
+    modern_application: { type: "string" }
+  }
+};
+
+const pastoralSchema = {
+  type: "object",
+  properties: {
     pastoral_guidance: { type: "string" },
     common_questions: {
       type: "array",
@@ -223,7 +261,8 @@ const comparisonSchema = {
 };
 
 export default function ChristianEthics() {
-  const [user, setUser] = useState(null);
+  // Centralised auth — no local api.auth.me() fetch.
+  const { user } = useAuth();
   const [question, setQuestion] = useState("");
   const [response, setResponse] = useState(null);
   const [isThinking, setIsThinking] = useState(false);
@@ -232,20 +271,14 @@ export default function ChristianEthics() {
   const [mode, setMode] = useState("single"); // "single" or "compare"
   const [selectedDenominations, setSelectedDenominations] = useState(["Catholic", "Reformed / Calvinist", "Baptist"]);
   const [comparisonResult, setComparisonResult] = useState(null);
+  // Per-tab loading flags so the UI can show a spinner while a focused tab
+  // call is in flight. Keys: 'history' | 'views' | 'today' | 'pastoral'.
+  const [tabLoading, setTabLoading] = useState({});
+  const [activeTab, setActiveTab] = useState("biblical");
 
   useEffect(() => {
-    loadUser();
     loadHistory();
   }, []);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
-      console.log("User not logged in");
-    }
-  };
 
   const loadHistory = () => {
     const history = localStorage.getItem('ethics_history');
@@ -271,44 +304,164 @@ export default function ChristianEthics() {
 
     setIsThinking(true);
     setResponse(null);
+    setActiveTab("biblical");
+    setTabLoading({});
 
     try {
-      const denomination = user?.denomination || "Non-Denominational";
-      
       const prompt = `You are Larry, a wise, pastoral AI ethics mentor helping Christians think through moral and ethical issues from a biblical perspective.
 
 A Christian has asked you: "${topicQuestion}"
 
-Provide a comprehensive, balanced response with these sections:
+Provide ONLY the following sections for this first response:
 
-1. TOPIC & DEFINITION: Clear statement and why it matters today
-2. BIBLICAL FOUNDATION: 5-8 Scripture passages with full text and application
-3. HISTORICAL PERSPECTIVE: Early Church, Church Fathers, Reformation, Modern Church
-4. DIFFERENT VIEWS: Orthodox Christian perspectives (if applicable)
-5. MODERN APPLICATION: How to live this out today
-6. PASTORAL GUIDANCE: Compassionate counsel from ${denomination} view
-7. COMMON QUESTIONS: 3-5 Q&A addressing doubts
-8. FURTHER READING: 3-5 resources for deeper study
+1. topic_title — a short, descriptive headline for the topic
+2. ethical_category — pick one short label, e.g. "Sexual Ethics", "Life Ethics", "Bioethics", "Social Justice", "War & Peace", etc.
+3. definition — 2-3 sentence definition explaining what the issue is and why it matters today
+4. biblical_foundation:
+   - key_scriptures: 5-8 passages, each with the reference, the FULL verse text, and a 1-2 sentence application
+   - theological_principles: 4-6 short bullet-style principles drawn from Scripture
 
-TONE: Pastoral, wise, conversational. Use Scripture liberally. Acknowledge complexity but return to biblical truth. Be compassionate yet clear.
-
-REMEMBER: "Speaking the truth in love" (Ephesians 4:15) - always both.`;
+TONE: Pastoral, wise, conversational. Use Scripture liberally. Be compassionate yet clear.
+"Speaking the truth in love" (Ephesians 4:15).`;
 
       const larryResponse = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
-        response_json_schema: ethicsSchema
+        response_json_schema: introSchema
+      });
+
+      // Lightweight trace so we can see in the console why a tab might be empty.
+      console.log("[ChristianEthics] intro response", {
+        question: topicQuestion,
+        topic: larryResponse?.topic_title,
+        hasBiblical: !!larryResponse?.biblical_foundation?.key_scriptures?.length,
       });
 
       setResponse(larryResponse);
-      saveToHistory(topicQuestion, larryResponse.topic_title);
+      saveToHistory(topicQuestion, larryResponse.topic_title || topicQuestion);
       toast.success("Larry has responded!");
     } catch (error) {
-      console.error('Error asking Larry:', error);
-      toast.error("Larry couldn't respond. Please try again.");
+      toast.error(logError('Larry could not respond', error));
     } finally {
       setIsThinking(false);
     }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Per-tab lazy fetchers
+  //
+  // Each click on History / Views / Today / Pastoral kicks off a small, focused
+  // LLM call that fills ONLY that tab's section. Results are merged back into
+  // `response` so the existing render logic just works. Cached after first
+  // load so re-clicking a tab does not re-spend AI quota.
+  // ---------------------------------------------------------------------------
+
+  const fetchTabSection = async (tabKey) => {
+    if (!response?.topic_title) return;
+    if (tabLoading[tabKey]) return; // already in flight
+    // Already loaded? Skip.
+    if (tabKey === "history" && response.historical_perspective) return;
+    if (tabKey === "views" && Array.isArray(response.different_views)) return;
+    if (tabKey === "today" && response.modern_application) return;
+    if (tabKey === "pastoral" && response.pastoral_guidance) return;
+
+    const denomination = user?.denomination || "Non-Denominational";
+    const topic = response.topic_title;
+    const userQuestion = question || `the ethical topic "${topic}"`;
+
+    const promptsByTab = {
+      history: {
+        schema: historySchema,
+        prompt: `You are Larry. The user is exploring the ethical topic: "${topic}".
+
+Write the CHURCH HISTORY perspective on this issue. Return ONLY these fields, each a 2-4 sentence paragraph:
+- early_church: how the early Christian community (pre-Nicene, 1st-3rd centuries) treated this issue
+- church_fathers: views of major Church Fathers (Augustine, Chrysostom, the Cappadocians, etc.) where relevant
+- reformation_era: how Reformers (Luther, Calvin, etc.) and Counter-Reformation thought addressed it
+- modern_church: how 20th/21st-century churches across traditions have engaged this issue
+
+Be historically accurate. If a period has little to say, briefly acknowledge that rather than inventing claims.`,
+      },
+      views: {
+        schema: viewsSchema,
+        prompt: `You are Larry. The user is exploring the ethical topic: "${topic}".
+
+List 3-5 DIFFERENT orthodox Christian PERSPECTIVES on this issue. Return a "different_views" array; each item is:
+- perspective: short label/name for the view
+- reasoning: 2-4 sentence summary of the view's reasoning
+- biblical_support: the main Scripture passages cited (references + brief gloss)
+
+Be fair to each tradition. If orthodox Christianity broadly speaks with one voice on this issue, return 1-2 entries that note this.`,
+      },
+      today: {
+        schema: todaySchema,
+        prompt: `You are Larry. The user asked: "${userQuestion}".
+Topic: "${topic}".
+
+Write a MODERN APPLICATION section: 4-8 paragraphs of practical, pastoral guidance for living this out today.
+Cover: personal choices, family/relationships, church community, cultural engagement, and common pitfalls.
+Use specific, concrete examples. Speak warmly and directly to the reader.`,
+      },
+      pastoral: {
+        schema: pastoralSchema,
+        prompt: `You are Larry. The user asked: "${userQuestion}".
+Topic: "${topic}".
+
+Write PASTORAL COUNSEL from a ${denomination} perspective. Return:
+- pastoral_guidance: 3-6 paragraphs of compassionate, biblically grounded counsel. Acknowledge pain, complexity, and grace.
+- common_questions: 3-5 Q&A pairs addressing the most common doubts or follow-up questions
+- further_reading: 3-5 resources (title, author, 1-sentence description) for deeper study
+
+"Speaking the truth in love" (Ephesians 4:15).`,
+      },
+    };
+
+    const cfg = promptsByTab[tabKey];
+    if (!cfg) return;
+
+    setTabLoading((prev) => ({ ...prev, [tabKey]: true }));
+
+    try {
+      const sectionResp = await api.integrations.Core.InvokeLLM({
+        system_prompt: LARRY_SYSTEM_PROMPT,
+        prompt: cfg.prompt,
+        response_json_schema: cfg.schema,
+      });
+
+      console.log(`[ChristianEthics] ${tabKey} response`, sectionResp);
+
+      setResponse((prev) => {
+        if (!prev) return prev;
+        if (tabKey === "history") {
+          return { ...prev, historical_perspective: sectionResp || {} };
+        }
+        if (tabKey === "views") {
+          return { ...prev, different_views: sectionResp?.different_views || [] };
+        }
+        if (tabKey === "today") {
+          return { ...prev, modern_application: sectionResp?.modern_application || "" };
+        }
+        if (tabKey === "pastoral") {
+          return {
+            ...prev,
+            pastoral_guidance: sectionResp?.pastoral_guidance || "",
+            common_questions: sectionResp?.common_questions || [],
+            further_reading: sectionResp?.further_reading || [],
+          };
+        }
+        return prev;
+      });
+    } catch (err) {
+      toast.error(logError(`Couldn't load the ${tabKey} section`, err, { tabKey }));
+    } finally {
+      setTabLoading((prev) => ({ ...prev, [tabKey]: false }));
+    }
+  };
+
+  const handleTabChange = (value) => {
+    setActiveTab(value);
+    if (value === "biblical") return;
+    fetchTabSection(value);
   };
 
   const handleVoiceInput = () => {
@@ -399,8 +552,7 @@ Be fair and charitable to each tradition. Present each view from within that tra
       saveToHistory(topicQuestion, `Compare: ${result.topic_title}`);
       toast.success("Comparison complete!");
     } catch (error) {
-      console.error('Error comparing:', error);
-      toast.error("Comparison failed. Please try again.");
+      toast.error(logError('Comparison failed', error));
     } finally {
       setIsThinking(false);
     }
@@ -418,8 +570,7 @@ Be fair and charitable to each tradition. Present each view from within that tra
       });
       toast.success("Analysis saved to your library!");
     } catch (error) {
-      console.error('Error saving analysis:', error);
-      toast.error("Failed to save. Are you logged in?");
+      toast.error(logError('Failed to save analysis (are you logged in?)', error));
     }
   };
 
@@ -763,13 +914,21 @@ Be fair and charitable to each tradition. Present each view from within that tra
               </CardHeader>
             </Card>
 
-            <Tabs defaultValue="biblical">
+            <Tabs value={activeTab} onValueChange={handleTabChange}>
               <TabsList className="grid w-full grid-cols-3 md:grid-cols-5">
                 <TabsTrigger value="biblical">Biblical</TabsTrigger>
-                <TabsTrigger value="history">History</TabsTrigger>
-                <TabsTrigger value="views">Views</TabsTrigger>
-                <TabsTrigger value="today">Today</TabsTrigger>
-                <TabsTrigger value="pastoral">Pastoral</TabsTrigger>
+                <TabsTrigger value="history">
+                  History {tabLoading.history ? <Loader2 className="w-3 h-3 ml-1 animate-spin inline" /> : null}
+                </TabsTrigger>
+                <TabsTrigger value="views">
+                  Views {tabLoading.views ? <Loader2 className="w-3 h-3 ml-1 animate-spin inline" /> : null}
+                </TabsTrigger>
+                <TabsTrigger value="today">
+                  Today {tabLoading.today ? <Loader2 className="w-3 h-3 ml-1 animate-spin inline" /> : null}
+                </TabsTrigger>
+                <TabsTrigger value="pastoral">
+                  Pastoral {tabLoading.pastoral ? <Loader2 className="w-3 h-3 ml-1 animate-spin inline" /> : null}
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="biblical" className="mt-6">
@@ -819,6 +978,19 @@ Be fair and charitable to each tradition. Present each view from within that tra
                     <CardTitle>Church History on This Issue</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6">
+                    {tabLoading.history && !response.historical_perspective && (
+                      <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400 py-8 justify-center">
+                        <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                        Larry is reviewing the church's history on this topic…
+                      </div>
+                    )}
+                    {!tabLoading.history && !response.historical_perspective && (
+                      <div className="text-sm text-gray-600 dark:text-gray-400 py-6 text-center">
+                        <Button variant="outline" size="sm" onClick={() => fetchTabSection("history")}>
+                          Load church history
+                        </Button>
+                      </div>
+                    )}
                     {response.historical_perspective?.early_church && (
                       <div>
                         <h4 className="font-semibold mb-2">⛪ Early Church</h4>
@@ -856,7 +1028,20 @@ Be fair and charitable to each tradition. Present each view from within that tra
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {response.different_views?.length > 0 ? (
+                    {tabLoading.views && !response.different_views && (
+                      <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400 py-8 justify-center">
+                        <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                        Larry is mapping different Christian perspectives…
+                      </div>
+                    )}
+                    {!tabLoading.views && !response.different_views && (
+                      <div className="text-sm text-gray-600 dark:text-gray-400 py-6 text-center">
+                        <Button variant="outline" size="sm" onClick={() => fetchTabSection("views")}>
+                          Load Christian perspectives
+                        </Button>
+                      </div>
+                    )}
+                    {response.different_views && response.different_views.length > 0 && (
                       <div className="space-y-4">
                         {response.different_views.map((view, index) => (
                           <div key={index} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -868,7 +1053,8 @@ Be fair and charitable to each tradition. Present each view from within that tra
                           </div>
                         ))}
                       </div>
-                    ) : (
+                    )}
+                    {response.different_views && response.different_views.length === 0 && !tabLoading.views && (
                       <p className="text-gray-600">Orthodox Christianity speaks with one voice on this.</p>
                     )}
                   </CardContent>
@@ -881,9 +1067,24 @@ Be fair and charitable to each tradition. Present each view from within that tra
                     <CardTitle>Living This Out Today</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-sm leading-relaxed whitespace-pre-line">
-                      {response.modern_application}
-                    </p>
+                    {tabLoading.today && !response.modern_application && (
+                      <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400 py-8 justify-center">
+                        <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                        Larry is drafting practical application for today…
+                      </div>
+                    )}
+                    {!tabLoading.today && !response.modern_application && (
+                      <div className="text-sm text-gray-600 dark:text-gray-400 py-6 text-center">
+                        <Button variant="outline" size="sm" onClick={() => fetchTabSection("today")}>
+                          Load modern application
+                        </Button>
+                      </div>
+                    )}
+                    {response.modern_application && (
+                      <p className="text-sm leading-relaxed whitespace-pre-line">
+                        {response.modern_application}
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -897,9 +1098,24 @@ Be fair and charitable to each tradition. Present each view from within that tra
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    <div className="bg-pink-50 dark:bg-pink-900/20 p-4 rounded-lg border-l-4 border-pink-500">
-                      <p className="text-sm whitespace-pre-line">{response.pastoral_guidance}</p>
-                    </div>
+                    {tabLoading.pastoral && !response.pastoral_guidance && (
+                      <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400 py-8 justify-center">
+                        <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                        Larry is preparing pastoral counsel…
+                      </div>
+                    )}
+                    {!tabLoading.pastoral && !response.pastoral_guidance && (
+                      <div className="text-sm text-gray-600 dark:text-gray-400 py-6 text-center">
+                        <Button variant="outline" size="sm" onClick={() => fetchTabSection("pastoral")}>
+                          Load pastoral counsel
+                        </Button>
+                      </div>
+                    )}
+                    {response.pastoral_guidance && (
+                      <div className="bg-pink-50 dark:bg-pink-900/20 p-4 rounded-lg border-l-4 border-pink-500">
+                        <p className="text-sm whitespace-pre-line">{response.pastoral_guidance}</p>
+                      </div>
+                    )}
 
                     {response.common_questions?.length > 0 && (
                       <div>

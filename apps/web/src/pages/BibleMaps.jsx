@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { SafeImg } from '@/components/ui/SafeImg';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -124,30 +126,15 @@ const biblicalTimelines = [
 ];
 
 export default function BibleMaps() {
-  const [user, setUser] = useState(null);
+  // Centralised auth — drives both `user` and the loading state.
+  const { user, isLoadingAuth: loading } = useAuth();
   const [selectedJourney, setSelectedJourney] = useState(biblicalJourneys[0]);
   const [selectedTimeline, setSelectedTimeline] = useState(biblicalTimelines[0]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState(null);
   const [viewMode, setViewMode] = useState("preset"); // "preset", "search"
   const [presetTab, setPresetTab] = useState("journeys"); // "journeys", "timelines"
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const currentUser = await api.auth.me();
-        setUser(currentUser);
-      } catch (error) {
-        console.log('User not logged in', error);
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchUser();
-  }, []);
 
   const isPremium = user?.subscription_tier === 'premium' || 
                     user?.premium_override === true ||
@@ -508,8 +495,8 @@ Be detailed and descriptive for creating a visual representation.`;
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <img 
-                        src={searchResult.data.imageUrl} 
+                      <SafeImg
+                        src={searchResult.data.imageUrl}
                         alt={searchResult.data.title}
                         className="w-full rounded-lg shadow-md"
                       />

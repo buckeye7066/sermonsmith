@@ -2,6 +2,7 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { z } from 'zod';
 import { prisma, authenticateToken, signToken, requireAdmin, AUTH_COOKIE, cookieOptions } from '../middleware/auth.js';
 import { sendPasswordResetEmail } from '../services/email.js';
 
@@ -21,10 +22,55 @@ function isAdminEmail(email) {
 
 const router = Router();
 
+// ---------------------------------------------------------------------------
+// Profile sanitisation.
+//
+// The User row carries a JSON `profile` column that the client can write to
+// via PATCH /me. Without filtering, a malicious caller could store
+// `profile.role = "admin"` or `profile.premium = true` — and because the
+// previous `sanitizeUser` spread `profile` *after* the user row, those
+// poisoned keys would shadow the authoritative DB columns on the response.
+// The frontend would then believe the user is admin/premium, enabling
+// access to gated UI affordances and confusing premium gating.
+//
+// RESERVED_PROFILE_KEYS is the allowlist of fields that must NEVER be
+// readable from `profile` on the response or writeable through `profile`
+// on PATCH. Anything authoritative about identity, billing, or audit
+// timestamps lives only on the User row.
+// ---------------------------------------------------------------------------
+const RESERVED_PROFILE_KEYS = new Set([
+  'id',
+  'email',
+  'password',
+  'role',
+  'premium',
+  'premium_override',
+  'subscription_tier',
+  'premium_until',
+  'tokenVersion',
+  'token_version',
+  'createdAt',
+  'updatedAt',
+  'created_at',
+  'updated_at',
+]);
+
+function cleanProfile(profile) {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(profile).filter(([key]) => !RESERVED_PROFILE_KEYS.has(key))
+  );
+}
+
 function sanitizeUser(user) {
-  const { password, ...rest } = user;
-  const profile = typeof rest.profile === 'object' && rest.profile !== null ? rest.profile : {};
-  return { ...rest, ...profile };
+  // Strip secrets, then spread the cleaned profile FIRST so the
+  // authoritative user-row fields always win on the response.
+  // eslint-disable-next-line no-unused-vars
+  const { password, profile, ...safeUser } = user;
+  const safeProfile = cleanProfile(profile);
+  return { ...safeProfile, ...safeUser, profile: safeProfile };
 }
 
 router.post('/register', async (req, res, next) => {
@@ -56,7 +102,7 @@ router.post('/register', async (req, res, next) => {
       },
     });
 
-    const token = signToken(user.id);
+    const token = signToken(user);
     res.cookie(AUTH_COOKIE, token, cookieOptions());
     res.json({ user: sanitizeUser(user) });
   } catch (err) {
@@ -92,7 +138,7 @@ router.post('/login', async (req, res, next) => {
       });
     }
 
-    const token = signToken(currentUser.id);
+    const token = signToken(currentUser);
     res.cookie(AUTH_COOKIE, token, cookieOptions());
     res.json({ user: sanitizeUser(currentUser) });
   } catch (err) {
@@ -123,10 +169,35 @@ router.get('/me', authenticateToken, async (req, res, next) => {
   }
 });
 
+// PATCH /me — self-service profile edits.
+//
+// Two layers of defence:
+//   1. directFields: a closed set of User-row columns the user is allowed
+//      to set on themselves. Anything outside this set never touches the
+//      authoritative columns.
+//   2. profile JSON: anything else lands in `profile`, but ONLY after
+//      cleanProfile() strips reserved keys. This is what stops a caller
+//      from sending `{ profile: { role: 'admin', premium: true } }` and
+//      having the frontend treat the response as admin/premium.
 router.patch('/me', authenticateToken, async (req, res, next) => {
   try {
     const directFields = ['name', 'full_name', 'avatar', 'onboarding_completed', 'special_message', 'last_seen_version'];
-    const blockedFields = ['premium', 'role', 'email', 'password'];
+    const blockedFields = new Set([
+      'id',
+      'premium',
+      'premium_override',
+      'subscription_tier',
+      'premium_until',
+      'role',
+      'email',
+      'password',
+      'tokenVersion',
+      'token_version',
+      'createdAt',
+      'updatedAt',
+      'created_at',
+      'updated_at',
+    ]);
     const data = {};
 
     for (const key of directFields) {
@@ -134,16 +205,21 @@ router.patch('/me', authenticateToken, async (req, res, next) => {
     }
 
     const extraFields = {};
-    for (const [key, value] of Object.entries(req.body)) {
-      if (!directFields.includes(key) && !blockedFields.includes(key) && key !== 'profile') {
+    for (const [key, value] of Object.entries(req.body || {})) {
+      if (
+        !directFields.includes(key) &&
+        !blockedFields.has(key) &&
+        key !== 'profile'
+      ) {
         extraFields[key] = value;
       }
     }
 
-    if (Object.keys(extraFields).length > 0 || req.body.profile) {
+    const incomingProfile = cleanProfile(req.body?.profile || {});
+    if (Object.keys(extraFields).length > 0 || Object.keys(incomingProfile).length > 0) {
       const current = await prisma.user.findUnique({ where: { id: req.userId } });
-      const currentProfile = typeof current.profile === 'object' && current.profile !== null ? current.profile : {};
-      data.profile = { ...currentProfile, ...extraFields, ...(req.body.profile || {}) };
+      const currentProfile = cleanProfile(current?.profile);
+      data.profile = { ...currentProfile, ...cleanProfile(extraFields), ...incomingProfile };
     }
 
     const user = await prisma.user.update({
@@ -178,9 +254,11 @@ router.post('/change-password', authenticateToken, async (req, res, next) => {
     }
 
     const hashed = await bcrypt.hash(newPassword, 12);
+    // Bump tokenVersion so any other live session for this account is
+    // invalidated immediately on its next request.
     await prisma.user.update({
       where: { id: req.userId },
-      data: { password: hashed },
+      data: { password: hashed, tokenVersion: { increment: 1 } },
     });
 
     res.json({ message: 'Password updated successfully' });
@@ -280,9 +358,12 @@ router.post('/reset-password', async (req, res, next) => {
     }
 
     const hashed = await bcrypt.hash(newPassword, 12);
+    // Bump tokenVersion so any active session — including the one that
+    // possibly triggered the reset request — is invalidated. The user
+    // must re-authenticate.
     await prisma.user.update({
       where: { id: userId },
-      data: { password: hashed },
+      data: { password: hashed, tokenVersion: { increment: 1 } },
     });
 
     res.json({ message: 'Password has been reset. You can now log in.' });
@@ -309,17 +390,32 @@ router.get('/users', authenticateToken, requireAdmin, async (_req, res, next) =>
   }
 });
 
-// Admin: update user
+// Admin: update user.
+//
+// Strictly validated: an admin can only flip role/premium/name/full_name,
+// and `role` is constrained to the known enum. A typo or malicious payload
+// can no longer plant an invalid role string that confuses downstream
+// checks.
+const adminUserUpdateSchema = z.object({
+  role: z.enum(['user', 'admin', 'dev']).optional(),
+  premium: z.boolean().optional(),
+  name: z.string().max(100).optional(),
+  full_name: z.string().max(100).optional(),
+}).strict();
+
 router.patch('/users/:id', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    const { role, premium, name, full_name } = req.body;
-    const data = {};
-    if (role !== undefined) data.role = role;
-    if (premium !== undefined) data.premium = premium;
-    if (name !== undefined) data.name = name;
-    if (full_name !== undefined) data.full_name = full_name;
-
-    const user = await prisma.user.update({ where: { id: req.params.id }, data });
+    const parsed = adminUserUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: 'Invalid user update',
+        issues: parsed.error.issues,
+      });
+    }
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: parsed.data,
+    });
     res.json(sanitizeUser(user));
   } catch (err) {
     next(err);

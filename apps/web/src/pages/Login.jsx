@@ -5,6 +5,24 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Loader2, ArrowLeft, Mail, KeyRound } from 'lucide-react';
 
+// Same-origin redirect guard.
+//
+// `returnUrl.startsWith('/')` is NOT enough — "//evil.example" also starts
+// with '/' and is treated by browsers as a scheme-relative URL, so a
+// crafted login link could ship the user off-site after a successful
+// authentication. We parse against our own origin and require the URL
+// resolve back to it; on any mismatch (or parse error) we fall back to '/'.
+function getSafeReturnUrl(raw) {
+  if (!raw) return '/';
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.origin !== window.location.origin) return '/';
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return '/';
+  }
+}
+
 export default function Login() {
   // Modes: 'login' | 'register' | 'forgot' | 'reset'
   const [mode, setMode] = useState('login');
@@ -16,10 +34,25 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('return');
   const resetToken = searchParams.get('reset_token');
+  // We capture the reset token into state so we can blow it out of the URL
+  // immediately (history.replaceState) — leaving it in the location bar
+  // means it shows up in screenshots, browser history, and shareable URLs.
+  const [resetTokenState, setResetTokenState] = useState(null);
 
-  // Auto-switch to reset mode when a reset token is in the URL
+  // Auto-switch to reset mode when a reset token is in the URL and scrub
+  // the token from the address bar.
   useEffect(() => {
-    if (resetToken) setMode('reset');
+    if (resetToken) {
+      setResetTokenState(resetToken);
+      setMode('reset');
+      try {
+        window.history.replaceState({}, document.title, '/Login');
+      } catch {
+        // history API unavailable (very old browser / private mode in
+        // some embedded webviews) — the token is still in the URL but we
+        // tried.
+      }
+    }
   }, [resetToken]);
 
   const handleLogin = async (e) => {
@@ -33,7 +66,7 @@ export default function Login() {
         await api.auth.login(email, password);
         toast.success('Welcome back!');
       }
-      const safeReturn = returnUrl && returnUrl.startsWith('/') ? returnUrl : '/';
+      const safeReturn = getSafeReturnUrl(returnUrl);
       window.location.href = safeReturn;
     } catch (error) {
       toast.error(error.message || 'Authentication failed');
@@ -72,8 +105,11 @@ export default function Login() {
     }
     setLoading(true);
     try {
-      await api.auth.resetPassword(resetToken, password);
+      // resetToken came in via the URL but we've since scrubbed it out of
+      // the address bar; resetTokenState is the captured copy.
+      await api.auth.resetPassword(resetTokenState || resetToken, password);
       toast.success('Password reset successful! Please sign in.');
+      setResetTokenState(null);
       setMode('login');
       setPassword('');
       setConfirmPassword('');
@@ -138,7 +174,7 @@ export default function Login() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={8}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
                     placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
                   />

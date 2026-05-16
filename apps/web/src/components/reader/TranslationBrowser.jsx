@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { logError } from '@/lib/logError';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,8 +65,11 @@ export default function TranslationBrowser({
       setIsPremium(data.is_premium || false);
       setIsDeveloper(data.is_developer || false);
     } catch (error) {
-      console.error('Failed to load translations:', error);
-      toast.error('Failed to load translations');
+      const msg = logError('Failed to load translations', error, {
+        endpoint: 'listAvailableTranslations',
+        component: 'TranslationBrowser',
+      });
+      toast.error(`Failed to load translations: ${msg}`);
     } finally {
       setIsLoading(false);
     }

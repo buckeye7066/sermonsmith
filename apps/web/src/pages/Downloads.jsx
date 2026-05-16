@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -9,22 +10,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 
 export default function Downloads() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const currentUser = await api.auth.me();
-        setUser(currentUser);
-      } catch (error) {
-        console.log("User not logged in");
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadUser();
-  }, []);
+  const { user, isLoadingAuth: loading } = useAuth();
 
   if (loading) {
     return (

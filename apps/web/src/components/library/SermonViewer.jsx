@@ -14,28 +14,19 @@ import { Star, GitFork, Eye, Users, BookOpen, Lightbulb, Target, Sparkles } from
 import ThematicLinker from "../discovery/ThematicLinker";
 import CommentSection from "../community/CommentSection";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 
 export default function SermonViewer({ open, onClose, sermon, onFork, onRate }) {
+  const { user } = useAuth();
   const [reviews, setReviews] = useState([]);
-  const [user, setUser] = useState(null);
   const [showRelatedContent, setShowRelatedContent] = useState(false);
 
   useEffect(() => {
     if (open && sermon) {
       loadReviews();
-      loadUser();
     }
-  }, [open, sermon]);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
-      console.log("User not logged in");
-      setUser(null);
-    }
-  };
+  }, [open, sermon]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadReviews = async () => {
     try {
@@ -46,7 +37,7 @@ export default function SermonViewer({ open, onClose, sermon, onFork, onRate }) 
       );
       setReviews(sermonReviews);
     } catch (error) {
-      console.error('Error loading reviews:', error);
+      logError('Error loading sermon reviews', error);
     }
   };
 

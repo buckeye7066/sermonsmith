@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ export default function MySermons() {
   const [filteredSermons, setFilteredSermons] = useState([]);
   const [collections, setCollections] = useState([]);
   const [tags, setTags] = useState([]);
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSermon, setSelectedSermon] = useState(null);
   const [showTagManager, setShowTagManager] = useState(false);
@@ -48,36 +49,27 @@ export default function MySermons() {
   const [commentingSermon, setCommentingSermon] = useState(null);
 
   useEffect(() => {
-    loadUser();
     logActivity('page_view', { page_name: 'MySermons' });
-    
-    // Check for upgrade success
     const upgraded = searchParams.get('upgraded');
     if (upgraded === 'true') {
       toast.success("Successfully upgraded to Premium! 🎉", {
         description: "You now have access to all premium features."
       });
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (user) {
-      loadSermons();
-      loadCollections();
-      loadTags();
-    }
-  }, [user]);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
+    if (isLoadingAuth) return;
+    if (!user) {
       toast.error("Please log in to view your sermons");
-    } finally {
       setIsLoading(false);
+      return;
     }
-  };
+    loadSermons();
+    loadCollections();
+    loadTags();
+    setIsLoading(false);
+  }, [isLoadingAuth, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadSermons = async () => {
     try {

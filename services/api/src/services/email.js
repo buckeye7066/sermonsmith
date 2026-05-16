@@ -84,27 +84,51 @@ export async function sendPasswordResetEmail(email, resetToken) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Strip CR/LF so a hostile subject cannot inject extra headers when this
+// is interpolated into the email Subject line. Also cap length so an
+// abusive sender can't push the subject into a multi-KB blob.
+function safeSubject(value) {
+  return String(value ?? '').replace(/[\r\n]/g, ' ').slice(0, 200);
+}
+
 /**
  * Send a support message confirmation to the user, and a notification to the admin.
+ *
+ * Every interpolated field is HTML-escaped — without this, a hostile
+ * subject/name/email could inject HTML (and a clickable link, or worse,
+ * inline JS in mail clients that allow it) into the admin notification.
  */
 export async function sendSupportNotification({ userEmail, userName, subject, messageType }) {
   const adminEmail = process.env.ADMIN_EMAILS?.split(',')[0]?.trim();
+  if (!adminEmail) return;
 
-  // Notify admin
-  if (adminEmail) {
-    await sendEmail({
-      to: adminEmail,
-      subject: `[SermonSmith Support] ${messageType}: ${subject}`,
-      text: `New support message from ${userName} (${userEmail}).\n\nType: ${messageType}\nSubject: ${subject}\n\nView it in the Admin Messages panel.`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-          <h2 style="color: #4f46e5;">New Support Message</h2>
-          <p><strong>From:</strong> ${userName} (${userEmail})</p>
-          <p><strong>Type:</strong> ${messageType}</p>
-          <p><strong>Subject:</strong> ${subject}</p>
-          <p style="margin-top: 16px;">View and respond in the <strong>Admin Messages</strong> panel.</p>
-        </div>
-      `,
-    });
-  }
+  const safeUserName = escapeHtml(userName);
+  const safeUserEmail = escapeHtml(userEmail);
+  const safeType = escapeHtml(messageType);
+  const safeSubjectText = safeSubject(subject);
+  const safeSubjectHtml = escapeHtml(safeSubjectText);
+
+  await sendEmail({
+    to: adminEmail,
+    subject: `[SermonSmith Support] ${escapeHtml(messageType).slice(0, 60)}: ${safeSubjectText}`,
+    text: `New support message from ${userName} (${userEmail}).\n\nType: ${messageType}\nSubject: ${safeSubjectText}\n\nView it in the Admin Messages panel.`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #4f46e5;">New Support Message</h2>
+        <p><strong>From:</strong> ${safeUserName} (${safeUserEmail})</p>
+        <p><strong>Type:</strong> ${safeType}</p>
+        <p><strong>Subject:</strong> ${safeSubjectHtml}</p>
+        <p style="margin-top: 16px;">View and respond in the <strong>Admin Messages</strong> panel.</p>
+      </div>
+    `,
+  });
 }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,33 +22,23 @@ import {
 import { toast } from "sonner";
 
 export default function AdminAnalytics() {
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [activities, setActivities] = useState([]);
   const [stats, setStats] = useState({});
 
   useEffect(() => {
-    loadCurrentUser();
-  }, []);
-
-  useEffect(() => {
-    if (user?.role === 'admin') {
-      loadAnalytics();
-    }
-  }, [user]);
-
-  const loadCurrentUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-      
-      if (currentUser.role !== 'admin') {
-        toast.error("Admin access required");
-      }
-    } catch (error) {
+    if (isLoadingAuth) return;
+    if (!user) {
       toast.error("Please log in");
+      return;
     }
-  };
+    if (user.role !== 'admin') {
+      toast.error("Admin access required");
+      return;
+    }
+    loadAnalytics();
+  }, [isLoadingAuth, user]);
 
   const loadAnalytics = async () => {
     try {

@@ -79,8 +79,11 @@ jobs:
         working-directory: services/api
         run: npx prisma generate
       - name: Apply migrations to test DB
+        # No `|| db push` fallback — production runs `prisma migrate deploy`
+        # only, so CI must fail loudly if migrations are missing or broken.
+        # Otherwise CI passes and production breaks at deploy time.
         working-directory: services/api
-        run: npx prisma migrate deploy || npx prisma db push --skip-generate
+        run: npx prisma migrate deploy
       - name: Run integration tests against real Postgres
         working-directory: services/api
         env:

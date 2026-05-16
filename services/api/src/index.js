@@ -10,6 +10,7 @@ import authRoutes from './routes/auth.js';
 import entityRoutes from './routes/entities.js';
 import aiRoutes from './routes/ai.js';
 import functionRoutes from './routes/functions.js';
+import communityRoutes from './routes/community.js';
 import { handleStripeWebhook } from './routes/functions.js';
 import { prisma } from './middleware/auth.js';
 
@@ -33,12 +34,26 @@ export function buildApp() {
   const registerLimiter = rateLimit({ windowMs: 60 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many registration attempts — try again later' } });
   const resetLimiter = rateLimit({ windowMs: 15 * 60_000, max: 5, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many reset attempts — try again later' } });
   const aiLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many AI requests — try again shortly' } });
+  // Public Bible proxy endpoints are optionalAuth, so without their own
+  // limit they're effectively a free unauthenticated proxy to bible-api.com.
+  // A single misbehaving client (or a scraper) could burn through our
+  // upstream quota and rack up egress.
+  const publicFunctionLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: 'Too many Bible lookup requests — please slow down.' },
+  });
 
   app.use('/api/auth/login', authLimiter);
   app.use('/api/auth/register', registerLimiter);
   app.use('/api/auth/forgot-password', resetLimiter);
   app.use('/api/auth/reset-password', resetLimiter);
   app.use('/api/ai', aiLimiter);
+  app.use('/api/functions/biblePassage', publicFunctionLimiter);
+  app.use('/api/functions/listAvailableTranslations', publicFunctionLimiter);
+  app.use('/api/functions/getPassageMultiSource', publicFunctionLimiter);
 
   app.use(cors({ origin: allowedOrigins, credentials: true }));
   app.use(cookieParser(process.env.COOKIE_SECRET));
@@ -99,6 +114,7 @@ export function buildApp() {
   app.use('/api/entities', entityRoutes);
   app.use('/api/ai', aiRoutes);
   app.use('/api/functions', functionRoutes);
+  app.use('/api/community', communityRoutes);
 
   app.use((_req, res) => {
     res.status(404).json({ message: 'Not found' });
@@ -126,10 +142,34 @@ if (isMainModule) {
     console.log(`SermonSmith API running on ${env.HOST}:${PORT}`);
   });
 
-  function shutdown(signal) {
+  // Graceful shutdown.
+  //
+  // Without `prisma.$disconnect()` Railway / Docker rolling deploys leak
+  // pooled DB connections every restart — the new process opens its own
+  // pool while the old one's connections stay open until the OS / pgbouncer
+  // times them out. On a busy app that exhausts the max_connections
+  // budget very quickly.
+  async function shutdown(signal) {
     console.log(`${signal} received — shutting down gracefully`);
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(1), 10_000);
+    server.close(async () => {
+      try {
+        await prisma.$disconnect();
+        console.log('Prisma disconnected');
+        process.exit(0);
+      } catch (err) {
+        console.error('Failed to disconnect Prisma:', err?.message || err);
+        process.exit(1);
+      }
+    });
+    // Hard-stop after 10s so a hung handler can't keep the container alive
+    // forever.
+    setTimeout(async () => {
+      try {
+        await prisma.$disconnect();
+      } finally {
+        process.exit(1);
+      }
+    }, 10_000);
   }
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));

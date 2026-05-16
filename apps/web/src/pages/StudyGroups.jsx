@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
+import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +14,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 
 export default function StudyGroups() {
-  const [user, setUser] = useState(null);
+  const { user, isLoadingAuth } = useAuth();
   const [groups, setGroups] = useState([]);
   const [myGroups, setMyGroups] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -27,25 +29,14 @@ export default function StudyGroups() {
   });
 
   useEffect(() => {
-    loadUser();
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      loadGroups();
-    }
-  }, [user]);
-
-  const loadUser = async () => {
-    try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-    } catch (error) {
+    if (isLoadingAuth) return;
+    if (!user) {
       toast.error("Please log in to view study groups");
-    } finally {
       setIsLoading(false);
+      return;
     }
-  };
+    loadGroups();
+  }, [isLoadingAuth, user]);
 
   const loadGroups = async () => {
     try {
@@ -55,13 +46,13 @@ export default function StudyGroups() {
       ]);
 
       setGroups(allGroups);
-      
-      // Get groups where user is a member
       const myGroupIds = memberships.map(m => m.group_id);
       const userGroups = allGroups.filter(g => myGroupIds.includes(g.id));
       setMyGroups(userGroups);
     } catch (error) {
-      console.error('Error loading groups:', error);
+      toast.error(logError('Error loading study groups', error));
+    } finally {
+      setIsLoading(false);
     }
   };
 
