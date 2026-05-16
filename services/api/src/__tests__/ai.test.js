@@ -147,7 +147,11 @@ describe('ai routes — /email lockdown', () => {
     expect(res.status).toBe(401);
   });
 
-  it('IGNORES caller-supplied to: address — only sends to the authenticated user email', async () => {
+  it('REJECTS a caller-supplied to: address with HTTP 400', async () => {
+    // Policy change: previously the route silently re-routed `to:` to the
+    // authenticated user's email. We now reject overrides outright so the
+    // contract is impossible to misuse — the endpoint can never be used to
+    // mail an arbitrary address.
     prisma._store.user.push({ id: 'u-mail', role: 'user', premium: false, email: 'me@example.com' });
     const { sendEmail } = await import('../services/email.js');
     sendEmail.mockClear();
@@ -157,13 +161,26 @@ describe('ai routes — /email lockdown', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-mail')}`])
       .send({ to: 'attacker@evil.com', message: 'hello' });
 
-    expect(res.status).toBe(200);
-    expect(res.body.sentTo).toBe('me@example.com');
-    expect(sendEmail).toHaveBeenCalledTimes(1);
-    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'me@example.com' }));
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/not allowed/i);
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  it('REJECTS caller-supplied raw HTML and uses a server-controlled template', async () => {
+  it('REJECTS a caller-supplied email: alias with HTTP 400', async () => {
+    prisma._store.user.push({ id: 'u-mail-alias', role: 'user', premium: false, email: 'me@example.com' });
+    const { sendEmail } = await import('../services/email.js');
+    sendEmail.mockClear();
+
+    const res = await request(app)
+      .post('/api/ai/email')
+      .set('Cookie', [`ss_token=${tokenFor('u-mail-alias')}`])
+      .send({ email: 'attacker@evil.com', message: 'hello' });
+
+    expect(res.status).toBe(400);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('REJECTS caller-supplied raw HTML with HTTP 400', async () => {
     prisma._store.user.push({ id: 'u-mail2', role: 'user', premium: false, email: 'me2@example.com' });
     const { sendEmail } = await import('../services/email.js');
     sendEmail.mockClear();
@@ -174,17 +191,32 @@ describe('ai routes — /email lockdown', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-mail2')}`])
       .send({ html: evil, message: evil });
 
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/not allowed/i);
+    // Critical: the email must NEVER have been dispatched when the caller
+    // supplied raw HTML. Any prior path that escaped-and-sent left the
+    // door open to oddly-escaped content driving downstream renderers.
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('SENDS the email when the payload is clean (template + message only)', async () => {
+    prisma._store.user.push({ id: 'u-mail-ok', role: 'user', premium: false, email: 'ok@example.com' });
+    const { sendEmail } = await import('../services/email.js');
+    sendEmail.mockClear();
+
+    const res = await request(app)
+      .post('/api/ai/email')
+      .set('Cookie', [`ss_token=${tokenFor('u-mail-ok')}`])
+      .send({ template: 'notification', message: 'Hello there' });
+
     expect(res.status).toBe(200);
+    expect(res.body.sentTo).toBe('ok@example.com');
+    expect(sendEmail).toHaveBeenCalledTimes(1);
     const sentArg = sendEmail.mock.calls[0][0];
-    // The injected HTML must be escaped — never present verbatim. Both the
-    // <script> tag and the <img onerror=> XSS payload must end up in the
-    // body as escaped TEXT rather than as raw markup.
+    expect(sentArg.to).toBe('ok@example.com');
+    // Server-rendered HTML always escapes the user's message.
+    expect(sentArg.html).toContain('Hello there');
     expect(sentArg.html).not.toContain('<script>');
-    expect(sentArg.html).not.toMatch(/<img[^>]*onerror/i);
-    expect(sentArg.html).toContain('&lt;script&gt;');
-    expect(sentArg.html).toContain('&lt;img src=x onerror=alert(2)&gt;');
-    // And nothing the caller submitted ended up driving the recipient field.
-    expect(sentArg.to).toBe('me2@example.com');
   });
 
   it('400s on unknown templates', async () => {

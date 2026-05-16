@@ -203,12 +203,12 @@ function escapeHtml(s) {
 router.post('/email', authenticateToken, async (req, res, next) => {
   try {
     if (req.body && (req.body.html || req.body.to || req.body.email)) {
-             // Hard fail on any attempt to override the recipient or supply raw HTML.
+      // Hard fail on any attempt to override the recipient or supply raw HTML.
       // The API always emails the authenticated user with a server-rendered template.
       return res.status(400).json({
-        message: 'Providing custom "html" or recipient fields is not allowed. This endpoint always emails the authenticated user with a server‑rendered template.',
+        message: 'Providing custom "html" or recipient fields is not allowed. This endpoint always emails the authenticated user with a server-rendered template.',
       });
-
+    }
 
     const templateId = String(req.body?.template || 'notification');
     const template = EMAIL_TEMPLATES[templateId];
