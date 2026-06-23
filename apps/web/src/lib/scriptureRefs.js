@@ -8,12 +8,12 @@
  *
  * We extract candidate references with a regex, then check the book
  * portion against the canonical 66-book list AND range-check the chapter
- * against that book's known chapter count (plus an absolute verse ceiling).
- * This catches the most common hallucination shapes — a real book with an
- * impossible chapter ("John 99:99", John has 21 chapters) or an absurd verse
- * ("Genesis 1:9000"). Per-chapter verse counts would need a ~1,189-row table;
- * the chapter bound + verse ceiling (Psalm 119 is the longest at 176 verses)
- * is a proportionate guard without shipping that much data.
+ * against that book's known chapter count and the verse against that exact
+ * chapter's verse count (from bibleVerseCounts.js). This catches a real book
+ * with an impossible chapter ("John 99:99", John has 21 chapters), an absurd
+ * verse ("Genesis 1:9000"), and a precise overrun ("John 3:37" — John 3 has 36
+ * verses). If the chapter is somehow unknown we fall back to a coarse global
+ * verse ceiling (Psalm 119 is the longest at 176 verses).
  *
  * Returns:
  *   - `extractScriptureRefs(text)` -> string[]
@@ -40,6 +40,8 @@ const BOOKS = [
   '1 Peter', '2 Peter', '1 John', '2 John', '3 John',
   'Jude', 'Revelation',
 ];
+
+import { versesInChapter } from './bibleVerseCounts';
 
 const BOOK_LOOKUP = new Set(BOOKS.map((b) => b.toLowerCase()));
 
@@ -99,7 +101,11 @@ export function validateScriptureRefs(refs) {
       status = 'unparseable';
     } else {
       const maxChapter = CHAPTER_COUNTS[bookKey] ?? Infinity;
-      const inRange = chapter >= 1 && chapter <= maxChapter && verse >= 1 && verse <= MAX_VERSE;
+      const chapterOk = chapter >= 1 && chapter <= maxChapter;
+      // Prefer the exact verse count for this chapter; fall back to the global
+      // ceiling when the chapter is unknown / out of the table.
+      const maxVerse = (chapterOk ? versesInChapter(bookKey, chapter) : null) ?? MAX_VERSE;
+      const inRange = chapterOk && verse >= 1 && verse <= maxVerse;
       status = inRange ? 'valid' : 'out_of_range';
     }
 

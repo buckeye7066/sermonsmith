@@ -47,3 +47,6 @@ coverage/
 *.sw?
 
 .env
+# Playwright
+playwright-report/
+test-results/

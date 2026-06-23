@@ -30,7 +30,6 @@ export default defineConfig({
             '@radix-ui/react-accordion',
             '@radix-ui/react-dropdown-menu',
             '@radix-ui/react-popover',
-            '@radix-ui/react-tooltip',
           ],
           'vendor-query': ['@tanstack/react-query'],
           'vendor-motion': ['framer-motion'],
