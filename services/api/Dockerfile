@@ -23,6 +23,13 @@ COPY services/api/package.json services/api/package.json
 
 RUN npm ci --workspace @sermonsmith/api --omit=dev
 
+# npm v10 hoists every workspace dep to the ROOT /app/node_modules, so the
+# workspace-local /app/services/api/node_modules may not exist at all. The
+# runtime stage unconditionally COPYs it, which fails the build when it's
+# absent. Guarantee the path exists (empty is fine — Node resolves up to the
+# hoisted root node_modules) so the COPY is always valid.
+RUN mkdir -p /app/services/api/node_modules
+
 
 FROM node:20-alpine AS runtime
 # Run as a non-root user. addgroup/adduser come from Alpine's busybox.
