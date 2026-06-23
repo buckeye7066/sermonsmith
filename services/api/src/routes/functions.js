@@ -313,6 +313,57 @@ router.post('/grantMePremium', authenticateToken, requireAdmin, async (req, res,
   }
 });
 
+// Grant a free trial period — the SermonSmith equivalent of GrantFlow's owner
+// "free week / free month" comp. Admin/owner only. The timer starts now and we
+// set ONLY `premium_until` (never the `premium` flag), so access auto-expires at
+// that date with no scheduler and a real paying subscriber is never affected.
+//
+// Body: { period: 'week' | 'month', ...target }
+//   target = { userId } | { email } | { scope: 'all' }   (all = every active user)
+// If the user already has a longer free window we keep the later date so a grant
+// never shortens an existing trial.
+const FREE_PERIOD_DAYS = { week: 7, month: 30 };
+router.post('/grantFreePeriod', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    const period = req.body?.period;
+    const days = FREE_PERIOD_DAYS[period];
+    if (!days) {
+      return res.status(400).json({ message: "period must be 'week' or 'month'" });
+    }
+    const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+
+    if (req.body?.scope === 'all') {
+      // Don't shorten anyone's existing longer trial: only push out accounts
+      // whose window is null or earlier than the new one.
+      const result = await prisma.user.updateMany({
+        where: { deletedAt: null, OR: [{ premium_until: null }, { premium_until: { lt: until } }] },
+        data: { premium_until: until },
+      });
+      return res.json({ scope: 'all', period, granted: result.count, premium_until: until });
+    }
+
+    const { userId, email } = req.body || {};
+    const where = userId ? { id: String(userId) } : email ? { email: String(email).toLowerCase() } : null;
+    if (!where) {
+      return res.status(400).json({ message: 'Provide userId, email, or scope:"all"' });
+    }
+    const target = await prisma.user.findUnique({ where });
+    if (!target || target.deletedAt) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const newUntil = target.premium_until && new Date(target.premium_until) > until
+      ? target.premium_until
+      : until;
+    const updated = await prisma.user.update({
+      where: { id: target.id },
+      data: { premium_until: newUntil },
+    });
+    res.json({ userId: updated.id, email: updated.email, period, premium_until: updated.premium_until });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // List users (admin)
 router.post('/listUsers', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
@@ -324,7 +375,7 @@ router.post('/listUsers', authenticateToken, requireAdmin, async (req, res, next
       where: { deletedAt: null },
       select: {
         id: true, email: true, name: true, full_name: true,
-        role: true, premium: true, createdAt: true,
+        role: true, premium: true, premium_until: true, createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
       take: limit,

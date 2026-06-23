@@ -390,7 +390,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => 
       where: { deletedAt: null },
       select: {
         id: true, email: true, name: true, full_name: true,
-        role: true, premium: true, avatar: true, profile: true,
+        role: true, premium: true, premium_until: true, avatar: true, profile: true,
         createdAt: true, updatedAt: true,
       },
       orderBy: { createdAt: 'desc' },

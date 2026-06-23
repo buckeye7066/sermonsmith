@@ -108,7 +108,7 @@ export async function authenticateToken(req, res, next) {
     // Also acts as a revocation check — deleted users are rejected immediately.
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { role: true, premium: true, email: true, tokenVersion: true, deletedAt: true },
+      select: { role: true, premium: true, email: true, tokenVersion: true, deletedAt: true, premium_until: true },
     });
     if (!user || user.deletedAt) {
       // Treat soft-deleted accounts as gone — their tokenVersion was also bumped
@@ -127,7 +127,10 @@ export async function authenticateToken(req, res, next) {
     }
 
     req.userRole = user.role;
-    req.userPremium = !!user.premium;
+    // Effective premium = a paid flag OR an unexpired free-trial window
+    // (premium_until in the future). See functions.js grantFreePeriod.
+    req.userPremium = !!user.premium
+      || (user.premium_until ? new Date(user.premium_until) > new Date() : false);
     req.userEmail = user.email;
     next();
   } catch {

@@ -16,6 +16,12 @@ model User {
   avatar               String?
   role                 String   @default("user")
   premium              Boolean  @default(false)
+  // Free-trial / comp window (GrantFlow-style "free week / free month"). When
+  // set to a future timestamp the account is effectively premium until then;
+  // we deliberately set ONLY this (not `premium`) for grants so access expires
+  // automatically at the date with no scheduler. Paid Stripe subs use `premium`
+  // and leave this null.
+  premium_until        DateTime?
   // tokenVersion is bumped on password change / reset so any previously
   // issued JWT for this user instantly becomes invalid. Without this,
   // a leaked 30-day cookie remained valid until expiry even after the

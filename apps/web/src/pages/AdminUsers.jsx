@@ -123,6 +123,20 @@ export default function AdminUsers() {
     }
   };
 
+  // Owner "free week / free month" comp (mirrors GrantFlow). Server sets
+  // premium_until = now + 7/30 days; access expires automatically at that date.
+  const grantFreePeriod = async (userId, period) => {
+    try {
+      const res = await api.functions.invoke('grantFreePeriod', { userId, period });
+      const until = res?.premium_until ? new Date(res.premium_until).toLocaleDateString() : '';
+      toast.success(`Granted a free ${period}${until ? ` (premium until ${until})` : ''}`);
+      loadUsers();
+    } catch (error) {
+      console.error('Error granting free period:', error);
+      toast.error(`Failed to grant free ${period}`);
+    }
+  };
+
   const viewUserActivity = async (userId, userEmail) => {
     try {
       const activities = await api.entities.UserActivity.filter({ 
@@ -278,6 +292,26 @@ export default function AdminUsers() {
                           >
                             <Activity className="w-3 h-3" />
                             Activity
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => grantFreePeriod(u.id, 'week')}
+                            className="gap-1 text-yellow-600 hover:text-yellow-700"
+                            title="Grant 1 week of Premium free"
+                          >
+                            <Crown className="w-3 h-3" />
+                            Free Week
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => grantFreePeriod(u.id, 'month')}
+                            className="gap-1 text-yellow-600 hover:text-yellow-700"
+                            title="Grant 1 month of Premium free"
+                          >
+                            <Crown className="w-3 h-3" />
+                            Free Month
                           </Button>
                           {u.is_banned ? (
                             <Button
