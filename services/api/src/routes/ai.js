@@ -173,7 +173,7 @@ function withTimeout(promise, ms, label = 'OpenAI call') {
 // quota and our money). The whole retry loop runs INSIDE withTimeout so total
 // latency stays bounded by AI_TIMEOUT_MS instead of multiplying per attempt.
 const AI_MAX_RETRIES = Number(process.env.AI_MAX_RETRIES || 2);
-async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500 } = {}) {
+export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500 } = {}) {
   for (let attempt = 0; ; attempt++) {
     try {
       return await fn();

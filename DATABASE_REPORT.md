@@ -43,6 +43,11 @@ Each finding: **Severity | Likelihood | Impact | Fix | Verification Status**.
   `entity.create`. Or move to a queued background job.
 - **Verification:** ⏳ Not applied.
 
+> **UPDATE 2026-06-23 (part 2): D4 FIXED.** Added `User.deletedAt` (migration `20260518_…`). Admin
+> `DELETE /users/:id` now soft-deletes (sets `deletedAt`, bumps `tokenVersion`) instead of hard cascade;
+> auth/login reject soft-deleted users; admin listings filter `deletedAt: null`. Also added
+> `User.stripeCustomerId @unique` (see SECURITY S4). Entities are preserved/recoverable.
+
 ### D4 — Hard cascade deletes with no audit trail
 - **Location:** `schema.prisma` User→Entity / User→PasswordReset `onDelete: Cascade`.
 - **Severity:** Medium · **Impact:** Deleting a User hard-deletes all their sermons/notes irrecoverably — no

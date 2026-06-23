@@ -321,6 +321,7 @@ router.post('/listUsers', authenticateToken, requireAdmin, async (req, res, next
     const limit = Math.min(Math.max(parseInt(req.body?.limit, 10) || 100, 1), 500);
     const offset = Math.max(parseInt(req.body?.offset, 10) || 0, 0);
     const users = await prisma.user.findMany({
+      where: { deletedAt: null },
       select: {
         id: true, email: true, name: true, full_name: true,
         role: true, premium: true, createdAt: true,
@@ -761,7 +762,13 @@ export async function handleStripeWebhook(req, res) {
         const session = event.data?.object;
         const userId = session?.metadata?.userId;
         if (userId) {
-          await prisma.user.update({ where: { id: userId }, data: { premium: true } });
+          // Capture the Stripe customer id (set server-side at session creation
+          // via metadata.userId, so this is trusted) so cancellation can later
+          // downgrade this exact account by id rather than by email.
+          await prisma.user.update({
+            where: { id: userId },
+            data: { premium: true, ...(session.customer ? { stripeCustomerId: session.customer } : {}) },
+          });
         }
         break;
       }
@@ -770,11 +777,17 @@ export async function handleStripeWebhook(req, res) {
         const sub = event.data?.object;
         const customerId = sub?.customer;
         if (customerId) {
-          // Look up the user by Stripe customer email — keeps us schemaless
-          // (we don't store stripeCustomerId on User today).
-          const customer = await stripe.customers.retrieve(customerId).catch(() => null);
-          if (customer?.email) {
-            await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium: false } });
+          // Prefer the stored stripeCustomerId — stable even if the user changed
+          // their email after subscribing. Fall back to email match for accounts
+          // that subscribed before stripeCustomerId was captured.
+          const byCustomer = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } }).catch(() => null);
+          if (byCustomer) {
+            await prisma.user.update({ where: { id: byCustomer.id }, data: { premium: false } });
+          } else {
+            const customer = await stripe.customers.retrieve(customerId).catch(() => null);
+            if (customer?.email) {
+              await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium: false } });
+            }
           }
         }
         break;

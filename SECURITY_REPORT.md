@@ -33,6 +33,12 @@ Each finding: **Severity | Likelihood | Impact | Fix | Verification Status**.
 
 ## IDENTIFIED — RECOMMENDED (not applied; need owner decision / migration)
 
+> **UPDATE 2026-06-23 (part 2):** S4 is now **FIXED** — `User.stripeCustomerId @unique` added
+> (migration `20260518_user_stripe_customer_and_soft_delete`), captured on `checkout.session.completed`;
+> the cancellation webhook downgrades by customer id with email fallback for legacy accounts. The
+> **soft-delete** recommendation from `DATABASE_REPORT.md` D4 also shipped: admin delete sets `deletedAt`
+> + bumps `tokenVersion` (no cascade wipe); login and `authenticateToken` reject soft-deleted users.
+
 ### S4 — Stripe cancellation keys off `customer.email`, not a stored customer id
 - **Location:** `services/api/src/routes/functions.js` ~L763–772 (`customer.subscription.deleted/canceled`)
 - **Severity:** Medium · **Likelihood:** Low · **Impact:** Downgrade is matched by email via `updateMany`. Email

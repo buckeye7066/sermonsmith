@@ -16,6 +16,17 @@ idempotency, and entity CRUD have unit/integration coverage. These passed before
 
 ---
 
+## UPDATE 2026-06-23 (part 2) — web suite added
+- **T1 (web had no tests): ADDRESSED.** Vitest stood up in `apps/web` (`vitest.config.js`); **17 specs** —
+  `scriptureRefs.test.js` (valid / invalid_book / out_of_range incl. "John 99:99" + alias + single-chapter books)
+  and `aiStructured.test.js` (coercion, case-insensitive dedupe, malformed-payload normalization, series clamp).
+  Root `npm test` now runs **api + web**. Writing these surfaced and fixed a real regex over-capture bug.
+- **T2 (retry logic): DONE.** `callWithRetry` exported; **5 specs** assert 429/5xx retry, no-retry on 504/4xx,
+  and budget exhaustion. (`services/api/src/__tests__/retry.test.js`)
+- Current totals: **API 64 pass / 4 skip · web 17 pass.**
+- Still open: T3 (pagination-clamp via supertest), T4 (review 4 skips), T5 (Playwright smoke), and RTL
+  component tests for the full SermonBuilder UI flow.
+
 ## Gaps — RECOMMENDED (not yet implemented)
 
 ### T1 — Web app has no tests at all

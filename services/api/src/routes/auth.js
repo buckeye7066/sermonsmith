@@ -127,6 +127,12 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    // Soft-deleted accounts cannot sign in. Same generic message as a bad
+    // password so we don't reveal that the account once existed.
+    if (user.deletedAt) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
     // Promote env-allowlisted admin emails on every login so access is
     // never lost even after a manual demotion. Note: admin status comes
     // from the deployment's ADMIN_EMAILS env, never from a hardcoded list.
@@ -381,6 +387,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => 
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
     const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const users = await prisma.user.findMany({
+      where: { deletedAt: null },
       select: {
         id: true, email: true, name: true, full_name: true,
         role: true, premium: true, avatar: true, profile: true,
@@ -429,10 +436,22 @@ router.patch('/users/:id', authenticateToken, requireAdmin, async (req, res, nex
   }
 });
 
-// Admin: delete user
+// Admin: delete user (soft delete).
+//
+// Instead of hard-deleting the row — which cascade-wipes every sermon, study,
+// and note the user created — we set deleted_at and bump token_version so all
+// of their sessions are immediately invalidated. Auth (login + token check)
+// rejects soft-deleted users, so the account is inaccessible while the data
+// stays recoverable / auditable. A separate purge job can hard-delete after a
+// retention window if ever needed.
 router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    await prisma.user.delete({ where: { id: req.params.id } });
+    const target = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!target) return res.status(404).json({ message: 'User not found' });
+    await prisma.user.update({
+      where: { id: req.params.id },
+      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+    });
     res.status(204).send();
   } catch (err) {
     next(err);

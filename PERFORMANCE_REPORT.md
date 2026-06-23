@@ -27,6 +27,10 @@ Each finding: **Severity | Likelihood | Impact | Fix | Verification Status**.
 
 ## IDENTIFIED — RECOMMENDED
 
+> **UPDATE 2026-06-23 (part 2): P3 RESOLVED (already optimal).** Verified BibleMaps, SermonAnalytics, and
+> QuizViewer are `React.lazy` route splits in `pages.config.js`, and the build emits them as separate chunks —
+> so recharts/leaflet/jspdf are fetched only when their page is visited. No eager import found; no change needed.
+
 ### P3 — Heavy page-specific vendor chunks not lazy-loaded
 - **Severity:** Medium · **Impact:** Three large chunks ship even though each is used by exactly one page:
   | Chunk | Size | Used by |

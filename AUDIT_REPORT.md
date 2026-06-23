@@ -123,6 +123,24 @@ See each report's Verification Status column and the commit history for the exac
 
 ---
 
+## Follow-up pass (2026-06-23, part 2) — remaining recommendations implemented
+
+All items previously listed as "recommended / not applied" were then completed and verified:
+
+| Item | What shipped | Verification |
+|---|---|---|
+| **API typecheck too shallow** | `node --check src/index.js` → `node scripts/typecheck.mjs`, which syntax-checks **all 20** `src/**/*.js` files | ✅ `Typecheck OK: 20 files parsed` |
+| **Scripture range validation** | `scriptureRefs.js` now parses chapter:verse and bounds them against a per-book chapter-count table + 176-verse ceiling; statuses `valid/invalid_book/out_of_range/unparseable`. Also fixed a regex over-capture bug (`"As John 3:16"` → `"John 3:16"`) surfaced by the new tests | ✅ web tests |
+| **Store `stripeCustomerId`** | Added `User.stripeCustomerId @unique` + migration `20260518_…`; captured on `checkout.session.completed`; cancellation now downgrades by customer id (email fallback retained) | ✅ api gates green |
+| **Soft-delete vs hard cascade** | Added `User.deletedAt`; admin delete now sets `deletedAt` + bumps `tokenVersion` instead of cascade-wiping; login + `authenticateToken` reject soft-deleted users; admin listings filter `deletedAt: null` | ✅ api tests |
+| **Lazy-load heavy chunks** | Verified recharts/leaflet/jspdf are **already** loaded on-demand — BibleMaps/SermonAnalytics/QuizViewer are `React.lazy` in `pages.config.js`, build emits separate chunks. No change needed | ✅ build chunk map |
+| **Web app had zero tests** | Stood up Vitest in `apps/web` (+`vitest.config.js`); 17 specs across `scriptureRefs` + `aiStructured`. Root `npm test` now runs api **and** web | ✅ 17/17 pass |
+| **Retry logic untested** | Exported `callWithRetry`; 5 unit tests (retries 429/5xx, never 504/4xx, budget exhaustion) | ✅ 5/5 pass |
+
+**Post-follow-up gate:** lint 0 errors · typecheck 20 files · **API 64 pass / web 17 pass** · build green · prod audit 0.
+
+---
+
 ## Net change this pass
 | Item | Before | After |
 |---|---|---|

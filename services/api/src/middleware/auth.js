@@ -108,9 +108,11 @@ export async function authenticateToken(req, res, next) {
     // Also acts as a revocation check — deleted users are rejected immediately.
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { role: true, premium: true, email: true, tokenVersion: true },
+      select: { role: true, premium: true, email: true, tokenVersion: true, deletedAt: true },
     });
-    if (!user) {
+    if (!user || user.deletedAt) {
+      // Treat soft-deleted accounts as gone — their tokenVersion was also bumped
+      // on deletion, but this is the loader-independent net.
       return res.status(401).json({ message: 'User account not found' });
     }
 
