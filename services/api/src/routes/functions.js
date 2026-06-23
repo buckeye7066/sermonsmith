@@ -32,6 +32,78 @@ const passageSchema = z.object({
   translations: z.array(z.string().min(1).max(20)).max(5).optional(),
 }).refine((d) => d.book || d.bookCode, { message: 'book or bookCode is required' });
 
+// ---------------------------------------------------------------------------
+// Bible chapter cache.
+//
+// bible-api.com upstream is rate-limited and adds 200-400ms of latency to
+// every Reader page view. Bible text is effectively immutable, so we cache
+// each (translation, book, chapter) JSON payload in Postgres for
+// BIBLE_CACHE_TTL_MS (default 30 days). A single chapter is the smallest
+// unit the Reader UI requests, so caching at chapter granularity gives us
+// near-zero upstream traffic for the most common navigation pattern
+// (Genesis 1, Genesis 2, …) without cluttering the cache with thousands of
+// per-verse rows.
+//
+// We deliberately do NOT cache failed responses — a 5xx from upstream
+// must trigger a real refetch next time, not be remembered as truth.
+// ---------------------------------------------------------------------------
+const BIBLE_CACHE_TTL_MS = Number(process.env.BIBLE_CACHE_TTL_MS || 30 * 24 * 60 * 60 * 1000);
+
+function normalizeBibleTranslation(raw) {
+  return String(raw || 'kjv').replace(/^en-/, '').toLowerCase();
+}
+
+function bibleCacheFresh(row) {
+  return row && Date.now() - new Date(row.updatedAt || row.fetchedAt).getTime() < BIBLE_CACHE_TTL_MS;
+}
+
+async function fetchBibleApiJson(ref, translationId, timeoutMs = 10000) {
+  const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translationId}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      const err = new Error(`Bible API returned ${response.status}`);
+      err.status = response.status;
+      throw err;
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getCachedBibleChapter({ book, chapter, translationId }) {
+  const cacheKey = { translation: translationId, book, chapter: Number(chapter) };
+
+  const cached = await prisma.bibleChapterCache.findUnique({
+    where: { translation_book_chapter: cacheKey },
+  });
+
+  if (bibleCacheFresh(cached)) {
+    return { ...cached.payload, cacheHit: true };
+  }
+
+  const ref = `${book} ${chapter}`;
+  const data = await fetchBibleApiJson(ref, translationId);
+
+  await prisma.bibleChapterCache.upsert({
+    where: { translation_book_chapter: cacheKey },
+    create: {
+      ...cacheKey,
+      payload: data,
+    },
+    update: {
+      payload: data,
+      fetchedAt: new Date(),
+    },
+  });
+
+  return { ...data, cacheHit: false };
+}
+
 // Stripe SDK is lazy-loaded — see getStripe() below. The previous
 // top-level await meant the API would crash at import time if the SDK was
 // missing or the key was unset; now booting works in test/dev without
@@ -60,37 +132,41 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
     const book = body.bookCode || body.book;
     const chapter = body.chapter;
     const translationRaw = body.translationId || body.translation || 'kjv';
-    const verses = body.verses;
+    const verses = body.verses ?? body.verse;
 
-    const translationId = String(translationRaw).replace(/^en-/, '');
+    const translationId = normalizeBibleTranslation(translationRaw);
     if (!ALLOWED_TRANSLATIONS.has(translationId)) {
       return res.status(400).json({ message: `Unsupported translation: ${translationId}` });
     }
 
     const ref = verses ? `${book} ${chapter}:${verses}` : `${book} ${chapter}`;
-    const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translationId}`;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      return res.status(response.status).json({ message: `Bible API returned ${response.status}` });
+    // Whole-chapter requests go through the cache so we don't pay the
+    // upstream round-trip every page view. Verse-level requests bypass
+    // it because the cache key is chapter-granular.
+    let data;
+    let cacheHit = false;
+    if (verses === undefined || verses === null || verses === '') {
+      const cached = await getCachedBibleChapter({ book, chapter, translationId });
+      cacheHit = !!cached.cacheHit;
+      data = cached;
+    } else {
+      data = await fetchBibleApiJson(ref, translationId);
     }
-
-    const data = await response.json();
 
     res.json({
       reference: data.reference || ref,
       translationLabel: translationRaw,
       verses: data.verses || [],
       text: data.text || '',
+      cacheHit,
     });
   } catch (err) {
     if (err.name === 'AbortError') {
       return res.status(504).json({ message: 'Bible API request timed out' });
+    }
+    if (err.status && err.status >= 400 && err.status < 600) {
+      return res.status(err.status).json({ message: err.message });
     }
     next(err);
   }
@@ -113,7 +189,6 @@ router.post('/listAvailableTranslations', optionalAuth, async (_req, res) => {
 });
 
 // Multi-source passage
-const TRANSLATION_TIMEOUT_MS = 10000;
 const MAX_TRANSLATIONS = 5;
 
 router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
@@ -127,36 +202,39 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
     }
     const data = parsed.data;
     const book = data.bookCode || data.book;
-    const { chapter, verse } = data;
+    const { chapter } = data;
+    const verse = data.verse ?? data.verses;
 
     // Cap translations and filter to the supported allowlist before
     // fanning out to bible-api.com. Anything outside is dropped silently
     // because callers can legitimately pass a mix of valid and unknown
     // translation codes during UI migrations.
     const requested = (data.translations || ['kjv', 'web', 'bbe']).slice(0, MAX_TRANSLATIONS);
-    const translations = requested.filter((t) => ALLOWED_TRANSLATIONS.has(String(t).replace(/^en-/, '')));
+    const translations = requested
+      .map(normalizeBibleTranslation)
+      .filter((t) => ALLOWED_TRANSLATIONS.has(t));
     if (translations.length === 0) {
       return res.status(400).json({ message: 'No supported translations requested' });
     }
-    const ref = verse ? `${book} ${chapter}:${verse}` : `${book} ${chapter}`;
 
     const results = await Promise.allSettled(
-      translations.map(async (t) => {
-        const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${t}`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), TRANSLATION_TIMEOUT_MS);
+      translations.map(async (translationId) => {
         try {
-          const resp = await fetch(url, { signal: controller.signal });
-          if (!resp.ok) return { translation: t, error: `HTTP ${resp.status}` };
-          return { translation: t, ...(await resp.json()) };
-        } finally {
-          clearTimeout(timeout);
+          if (verse === undefined || verse === null || verse === '') {
+            const cached = await getCachedBibleChapter({ book, chapter, translationId });
+            return { translation: translationId, ...cached };
+          }
+          const ref = `${book} ${chapter}:${verse}`;
+          const json = await fetchBibleApiJson(ref, translationId);
+          return { translation: translationId, ...json };
+        } catch (err) {
+          return { translation: translationId, error: err.message || 'Upstream error' };
         }
       })
     );
 
     res.json({
-      passages: results.map(r =>
+      passages: results.map((r) =>
         r.status === 'fulfilled' ? r.value : { error: r.reason?.message }
       ),
     });
@@ -238,12 +316,18 @@ router.post('/grantMePremium', authenticateToken, requireAdmin, async (req, res,
 // List users (admin)
 router.post('/listUsers', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
+    // Bound the result set (see GET /auth/users). Accepts limit/offset from the
+    // body since this is a POST-style function call.
+    const limit = Math.min(Math.max(parseInt(req.body?.limit, 10) || 100, 1), 500);
+    const offset = Math.max(parseInt(req.body?.offset, 10) || 0, 0);
     const users = await prisma.user.findMany({
       select: {
         id: true, email: true, name: true, full_name: true,
         role: true, premium: true, createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
     });
 
     res.json(users);

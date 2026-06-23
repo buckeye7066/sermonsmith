@@ -107,6 +107,16 @@ const SermonSchema = z.object({
   status: z.enum(['draft', 'published', 'archived', 'needs_review']).optional(),
 }).passthrough();
 
+// Reader writes Highlight/Note/Bookmark records keyed off a Bible verse.
+// Pulling the shared identifier shape out keeps the three schemas in sync
+// and lets the Reader UI evolve the verse_id format without schema churn.
+const BibleReferenceSchema = z.object({
+  verse_id: z.string().min(1).max(200).optional(),
+  book_name: z.string().min(1).max(80).optional(),
+  chapter: z.coerce.number().int().min(1).max(150).optional(),
+  verse: z.coerce.number().int().min(1).max(176).optional(),
+}).passthrough();
+
 const ENTITY_SCHEMAS = {
   Sermon: SermonSchema,
   Series: z.object({
@@ -145,8 +155,15 @@ const ENTITY_SCHEMAS = {
   }).passthrough(),
   ActivityLog: z.object({}).passthrough(),
   UserActivity: z.object({}).passthrough(),
-  Highlight: z.object({}).passthrough(),
-  Bookmark: z.object({}).passthrough(),
+  Highlight: BibleReferenceSchema.extend({
+    color: z.string().min(1).max(40),
+  }).passthrough(),
+  Note: BibleReferenceSchema.extend({
+    content: z.string().min(1).max(50000),
+  }).passthrough(),
+  Bookmark: BibleReferenceSchema.extend({
+    label: z.string().max(200).optional(),
+  }).passthrough(),
   PrayerRequest: z.object({}).passthrough(),
   Plan: z.object({}).passthrough(),
   PlanProgress: z.object({}).passthrough(),

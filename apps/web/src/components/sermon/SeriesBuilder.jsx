@@ -34,7 +34,9 @@ import {
 } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
-import { ARLYNN_SYSTEM_PROMPT, denomContext } from '@/ai/personas';
+import { ARLYNN_SYSTEM_PROMPT } from '@/ai/personas';
+import { asArray, normalizeOutline, normalizeSermon, normalizeSeriesOutline } from '@/lib/aiStructured';
+import { validateAiSermon } from '@/lib/scriptureRefs';
 
 const SERIES_LENGTHS = [
   { value: 3, label: "3-Part Series" },
@@ -223,7 +225,8 @@ Make this biblically accurate, ${user?.denomination || 'theologically sound'}, a
         }
       });
 
-      setGeneratedOutline(response);
+      const outline = normalizeOutline(response);
+      setGeneratedOutline(outline);
       toast.success("Arlynn created your sermon outline! 📋");
     } catch (error) {
       console.error("Error generating outline:", error);
@@ -344,7 +347,8 @@ Make this comprehensive but practical. Ensure each sermon clearly connects to th
         }
       });
 
-      setSeriesOutline(response);
+      const outline = normalizeSeriesOutline(response, seriesLength);
+      setSeriesOutline(outline);
       setStep(2);
       toast.success("Arlynn created your series outline! 🎯");
     } catch (error) {
@@ -437,14 +441,20 @@ Include:
         }
       });
 
-      const newSermon = {
-        ...response,
+      const normalized = normalizeSermon(response, {
         week: sermonOutline.week,
         scripture: sermonOutline.scripture,
-        discussion_questions: sermonOutline.discussion_questions
-      };
+        discussion_questions: sermonOutline.discussion_questions,
+      });
 
-      setGeneratedSermons([...generatedSermons, newSermon]);
+      // Replace any prior version of this week (so retrying / generating
+      // sermons out of order doesn't leave stale duplicates) and keep the
+      // list ordered.
+      setGeneratedSermons((prev) => {
+        const next = prev.filter((item) => item.week !== normalized.week);
+        next.push(normalized);
+        return next.sort((a, b) => a.week - b.week);
+      });
       toast.success(`Week ${sermonOutline.week} sermon ready! 🎤`);
     } catch (error) {
       console.error("Error generating sermon:", error);
@@ -465,22 +475,42 @@ Include:
     }
 
     try {
-      const points = generatedOutline.main_points.map(point => ({
+      const outline = normalizeOutline(generatedOutline);
+
+      const points = asArray(outline.main_points).map((point) => ({
         title: point.title,
         exegesis: `${point.explanation}\n\n${point.significance}`,
-        illustration: point.illustration_suggestions.map(ill => `${ill.type}: ${ill.idea}`).join('\n\n'),
-        application: point.applications.map(app => `${app.area}: ${app.action} \nReflection: ${app.reflection_question}`).join('\n\n'),
-        supporting_scriptures: point.supporting_scriptures
+        illustration: asArray(point.illustration_suggestions)
+          .map((ill) => `${ill.type}: ${ill.idea}`)
+          .join('\n\n'),
+        application: asArray(point.applications)
+          .map((app) => `${app.area}: ${app.action} \nReflection: ${app.reflection_question}`)
+          .join('\n\n'),
+        supporting_scriptures: asArray(point.supporting_scriptures),
       }));
+
+      // Run the same Scripture validation Larry's path uses so an outline
+      // with hallucinated book names is saved as needs_review rather than
+      // silently shipping to the user's library as draft.
+      const validation = validateAiSermon({
+        anchor_passage: outlinePassage,
+        points,
+        conclusion: [
+          outline.conclusion?.recap,
+          outline.conclusion?.call_to_action,
+          outline.conclusion?.invitation,
+        ].filter(Boolean).join('\n\n'),
+      });
 
       await api.entities.Sermon.create({
         user_id: user.id,
-        title: generatedOutline.title,
-        topic: outlineTopic || outlineTheme || outlinePassage, // Use passage if topic/theme not explicitly provided
-        anchor_passage: outlinePassage, // Save the provided passage
-        big_idea: generatedOutline.big_idea,
-        points: points,
-        status: "draft"
+        title: outline.title,
+        topic: outlineTopic || outlineTheme || outlinePassage,
+        anchor_passage: outlinePassage,
+        big_idea: outline.big_idea,
+        points,
+        scripture_validation: validation.refs,
+        status: validation.allValid ? 'draft' : 'needs_review',
       });
 
       toast.success("Sermon outline saved! 🎉");
@@ -498,19 +528,26 @@ Include:
     }
 
     try {
-      for (const sermon of generatedSermons) {
-        await api.entities.Sermon.create({
-          user_id: user.id,
-          title: `${seriesOutline.series_title} - Week ${sermon.week}: ${sermon.title}`,
-          topic: seriesOutline.series_title,
-          anchor_passage: sermon.scripture,
-          big_idea: sermon.big_idea,
-          points: sermon.points,
-          status: "draft"
-        });
-      }
+      const items = generatedSermons.map((sermon) => {
+        const normalized = normalizeSermon(sermon);
+        const validation = validateAiSermon(normalized);
 
-      toast.success(`Saved all ${generatedSermons.length} sermons! 🎉`);
+        return {
+          title: `${seriesOutline.series_title} - Week ${normalized.week}: ${normalized.title}`,
+          topic: seriesOutline.series_title,
+          anchor_passage: normalized.scripture,
+          big_idea: normalized.big_idea,
+          points: normalized.points,
+          conclusion: normalized.conclusion,
+          discussion_questions: normalized.discussion_questions,
+          scripture_validation: validation.refs,
+          status: validation.allValid ? 'draft' : 'needs_review',
+        };
+      });
+
+      await api.entities.Sermon.bulkCreate(items);
+
+      toast.success(`Saved all ${items.length} sermons! 🎉`);
       onClose();
     } catch (error) {
       console.error("Error saving sermons:", error);
@@ -667,7 +704,11 @@ Include:
                 </Card>
 
                 {/* Main Points */}
-                {generatedOutline.main_points.map((point, index) => (
+                {asArray(generatedOutline.main_points).map((point, index) => {
+                  const supportingScriptures = asArray(point.supporting_scriptures);
+                  const applications = asArray(point.applications);
+                  const illustrationSuggestions = asArray(point.illustration_suggestions);
+                  return (
                   <Card key={index}>
                     <CardHeader>
                       <div className="flex items-start justify-between">
@@ -680,7 +721,7 @@ Include:
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleCopy(`Point ${point.number}: ${point.title}\n\n${point.explanation}\n\nScriptures: ${point.supporting_scriptures.join(', ')}\n\nApplications:\n${point.applications.map(app => `${app.area}: ${app.action} (Reflection: ${app.reflection_question})`).join('\n')}\n\nIllustrations:\n${point.illustration_suggestions.map(ill => `${ill.type}: ${ill.idea}`).join('\n')}`)}
+                          onClick={() => handleCopy(`Point ${point.number}: ${point.title}\n\n${point.explanation}\n\nScriptures: ${supportingScriptures.join(', ')}\n\nApplications:\n${applications.map(app => `${app.area}: ${app.action} (Reflection: ${app.reflection_question})`).join('\n')}\n\nIllustrations:\n${illustrationSuggestions.map(ill => `${ill.type}: ${ill.idea}`).join('\n')}`)}
                         >
                           {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                         </Button>
@@ -705,10 +746,10 @@ Include:
                       <div>
                         <h4 className="font-semibold text-sm text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
                           <BookOpen className="w-4 h-4" />
-                          Supporting Scriptures ({point.supporting_scriptures.length})
+                          Supporting Scriptures ({supportingScriptures.length})
                         </h4>
                         <div className="flex flex-wrap gap-2">
-                          {point.supporting_scriptures.map((scripture, sIndex) => (
+                          {supportingScriptures.map((scripture, sIndex) => (
                             <Badge key={sIndex} variant="outline">{scripture}</Badge>
                           ))}
                         </div>
@@ -721,7 +762,7 @@ Include:
                           Key Applications
                         </h4>
                         <div className="space-y-2">
-                          {point.applications.map((app, aIndex) => (
+                          {applications.map((app, aIndex) => (
                             <div key={aIndex} className="bg-green-50 dark:bg-green-900/20 p-3 rounded">
                               <div className="font-semibold text-sm text-green-900 dark:text-green-100">
                                 {app.area}
@@ -742,7 +783,7 @@ Include:
                           Illustration Ideas
                         </h4>
                         <div className="space-y-2">
-                          {point.illustration_suggestions.map((ill, iIndex) => (
+                          {illustrationSuggestions.map((ill, iIndex) => (
                             <div key={iIndex} className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded border-l-2 border-yellow-500">
                               <div className="font-semibold text-xs text-yellow-900 dark:text-yellow-100">
                                 {ill.type}
@@ -754,7 +795,8 @@ Include:
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })}
 
                 {/* Conclusion */}
                 <Card className="border-l-4 border-green-600">
@@ -785,7 +827,7 @@ Include:
                     <div>
                       <h4 className="font-semibold text-sm text-gray-700 dark:text-gray-300 mb-2">Next Steps</h4>
                       <ul className="space-y-1">
-                        {generatedOutline.conclusion.next_steps.map((step, sIndex) => (
+                        {asArray(generatedOutline.conclusion?.next_steps).map((step, sIndex) => (
                           <li key={sIndex} className="text-sm text-gray-700 dark:text-gray-300 flex items-start gap-2">
                             <ChevronRight className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600" />
                             <span>{step}</span>
@@ -995,7 +1037,7 @@ Include:
                     <div>
                       <h4 className="font-semibold text-sm text-gray-700 dark:text-gray-300 mb-1">Key Doctrines</h4>
                       <div className="flex flex-wrap gap-2">
-                        {seriesOutline.theological_trajectory.key_doctrines.map((doctrine, index) => (
+                        {asArray(seriesOutline.theological_trajectory?.key_doctrines).map((doctrine, index) => (
                           <Badge key={index} variant="outline">{doctrine}</Badge>
                         ))}
                       </div>
@@ -1021,7 +1063,9 @@ Include:
                     </Button>
                   </div>
 
-                  {seriesOutline.sermons.map((sermon, index) => (
+                  {asArray(seriesOutline.sermons).map((sermon, index) => {
+                    const discussionQuestions = asArray(sermon.discussion_questions);
+                    return (
                     <Card key={index} className="hover:shadow-lg transition-shadow">
                       <CardHeader>
                         <div className="flex items-start justify-between">
@@ -1057,21 +1101,22 @@ Include:
                           <div className="flex items-center justify-between mb-2">
                             <span className="font-semibold text-sm text-gray-700 dark:text-gray-300 flex items-center gap-1">
                               <MessageSquare className="w-4 h-4" />
-                              Discussion Questions ({sermon.discussion_questions.length})
+                              Discussion Questions ({discussionQuestions.length})
                             </span>
                           </div>
                           <ul className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
-                            {sermon.discussion_questions.slice(0, 2).map((q, qIndex) => (
+                            {discussionQuestions.slice(0, 2).map((q, qIndex) => (
                               <li key={qIndex}>• {q}</li>
                             ))}
-                            {sermon.discussion_questions.length > 2 && (
-                              <li className="text-gray-500">+ {sermon.discussion_questions.length - 2} more questions</li>
+                            {discussionQuestions.length > 2 && (
+                              <li className="text-gray-500">+ {discussionQuestions.length - 2} more questions</li>
                             )}
                           </ul>
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Promotion Materials */}
@@ -1121,7 +1166,7 @@ Include:
                 </Alert>
 
                 <div className="space-y-4">
-                  {seriesOutline.sermons.map((outline, index) => {
+                  {asArray(seriesOutline.sermons).map((outline, index) => {
                     const sermon = generatedSermons.find(s => s.week === outline.week); // Find by week to handle async order
                     const isGenerated = !!sermon;
                     const isSermonGenerating = currentSermonIndex === index && isGenerating;
@@ -1168,7 +1213,7 @@ Include:
                             <div>
                               <span className="font-semibold text-sm">Points:</span>
                               <ul className="mt-1 space-y-1">
-                                {sermon.points.map((point, pIndex) => (
+                                {asArray(sermon.points).map((point, pIndex) => (
                                   <li key={pIndex} className="text-sm text-gray-700 dark:text-gray-300">
                                     {pIndex + 1}. {point.title}
                                   </li>
@@ -1188,7 +1233,7 @@ Include:
                   })}
                 </div>
 
-                {generatedSermons.length === seriesOutline.sermons.length && (
+                {generatedSermons.length === asArray(seriesOutline.sermons).length && (
                   <div className="flex gap-3">
                     <Button onClick={handleSaveAllSermons} className="flex-1" size="lg">
                       <Save className="w-5 h-5 mr-2" />

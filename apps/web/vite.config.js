@@ -36,12 +36,8 @@ export default defineConfig({
           'vendor-motion': ['framer-motion'],
           'vendor-icons': ['lucide-react'],
           'vendor-charts': ['recharts'],
-
-          'vendor-3d': ['three'],
           'vendor-pdf': ['jspdf', 'html2canvas'],
           'vendor-maps': ['react-leaflet'],
-          'vendor-markdown': ['react-markdown'],
-          'vendor-dnd': ['@hello-pangea/dnd'],
         },
       },
     },

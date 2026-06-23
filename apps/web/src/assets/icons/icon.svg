@@ -1,87 +1,44 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Sermon Smith — glowing cross</title>
   <defs>
-    <radialGradient id="bg-gradient" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#020617;stop-opacity:1" />
+    <!-- Intense blue light radiating from behind the cross -->
+    <radialGradient id="ss-glow" cx="50%" cy="48%" r="50%">
+      <stop offset="0%" stop-color="#7dd3fc" stop-opacity="0.95"/>
+      <stop offset="26%" stop-color="#38bdf8" stop-opacity="0.88"/>
+      <stop offset="52%" stop-color="#2563eb" stop-opacity="0.55"/>
+      <stop offset="78%" stop-color="#1d4ed8" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#1e3a8a" stop-opacity="0"/>
     </radialGradient>
-
-    <radialGradient id="glow-core" cx="50%" cy="45%" r="35%">
-      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.95" />
-      <stop offset="40%" style="stop-color:#3b82f6;stop-opacity:0.6" />
-      <stop offset="70%" style="stop-color:#2563eb;stop-opacity:0.25" />
-      <stop offset="100%" style="stop-color:#1e3a8a;stop-opacity:0" />
-    </radialGradient>
-
-    <radialGradient id="glow-outer" cx="50%" cy="45%" r="50%">
-      <stop offset="0%" style="stop-color:#93c5fd;stop-opacity:0.4" />
-      <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:0.15" />
-      <stop offset="100%" style="stop-color:#1e3a8a;stop-opacity:0" />
-    </radialGradient>
-
-    <radialGradient id="glow-halo" cx="50%" cy="42%" r="25%">
-      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.5" />
-      <stop offset="50%" style="stop-color:#bfdbfe;stop-opacity:0.2" />
-      <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0" />
-    </radialGradient>
-
-    <linearGradient id="cross-gradient" x1="50%" y1="0%" x2="50%" y2="100%">
-      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#f0f9ff;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#e0f2fe;stop-opacity:1" />
+    <!-- Cross face: bright white with a cool light-blue fall-off -->
+    <linearGradient id="ss-cross" x1="512" y1="150" x2="512" y2="870" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="55%" stop-color="#eff6ff"/>
+      <stop offset="100%" stop-color="#dbeafe"/>
     </linearGradient>
-
-    <filter id="cross-glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur1"/>
-      <feColorMatrix in="blur1" type="matrix" values="0 0 0 0 0.36  0 0 0 0 0.51  0 0 0 0 0.98  0 0 0 1.5 0" result="glow"/>
-      <feMerge>
-        <feMergeNode in="glow"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
+    <filter id="ss-blur" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="28"/>
     </filter>
-
-    <filter id="soft-glow" x="-100%" y="-100%" width="300%" height="300%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="20"/>
-    </filter>
-
-    <filter id="light-rays" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="15" result="blur"/>
-      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.36  0 0 0 0 0.51  0 0 0 0 0.98  0 0 0 2 0"/>
+    <filter id="ss-edge" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="11" flood-color="#38bdf8" flood-opacity="0.9"/>
     </filter>
   </defs>
 
-  <!-- Dark background circle -->
-  <circle cx="256" cy="256" r="256" fill="url(#bg-gradient)"/>
+  <!-- 1. Radial blue glow disc (transparent canvas) -->
+  <circle cx="512" cy="500" r="475" fill="url(#ss-glow)"/>
 
-  <!-- Subtle ring -->
-  <circle cx="256" cy="256" r="240" fill="none" stroke="#1e3a8a" stroke-width="1" opacity="0.3"/>
-
-  <!-- Outer glow layer -->
-  <circle cx="256" cy="230" r="200" fill="url(#glow-outer)" filter="url(#soft-glow)"/>
-
-  <!-- Core blue glow behind cross -->
-  <circle cx="256" cy="230" r="160" fill="url(#glow-core)"/>
-
-  <!-- White halo at center -->
-  <circle cx="256" cy="220" r="100" fill="url(#glow-halo)"/>
-
-  <!-- Light ray streaks -->
-  <g opacity="0.15" filter="url(#soft-glow)">
-    <line x1="256" y1="60" x2="256" y2="440" stroke="#60a5fa" stroke-width="3"/>
-    <line x1="80" y1="230" x2="432" y2="230" stroke="#60a5fa" stroke-width="3"/>
-    <line x1="130" y1="104" x2="382" y2="356" stroke="#60a5fa" stroke-width="2"/>
-    <line x1="382" y1="104" x2="130" y2="356" stroke="#60a5fa" stroke-width="2"/>
+  <!-- 2. Blurred cyan halo of the cross — light radiating from behind -->
+  <g filter="url(#ss-blur)" opacity="0.9">
+    <rect x="437" y="170" width="150" height="684" rx="20" fill="#22d3ee"/>
+    <rect x="300" y="330" width="424" height="150" rx="20" fill="#22d3ee"/>
   </g>
 
-  <!-- Cross with glow effect -->
-  <g filter="url(#cross-glow)">
-    <!-- Vertical bar -->
-    <rect x="230" y="100" width="52" height="310" rx="8" fill="url(#cross-gradient)"/>
-    <!-- Horizontal bar -->
-    <rect x="148" y="200" width="216" height="52" rx="8" fill="url(#cross-gradient)"/>
+  <!-- 3. Solid foreground Latin cross (tall; crossbar in upper third) -->
+  <g filter="url(#ss-edge)">
+    <rect x="437" y="170" width="150" height="684" rx="20" fill="url(#ss-cross)" stroke="#bae6fd" stroke-width="3"/>
+    <rect x="300" y="330" width="424" height="150" rx="20" fill="url(#ss-cross)" stroke="#bae6fd" stroke-width="3"/>
   </g>
 
-  <!-- Subtle cross highlight -->
-  <rect x="234" y="104" width="6" height="302" rx="3" fill="white" opacity="0.3"/>
-  <rect x="152" y="204" width="208" height="6" rx="3" fill="white" opacity="0.3"/>
+  <!-- 4. Subtle highlights — modern bevel, not flat -->
+  <rect x="453" y="186" width="16" height="652" rx="8" fill="#ffffff" opacity="0.35"/>
+  <rect x="316" y="346" width="392" height="14" rx="7" fill="#ffffff" opacity="0.30"/>
 </svg>

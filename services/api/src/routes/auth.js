@@ -373,8 +373,13 @@ router.post('/reset-password', async (req, res, next) => {
 });
 
 // Admin: list all users
-router.get('/users', authenticateToken, requireAdmin, async (_req, res, next) => {
+router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
+    // Bound the result set: an unbounded findMany would load every user's PII
+    // into memory in one request once the table grows. Defaults to 100, capped
+    // at 500. ?limit & ?offset let the admin UI page through.
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const users = await prisma.user.findMany({
       select: {
         id: true, email: true, name: true, full_name: true,
@@ -382,6 +387,8 @@ router.get('/users', authenticateToken, requireAdmin, async (_req, res, next) =>
         createdAt: true, updatedAt: true,
       },
       orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
     });
 
     res.json(users.map(sanitizeUser));

@@ -10,3 +10,13 @@ process.env.LOG_LEVEL = process.env.LOG_LEVEL || 'silent';
 process.env.DISABLE_AI = process.env.DISABLE_AI || '1';
 process.env.DISABLE_BILLING = process.env.DISABLE_BILLING || '1';
 process.env.DISABLE_PASSWORD_RESET = process.env.DISABLE_PASSWORD_RESET || '1';
+
+// Force the AI model allowlist back to its hard-coded defaults during tests.
+// A developer machine may have OPENAI_MODEL / AI_FREE_MODELS / AI_PREMIUM_MODELS
+// exported globally for local OpenAI experiments; those leaks would otherwise
+// flip the model-allowlist tests into 403 rejections (e.g. an OPENAI_MODEL of
+// "gpt-4o" is not in the FREE allowlist, so a free-user invoke would 403
+// instead of returning the expected 503 / 200 path).
+delete process.env.OPENAI_MODEL;
+delete process.env.AI_FREE_MODELS;
+delete process.env.AI_PREMIUM_MODELS;

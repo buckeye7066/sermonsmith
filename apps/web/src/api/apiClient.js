@@ -59,38 +59,76 @@ export function __resetApiBaseCache() {
 // Fetch wrapper
 // ---------------------------------------------------------------------------
 
-const REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const AI_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_AI_REQUEST_TIMEOUT_MS || 90_000);
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
 
+function requestTimeoutFor(path, timeoutMs) {
+  if (Number.isFinite(timeoutMs)) return timeoutMs;
+  return path.startsWith('/api/ai/') ? AI_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
+// Retry policy.
+//
+// The previous implementation auto-retried every failed request twice on
+// network errors and 5xx — that's safe for idempotent GETs, but it
+// silently double- or triple-charged the user's AI quota when an OpenAI
+// 504 happened mid-flight, double-created entities, and double-issued
+// Stripe checkout / billing-portal sessions. We now only retry when:
+//
+//   - the path is GET / HEAD, OR
+//   - the caller explicitly opted in via `retry: true`.
+//
+// AI calls are NEVER retried automatically because each attempt consumes
+// a daily-usage slot and bills tokens. Callers can still pass
+// `retry: false` to override even for safe verbs.
+function shouldRetry(path, options) {
+  if (options.retry === false) return false;
+  if (path.startsWith('/api/ai/')) return false;
+
+  const method = String(options.method || 'GET').toUpperCase();
+
+  if (options.retry === true) return true;
+  return method === 'GET' || method === 'HEAD';
+}
+
 async function apiFetch(path, options = {}, _retryCount = 0) {
+  const { retry, timeoutMs, ...fetchOptions } = options;
+
   const headers = {
     'Content-Type': 'application/json',
-    ...(options.headers || {}),
+    ...(fetchOptions.headers || {}),
   };
 
   // Only create an internal AbortController when the caller hasn't supplied their own signal.
   // This avoids allocating a wasted controller (and its timeout) for every caller-cancelled request.
-  const ownController = options.signal ? null : new AbortController();
+  const ownController = fetchOptions.signal ? null : new AbortController();
+  const requestTimeout = requestTimeoutFor(path, timeoutMs);
   const timeout = ownController
-    ? setTimeout(() => ownController.abort(), REQUEST_TIMEOUT_MS)
+    ? setTimeout(() => ownController.abort(), requestTimeout)
     : null;
-  const signal = ownController ? ownController.signal : options.signal;
+  const signal = ownController ? ownController.signal : fetchOptions.signal;
 
   const apiBase = await getApiBaseUrl();
 
   let res;
   try {
     res = await fetch(`${apiBase}${path}`, {
-      ...options,
+      ...fetchOptions,
       headers,
       signal,
       credentials: 'include', // send/receive httpOnly auth cookies
     });
   } catch (err) {
     if (timeout) clearTimeout(timeout);
-    // Retry on network errors / timeouts (not on user-abort)
-    if (_retryCount < MAX_RETRIES && err.name !== 'AbortError') {
+    // Retry on network errors / timeouts only when the call is safely
+    // idempotent. AI / paid POSTs are explicitly excluded by shouldRetry.
+    if (
+      _retryCount < MAX_RETRIES &&
+      err.name !== 'AbortError' &&
+      shouldRetry(path, { ...options, retry })
+    ) {
       const jitter = Math.random() * RETRY_DELAY_MS;
       const backoff = Math.min(RETRY_DELAY_MS * Math.pow(2, _retryCount), 10_000);
       await new Promise(r => setTimeout(r, backoff + jitter));
@@ -102,8 +140,11 @@ async function apiFetch(path, options = {}, _retryCount = 0) {
   }
 
   if (!res.ok) {
-    // Retry on 5xx server errors
-    if (res.status >= 500 && _retryCount < MAX_RETRIES) {
+    if (
+      res.status >= 500 &&
+      _retryCount < MAX_RETRIES &&
+      shouldRetry(path, { ...options, retry })
+    ) {
       const jitter = Math.random() * RETRY_DELAY_MS;
       const backoff = Math.min(RETRY_DELAY_MS * Math.pow(2, _retryCount), 10_000);
       await new Promise(r => setTimeout(r, backoff + jitter));
@@ -254,10 +295,20 @@ const integrations = {
 // Cloud functions (bible passage, Stripe, admin helpers, etc.)
 // ---------------------------------------------------------------------------
 
+// Cloud-function calls are POSTs, so by default they don't auto-retry. The
+// Bible-passage helpers are pure read operations against bible-api.com and
+// are safe to retry on transient failures, so we mark them explicitly.
+const RETRYABLE_FUNCTIONS = new Set([
+  'biblePassage',
+  'listAvailableTranslations',
+  'getPassageMultiSource',
+]);
+
 const functions = {
   invoke: (name, params) =>
     apiFetch(`/api/functions/${name}`, {
       method: 'POST',
+      retry: RETRYABLE_FUNCTIONS.has(name),
       body: JSON.stringify(params || {}),
     }),
 };

@@ -32,6 +32,7 @@ import { createPageUrl } from "../utils";
 import { BOOK_NAME_TO_OSIS } from "../components/bible/bibleSources";
 import { logError } from "@/lib/logError";
 import { useAuth } from "@/lib/AuthContext";
+import { usePremiumAccess } from '@/components/hooks/usePremiumAccess';
 
 import VerseCard from "../components/reader/VerseCard";
 import HighlightDrawer from "../components/reader/HighlightDrawer";
@@ -158,6 +159,12 @@ export default function Reader() {
   const [notes, setNotes] = useState([]);
   // Read user from shared AuthContext (no extra fetch).
   const { user } = useAuth();
+  // Use the shared premium hook so users with `user.premium === true` (set
+  // by the Stripe webhook on subscription) are correctly recognised. The
+  // previous local effect only checked subscription_tier / premium_until /
+  // premium_override, leaving a webhook-flagged premium user without
+  // access to translation/audio features in Reader.
+  const { isPremium } = usePremiumAccess();
   const [selectedVerse, setSelectedVerse] = useState(null);
   const [showHighlightDrawer, setShowHighlightDrawer] = useState(false);
   const [showNoteDrawer, setShowNoteDrawer] = useState(false);
@@ -169,7 +176,6 @@ export default function Reader() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isCached, setIsCached] = useState(false);
-  const [isPremium, setIsPremium] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
 
@@ -262,18 +268,6 @@ export default function Reader() {
     };
   }, []);
 
-  // Derive premium flag from the shared user object — no extra fetch.
-  useEffect(() => {
-    if (!user) {
-      setIsPremium(false);
-      return;
-    }
-    const premium = user.subscription_tier === 'premium' ||
-                    user.premium_override === true ||
-                    (user.premium_until && new Date(user.premium_until) > new Date());
-    setIsPremium(premium);
-  }, [user]);
-
   const loadCurrentChapter = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -365,7 +359,11 @@ export default function Reader() {
         }));
 
         setVerses(formattedVerses);
-        setIsCached(true);
+        // A fresh network response is not a local cache hit — only the
+        // offline path below should set isCached=true. The previous code
+        // misled users into thinking the chapter was being served from
+        // their device when it had just round-tripped to the API.
+        setIsCached(false);
         setIsOfflineMode(false);
         setError(null);
 
@@ -470,8 +468,13 @@ export default function Reader() {
   const loadUserData = useCallback(async () => {
     if (user) {
       try {
-        const userHighlights = await api.entities.Highlight.filter({ user_id: user.id });
-        const userNotes = await api.entities.Note.filter({ user_id: user.id });
+        // Fetch highlights and notes in parallel; the previous sequential
+        // version doubled the time-to-paint for the verse drawer when the
+        // backend was even slightly slow.
+        const [userHighlights, userNotes] = await Promise.all([
+          api.entities.Highlight.filter({ user_id: user.id }, '-created_date', 1000),
+          api.entities.Note.filter({ user_id: user.id }, '-created_date', 1000),
+        ]);
         setHighlights(userHighlights);
         setNotes(userNotes);
       } catch (error) {

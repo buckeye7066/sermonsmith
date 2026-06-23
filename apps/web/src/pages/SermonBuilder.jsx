@@ -3,6 +3,7 @@ import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { validateAiSermon } from '@/lib/scriptureRefs';
+import { asArray, mergeUniqueStrings, normalizeSermon } from '@/lib/aiStructured';
 import { logError } from '@/lib/logError';
 import { Button } from "@/components/ui/button";
 import { logActivity } from "../components/admin/UserActivityLogger";
@@ -194,28 +195,29 @@ Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblica
       });
 
       console.log('[SermonBuilder] Got response:', response);
-      setGeneratedSermon({
-        ...response,
+      const sermon = normalizeSermon(response, {
         topic,
         anchor_passage: passage,
         tone,
         audience,
-        denomination
+        denomination,
       });
-      
+
+      setGeneratedSermon(sermon);
+
       logActivity('ai_feature_used', {
         page_name: 'SermonBuilder',
         resource_type: 'sermon',
         data_modified: 'new_sermon_generated',
         new_value: topic,
-        metadata: { 
-          feature: 'generate_sermon', 
+        metadata: {
+          feature: 'generate_sermon',
           topic,
           passage,
           denomination,
           tone,
           audience,
-          point_count: response?.points?.length || 0
+          point_count: sermon.points.length,
         }
       });
       
@@ -253,11 +255,17 @@ Can you create a more engaging ${tone} illustration that:
 Give me just the new illustration (2-3 paragraphs).`;
 
       const newIllustration = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
-      
-      const updatedSermon = { ...generatedSermon };
-      updatedSermon.points[pointIndex].illustration = newIllustration;
-      setGeneratedSermon(updatedSermon);
-      
+
+      setGeneratedSermon((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          points: asArray(prev.points).map((p, index) =>
+            index === pointIndex ? { ...p, illustration: newIllustration } : p
+          ),
+        };
+      });
+
       toast.success("Larry enhanced your illustration!");
     } catch (error) {
       console.error("Error enhancing illustration:", error);
@@ -305,13 +313,24 @@ Return as JSON array of verse references.`;
         }
       });
 
-      const updatedSermon = { ...generatedSermon };
-      updatedSermon.points[pointIndex].supporting_scriptures = [
-        ...point.supporting_scriptures,
-        ...(response.verses || [])
-      ];
-      setGeneratedSermon(updatedSermon);
-      
+      setGeneratedSermon((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          points: asArray(prev.points).map((existingPoint, index) =>
+            index === pointIndex
+              ? {
+                  ...existingPoint,
+                  supporting_scriptures: mergeUniqueStrings(
+                    existingPoint.supporting_scriptures,
+                    response.verses
+                  ),
+                }
+              : existingPoint
+          ),
+        };
+      });
+
       toast.success("Larry added more scriptures!");
     } catch (error) {
       console.error("Error suggesting scriptures:", error);
@@ -345,7 +364,7 @@ Current Audience: ${audience}
 New Audience: ${newAudience}
 
 Current Content Summary:
-${generatedSermon.points.map((p, i) => `Point ${i+1}: ${p.title}\n${p.illustration?.substring(0, 150)}...`).join('\n\n')}
+${asArray(generatedSermon.points).map((p, i) => `Point ${i+1}: ${p.title}\n${p.illustration?.substring(0, 150)}...`).join('\n\n')}
 
 Please adapt the sermon for ${audienceDescriptions[newAudience]}:
 - Keep the same biblical truth and structure
@@ -362,15 +381,15 @@ Return the full adapted sermon in the same JSON format.`;
         response_json_schema: sermonGenerationSchema
       });
 
-      setGeneratedSermon({
-        ...response,
+      const adapted = normalizeSermon(response, {
         topic: generatedSermon.topic,
         anchor_passage: generatedSermon.anchor_passage,
         tone: generatedSermon.tone,
         audience: newAudience,
-        denomination: generatedSermon.denomination
+        denomination: generatedSermon.denomination,
       });
-      
+
+      setGeneratedSermon(adapted);
       setAudience(newAudience);
       toast.success(`Larry adapted your sermon for ${audienceDescriptions[newAudience]}! 🎯`);
     } catch (error) {
@@ -388,29 +407,37 @@ Return the full adapted sermon in the same JSON format.`;
     }
 
     const sermon = sermonToSave || generatedSermon;
+    if (!sermon) {
+      toast.error("No sermon to save yet");
+      return;
+    }
+
+    // Normalize before validation/save so partial AI shapes (or shapes
+    // mutated by the per-point enhancers) still satisfy the entity schema.
+    const normalizedSermon = normalizeSermon(sermon);
 
     try {
       // Verify every Scripture reference the model produced. Unknown books
       // are flagged as `invalid_book` and we mark the entire sermon
       // `needs_review` so the UI surfaces a warning instead of letting a
       // hallucinated citation reach the pulpit.
-      const validation = validateAiSermon(sermon);
+      const validation = validateAiSermon(normalizedSermon);
       if (!validation.allValid) {
         toast.warning('Some Scripture references look invalid — please verify before publishing.');
       }
 
       const saved = await api.entities.Sermon.create({
         user_id: user.id,
-        title: sermon.title,
-        topic: sermon.topic,
-        anchor_passage: sermon.anchor_passage,
-        big_idea: sermon.big_idea,
-        points: sermon.points,
-        conclusion: sermon.conclusion,
-        theological_notes: sermon.theological_notes,
-        tone: sermon.tone,
-        audience: sermon.audience,
-        denomination: sermon.denomination,
+        title: normalizedSermon.title,
+        topic: normalizedSermon.topic,
+        anchor_passage: normalizedSermon.anchor_passage,
+        big_idea: normalizedSermon.big_idea,
+        points: normalizedSermon.points,
+        conclusion: normalizedSermon.conclusion,
+        theological_notes: normalizedSermon.theological_notes,
+        tone: normalizedSermon.tone,
+        audience: normalizedSermon.audience,
+        denomination: normalizedSermon.denomination,
         scripture_validation: validation.refs,
         status: validation.allValid ? 'draft' : 'needs_review',
       });
@@ -420,16 +447,16 @@ Return the full adapted sermon in the same JSON format.`;
         resource_type: 'sermon',
         resource_id: saved.id,
         data_modified: 'sermon_saved',
-        new_value: sermon.title,
-        metadata: { 
-          title: sermon.title, 
-          topic: sermon.topic,
-          passage: sermon.anchor_passage,
-          point_count: sermon.points?.length || 0,
-          status: 'draft'
+        new_value: normalizedSermon.title,
+        metadata: {
+          title: normalizedSermon.title,
+          topic: normalizedSermon.topic,
+          passage: normalizedSermon.anchor_passage,
+          point_count: normalizedSermon.points.length,
+          status: validation.allValid ? 'draft' : 'needs_review',
         }
       });
-      
+
       toast.success("Sermon saved successfully!");
     } catch (error) {
       toast.error('Failed to save sermon: ' + logError('SermonBuilder save', error));

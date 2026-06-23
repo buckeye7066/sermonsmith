@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { authenticateToken, prisma } from '../middleware/auth.js';
 
 const router = Router();
@@ -26,7 +27,44 @@ async function getOpenAI() {
 const ABSOLUTE_MAX_TOKENS = 4096;
 const FREE_MAX_TOKENS = 1500;
 const PREMIUM_MAX_TOKENS = 4096;
-const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 30_000);
+const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90_000);
+
+// Hard request-size caps so a malicious or buggy client can't ship a
+// novel-length prompt and rack up token cost (or melt the worker
+// serializing it). 24K characters is a safe upper bound for a sermon-
+// builder prompt; the structured-schema cap is generous because Larry's
+// schemas grow as the UI evolves.
+const MAX_PROMPT_CHARS = Number(process.env.AI_MAX_PROMPT_CHARS || 24000);
+const MAX_SYSTEM_PROMPT_CHARS = Number(process.env.AI_MAX_SYSTEM_PROMPT_CHARS || 12000);
+const MAX_SCHEMA_CHARS = Number(process.env.AI_MAX_SCHEMA_CHARS || 12000);
+
+const invokeRequestSchema = z.object({
+  prompt: z.string().trim().min(1).max(MAX_PROMPT_CHARS),
+  system_prompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).optional(),
+  response_json_schema: z.any().optional(),
+  model: z.string().max(100).optional(),
+  max_tokens: z.union([z.number(), z.string()]).optional(),
+  temperature: z.union([z.number(), z.string()]).optional(),
+}).superRefine((value, ctx) => {
+  if (value.response_json_schema !== undefined) {
+    try {
+      const schemaSize = JSON.stringify(value.response_json_schema).length;
+      if (schemaSize > MAX_SCHEMA_CHARS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['response_json_schema'],
+          message: `response_json_schema is too large; max ${MAX_SCHEMA_CHARS} characters`,
+        });
+      }
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['response_json_schema'],
+        message: 'response_json_schema must be JSON-serializable',
+      });
+    }
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Model allowlist.
@@ -128,31 +166,64 @@ function withTimeout(promise, ms, label = 'OpenAI call') {
   });
 }
 
+// Retry transient OpenAI failures (429 rate-limit, 5xx overloaded/server) with
+// exponential backoff + jitter. We deliberately do NOT retry our own 504
+// timeout (the client is already waiting at the edge of AI_TIMEOUT_MS) nor 4xx
+// other than 429 (those are deterministic — a retry just wastes the user's
+// quota and our money). The whole retry loop runs INSIDE withTimeout so total
+// latency stays bounded by AI_TIMEOUT_MS instead of multiplying per attempt.
+const AI_MAX_RETRIES = Number(process.env.AI_MAX_RETRIES || 2);
+async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err?.status ?? err?.response?.status;
+      const retryable = status === 429 || (status >= 500 && status < 600 && status !== 504);
+      if (!retryable || attempt >= retries) throw err;
+      const delay = baseMs * 2 ** attempt + Math.floor(Math.random() * 150);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
 // LLM invocation
 router.post('/invoke', authenticateToken, async (req, res, next) => {
   try {
-    const { prompt, system_prompt, response_json_schema, model, max_tokens, temperature } = req.body;
-
-    if (!prompt) {
-      return res.status(400).json({ message: 'prompt is required' });
+    const parsed = invokeRequestSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: 'Invalid AI request',
+        issues: parsed.error.issues,
+      });
     }
+    const { prompt, system_prompt, response_json_schema, model, max_tokens, temperature } = parsed.data;
+
+    // Resolve model and clamp tokens/temperature BEFORE consuming usage so a
+    // misconfigured allowlist or bad model name doesn't burn a daily count.
+    const resolvedModel = resolveModel(model, req.userPremium);
+    const clampedTokens = clampTokens(max_tokens, req.userPremium);
+    const clampedTemperature = clampTemperature(temperature);
+
+    // Same logic for OpenAI: if the SDK is missing or DISABLE_AI is set, the
+    // call would 503 anyway — we don't want to also subtract one from the
+    // user's daily quota for a server-side misconfiguration.
+    const openai = await getOpenAI();
 
     const usage = await consumeUsageDb(req.userId, req.userPremium);
     if (!usage.allowed) {
       return res.status(429).json({ message: `Daily AI limit reached (${usage.limit}). Upgrade or try again tomorrow.` });
     }
 
-    const openai = await getOpenAI();
-
     const messages = [];
     if (system_prompt) messages.push({ role: 'system', content: system_prompt });
     messages.push({ role: 'user', content: prompt });
 
     const params = {
-      model: resolveModel(model, req.userPremium),
+      model: resolvedModel,
       messages,
-      max_tokens: clampTokens(max_tokens, req.userPremium),
-      temperature: clampTemperature(temperature),
+      max_tokens: clampedTokens,
+      temperature: clampedTemperature,
     };
 
     if (response_json_schema) {
@@ -161,14 +232,26 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
       messages[schemaIdx].content += `\n\nRespond ONLY with valid JSON matching this schema: ${JSON.stringify(response_json_schema)}`;
     }
 
-    const completion = await withTimeout(openai.chat.completions.create(params), AI_TIMEOUT_MS, '/ai/invoke');
+    const completion = await withTimeout(
+      callWithRetry(() => openai.chat.completions.create(params)),
+      AI_TIMEOUT_MS,
+      '/ai/invoke',
+    );
     const content = completion.choices[0]?.message?.content || '';
 
     if (response_json_schema) {
       try {
         return res.json(JSON.parse(content));
       } catch {
-        return res.json({ response: content });
+        // Fail loud on malformed JSON when the client asked for structured
+        // output. The previous behaviour returned `{ response: <text> }`,
+        // which the SermonBuilder/SeriesBuilder then treated as a valid
+        // structured object and crashed on `.points.map(...)` etc. A 502 +
+        // preview lets the UI surface a retryable error instead.
+        return res.status(502).json({
+          message: 'AI returned invalid JSON. Please retry.',
+          responsePreview: content.slice(0, 500),
+        });
       }
     }
     res.json(content);
@@ -312,6 +395,14 @@ router.post('/extract', authenticateToken, async (_req, res) => {
 });
 
 // Exposed for tests.
-export const __test = { clampTokens, clampTemperature, consumeUsage, consumeUsageDb, resolveModel, EMAIL_TEMPLATES };
+export const __test = {
+  clampTokens,
+  clampTemperature,
+  consumeUsage,
+  consumeUsageDb,
+  resolveModel,
+  invokeRequestSchema,
+  EMAIL_TEMPLATES,
+};
 
 export default router;
