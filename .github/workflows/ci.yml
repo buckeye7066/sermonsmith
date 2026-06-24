@@ -101,7 +101,11 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: npm run build
+      # Only build the web bundle here. `npm run build` also runs check:api
+      # (api lint+typecheck+test), which is already covered by the dedicated
+      # lint-and-typecheck and test jobs and needs `prisma generate` + a DB
+      # that this job has not set up.
+      - run: npm run build:web
       - uses: actions/upload-artifact@v4
         with:
           name: web-dist
