@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import { isFreeWeekActive } from '../lib/freeWeek.js';
 
 // Singleton — avoids spawning multiple connection pools.
 const globalForPrisma = globalThis;
@@ -128,9 +129,11 @@ export async function authenticateToken(req, res, next) {
 
     req.userRole = user.role;
     // Effective premium = a paid flag OR an unexpired free-trial window
-    // (premium_until in the future). See functions.js grantFreePeriod.
+    // (premium_until in the future, see functions.js grantFreePeriod) OR the
+    // global Free Week promotion is active (gives the app away to everyone).
     req.userPremium = !!user.premium
-      || (user.premium_until ? new Date(user.premium_until) > new Date() : false);
+      || (user.premium_until ? new Date(user.premium_until) > new Date() : false)
+      || isFreeWeekActive(process.env);
     req.userEmail = user.email;
     next();
   } catch {

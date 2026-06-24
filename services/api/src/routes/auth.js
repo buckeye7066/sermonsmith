@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma, authenticateToken, signToken, requireAdmin, AUTH_COOKIE, cookieOptions } from '../middleware/auth.js';
 import { sendPasswordResetEmail } from '../services/email.js';
+import { computeFreeWeekStatus } from '../lib/freeWeek.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -169,7 +170,12 @@ router.get('/me', authenticateToken, async (req, res, next) => {
       });
     }
 
-    res.json(sanitizeUser(user));
+    // Surface the live Free Week promotion as computed (non-persisted) fields so
+    // the frontend treats the user as Premium while the window is open. These
+    // are read-only: `free_week` is never a User column, so PATCH /me can't set
+    // it, and it disappears the moment the window closes.
+    const freeWeek = computeFreeWeekStatus(process.env);
+    res.json({ ...sanitizeUser(user), free_week: freeWeek.active, free_week_status: freeWeek });
   } catch (err) {
     next(err);
   }

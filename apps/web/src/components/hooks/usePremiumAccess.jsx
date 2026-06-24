@@ -35,6 +35,10 @@ export function usePremiumAccess() {
     let isPremium = false;
     if (isAdmin || devOverride) {
       isPremium = true;
+    } else if (user.free_week === true) {
+      // Global Free Week promotion — the server marks every authenticated user
+      // Premium while the window is open (see GET /api/auth/me).
+      isPremium = true;
     } else if (user.premium === true) {
       isPremium = true;
     } else if (user.subscription_tier === 'premium') {
