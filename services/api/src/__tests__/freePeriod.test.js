@@ -100,3 +100,37 @@ describe('grantFreePeriod (free week / free month)', () => {
     expect(new Date(res.body.premium_until).getTime()).toBe(farFuture.getTime());
   });
 });
+
+const revoke = (app, body, role = 'admin') =>
+  request(app).post('/api/functions/revokeFreePeriod').set('x-role', role).send(body);
+
+describe('revokeFreePeriod (turn a comp off early)', () => {
+  let app;
+  beforeEach(() => {
+    prisma._reset();
+    prisma._store.user.push({ id: 'u1', email: 'u1@x.com', role: 'user', premium: false, premium_until: new Date(Date.now() + 7 * DAY), deletedAt: null });
+    prisma._store.user.push({ id: 'u2', email: 'u2@x.com', role: 'user', premium: false, premium_until: new Date(Date.now() + 30 * DAY), deletedAt: null });
+    app = buildApp();
+  });
+
+  it('clears premium_until for one user (by id) without touching the paid flag', async () => {
+    const res = await revoke(app, { userId: 'u1' });
+    expect(res.status).toBe(200);
+    const u1 = prisma._store.user.find((u) => u.id === 'u1');
+    expect(u1.premium_until).toBe(null);
+    expect(u1.premium).toBe(false);
+  });
+
+  it('scope:all clears every trial window', async () => {
+    const res = await revoke(app, { scope: 'all' });
+    expect(res.status).toBe(200);
+    expect(res.body.revoked).toBe(2);
+    for (const u of prisma._store.user) expect(u.premium_until).toBe(null);
+  });
+
+  it('is admin-only and 404s an unknown user', async () => {
+    expect((await revoke(app, { userId: 'u1' }, 'user')).status).toBe(403);
+    expect((await revoke(app, { userId: 'nope' })).status).toBe(404);
+    expect((await revoke(app, {})).status).toBe(400);
+  });
+});

@@ -137,6 +137,46 @@ export default function AdminUsers() {
     }
   };
 
+  // Turn a comp off early for one user. Clears only premium_until (the trial),
+  // never a real paid subscription.
+  const revokeFreePeriod = async (userId) => {
+    try {
+      await api.functions.invoke('revokeFreePeriod', { userId });
+      toast.success('Free period ended');
+      loadUsers();
+    } catch (error) {
+      console.error('Error revoking free period:', error);
+      toast.error('Failed to end free period');
+    }
+  };
+
+  // Global comp: grant / revoke a free week or month for EVERY active user at
+  // once (scope:'all'). Mirrors GrantFlow and GeneMap. Confirm first since it
+  // touches the whole user base.
+  const grantFreePeriodAll = async (period) => {
+    if (!window.confirm(`Give a FREE ${period.toUpperCase()} of Premium to ALL active users? It auto-expires in ${period === 'month' ? '30' : '7'} days.`)) return;
+    try {
+      const res = await api.functions.invoke('grantFreePeriod', { scope: 'all', period });
+      toast.success(`Granted a free ${period} to ${res?.granted ?? 'all'} users`);
+      loadUsers();
+    } catch (error) {
+      console.error('Error granting free period to all:', error);
+      toast.error(`Failed to grant free ${period} to all users`);
+    }
+  };
+
+  const revokeFreePeriodAll = async () => {
+    if (!window.confirm('End the free period for ALL users now? Real paying subscribers are unaffected.')) return;
+    try {
+      const res = await api.functions.invoke('revokeFreePeriod', { scope: 'all' });
+      toast.success(`Ended the free period for ${res?.revoked ?? 'all'} users`);
+      loadUsers();
+    } catch (error) {
+      console.error('Error revoking free period for all:', error);
+      toast.error('Failed to end free period for all users');
+    }
+  };
+
   const viewUserActivity = async (userId, userEmail) => {
     try {
       const activities = await api.entities.UserActivity.filter({ 
@@ -194,6 +234,35 @@ export default function AdminUsers() {
               />
             </div>
           </CardHeader>
+        </Card>
+
+        {/* Global "Free Week / Free Month" promotion — grants Premium to EVERY
+            active user at once and auto-expires (premium_until). Mirrors the
+            per-user buttons below and the same controls in GrantFlow/GeneMap. */}
+        <Card className="border-yellow-300 bg-yellow-50/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Crown className="w-4 h-4 text-yellow-600" />
+              Give the app away — all users at once
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => grantFreePeriodAll('week')}
+              className="gap-1 text-yellow-700 hover:text-yellow-800">
+              <Crown className="w-3 h-3" /> Free Week — everyone
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => grantFreePeriodAll('month')}
+              className="gap-1 text-yellow-700 hover:text-yellow-800">
+              <Crown className="w-3 h-3" /> Free Month — everyone
+            </Button>
+            <Button size="sm" variant="outline" onClick={revokeFreePeriodAll}
+              className="gap-1 text-slate-600 hover:text-slate-700">
+              End free period — everyone
+            </Button>
+            <span className="text-xs text-slate-500">
+              Auto-expires (7 / 30 days). Paying subscribers are never affected.
+            </span>
+          </CardContent>
         </Card>
 
         {isLoading ? (
@@ -313,6 +382,17 @@ export default function AdminUsers() {
                             <Crown className="w-3 h-3" />
                             Free Month
                           </Button>
+                          {u.premium_until && new Date(u.premium_until) > new Date() && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => revokeFreePeriod(u.id)}
+                              className="gap-1 text-slate-600 hover:text-slate-700"
+                              title="End this free period now (does not affect paid subscriptions)"
+                            >
+                              End Free
+                            </Button>
+                          )}
                           {u.is_banned ? (
                             <Button
                               size="sm"

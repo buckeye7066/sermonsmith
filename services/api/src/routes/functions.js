@@ -364,6 +364,41 @@ router.post('/grantFreePeriod', authenticateToken, requireAdmin, async (req, res
   }
 });
 
+// Revoke an admin-granted free period (turn the comp off early). Clears ONLY
+// `premium_until` (the trial window) — never the `premium` flag or
+// `subscription_tier` — so a real paying subscriber is never affected; the
+// promo simply ends now instead of at its scheduled date.
+//
+// Body: { userId } | { email } | { scope: 'all' }   (all = every active user)
+router.post('/revokeFreePeriod', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    if (req.body?.scope === 'all') {
+      const result = await prisma.user.updateMany({
+        where: { deletedAt: null, premium_until: { not: null } },
+        data: { premium_until: null },
+      });
+      return res.json({ scope: 'all', revoked: result.count });
+    }
+
+    const { userId, email } = req.body || {};
+    const where = userId ? { id: String(userId) } : email ? { email: String(email).toLowerCase() } : null;
+    if (!where) {
+      return res.status(400).json({ message: 'Provide userId, email, or scope:"all"' });
+    }
+    const target = await prisma.user.findUnique({ where });
+    if (!target || target.deletedAt) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const updated = await prisma.user.update({
+      where: { id: target.id },
+      data: { premium_until: null },
+    });
+    res.json({ userId: updated.id, email: updated.email, premium_until: updated.premium_until });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // List users (admin)
 router.post('/listUsers', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
