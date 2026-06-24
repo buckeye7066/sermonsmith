@@ -20,7 +20,13 @@ export function Sidebar({ className, children, ...props }) {
     <aside
       data-state={open ? "open" : "closed"}
       className={cn(
-        "border-r bg-background text-sm transition-all duration-200 ease-in-out",
+        // Stack header/content vertically and keep a fixed width. Display is
+        // controlled by Layout (`hidden md:flex`); without `flex-col` that
+        // `md:flex` defaulted to row layout, which crushed the menu into a
+        // thin column (labels showed as "Hor", "Bib Rea", ...). `shrink-0`
+        // stops wide page content from squeezing the sidebar below its
+        // w-64/w-16 width.
+        "flex-col shrink-0 h-screen border-r bg-background text-sm transition-all duration-200 ease-in-out",
         open ? "w-64" : "w-16",
         className
       )}
@@ -36,7 +42,7 @@ export function SidebarHeader({ className, ...props }) {
 }
 
 export function SidebarContent({ className, ...props }) {
-  return <div className={cn("p-2 overflow-y-auto", className)} {...props} />
+  return <div className={cn("flex-1 min-h-0 p-2 overflow-y-auto", className)} {...props} />
 }
 
 export function SidebarMenu({ className, ...props }) {

@@ -281,7 +281,7 @@ export default function Layout({ children, currentPageName }) {
             <SidebarMenu>
               {!isPremium && (
                 <SidebarMenuItem className="mb-4">
-                  <Link to={createPageUrl('Pricing')}>
+                  <Link to={createPageUrl('Pricing')} className="block w-full">
                     <Button className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white shadow-lg">
                       <Crown className="w-4 h-4 mr-2" />
                       Upgrade to Premium
@@ -296,7 +296,12 @@ export default function Layout({ children, currentPageName }) {
 
                 return (
                   <SidebarMenuItem key={item.page}>
-                    <Link to={createPageUrl(item.page)}>
+                    {/* Link renders an <a>, which defaults to display:inline and
+                        gives the w-full button no width to fill (labels collapse to
+                        a ~20px column). block + w-full makes the anchor a full-width
+                        block so every nav row lays out on a single line. This is the
+                        shared render path for all nav items, so the fix applies once. */}
+                    <Link to={createPageUrl(item.page)} className="block w-full">
                       <SidebarMenuButton
                         isActive={currentPageName === item.page}
                         className="w-full justify-start"
