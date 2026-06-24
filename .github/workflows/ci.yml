@@ -89,7 +89,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://ss_test:ss_test@localhost:5432/ss_test
           RUN_INTEGRATION: '1'
-        run: npx vitest run src/__tests__/integration.test.js --reporter=basic
+        run: npx vitest run src/__tests__/integration.test.js --reporter=dot
 
   build-web:
     runs-on: ubuntu-latest
