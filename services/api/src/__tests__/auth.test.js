@@ -97,6 +97,28 @@ describe('auth routes', () => {
     delete process.env.ADMIN_EMAILS;
   });
 
+  it('register during Free Week gives the new user a full free week (premium_until ~7d out)', async () => {
+    process.env.FREE_WEEK_ENABLED = 'true';
+    const DAY = 24 * 60 * 60 * 1000;
+    const res = await request(app).post('/api/auth/register').send({ email: 'joiner@example.com', password: 'longenough123' });
+    expect(res.status).toBe(200);
+    const stored = prisma._store.user.find((u) => u.email === 'joiner@example.com');
+    const until = new Date(stored.premium_until).getTime();
+    expect(until).toBeGreaterThan(Date.now() + 6.9 * DAY);
+    expect(until).toBeLessThan(Date.now() + 7.1 * DAY);
+    // The paid flag is never set — only the self-expiring trial window.
+    expect(stored.premium).not.toBe(true);
+    delete process.env.FREE_WEEK_ENABLED;
+  });
+
+  it('register outside Free Week leaves premium_until unset', async () => {
+    delete process.env.FREE_WEEK_ENABLED;
+    const res = await request(app).post('/api/auth/register').send({ email: 'normal@example.com', password: 'longenough123' });
+    expect(res.status).toBe(200);
+    const stored = prisma._store.user.find((u) => u.email === 'normal@example.com');
+    expect(stored.premium_until == null).toBe(true);
+  });
+
   it('login rejects unknown email', async () => {
     const res = await request(app).post('/api/auth/login').send({ email: 'noone@x', password: 'longenough123' });
     expect(res.status).toBe(401);

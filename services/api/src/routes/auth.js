@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma, authenticateToken, signToken, requireAdmin, AUTH_COOKIE, cookieOptions } from '../middleware/auth.js';
 import { sendPasswordResetEmail } from '../services/email.js';
-import { computeFreeWeekStatus } from '../lib/freeWeek.js';
+import { computeFreeWeekStatus, freeWeekSignupGrant } from '../lib/freeWeek.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -93,6 +93,11 @@ router.post('/register', async (req, res, next) => {
     const displayName = name || email.split('@')[0];
     const admin = isAdminEmail(email);
 
+    // Free Week promotion: a user who signs up while the window is open gets
+    // their OWN full free period from now (self-expiring via premium_until), so
+    // late joiners still get a complete trial after the shared window closes.
+    const signupGrant = admin ? null : freeWeekSignupGrant(process.env);
+
     const user = await prisma.user.create({
       data: {
         email: email.toLowerCase(),
@@ -100,6 +105,7 @@ router.post('/register', async (req, res, next) => {
         name: displayName,
         full_name: displayName,
         ...(admin ? { role: 'admin', premium: true } : {}),
+        ...(signupGrant ? { premium_until: new Date(signupGrant.until) } : {}),
       },
     });
 
