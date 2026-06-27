@@ -18,7 +18,7 @@ import WhatsNewDialog, { CURRENT_VERSION } from './components/WhatsNewDialog';
 // external image host. We also keep a remote-friendly PNG fallback path in
 // the manifest so installed PWAs that don't yet support SVG icons still get
 // a usable image.
-const APP_ICON_URL = '/icon.svg';
+const APP_ICON_URL = '/icon.png';
 
 export default function Layout({ children, currentPageName }) {
   // Auth state comes from the single AuthContext fetch — DO NOT call
