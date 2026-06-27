@@ -100,7 +100,70 @@ describe('community routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.reported_count).toBe(1);
     expect(res.body.last_report.category).toBe('theology');
+    expect(res.body.reported_by).toEqual(['u-reader']);
     expect(prisma._store.auditLog.some((row) => row.action === 'community.report')).toBe(true);
+  });
+
+  it('does not count duplicate reports from the same user', async () => {
+    prisma._store.entity.push(sharedContent('duplicate-report'));
+
+    const first = await request(app)
+      .post('/api/community/shared-content/duplicate-report/report')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ category: 'spam', reason: 'Duplicate test' });
+    const second = await request(app)
+      .post('/api/community/shared-content/duplicate-report/report')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ category: 'spam', reason: 'Duplicate test again' });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(409);
+    const stored = prisma._store.entity.find((row) => row.id === 'duplicate-report');
+    expect(stored.data.reported_count).toBe(1);
+    expect(stored.data.reported_by).toEqual(['u-reader']);
+    expect(prisma._store.auditLog.filter((row) => row.action === 'community.report')).toHaveLength(1);
+  });
+
+  it('treats repeated likes from the same user as idempotent', async () => {
+    prisma._store.entity.push(sharedContent('like-me'));
+
+    const first = await request(app)
+      .post('/api/community/shared-content/like-me/like')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    const second = await request(app)
+      .post('/api/community/shared-content/like-me/like')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(first.status).toBe(200);
+    expect(first.body.likes_count).toBe(1);
+    expect(first.body.alreadyLiked).toBe(false);
+    expect(second.status).toBe(200);
+    expect(second.body.likes_count).toBe(1);
+    expect(second.body.alreadyLiked).toBe(true);
+    const stored = prisma._store.entity.find((row) => row.id === 'like-me');
+    expect(stored.data.likes_count).toBe(1);
+    expect(prisma._store.communityLike).toHaveLength(1);
+  });
+
+  it('treats repeated saves from the same user as idempotent', async () => {
+    prisma._store.entity.push(sharedContent('save-me'));
+
+    const first = await request(app)
+      .post('/api/community/shared-content/save-me/save')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    const second = await request(app)
+      .post('/api/community/shared-content/save-me/save')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(first.status).toBe(200);
+    expect(first.body.saves_count).toBe(1);
+    expect(first.body.alreadySaved).toBe(false);
+    expect(second.status).toBe(200);
+    expect(second.body.saves_count).toBe(1);
+    expect(second.body.alreadySaved).toBe(true);
+    const stored = prisma._store.entity.find((row) => row.id === 'save-me');
+    expect(stored.data.saves_count).toBe(1);
+    expect(prisma._store.savedContent).toHaveLength(1);
   });
 
   it('requires admin access for the moderation queue', async () => {

@@ -24,16 +24,32 @@ The route records a best-effort `privacy.export` audit log entry with counts onl
 
 Login and authenticated requests already reject soft-deleted users. A later purge job can hard-delete rows after the retention window required by the deployment policy.
 
+## Session Revocation
+
+`POST /api/auth/revoke-sessions` requires authentication and:
+
+- increments `tokenVersion`
+- reissues the current browser cookie with the latest token version
+- records a best-effort `auth.sessions_revoked` audit entry
+
+Any other session carrying an older token version is rejected on its next authenticated request.
+
 ## Community Reporting
 
 `POST /api/community/shared-content/:id/report` lets authenticated users report public shared content. The route:
 
 - rejects private or removed content
 - validates `category` and `reason`
-- increments `reported_count` and `reportedCount`
+- rejects duplicate reports from the same user
+- increments `reported_count` and `reportedCount` only once per reporter
+- stores the reporter ids in `reported_by`
 - stores the latest report summary
 - marks content as `reported` after three reports
 - records a best-effort `community.report` audit entry
+
+## Community Likes And Saves
+
+`POST /api/community/shared-content/:id/like` and `POST /api/community/shared-content/:id/save` use `CommunityLike` and `SavedContent` idempotency rows keyed by user, content id, and content type. Repeated clicks from the same user return `alreadyLiked` or `alreadySaved` without increasing public counters again.
 
 ## Moderation
 

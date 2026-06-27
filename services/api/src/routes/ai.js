@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
-import { authenticateToken, prisma } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -252,6 +252,83 @@ export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500
     }
   }
 }
+
+const auditSummarySchema = z.object({
+  days: z.coerce.number().int().min(1).max(90).default(7),
+});
+
+function bumpCounter(target, key, amount = 1) {
+  const safeKey = key || 'unknown';
+  target[safeKey] = (target[safeKey] || 0) + amount;
+}
+
+function summarizeAiAudits(rows, { days, since }) {
+  const byFeature = {};
+  const byStatus = {};
+  const byModel = {};
+  const byFailureType = {};
+  let totalTokenEstimate = 0;
+  let totalDurationMs = 0;
+  let durationSamples = 0;
+
+  for (const row of rows) {
+    bumpCounter(byFeature, row.feature || 'general');
+    bumpCounter(byStatus, row.status || 'unknown');
+    bumpCounter(byModel, row.model || 'unknown');
+    if (row.failureType) bumpCounter(byFailureType, row.failureType);
+    totalTokenEstimate += Number(row.tokenEstimate || 0);
+    if (Number.isFinite(row.durationMs)) {
+      totalDurationMs += Number(row.durationMs);
+      durationSamples++;
+    }
+  }
+
+  return {
+    windowDays: days,
+    since: since.toISOString(),
+    totalCalls: rows.length,
+    totalTokenEstimate,
+    averageDurationMs: durationSamples ? Math.round(totalDurationMs / durationSamples) : null,
+    byFeature,
+    byStatus,
+    byModel,
+    byFailureType,
+    recentFailures: rows
+      .filter((row) => row.status !== 'success')
+      .slice(0, 10)
+      .map((row) => ({
+        id: row.id,
+        createdAt: row.createdAt,
+        feature: row.feature,
+        model: row.model,
+        status: row.status,
+        failureType: row.failureType,
+        durationMs: row.durationMs,
+        tokenEstimate: row.tokenEstimate,
+      })),
+  };
+}
+
+router.get('/audit/summary', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = auditSummarySchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid audit summary query', issues: parsed.error.issues });
+    }
+
+    const { days } = parsed.data;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const rows = await prisma.aiAuditLog.findMany({
+      where: { createdAt: { gte: since } },
+      orderBy: { createdAt: 'desc' },
+      take: 10_000,
+    });
+
+    res.json(summarizeAiAudits(rows, { days, since }));
+  } catch (err) {
+    next(err);
+  }
+});
 
 // LLM invocation
 router.post('/invoke', authenticateToken, async (req, res, next) => {

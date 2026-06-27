@@ -38,6 +38,10 @@ function isPublicCommunityData(data) {
   return data?.visibility === 'public' && !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(data));
 }
 
+function sharedContentInteractionKey(userId, contentId) {
+  return { userId, contentId, contentType: 'SharedContent' };
+}
+
 async function recordCommunityAudit(action, userId, targetType, targetId, metadata = {}) {
   if (!prisma.auditLog?.create) return;
   try {
@@ -130,13 +134,31 @@ router.post('/shared-content/:id/like', authenticateToken, async (req, res, next
       return res.status(403).json({ message: 'Cannot like private content' });
     }
 
+    const key = sharedContentInteractionKey(req.userId, existing.id);
+    const previous = await prisma.communityLike.findUnique({
+      where: { userId_contentId_contentType: key },
+    });
+    if (previous) {
+      return res.json({ ...formatEntity(existing), liked: true, alreadyLiked: true });
+    }
+
+    await prisma.communityLike.create({ data: key });
+
     const updated = await prisma.entity.update({
       where: { id: existing.id },
       data: { data: { ...data, likes_count: Number(data.likes_count || 0) + 1 } },
     });
 
-    res.json(formatEntity(updated));
+    res.json({ ...formatEntity(updated), liked: true, alreadyLiked: false });
   } catch (err) {
+    if (err.code === 'P2002') {
+      const current = await prisma.entity.findUnique({ where: { id: req.params.id } }).catch(() => null);
+      return res.json({
+        ...(current ? formatEntity(current) : { id: req.params.id }),
+        liked: true,
+        alreadyLiked: true,
+      });
+    }
     next(err);
   }
 });
@@ -157,6 +179,14 @@ router.post('/shared-content/:id/report', authenticateToken, async (req, res, ne
       return res.status(403).json({ message: 'Cannot report private or removed content' });
     }
 
+    const reportedBy = Array.isArray(data.reported_by) ? data.reported_by : [];
+    if (reportedBy.includes(req.userId) || data.last_report?.reporterId === req.userId) {
+      return res.status(409).json({
+        message: 'You have already reported this content',
+        reported_count: reportedCount(data),
+      });
+    }
+
     const nextCount = reportedCount(data) + 1;
     const report = {
       ...parsed.data,
@@ -170,6 +200,7 @@ router.post('/shared-content/:id/report', authenticateToken, async (req, res, ne
           ...data,
           reported_count: nextCount,
           reportedCount: nextCount,
+          reported_by: [...new Set([...reportedBy, req.userId])],
           last_report: report,
           status: nextCount >= 3 ? 'reported' : communityStatus(data),
         },
@@ -197,13 +228,31 @@ router.post('/shared-content/:id/save', authenticateToken, async (req, res, next
       return res.status(403).json({ message: 'Cannot save private content' });
     }
 
+    const key = sharedContentInteractionKey(req.userId, existing.id);
+    const previous = await prisma.savedContent.findUnique({
+      where: { userId_contentId_contentType: key },
+    });
+    if (previous) {
+      return res.json({ ...formatEntity(existing), saved: true, alreadySaved: true });
+    }
+
+    await prisma.savedContent.create({ data: key });
+
     const updated = await prisma.entity.update({
       where: { id: existing.id },
       data: { data: { ...data, saves_count: Number(data.saves_count || 0) + 1 } },
     });
 
-    res.json(formatEntity(updated));
+    res.json({ ...formatEntity(updated), saved: true, alreadySaved: false });
   } catch (err) {
+    if (err.code === 'P2002') {
+      const current = await prisma.entity.findUnique({ where: { id: req.params.id } }).catch(() => null);
+      return res.json({
+        ...(current ? formatEntity(current) : { id: req.params.id }),
+        saved: true,
+        alreadySaved: true,
+      });
+    }
     next(err);
   }
 });

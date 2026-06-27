@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import crypto from 'crypto';
 import { loadEnv } from './config/env.js';
 import authRoutes from './routes/auth.js';
 import entityRoutes from './routes/entities.js';
@@ -19,9 +20,21 @@ import { prisma } from './middleware/auth.js';
 // route handlers.
 const env = loadEnv();
 
+function isSafeRequestId(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{8,128}$/.test(value);
+}
+
 export function buildApp() {
   const app = express();
   const allowedOrigins = env.corsAllowList();
+
+  app.use((req, res, next) => {
+    const incoming = req.get('x-request-id');
+    const requestId = isSafeRequestId(incoming) ? incoming : crypto.randomUUID();
+    req.id = requestId;
+    res.setHeader('X-Request-Id', requestId);
+    next();
+  });
 
   // Security & performance middleware. These are required imports; if any
   // is missing the install is broken and we want to know at boot, not on
@@ -116,16 +129,17 @@ export function buildApp() {
   app.use('/api/functions', functionRoutes);
   app.use('/api/community', communityRoutes);
 
-  app.use((_req, res) => {
-    res.status(404).json({ message: 'Not found' });
+  app.use((req, res) => {
+    res.status(404).json({ message: 'Not found', requestId: req.id });
   });
 
-  app.use((err, _req, res, _next) => {
+  app.use((err, req, res, _next) => {
     // Log without payload — err.message only.
-    console.error(`[${new Date().toISOString()}] Error:`, err.message);
+    console.error(`[${new Date().toISOString()}] Error ${req.id || 'unknown-request'}:`, err.message);
     const status = err.status || err.statusCode || 500;
     res.status(status).json({
       message: status === 500 ? 'Internal server error' : err.message,
+      requestId: req.id,
     });
   });
 

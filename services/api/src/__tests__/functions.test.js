@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
@@ -50,6 +50,11 @@ describe('function routes - Bible source registry', () => {
     app = buildApp();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it('returns license and attribution metadata for available translations', async () => {
     const res = await request(app).post('/api/functions/listAvailableTranslations').send({});
 
@@ -75,5 +80,58 @@ describe('function routes - Bible source registry', () => {
     expect(res.body.message).toMatch(/Unsupported translation/i);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+
+  it('caches verse-level Bible passages', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        reference: 'John 3:16',
+        text: 'For God so loved the world',
+        verses: [{ book_name: 'John', chapter: 3, verse: 16, text: 'For God so loved the world' }],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const payload = { book: 'John', chapter: 3, verse: 16, translation: 'kjv' };
+    const first = await request(app).post('/api/functions/biblePassage').send(payload);
+    const second = await request(app).post('/api/functions/biblePassage').send(payload);
+
+    expect(first.status).toBe(200);
+    expect(first.body.cacheHit).toBe(false);
+    expect(second.status).toBe(200);
+    expect(second.body.cacheHit).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(prisma._store.biblePassageCache).toHaveLength(1);
+    expect(prisma._store.biblePassageCache[0]).toMatchObject({
+      translationId: 'kjv',
+      normalizedRef: 'john 3:16',
+    });
+  });
+
+  it('deduplicates normalized translations for multi-source passage lookups', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        reference: 'John 3:16',
+        text: 'For God so loved the world',
+        verses: [{ book_name: 'John', chapter: 3, verse: 16, text: 'For God so loved the world' }],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await request(app)
+      .post('/api/functions/getPassageMultiSource')
+      .send({
+        book: 'John',
+        chapter: 3,
+        verse: 16,
+        translations: ['kjv', 'en-kjv', 'web', 'kjv'],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.passages).toHaveLength(2);
+    expect(res.body.passages.map((p) => p.translation.id)).toEqual(['kjv', 'web']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

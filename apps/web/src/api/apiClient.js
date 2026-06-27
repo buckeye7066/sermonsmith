@@ -228,6 +228,9 @@ const entitiesProxy = new Proxy({}, {
 const auth = {
   me:       ()            => apiFetch('/api/auth/me'),
   updateMe: (data)        => apiFetch('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
+  exportData: ()          => apiFetch('/api/auth/export'),
+  deleteAccount: ()       => apiFetch('/api/auth/me', { method: 'DELETE' }),
+  revokeSessions: ()      => apiFetch('/api/auth/revoke-sessions', { method: 'POST' }),
 
   login: (email, password) =>
     apiFetch('/api/auth/login', {
@@ -329,10 +332,25 @@ const community = {
   share: (slug) => apiFetch(`/api/community/share/${encodeURIComponent(slug)}`),
   like: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/like`, { method: 'POST' }),
   save: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/save`, { method: 'POST' }),
+  report: (id, payload = {}) =>
+    apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/report`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};
+
+const admin = {
+  aiAuditSummary: (days = 7) => apiFetch(`/api/ai/audit/summary?days=${encodeURIComponent(days)}`),
+  moderationQueue: () => apiFetch('/api/community/moderation/queue'),
+  moderateCommunityContent: (type, id, payload = {}) =>
+    apiFetch(`/api/community/moderation/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
 };
 
 // ---------------------------------------------------------------------------
 // Public exports
 // ---------------------------------------------------------------------------
 
-export const api = { auth, entities: entitiesProxy, integrations, functions, community };
+export const api = { auth, entities: entitiesProxy, integrations, functions, community, admin };
