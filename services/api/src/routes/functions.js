@@ -103,6 +103,42 @@ async function getCachedBibleChapter({ book, chapter, translationId }) {
   return { ...data, cacheHit: false };
 }
 
+function normalizePassageRef(ref) {
+  return String(ref || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+async function getCachedBiblePassage({ ref, translationId }) {
+  const normalizedRef = normalizePassageRef(ref);
+  const cacheKey = { translationId, normalizedRef };
+
+  const cached = await prisma.biblePassageCache.findUnique({
+    where: { translationId_normalizedRef: cacheKey },
+  });
+
+  if (bibleCacheFresh(cached)) {
+    return { ...cached.payload, cacheHit: true };
+  }
+
+  const data = await fetchBibleApiJson(ref, translationId);
+
+  await prisma.biblePassageCache.upsert({
+    where: { translationId_normalizedRef: cacheKey },
+    create: {
+      translationId,
+      reference: ref,
+      normalizedRef,
+      payload: data,
+    },
+    update: {
+      reference: ref,
+      payload: data,
+      fetchedAt: new Date(),
+    },
+  });
+
+  return { ...data, cacheHit: false };
+}
+
 // Stripe SDK is lazy-loaded — see getStripe() below. The previous
 // top-level await meant the API would crash at import time if the SDK was
 // missing or the key was unset; now booting works in test/dev without
@@ -138,9 +174,8 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
 
     const ref = verses ? `${book} ${chapter}:${verses}` : `${book} ${chapter}`;
 
-    // Whole-chapter requests go through the cache so we don't pay the
-    // upstream round-trip every page view. Verse-level requests bypass
-    // it because the cache key is chapter-granular.
+    // Whole chapters and verse/range requests both go through durable
+    // caches so common references do not repeatedly hit bible-api.com.
     let data;
     let cacheHit = false;
     if (verses === undefined || verses === null || verses === '') {
@@ -148,7 +183,9 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
       cacheHit = !!cached.cacheHit;
       data = cached;
     } else {
-      data = await fetchBibleApiJson(ref, translationId);
+      const cached = await getCachedBiblePassage({ ref, translationId });
+      cacheHit = !!cached.cacheHit;
+      data = cached;
     }
 
     res.json({
@@ -194,14 +231,16 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
     const { chapter } = data;
     const verse = data.verse ?? data.verses;
 
-    // Cap translations and filter to the supported allowlist before
+    // Cap unique translations and filter to the supported allowlist before
     // fanning out to bible-api.com. Anything outside is dropped silently
     // because callers can legitimately pass a mix of valid and unknown
     // translation codes during UI migrations.
-    const requested = (data.translations || ['kjv', 'web', 'bbe']).slice(0, MAX_TRANSLATIONS);
-    const translations = requested
-      .map(normalizeBibleTranslation)
-      .filter((t) => BIBLE_TRANSLATION_IDS.has(t));
+    const requested = data.translations || ['kjv', 'web', 'bbe'];
+    const translations = [...new Set(
+      requested
+        .map(normalizeBibleTranslation)
+        .filter((t) => BIBLE_TRANSLATION_IDS.has(t))
+    )].slice(0, MAX_TRANSLATIONS);
     if (translations.length === 0) {
       return res.status(400).json({ message: 'No supported translations requested' });
     }
@@ -214,7 +253,7 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
             return { translation: translationMetadata(translationId), ...cached };
           }
           const ref = `${book} ${chapter}:${verse}`;
-          const json = await fetchBibleApiJson(ref, translationId);
+          const json = await getCachedBiblePassage({ ref, translationId });
           return { translation: translationMetadata(translationId), ...json };
         } catch (err) {
           return { translation: translationMetadata(translationId), error: err.message || 'Upstream error' };

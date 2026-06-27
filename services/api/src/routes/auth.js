@@ -336,6 +336,26 @@ router.delete('/me', authenticateToken, async (req, res, next) => {
   }
 });
 
+router.post('/revoke-sessions', authenticateToken, async (req, res, next) => {
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
+
+    await recordAudit('auth.sessions_revoked', req.userId, { selfService: true });
+
+    const token = signToken(user);
+    res.cookie(AUTH_COOKIE, token, cookieOptions());
+    res.json({
+      message: 'Other sessions revoked',
+      user: sanitizeUser(user),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Change password (logged-in user)
 router.post('/change-password', authenticateToken, async (req, res, next) => {
   try {

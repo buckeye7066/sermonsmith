@@ -9,6 +9,7 @@ SermonSmith treats AI output as assistance, not authority. The backend enforces 
 - Daily usage counters are persisted in `AiUsage`.
 - Structured-output prompts append a JSON-only instruction and return HTTP 502 if the model returns invalid JSON.
 - AI audit rows are written to `AiAuditLog` with hashes, token estimates, duration, status, and failure type.
+- Admins can read `GET /api/ai/audit/summary?days=7` for bounded aggregate counts, token estimates, duration averages, and recent failure metadata.
 
 ## Audit Privacy
 
@@ -31,5 +32,7 @@ An admin dashboard can safely aggregate:
 - `tokenEstimate` sum by day
 - p50/p95 `durationMs`
 - failure types by day
+
+The API now exposes those safe aggregates directly through `GET /api/ai/audit/summary`. The route is admin/dev only, accepts `days` from 1 to 90, reads at most 10,000 audit rows, and never returns raw prompts, raw responses, prompt hashes, or response hashes.
 
 Do not display raw prompts or responses unless a separate, explicit user-consented diagnostic channel is built.

@@ -34,6 +34,17 @@ The API source of truth is `services/api/src/services/bibleSources.js`. Route ha
 
 Unsupported translations fail with HTTP 400 before any upstream request is made.
 
+## Caching
+
+Successful Bible API responses are cached in Postgres:
+
+- whole chapters use `BibleChapterCache` keyed by translation, book, and chapter
+- verse/range lookups use `BiblePassageCache` keyed by translation and normalized reference
+- cache freshness is controlled by `BIBLE_CACHE_TTL_MS`, defaulting to 30 days
+- upstream failures and timeouts are not cached
+
+`getPassageMultiSource` normalizes and deduplicates translation ids before lookup, so aliases like `en-kjv` and duplicate `kjv` entries produce one cached/upstream request.
+
 ## Adding A Translation
 
 1. Confirm display and export rights for the deployment territory.

@@ -72,4 +72,43 @@ describe('apiClient base URL resolution', () => {
       expect.objectContaining({ credentials: 'include' })
     );
   });
+
+  it('exposes account, community, and admin hardening helpers', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await api.auth.exportData();
+    await api.auth.revokeSessions();
+    await api.auth.deleteAccount();
+    await api.community.report('shared 1', { category: 'spam', reason: 'duplicate' });
+    await api.admin.aiAuditSummary(14);
+    await api.admin.moderationQueue();
+    await api.admin.moderateCommunityContent('SharedContent', 'shared 1', { status: 'removed' });
+
+    const calls = fetchMock.mock.calls.map(([url, options]) => ({
+      url,
+      method: options.method || 'GET',
+      body: options.body,
+    }));
+
+    expect(calls).toEqual([
+      { url: 'https://api.example/api/auth/export', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/auth/revoke-sessions', method: 'POST', body: undefined },
+      { url: 'https://api.example/api/auth/me', method: 'DELETE', body: undefined },
+      {
+        url: 'https://api.example/api/community/shared-content/shared%201/report',
+        method: 'POST',
+        body: JSON.stringify({ category: 'spam', reason: 'duplicate' }),
+      },
+      { url: 'https://api.example/api/ai/audit/summary?days=14', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/moderation/queue', method: 'GET', body: undefined },
+      {
+        url: 'https://api.example/api/community/moderation/SharedContent/shared%201',
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'removed' }),
+      },
+    ]);
+  });
 });

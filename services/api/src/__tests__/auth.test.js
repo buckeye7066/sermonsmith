@@ -12,7 +12,12 @@ vi.mock('../middleware/auth.js', () => ({
   prisma,
   AUTH_COOKIE: 'ss_token',
   cookieOptions: () => ({ httpOnly: true, secure: false, sameSite: 'lax' }),
-  signToken: (id) => jwt.sign({ userId: id }, 'test-jwt-secret-that-is-at-least-32-chars-long', { algorithm: 'HS256', expiresIn: '1h' }),
+  signToken: (userOrId) => {
+    const isString = typeof userOrId === 'string';
+    const payload = { userId: isString ? userOrId : userOrId.id };
+    if (!isString && typeof userOrId.tokenVersion === 'number') payload.tv = userOrId.tokenVersion;
+    return jwt.sign(payload, 'test-jwt-secret-that-is-at-least-32-chars-long', { algorithm: 'HS256', expiresIn: '1h' });
+  },
   authenticateToken: async (req, res, next) => {
     const token = req.cookies?.ss_token;
     if (!token) return res.status(401).json({ message: 'Authentication required' });
@@ -206,5 +211,34 @@ describe('auth routes', () => {
     expect(stored.tokenVersion).toBe(1);
     expect(res.headers['set-cookie']?.[0]).toMatch(/ss_token=/);
     expect(prisma._store.auditLog.some((row) => row.action === 'privacy.account_delete_requested')).toBe(true);
+  });
+
+  it('revoke-sessions bumps tokenVersion, audits the action, and reissues the cookie', async () => {
+    prisma._store.user.push({
+      id: 'u-revoke',
+      email: 'revoke@example.com',
+      password: 'hash',
+      role: 'user',
+      premium: false,
+      tokenVersion: 2,
+    });
+
+    const res = await request(app)
+      .post('/api/auth/revoke-sessions')
+      .set('Cookie', [`ss_token=${tokenFor('u-revoke')}`]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.tokenVersion).toBe(3);
+    expect(res.body.user.password).toBeUndefined();
+    const stored = prisma._store.user.find((u) => u.id === 'u-revoke');
+    expect(stored.tokenVersion).toBe(3);
+    expect(prisma._store.auditLog.some((row) => row.action === 'auth.sessions_revoked')).toBe(true);
+
+    const cookie = res.headers['set-cookie']?.[0] || '';
+    const token = cookie.match(/ss_token=([^;]+)/)?.[1];
+    expect(token).toBeTruthy();
+    const decoded = jwt.verify(token, SECRET, { algorithms: ['HS256'] });
+    expect(decoded.userId).toBe('u-revoke');
+    expect(decoded.tv).toBe(3);
   });
 });
