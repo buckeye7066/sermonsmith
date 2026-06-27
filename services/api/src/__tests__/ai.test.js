@@ -79,6 +79,18 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(aiInternals.clampTemperature('not-a-number')).toBe(0.7);
   });
 
+  it('fences structured-output schemas as JSON instruction blocks', () => {
+    const instruction = aiInternals.buildJsonSchemaInstruction({
+      type: 'object',
+      properties: { title: { type: 'string' } },
+    });
+
+    expect(instruction).toContain('Respond ONLY with valid JSON');
+    expect(instruction).toContain('```json');
+    expect(instruction).toContain('"title"');
+    expect(instruction).toContain('```');
+  });
+
   it('enforces a daily usage cap (DB-backed, persistent across calls)', async () => {
     const userId = 'u-quota';
     let lastResult;

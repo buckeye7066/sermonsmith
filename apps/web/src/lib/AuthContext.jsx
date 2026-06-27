@@ -5,6 +5,25 @@ import { primeCachedUser } from '@/components/admin/UserActivityLogger';
 
 const AuthContext = createContext();
 
+function usesHashRouter() {
+  return typeof window !== 'undefined' && Boolean(window.electron?.isElectron);
+}
+
+export function getCurrentAppReturnPath() {
+  if (typeof window === 'undefined') return '/';
+  const hashRoute = window.location.hash || '';
+  if (hashRoute.startsWith('#/')) {
+    return hashRoute.slice(1) || '/';
+  }
+  return `${window.location.pathname}${window.location.search}${window.location.hash}` || '/';
+}
+
+export function getLoginPath(returnTo) {
+  const base = usesHashRouter() ? '#/Login' : '/Login';
+  if (!returnTo) return base;
+  return `${base}?return=${encodeURIComponent(returnTo)}`;
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -47,12 +66,12 @@ export const AuthProvider = ({ children }) => {
     setAuthError(null);
     primeCachedUser(null);
     if (shouldRedirect) {
-      window.location.href = '/Login';
+      window.location.href = getLoginPath();
     }
   }, []);
 
   const navigateToLogin = useCallback(() => {
-    window.location.href = `/Login?return=${encodeURIComponent(window.location.href)}`;
+    window.location.href = getLoginPath(getCurrentAppReturnPath());
   }, []);
 
   const value = useMemo(() => ({

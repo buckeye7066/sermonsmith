@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -12,11 +12,14 @@ import { Loader2, ArrowLeft, Mail, KeyRound } from 'lucide-react';
 // crafted login link could ship the user off-site after a successful
 // authentication. We parse against our own origin and require the URL
 // resolve back to it; on any mismatch (or parse error) we fall back to '/'.
-function getSafeReturnUrl(raw) {
+export function getSafeReturnUrl(raw) {
   if (!raw) return '/';
   try {
     const url = new URL(raw, window.location.origin);
     if (url.origin !== window.location.origin) return '/';
+    if (url.pathname === '/' && url.hash.startsWith('#/')) {
+      return url.hash.slice(1) || '/';
+    }
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return '/';
@@ -31,6 +34,7 @@ export default function Login() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('return');
   const resetToken = searchParams.get('reset_token');
@@ -46,14 +50,14 @@ export default function Login() {
       setResetTokenState(resetToken);
       setMode('reset');
       try {
-        window.history.replaceState({}, document.title, '/Login');
+        navigate('/Login', { replace: true });
       } catch {
         // history API unavailable (very old browser / private mode in
         // some embedded webviews) — the token is still in the URL but we
         // tried.
       }
     }
-  }, [resetToken]);
+  }, [navigate, resetToken]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -67,7 +71,7 @@ export default function Login() {
         toast.success('Welcome back!');
       }
       const safeReturn = getSafeReturnUrl(returnUrl);
-      window.location.href = safeReturn;
+      navigate(safeReturn, { replace: true });
     } catch (error) {
       toast.error(error.message || 'Authentication failed');
     } finally {

@@ -30,6 +30,7 @@ vi.mock('@/components/sermon/SeriesBuilder', () => ({ default: () => <div>series
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import SermonBuilder from '@/pages/SermonBuilder';
+import { toast } from 'sonner';
 
 const validSermon = {
   title: 'Amazing Grace',
@@ -76,8 +77,36 @@ describe('SermonBuilder UI flow', () => {
     const arg = invokeLLM.mock.calls[0][0];
     expect(arg).toHaveProperty('system_prompt');
     expect(arg).toHaveProperty('response_json_schema');
+    expect(arg.prompt).toContain('<<<USER INPUT>>>');
+    expect(arg.prompt).toContain('Grace');
+    expect(arg.prompt).toContain('Ephesians 2:8');
+    expect(arg.prompt).toContain('<<<END USER INPUT>>>');
 
     // The normalized sermon is handed to the (stubbed) editor.
     expect(await screen.findByTestId('sermon-editor')).toHaveTextContent('Amazing Grace');
+  });
+
+  it('shows daily-limit copy for 429 AI failures', async () => {
+    invokeLLM.mockRejectedValueOnce(Object.assign(new Error('raw quota backend text'), { status: 429 }));
+    render(<SermonBuilder />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Faith, Grace, Prayer/i), { target: { value: 'Grace' } });
+    fireEvent.change(screen.getByPlaceholderText(/John 3:16, Romans/i), { target: { value: 'Ephesians 2:8' } });
+    fireEvent.click(screen.getByRole('button', { name: /Generate Sermon with Larry/i }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "You've hit today's AI limit. Upgrade or try again tomorrow."
+    ));
+  });
+
+  it('shows retry copy for 502 AI failures', async () => {
+    invokeLLM.mockRejectedValueOnce(Object.assign(new Error('invalid json internals'), { status: 502 }));
+    render(<SermonBuilder />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Faith, Grace, Prayer/i), { target: { value: 'Grace' } });
+    fireEvent.change(screen.getByPlaceholderText(/John 3:16, Romans/i), { target: { value: 'Ephesians 2:8' } });
+    fireEvent.click(screen.getByRole('button', { name: /Generate Sermon with Larry/i }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('The AI service is busy. Please retry.'));
   });
 });
