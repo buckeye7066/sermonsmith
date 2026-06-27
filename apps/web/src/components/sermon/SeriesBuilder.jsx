@@ -21,7 +21,6 @@ import {
   BookOpen,
   Sparkles,
   TrendingUp,
-  Users,
   CheckCircle2,
   ChevronRight,
   FileText,
@@ -37,6 +36,8 @@ import { toast } from "sonner";
 import { ARLYNN_SYSTEM_PROMPT } from '@/ai/personas';
 import { asArray, normalizeOutline, normalizeSermon, normalizeSeriesOutline } from '@/lib/aiStructured';
 import { validateAiSermon } from '@/lib/scriptureRefs';
+import { getAiErrorMessage } from '@/lib/aiErrors';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 
 const SERIES_LENGTHS = [
   { value: 3, label: "3-Part Series" },
@@ -109,10 +110,10 @@ export default function SeriesBuilder({ open, onClose, user }) {
       const prompt = `Hi, I'm Arlynn - your AI sermon outline specialist! I create comprehensive, preaching-ready sermon outlines.
 
 Request:
-Topic: ${outlineTopic || 'Not specified'}
-Scripture: ${outlinePassage || 'Choose best passage'}
-Theme: ${outlineTheme || 'Not specified'}
-Denomination: ${user?.denomination || 'Non-Denominational'}
+${formatUserInputBlock('Topic', outlineTopic)}
+${formatUserInputBlock('Scripture', outlinePassage, 'Choose best passage')}
+${formatUserInputBlock('Theme', outlineTheme)}
+${formatUserInputBlock('Denominational/theological preference', user?.denomination, 'Non-Denominational')}
 Teaching Context: ${contextInfo?.label || 'Sunday Service'} (${contextInfo?.desc || ''})
 
 Create a complete sermon outline with:
@@ -160,7 +161,7 @@ Create a complete sermon outline with:
    - Invitation to respond
    - Next steps for congregation
 
-Make this biblically accurate, ${user?.denomination || 'theologically sound'}, and ready to preach!`;
+Make this biblically accurate, aligned with the stated denominational/theological preference, and ready to preach!`;
 
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: ARLYNN_SYSTEM_PROMPT,
@@ -230,7 +231,7 @@ Make this biblically accurate, ${user?.denomination || 'theologically sound'}, a
       toast.success("Arlynn created your sermon outline! 📋");
     } catch (error) {
       console.error("Error generating outline:", error);
-      toast.error("Failed to generate sermon outline");
+      toast.error(getAiErrorMessage(error, 'generate the sermon outline'));
     } finally {
       setIsGenerating(false);
     }
@@ -241,15 +242,19 @@ Make this biblically accurate, ${user?.denomination || 'theologically sound'}, a
 
     try {
       const seriesSource = seriesType === 'theme' ? themeInput : `Book of ${bookInput}`;
+      const seriesInput = formatUserInputBlock(
+        seriesType === 'theme' ? 'Series theme' : 'Bible book',
+        seriesSource
+      );
       const contextInfo = TEACHING_CONTEXTS.find(c => c.value === seriesContext);
 
       const prompt = `Hi, I'm Arlynn - your AI Series Specialist! I create comprehensive, multi-week sermon series that build on each other.
 
 Series Request:
 Type: ${seriesType === 'theme' ? 'Thematic Series' : 'Book Study'}
-${seriesType === 'theme' ? `Theme: ${themeInput}` : `Book: ${bookInput}`}
+${seriesInput}
 Length: ${seriesLength} sermons
-Denomination: ${user?.denomination || 'Non-Denominational'}
+${formatUserInputBlock('Denominational/theological preference', user?.denomination, 'Non-Denominational')}
 Teaching Context: ${contextInfo?.label || 'Sunday Service'} (${contextInfo?.desc || ''})
 
 IMPORTANT: Adapt all content, language, illustrations, and applications for a ${contextInfo?.label || 'Sunday Service'} context.
@@ -353,7 +358,7 @@ Make this comprehensive but practical. Ensure each sermon clearly connects to th
       toast.success("Arlynn created your series outline! 🎯");
     } catch (error) {
       console.error("Error generating series:", error);
-      toast.error("Failed to generate series outline");
+      toast.error(getAiErrorMessage(error, 'generate the series outline'));
     } finally {
       setIsGenerating(false);
     }
@@ -399,7 +404,8 @@ Create a COMPLETE sermon that:
 2. Advances the theological trajectory
 3. Stands alone but connects to the whole
 4. Builds anticipation for next week (if not final)
-5. Is aligned with ${user?.denomination || 'Non-Denominational'} theology
+5. Is aligned with this stated denominational/theological preference:
+${formatUserInputBlock('Denominational/theological preference', user?.denomination, 'Non-Denominational')}
 
 Include:
 - Title and Big Idea
@@ -458,7 +464,7 @@ Include:
       toast.success(`Week ${sermonOutline.week} sermon ready! 🎤`);
     } catch (error) {
       console.error("Error generating sermon:", error);
-      toast.error("Failed to generate sermon");
+      toast.error(getAiErrorMessage(error, 'generate the sermon'));
     } finally {
       setIsGenerating(false);
     }

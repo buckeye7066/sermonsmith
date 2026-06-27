@@ -166,6 +166,17 @@ function withTimeout(promise, ms, label = 'OpenAI call') {
   });
 }
 
+export function buildJsonSchemaInstruction(responseJsonSchema) {
+  return [
+    'Respond ONLY with valid JSON matching this schema.',
+    'Do not include markdown, prose, or code fences in the response body.',
+    'Schema:',
+    '```json',
+    JSON.stringify(responseJsonSchema, null, 2),
+    '```',
+  ].join('\n');
+}
+
 // Retry transient OpenAI failures (429 rate-limit, 5xx overloaded/server) with
 // exponential backoff + jitter. We deliberately do NOT retry our own 504
 // timeout (the client is already waiting at the edge of AI_TIMEOUT_MS) nor 4xx
@@ -229,7 +240,7 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
     if (response_json_schema) {
       params.response_format = { type: 'json_object' };
       const schemaIdx = system_prompt ? 0 : messages.length - 1;
-      messages[schemaIdx].content += `\n\nRespond ONLY with valid JSON matching this schema: ${JSON.stringify(response_json_schema)}`;
+      messages[schemaIdx].content += `\n\n${buildJsonSchemaInstruction(response_json_schema)}`;
     }
 
     const completion = await withTimeout(
@@ -402,6 +413,7 @@ export const __test = {
   consumeUsageDb,
   resolveModel,
   invokeRequestSchema,
+  buildJsonSchemaInstruction,
   EMAIL_TEMPLATES,
 };
 

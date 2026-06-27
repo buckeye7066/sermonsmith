@@ -4,16 +4,17 @@ import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { validateAiSermon } from '@/lib/scriptureRefs';
 import { asArray, mergeUniqueStrings, normalizeSermon } from '@/lib/aiStructured';
+import { getAiErrorMessage } from '@/lib/aiErrors';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 import { logError } from '@/lib/logError';
 import { Button } from "@/components/ui/button";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, FileText, Save, Loader2, BookOpen, Lightbulb, Users, Bot, Wand2, Layers, CheckCircle } from "lucide-react";
+import { Sparkles, FileText, Loader2, BookOpen, Lightbulb, Users, Bot, Layers, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Link as RouterLink } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -100,7 +101,9 @@ export default function SermonBuilder() {
 
     setIsLoadingPassages(true);
     try {
-      const prompt = `Hey Larry! I need to preach a sermon on "${topic}". Can you suggest 5-7 Bible passages that would be perfect anchor texts for this topic? 
+      const prompt = `Hey Larry! I need 5-7 Bible passages that would be strong anchor texts for this user-provided sermon topic.
+
+${formatUserInputBlock('Sermon topic', topic)}
 
 Consider:
 - Key passages that directly address this topic
@@ -162,24 +165,26 @@ Return as JSON array of objects with "reference" and "reason" fields.`;
       // Personalize prompt with user preferences
       const userTopics = user?.content_preferences?.favoriteTopics || [];
       const topicContext = userTopics.length > 0 
-        ? `\n\nUser's areas of interest: ${userTopics.join(', ')}. If relevant to "${topic}", incorporate these perspectives naturally.`
+        ? `\n\n${formatUserInputBlock("User's areas of interest", userTopics.join(', '), 'None provided')}\nIf relevant to the sermon topic, incorporate these perspectives naturally.`
         : '';
 
       const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
 
-      You are Larry, an expert AI sermon assistant helping pastors create powerful, biblical sermons. Generate a complete sermon outline on the topic "${topic}" using ${passage} as the anchor passage.
+You are Larry, an expert AI sermon assistant helping pastors create powerful, biblical sermons. Generate a complete sermon outline using the fenced user inputs below.
 
-Denomination: ${denomination}
+${formatUserInputBlock('Sermon topic', topic)}
+${formatUserInputBlock('Anchor passage', passage)}
+${formatUserInputBlock('Denominational/theological preference', denomination, 'Non-Denominational')}
 Tone: ${tone}
 Audience: ${audienceContext[audience]}${topicContext}
 
 Create a sermon that includes:
 1. A compelling title that captures attention
 2. A clear "Big Idea" - one memorable sentence summarizing the sermon
-3. Theological notes about ${denomination} perspective on this topic
+3. Theological notes about the stated denominational/theological perspective on this topic
 4. 3-4 main points, each with:
    - Point title (action-oriented)
-   - Exegesis (2-3 paragraphs explaining the passage, aligned with ${denomination} doctrine)
+   - Exegesis (2-3 paragraphs explaining the passage, aligned with the stated denominational/theological perspective)
    - Illustration (a story, example, or analogy that brings the point to life - make it ${tone} in nature)
    - Application (specific, practical ways to apply this truth)
    - 3-5 supporting scriptures that reinforce this point
@@ -225,7 +230,7 @@ Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblica
     } catch (error) {
       console.error('[SermonBuilder] Error generating sermon:', error);
       console.error('[SermonBuilder] Error details:', error.message, error.stack);
-      toast.error("Failed to generate sermon: " + (error.message || "Please try again"));
+      toast.error(getAiErrorMessage(error, 'generate the sermon'));
     } finally {
       setIsGenerating(false);
     }
