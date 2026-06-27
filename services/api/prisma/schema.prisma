@@ -44,6 +44,21 @@ model User {
 
   entities       Entity[]
   passwordResets PasswordReset[]
+  sermons        Sermon[]
+  sermonSeries   SermonSeries[]
+  sermonOutlines SermonOutline[]
+  bibleStudies   BibleStudy[]
+  studyNotes     StudyNote[]
+  highlights     Highlight[]
+  bookmarks      Bookmark[]
+  prayerRequests PrayerRequest[]
+  sharedContents SharedContent[]
+  forumPosts     ForumPost[]
+  studyGroups    StudyGroup[]
+  auditLogs      AuditLog[]
+  communityLikes CommunityLike[]
+  savedContents  SavedContent[]
+  aiAuditLogs    AiAuditLog[]
 
   @@map("users")
 }
@@ -62,6 +77,269 @@ model Entity {
   @@index([userId])
   @@index([createdAt])
   @@map("entities")
+}
+
+model Sermon {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String
+  status        String   @default("draft")
+  topic         String?
+  anchorPassage String?  @map("anchor_passage")
+  searchText    String?  @map("search_text")
+  content       Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([title])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("sermons")
+}
+
+model SermonSeries {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  status      String   @default("draft")
+  searchText  String?  @map("search_text")
+  content     Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([title])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("sermon_series")
+}
+
+model SermonOutline {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  status    String   @default("draft")
+  content   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([title])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("sermon_outlines")
+}
+
+model BibleStudy {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String
+  passage    String?
+  status     String   @default("draft")
+  searchText String?  @map("search_text")
+  content    Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([title])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("bible_studies")
+}
+
+model StudyNote {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String?
+  passage   String?
+  visibility String @default("private")
+  searchText String? @map("search_text")
+  content   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([visibility])
+  @@index([title])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("study_notes")
+}
+
+model Highlight {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  passage   String?
+  color     String?
+  content   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([passage])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("highlights")
+}
+
+model Bookmark {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  passage   String?
+  label     String?
+  content   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([passage])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("bookmarks")
+}
+
+model PrayerRequest {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String?
+  status     String   @default("active")
+  visibility String   @default("private")
+  content    Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([visibility])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("prayer_requests")
+}
+
+model SharedContent {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String
+  contentType    String   @map("content_type")
+  visibility     String   @default("private")
+  status         String   @default("active")
+  reportedCount  Int      @default(0) @map("reported_count")
+  moderatorNotes String?  @map("moderator_notes")
+  removedAt      DateTime? @map("removed_at")
+  removedBy      String?  @map("removed_by")
+  content        Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([visibility])
+  @@index([status])
+  @@index([title])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("shared_content")
+}
+
+model ForumPost {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String
+  status         String   @default("active")
+  visibility     String   @default("public")
+  reportedCount  Int      @default(0) @map("reported_count")
+  moderatorNotes String?  @map("moderator_notes")
+  removedAt      DateTime? @map("removed_at")
+  removedBy      String?  @map("removed_by")
+  content        Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([visibility])
+  @@index([status])
+  @@index([title])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("forum_posts")
+}
+
+model StudyGroup {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  visibility String   @default("group")
+  status     String   @default("active")
+  content    Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([visibility])
+  @@index([status])
+  @@index([name])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("study_groups")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  targetType String? @map("target_type")
+  targetId   String? @map("target_id")
+  metadata   Json    @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model CommunityLike {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentId String   @map("content_id")
+  contentType String @map("content_type")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, contentId, contentType])
+  @@index([contentId, contentType])
+  @@map("community_likes")
+}
+
+model SavedContent {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentId String   @map("content_id")
+  contentType String @map("content_type")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, contentId, contentType])
+  @@index([contentId, contentType])
+  @@map("saved_content")
 }
 
 // Single-use, hashed-at-rest password reset tokens. The plaintext token is
@@ -109,6 +387,59 @@ model AiUsage {
   @@unique([userId, bucket])
   @@index([userId])
   @@map("ai_usage")
+}
+
+model AiAuditLog {
+  id           String   @id @default(uuid())
+  userId       String?  @map("user_id")
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  feature      String
+  model        String?
+  promptHash   String?  @map("prompt_hash")
+  responseHash String?  @map("response_hash")
+  tokenEstimate Int?    @map("token_estimate")
+  durationMs   Int?     @map("duration_ms")
+  status       String
+  failureType  String?  @map("failure_type")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([feature])
+  @@index([status])
+  @@index([createdAt])
+  @@map("ai_audit_logs")
+}
+
+model BibleTranslation {
+  id              String   @id
+  name            String
+  sourceUrl       String?  @map("source_url")
+  license         String?
+  attribution     String?
+  copyrightNotice String?  @map("copyright_notice")
+  publicDomain    Boolean  @default(false) @map("public_domain")
+  displayAllowed  Boolean  @default(true) @map("display_allowed")
+  exportAllowed   Boolean  @default(false) @map("export_allowed")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@map("bible_translations")
+}
+
+model BiblePassageCache {
+  id            String   @id @default(uuid())
+  translationId String   @map("translation_id")
+  reference     String
+  normalizedRef String   @map("normalized_ref")
+  payload       Json
+  fetchedAt     DateTime @default(now()) @map("fetched_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([translationId, normalizedRef])
+  @@index([translationId])
+  @@index([reference])
+  @@map("bible_passage_cache")
 }
 
 model BibleChapterCache {

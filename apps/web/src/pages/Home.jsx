@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 
 import {
-  FileText,
+  
   BookOpen,
   Sparkles,
   Bot,
@@ -31,7 +31,6 @@ import {
   Lightbulb,
   Globe,
   Download,
-  Share2,
   Settings,
   Scale,
   Archive,

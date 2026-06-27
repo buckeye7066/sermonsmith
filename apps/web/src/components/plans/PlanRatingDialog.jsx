@@ -26,6 +26,7 @@ export default function PlanRatingDialog({ open, onClose, plan, user }) {
     if (open && user && plan) {
       checkExistingRating();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, user, plan]);
 
   const checkExistingRating = async () => {

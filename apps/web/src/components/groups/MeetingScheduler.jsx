@@ -29,6 +29,7 @@ export default function MeetingScheduler({ group, user, members }) {
 
   useEffect(() => {
     loadMeetings();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [group.id]);
 
   const loadMeetings = async () => {

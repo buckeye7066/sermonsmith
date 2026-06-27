@@ -28,6 +28,7 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
       loadStudyGroups();
       generateTitle();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, user]);
 
   const loadStudyGroups = async () => {

@@ -21,9 +21,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
   RefreshCw,
-  Upload,
   Github
 } from "lucide-react";
 import { toast } from "sonner";

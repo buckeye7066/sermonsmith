@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, Sparkles, X } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ export default function AIExplanation({ open, onClose, verse, user }) {
     if (open && verse && !explanation) {
       generateExplanation();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, verse]);
 
   const generateExplanation = async () => {

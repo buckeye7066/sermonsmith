@@ -14,6 +14,7 @@ export default function ProgressTracker({ group, isLeader }) {
 
   useEffect(() => {
     loadProgress();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [group.id]);
 
   const loadProgress = async () => {

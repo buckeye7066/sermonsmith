@@ -25,7 +25,6 @@ import {
   AlertTriangle,
   Compass,
   Cross,
-  Filter,
   FileText,
   GitCompare,
   Save,
@@ -201,7 +200,7 @@ export default function WorldviewExplorer() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [customBelief, setCustomBelief] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategory] = useState('all');
   const [systemSummaries, setSystemSummaries] = useState({});
   const [isLoadingSummary, setIsLoadingSummary] = useState({});
   const [showCompareDialog, setShowCompareDialog] = useState(false);

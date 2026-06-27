@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Scale, Sparkles, BookOpen, Loader2, Heart, Brain, MessageCircle, Mic, Send, History, HelpCircle, ExternalLink, FileText, AlertTriangle, Compass, Save } from "lucide-react";
+import { Scale, BookOpen, Loader2, Heart, Brain, MessageCircle, Mic, Send, History, HelpCircle, ExternalLink, FileText, AlertTriangle, Compass, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";

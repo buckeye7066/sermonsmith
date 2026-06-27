@@ -36,6 +36,7 @@ export default function StudyGroups() {
       return;
     }
     loadGroups();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [isLoadingAuth, user]);
 
   const loadGroups = async () => {

@@ -22,8 +22,6 @@ import {
   Settings,
   Navigation,
   Search,
-  Volume2,
-  Download,
   CloudOff
 } from "lucide-react";
 import { toast } from "sonner";
@@ -52,7 +50,7 @@ import AIExplanation from "../components/reader/AIExplanation";
 import ReligiousViewpointsDialog from "../components/reader/ReligiousViewpointsDialog";
 import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
-import { getChapterOffline, isOnline as checkOnline } from "../components/reader/OfflineBibleService";
+import { getChapterOffline } from "../components/reader/OfflineBibleService";
 import NTOnlyAlert from "../components/reader/NTOnlyAlert";
 import { getTranslationBooks, isBookInTranslation, getFirstAvailableBook, OLD_TESTAMENT_BOOKS } from "../components/reader/TranslationBookChecker";
 

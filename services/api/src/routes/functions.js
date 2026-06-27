@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
+import {
+  BIBLE_TRANSLATIONS,
+  BIBLE_TRANSLATION_IDS,
+  normalizeBibleTranslation,
+  requireBibleTranslation,
+  translationMetadata,
+} from '../services/bibleSources.js';
 
 const router = Router();
 
@@ -13,14 +20,10 @@ const router = Router();
 // structured `issues` list and stops obviously-invalid requests from
 // hitting the upstream at all.
 //
-// `ALLOWED_TRANSLATIONS` keeps `getPassageMultiSource` from being a
+// The Bible source registry keeps `getPassageMultiSource` from being a
 // generic translation enumerator that fans out to any string the client
-// sends; we cap to the ones our app actually surfaces.
+// sends; we cap to the ones our app can display/export with attribution.
 // ---------------------------------------------------------------------------
-const ALLOWED_TRANSLATIONS = new Set([
-  'kjv', 'web', 'bbe', 'asv', 'ylt', 'darby', 'clementine', 'almeida',
-]);
-
 const passageSchema = z.object({
   book: z.string().min(1).max(40).optional(),
   bookCode: z.string().min(1).max(40).optional(),
@@ -48,10 +51,6 @@ const passageSchema = z.object({
 // must trigger a real refetch next time, not be remembered as truth.
 // ---------------------------------------------------------------------------
 const BIBLE_CACHE_TTL_MS = Number(process.env.BIBLE_CACHE_TTL_MS || 30 * 24 * 60 * 60 * 1000);
-
-function normalizeBibleTranslation(raw) {
-  return String(raw || 'kjv').replace(/^en-/, '').toLowerCase();
-}
 
 function bibleCacheFresh(row) {
   return row && Date.now() - new Date(row.updatedAt || row.fetchedAt).getTime() < BIBLE_CACHE_TTL_MS;
@@ -134,10 +133,8 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
     const translationRaw = body.translationId || body.translation || 'kjv';
     const verses = body.verses ?? body.verse;
 
-    const translationId = normalizeBibleTranslation(translationRaw);
-    if (!ALLOWED_TRANSLATIONS.has(translationId)) {
-      return res.status(400).json({ message: `Unsupported translation: ${translationId}` });
-    }
+    const translation = requireBibleTranslation(translationRaw);
+    const translationId = translation.id;
 
     const ref = verses ? `${book} ${chapter}:${verses}` : `${book} ${chapter}`;
 
@@ -156,7 +153,8 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
 
     res.json({
       reference: data.reference || ref,
-      translationLabel: translationRaw,
+      translation: translationMetadata(translationId),
+      translationLabel: translation.name,
       verses: data.verses || [],
       text: data.text || '',
       cacheHit,
@@ -175,16 +173,7 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
 // List available translations
 router.post('/listAvailableTranslations', optionalAuth, async (_req, res) => {
   res.json({
-    translations: [
-      { id: 'kjv', name: 'King James Version', language: 'en' },
-      { id: 'web', name: 'World English Bible', language: 'en' },
-      { id: 'bbe', name: 'Bible in Basic English', language: 'en' },
-      { id: 'asv', name: 'American Standard Version', language: 'en' },
-      { id: 'ylt', name: "Young's Literal Translation", language: 'en' },
-      { id: 'darby', name: 'Darby Translation', language: 'en' },
-      { id: 'clementine', name: 'Clementine Vulgate', language: 'la' },
-      { id: 'almeida', name: 'João Ferreira de Almeida', language: 'pt' },
-    ],
+    translations: BIBLE_TRANSLATIONS.map((t) => translationMetadata(t.id)),
   });
 });
 
@@ -212,7 +201,7 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
     const requested = (data.translations || ['kjv', 'web', 'bbe']).slice(0, MAX_TRANSLATIONS);
     const translations = requested
       .map(normalizeBibleTranslation)
-      .filter((t) => ALLOWED_TRANSLATIONS.has(t));
+      .filter((t) => BIBLE_TRANSLATION_IDS.has(t));
     if (translations.length === 0) {
       return res.status(400).json({ message: 'No supported translations requested' });
     }
@@ -222,13 +211,13 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
         try {
           if (verse === undefined || verse === null || verse === '') {
             const cached = await getCachedBibleChapter({ book, chapter, translationId });
-            return { translation: translationId, ...cached };
+            return { translation: translationMetadata(translationId), ...cached };
           }
           const ref = `${book} ${chapter}:${verse}`;
           const json = await fetchBibleApiJson(ref, translationId);
-          return { translation: translationId, ...json };
+          return { translation: translationMetadata(translationId), ...json };
         } catch (err) {
-          return { translation: translationId, error: err.message || 'Upstream error' };
+          return { translation: translationMetadata(translationId), error: err.message || 'Upstream error' };
         }
       })
     );
@@ -538,7 +527,7 @@ router.post('/getFunctionDetails', authenticateToken, requireAdmin, async (req, 
   // source file; for a self-hosted Express app we return route documentation.
   const details = {
     biblePassage: { code: '// Proxies bible-api.com — see routes/functions.js:13', method: 'POST', auth: 'optional' },
-    listAvailableTranslations: { code: '// Returns hardcoded translation list — see routes/functions.js:55', method: 'POST', auth: 'optional' },
+    listAvailableTranslations: { code: '// Returns Bible source registry metadata — see routes/functions.js', method: 'POST', auth: 'optional' },
     getPassageMultiSource: { code: '// Parallel multi-translation fetch — see routes/functions.js:74', method: 'POST', auth: 'optional' },
     createCheckoutSession: { code: '// Stripe checkout — see routes/functions.js:107', method: 'POST', auth: 'required' },
     createBillingPortal: { code: '// Stripe billing portal — see routes/functions.js:137', method: 'POST', auth: 'required' },
@@ -636,7 +625,7 @@ const BIBLE_BOOKS = [
 
 router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    const translation = req.body.translation || 'kjv';
+    const translation = requireBibleTranslation(req.body.translation || 'kjv').id;
     let imported = 0;
     let errors = 0;
 

@@ -91,6 +91,26 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(instruction).toContain('```');
   });
 
+  it('hashes AI audit text without retaining raw prompt content', () => {
+    const prompt = 'Explain Romans 8 for a youth group';
+    const first = aiInternals.hashText(prompt);
+    const second = aiInternals.hashText(prompt);
+
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[a-f0-9]{64}$/);
+    expect(first).not.toContain('Romans');
+    expect(aiInternals.estimateTokenCount(prompt)).toBeGreaterThan(1);
+  });
+
+  it('accepts an explicit feature tag on AI invocation requests', () => {
+    const parsed = aiInternals.invokeRequestSchema.safeParse({
+      prompt: 'Draft an outline',
+      feature: 'sermon_builder',
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.feature).toBe('sermon_builder');
+  });
+
   it('enforces a daily usage cap (DB-backed, persistent across calls)', async () => {
     const userId = 'u-quota';
     let lastResult;

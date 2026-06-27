@@ -56,6 +56,7 @@ export default function CollectionManager({
     if (open && mode === 'add') {
       loadCollections();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, mode]);
 
   const loadCollections = async () => {

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Sparkles, Share2, Copy, RefreshCw, Heart } from "lucide-react";
+import { Loader2, Sparkles, Share2, RefreshCw, Heart } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";

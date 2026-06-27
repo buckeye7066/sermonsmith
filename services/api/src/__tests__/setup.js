@@ -46,11 +46,23 @@ export function createPrismaMock() {
   }
 
   function makeModel(name) {
+    const matchesUniqueWhere = (item, where) => {
+      for (const [k, v] of Object.entries(where)) {
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          for (const [sk, sv] of Object.entries(v)) {
+            if (item[sk] !== sv) return false;
+          }
+        } else if (item[k] !== v) {
+          return false;
+        }
+      }
+      return true;
+    };
+
     return {
       findUnique: vi.fn(async ({ where }) => {
         const arr = getStore(name);
-        const key = Object.keys(where)[0];
-        return arr.find((x) => x[key] === where[key]) || null;
+        return arr.find((x) => matchesUniqueWhere(x, where)) || null;
       }),
       findFirst: vi.fn(async ({ where }) => {
         const arr = getStore(name);
@@ -127,19 +139,7 @@ export function createPrismaMock() {
       upsert: vi.fn(async ({ where, create, update, select }) => {
         const arr = getStore(name);
         // Compound key support: where: { userId_bucket: { userId, bucket } }
-        const matcher = (item) => {
-          for (const [k, v] of Object.entries(where)) {
-            if (v && typeof v === 'object' && !Array.isArray(v)) {
-              for (const [sk, sv] of Object.entries(v)) {
-                if (item[sk] !== sv) return false;
-              }
-            } else if (item[k] !== v) {
-              return false;
-            }
-          }
-          return true;
-        };
-        const idx = arr.findIndex(matcher);
+        const idx = arr.findIndex((item) => matchesUniqueWhere(item, where));
         if (idx === -1) {
           const id = create.id || `${name}-${arr.length + 1}-${Math.random().toString(36).slice(2, 8)}`;
           const item = { id, createdAt: new Date(), updatedAt: new Date(), ...create };
@@ -166,6 +166,24 @@ export function createPrismaMock() {
     passwordReset: makeModel('passwordReset'),
     stripeEvent: makeModel('stripeEvent'),
     aiUsage: makeModel('aiUsage'),
+    aiAuditLog: makeModel('aiAuditLog'),
+    auditLog: makeModel('auditLog'),
+    bibleChapterCache: makeModel('bibleChapterCache'),
+    bibleTranslation: makeModel('bibleTranslation'),
+    biblePassageCache: makeModel('biblePassageCache'),
+    sermon: makeModel('sermon'),
+    sermonSeries: makeModel('sermonSeries'),
+    sermonOutline: makeModel('sermonOutline'),
+    bibleStudy: makeModel('bibleStudy'),
+    studyNote: makeModel('studyNote'),
+    highlight: makeModel('highlight'),
+    bookmark: makeModel('bookmark'),
+    prayerRequest: makeModel('prayerRequest'),
+    sharedContent: makeModel('sharedContent'),
+    forumPost: makeModel('forumPost'),
+    studyGroup: makeModel('studyGroup'),
+    communityLike: makeModel('communityLike'),
+    savedContent: makeModel('savedContent'),
     $transaction: vi.fn(async (ops) => Promise.all(ops)),
     $queryRaw: vi.fn(async () => [{ ok: 1 }]),
     _store: store,
@@ -177,7 +195,31 @@ export function createPrismaMock() {
   };
 
   // Pre-init stores
-  ['user', 'entity', 'passwordReset', 'stripeEvent', 'aiUsage'].forEach((m) => getStore(m));
+  [
+    'user',
+    'entity',
+    'passwordReset',
+    'stripeEvent',
+    'aiUsage',
+    'aiAuditLog',
+    'auditLog',
+    'bibleChapterCache',
+    'bibleTranslation',
+    'biblePassageCache',
+    'sermon',
+    'sermonSeries',
+    'sermonOutline',
+    'bibleStudy',
+    'studyNote',
+    'highlight',
+    'bookmark',
+    'prayerRequest',
+    'sharedContent',
+    'forumPost',
+    'studyGroup',
+    'communityLike',
+    'savedContent',
+  ].forEach((m) => getStore(m));
 
   return prisma;
 }

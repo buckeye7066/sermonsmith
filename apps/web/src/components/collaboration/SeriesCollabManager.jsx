@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Layers, Plus, Mail, Trash2, UserCog, CheckCircle, Clock, XCircle } from "lucide-react";
+import { Layers, Plus, Mail, Trash2, CheckCircle, Clock, XCircle } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
@@ -33,6 +33,7 @@ export default function SeriesCollabManager({ open, onClose, series, sermons, us
     if (open && series) {
       loadCollaborators();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, series]);
 
   const loadCollaborators = async () => {

@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Filter, X, Calendar } from "lucide-react";
+import { Search, X, Calendar } from "lucide-react";
 import { api } from '@/api/apiClient';
 
 export default function AdvancedSearch({ 
@@ -39,6 +39,7 @@ export default function AdvancedSearch({
     if (open) {
       loadFilters();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, resourceType]);
 
   const loadFilters = async () => {
