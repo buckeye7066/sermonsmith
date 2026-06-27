@@ -23,6 +23,7 @@ export default function Settings() {
   const isLoading = isLoadingAuth;
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState({
     email_new_features: false,
     email_weekly_digest: false,
@@ -77,6 +78,35 @@ export default function Settings() {
       toast.error(logError('Failed to save notification preferences', error));
     } finally {
       setIsSavingNotifications(false);
+    }
+  };
+
+  // Opens Stripe's hosted billing portal so users can update payment method,
+  // change plan, or cancel. Backend mints a one-time portal session URL.
+  const handleManageSubscription = async () => {
+    setIsOpeningPortal(true);
+    try {
+      const response = await api.functions.invoke('createBillingPortal');
+      if (response.error) throw new Error(response.error);
+      if (!response.url) throw new Error('No billing portal URL returned.');
+
+      logActivity('billing_portal_opened', { page_name: 'Settings' });
+
+      // Match Pricing.jsx: pop a new tab when embedded (Electron/iframe),
+      // otherwise navigate in place.
+      const inIframe = window.self !== window.top;
+      if (inIframe) {
+        const newWindow = window.open(response.url, '_blank', 'noopener,noreferrer');
+        if (!newWindow) {
+          toast.error('Please allow pop-ups to manage your subscription.');
+        }
+        setIsOpeningPortal(false);
+      } else {
+        window.location.href = response.url;
+      }
+    } catch (error) {
+      toast.error(logError('Could not open billing portal', error));
+      setIsOpeningPortal(false);
     }
   };
 
@@ -212,12 +242,37 @@ export default function Settings() {
                 </div>
 
                 {isPremium && (
-                  <Alert className="bg-green-50 dark:bg-green-900/20 border-green-200">
-                    <AlertDescription className="text-green-800 dark:text-green-200">
-                      ✅ You have access to all premium features including multi-language translation, 
-                      export tools, and advanced AI features!
-                    </AlertDescription>
-                  </Alert>
+                  <>
+                    <Alert className="bg-green-50 dark:bg-green-900/20 border-green-200">
+                      <AlertDescription className="text-green-800 dark:text-green-200">
+                        ✅ You have access to all premium features including multi-language translation,
+                        export tools, and advanced AI features!
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                      <div>
+                        <p className="font-medium">Manage Subscription</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          Update your payment method, change your plan, or cancel.
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={handleManageSubscription}
+                        disabled={isOpeningPortal}
+                      >
+                        {isOpeningPortal ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Opening...
+                          </>
+                        ) : (
+                          'Manage Subscription'
+                        )}
+                      </Button>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>

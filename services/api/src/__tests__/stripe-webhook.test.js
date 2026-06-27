@@ -124,4 +124,31 @@ describe('Stripe webhook idempotency + signature verification', () => {
     expect(res.status).toBe(200);
     expect(prisma._store.user.find((u) => u.id === 'u1').premium).toBe(false);
   });
+
+  it('revokes premium when subscription.updated reports a lapsed status', async () => {
+    // Resolves by stored stripeCustomerId (no email round-trip needed).
+    prisma._store.user.push({ id: 'u1', email: 'a@x', premium: true, role: 'user', stripeCustomerId: 'cus_x' });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_upd_unpaid',
+      type: 'customer.subscription.updated',
+      data: { object: { customer: 'cus_x', status: 'unpaid' } },
+    });
+    const res = await request(app).post('/webhook').set('Content-Type', 'application/json').set('stripe-signature', 'x').send(Buffer.from('{}'));
+    expect(res.status).toBe(200);
+    expect(prisma._store.user.find((u) => u.id === 'u1').premium).toBe(false);
+    // Resolved by id, so the email-retrieve fallback must NOT have been used.
+    expect(mockCustomersRetrieve).not.toHaveBeenCalled();
+  });
+
+  it('keeps premium when subscription.updated reports an active status', async () => {
+    prisma._store.user.push({ id: 'u1', email: 'a@x', premium: false, role: 'user', stripeCustomerId: 'cus_x' });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_upd_active',
+      type: 'customer.subscription.updated',
+      data: { object: { customer: 'cus_x', status: 'active' } },
+    });
+    const res = await request(app).post('/webhook').set('Content-Type', 'application/json').set('stripe-signature', 'x').send(Buffer.from('{}'));
+    expect(res.status).toBe(200);
+    expect(prisma._store.user.find((u) => u.id === 'u1').premium).toBe(true);
+  });
 });

@@ -284,13 +284,21 @@ router.post('/createBillingPortal', authenticateToken, async (req, res, next) =>
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
-    if (customers.data.length === 0) {
-      return res.status(404).json({ message: 'No billing account found. Have you subscribed to Premium?' });
+    // Prefer the customer id captured at checkout (survives email changes).
+    // Fall back to an email lookup for accounts created before that column
+    // existed, and backfill the id so subsequent calls skip the lookup.
+    let customerId = user.stripeCustomerId;
+    if (!customerId) {
+      const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+      if (customers.data.length === 0) {
+        return res.status(404).json({ message: 'No billing account found. Have you subscribed to Premium?' });
+      }
+      customerId = customers.data[0].id;
+      await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
     }
 
     const session = await stripe.billingPortal.sessions.create({
-      customer: customers.data[0].id,
+      customer: customerId,
       return_url: `${frontendUrl}/Settings`,
     });
 
@@ -778,6 +786,22 @@ router.post('/syncToGitHub', authenticateToken, requireAdmin, async (_req, res) 
   });
 });
 
+// Sets premium on/off for the account behind a Stripe customer id. Prefers the
+// stored stripeCustomerId (stable across email changes); falls back to an email
+// match for accounts that subscribed before that column was captured.
+async function setPremiumForCustomer(stripe, customerId, premium) {
+  if (!customerId) return;
+  const byCustomer = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } }).catch(() => null);
+  if (byCustomer) {
+    await prisma.user.update({ where: { id: byCustomer.id }, data: { premium } });
+    return;
+  }
+  const customer = await stripe.customers.retrieve(customerId).catch(() => null);
+  if (customer?.email) {
+    await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium } });
+  }
+}
+
 // Exported so index.js can mount it with express.raw() for signature verification
 export async function handleStripeWebhook(req, res) {
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
@@ -823,24 +847,21 @@ export async function handleStripeWebhook(req, res) {
         }
         break;
       }
+      case 'customer.subscription.updated': {
+        // Fires on any subscription change: renewal, plan switch, entering a
+        // dunning state, or a scheduled cancel taking effect. Keep premium in
+        // sync with the live status rather than waiting for the delete event —
+        // 'active'/'trialing'/'past_due' (grace period) keep access; anything
+        // else (canceled, unpaid, paused, incomplete_expired) revokes it.
+        const sub = event.data?.object;
+        const grantsAccess = ['active', 'trialing', 'past_due'].includes(sub?.status);
+        await setPremiumForCustomer(stripe, sub?.customer, grantsAccess);
+        break;
+      }
       case 'customer.subscription.deleted':
       case 'customer.subscription.canceled': {
         const sub = event.data?.object;
-        const customerId = sub?.customer;
-        if (customerId) {
-          // Prefer the stored stripeCustomerId — stable even if the user changed
-          // their email after subscribing. Fall back to email match for accounts
-          // that subscribed before stripeCustomerId was captured.
-          const byCustomer = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } }).catch(() => null);
-          if (byCustomer) {
-            await prisma.user.update({ where: { id: byCustomer.id }, data: { premium: false } });
-          } else {
-            const customer = await stripe.customers.retrieve(customerId).catch(() => null);
-            if (customer?.email) {
-              await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium: false } });
-            }
-          }
-        }
+        await setPremiumForCustomer(stripe, sub?.customer, false);
         break;
       }
       default:
