@@ -9,7 +9,7 @@ describe('loadEnv', () => {
   it('throws in production when DATABASE_URL is missing', () => {
     expect(() =>
       loadEnv({
-        source: { NODE_ENV: 'production', JWT_SECRET: strong(), COOKIE_SECRET: strong(), CORS_ORIGIN: 'https://app', RESEND_API_KEY: 'x', OPENAI_API_KEY: 'y', STRIPE_SECRET_KEY: 'z', STRIPE_WEBHOOK_SECRET: 'w' },
+        source: { NODE_ENV: 'production', JWT_SECRET: strong(), COOKIE_SECRET: strong(), CORS_ORIGIN: 'https://app', RESEND_API_KEY: 'x', OPENAI_API_KEY: 'y', STRIPE_SECRET_KEY: 'sk_live_123456789abcdef', STRIPE_WEBHOOK_SECRET: 'whsec_123456789abcdef', STRIPE_PRICE_ID: 'price_123456789abcdef' },
       }),
     ).toThrow(/DATABASE_URL/);
   });
@@ -17,7 +17,7 @@ describe('loadEnv', () => {
   it('throws in production when COOKIE_SECRET is missing', () => {
     expect(() =>
       loadEnv({
-        source: { NODE_ENV: 'production', JWT_SECRET: strong(), DATABASE_URL: 'postgres://x', CORS_ORIGIN: 'https://app', RESEND_API_KEY: 'x', OPENAI_API_KEY: 'y', STRIPE_SECRET_KEY: 'z', STRIPE_WEBHOOK_SECRET: 'w' },
+        source: { NODE_ENV: 'production', JWT_SECRET: strong(), DATABASE_URL: 'postgres://x', CORS_ORIGIN: 'https://app', RESEND_API_KEY: 'x', OPENAI_API_KEY: 'y', STRIPE_SECRET_KEY: 'sk_live_123456789abcdef', STRIPE_WEBHOOK_SECRET: 'whsec_123456789abcdef', STRIPE_PRICE_ID: 'price_123456789abcdef' },
       }),
     ).toThrow(/COOKIE_SECRET/);
   });
@@ -25,7 +25,7 @@ describe('loadEnv', () => {
   it('throws in production when JWT_SECRET is too short', () => {
     expect(() =>
       loadEnv({
-        source: { NODE_ENV: 'production', JWT_SECRET: 'short', COOKIE_SECRET: strong(), DATABASE_URL: 'postgres://x', CORS_ORIGIN: 'https://app', OPENAI_API_KEY: 'a', STRIPE_SECRET_KEY: 'b', STRIPE_WEBHOOK_SECRET: 'c', RESEND_API_KEY: 'd' },
+        source: { NODE_ENV: 'production', JWT_SECRET: 'short', COOKIE_SECRET: strong(), DATABASE_URL: 'postgres://x', CORS_ORIGIN: 'https://app', OPENAI_API_KEY: 'a', STRIPE_SECRET_KEY: 'sk_live_123456789abcdef', STRIPE_WEBHOOK_SECRET: 'whsec_123456789abcdef', STRIPE_PRICE_ID: 'price_123456789abcdef', RESEND_API_KEY: 'd' },
       }),
     ).toThrow(/JWT_SECRET/);
   });
@@ -33,9 +33,46 @@ describe('loadEnv', () => {
   it('throws in production when COOKIE_SECRET is too short', () => {
     expect(() =>
       loadEnv({
-        source: { NODE_ENV: 'production', JWT_SECRET: strong(), COOKIE_SECRET: 'short', DATABASE_URL: 'postgres://x', CORS_ORIGIN: 'https://app', OPENAI_API_KEY: 'a', STRIPE_SECRET_KEY: 'b', STRIPE_WEBHOOK_SECRET: 'c', RESEND_API_KEY: 'd' },
+        source: { NODE_ENV: 'production', JWT_SECRET: strong(), COOKIE_SECRET: 'short', DATABASE_URL: 'postgres://x', CORS_ORIGIN: 'https://app', OPENAI_API_KEY: 'a', STRIPE_SECRET_KEY: 'sk_live_123456789abcdef', STRIPE_WEBHOOK_SECRET: 'whsec_123456789abcdef', STRIPE_PRICE_ID: 'price_123456789abcdef', RESEND_API_KEY: 'd' },
       }),
     ).toThrow(/COOKIE_SECRET/);
+  });
+
+  it('throws in production when billing is enabled but STRIPE_PRICE_ID is missing', () => {
+    expect(() =>
+      loadEnv({
+        source: {
+          NODE_ENV: 'production',
+          JWT_SECRET: strong(),
+          COOKIE_SECRET: strong(),
+          DATABASE_URL: 'postgres://x',
+          CORS_ORIGIN: 'https://app',
+          OPENAI_API_KEY: 'a',
+          STRIPE_SECRET_KEY: 'sk_live_123456789abcdef',
+          STRIPE_WEBHOOK_SECRET: 'whsec_123456789abcdef',
+          RESEND_API_KEY: 'd',
+        },
+      }),
+    ).toThrow(/STRIPE_PRICE_ID/);
+  });
+
+  it('throws in production when Stripe uses test-mode credentials', () => {
+    expect(() =>
+      loadEnv({
+        source: {
+          NODE_ENV: 'production',
+          JWT_SECRET: strong(),
+          COOKIE_SECRET: strong(),
+          DATABASE_URL: 'postgres://x',
+          CORS_ORIGIN: 'https://app',
+          OPENAI_API_KEY: 'a',
+          STRIPE_SECRET_KEY: 'sk_test_123456789abcdef',
+          STRIPE_WEBHOOK_SECRET: 'whsec_123456789abcdef',
+          STRIPE_PRICE_ID: 'price_123456789abcdef',
+          RESEND_API_KEY: 'd',
+        },
+      }),
+    ).toThrow(/STRIPE_SECRET_KEY/);
   });
 
   it('honours feature flags to skip optional secrets', () => {

@@ -60,7 +60,7 @@ export const KNOWN_FUNCTIONS = [
   // === Stripe/Payment Functions ===
   {
     functionId: "createCheckoutSession",
-    filePath: "functions/createCheckoutSession.js",
+    filePath: "services/api/src/routes/functions.js",
     exportType: "default",
     namedExports: [],
     dependencyPaths: [],
@@ -69,7 +69,7 @@ export const KNOWN_FUNCTIONS = [
   },
   {
     functionId: "stripe-webhook",
-    filePath: "functions/stripe-webhook.js",
+    filePath: "services/api/src/routes/functions.js",
     exportType: "default",
     namedExports: [],
     dependencyPaths: [],

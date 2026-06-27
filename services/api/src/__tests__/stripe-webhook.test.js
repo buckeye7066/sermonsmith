@@ -9,7 +9,10 @@ vi.mock('../middleware/auth.js', () => ({
   prisma,
   AUTH_COOKIE: 'ss_token',
   cookieOptions: () => ({}),
-  authenticateToken: (req, _res, next) => next(),
+  authenticateToken: (req, _res, next) => {
+    req.userId = 'u1';
+    next();
+  },
   requireAdmin: (req, _res, next) => next(),
   optionalAuth: (req, _res, next) => next(),
   signToken: () => 'tok',
@@ -23,25 +26,39 @@ vi.mock('../middleware/auth.js', () => ({
 const mockConstructEvent = vi.fn();
 const mockCustomersList = vi.fn();
 const mockCustomersRetrieve = vi.fn();
+const mockCheckoutCreate = vi.fn();
+const mockBillingPortalCreate = vi.fn();
 class MockStripe {
   constructor() {
     this.webhooks = { constructEvent: mockConstructEvent };
     this.customers = { list: mockCustomersList, retrieve: mockCustomersRetrieve };
-    this.checkout = { sessions: { create: vi.fn() } };
-    this.billingPortal = { sessions: { create: vi.fn() } };
+    this.checkout = { sessions: { create: mockCheckoutCreate } };
+    this.billingPortal = { sessions: { create: mockBillingPortalCreate } };
   }
 }
 vi.mock('stripe', () => ({ default: MockStripe }));
 
 process.env.STRIPE_SECRET_KEY = 'sk_test_x';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_x';
+process.env.STRIPE_PRICE_ID = 'price_123456789abcdef';
+process.env.CORS_ORIGIN = 'https://sermonsmith.example';
 delete process.env.DISABLE_BILLING;
 
-const { handleStripeWebhook } = await import('../routes/functions.js');
+const { default: functionRoutes, handleStripeWebhook } = await import('../routes/functions.js');
 
 function buildApp() {
   const app = express();
   app.post('/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
+  return app;
+}
+
+function buildFunctionApp() {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/functions', functionRoutes);
+  app.use((err, _req, res, _next) => {
+    res.status(err.status || 500).json({ message: err.message });
+  });
   return app;
 }
 
@@ -52,6 +69,12 @@ describe('Stripe webhook idempotency + signature verification', () => {
     mockConstructEvent.mockReset();
     mockCustomersRetrieve.mockReset();
     mockCustomersList.mockReset();
+    mockCheckoutCreate.mockReset();
+    mockBillingPortalCreate.mockReset();
+    mockCheckoutCreate.mockResolvedValue({ id: 'cs_test', url: 'https://checkout.stripe.test/session' });
+    mockBillingPortalCreate.mockResolvedValue({ url: 'https://billing.stripe.test/session' });
+    delete process.env.FRONTEND_URL;
+    process.env.CORS_ORIGIN = 'https://sermonsmith.example';
     app = buildApp();
   });
 
@@ -123,5 +146,93 @@ describe('Stripe webhook idempotency + signature verification', () => {
     const res = await request(app).post('/webhook').set('Content-Type', 'application/json').set('stripe-signature', 'x').send(Buffer.from('{}'));
     expect(res.status).toBe(200);
     expect(prisma._store.user.find((u) => u.id === 'u1').premium).toBe(false);
+  });
+
+  it('syncs premium on customer.subscription.updated by stored Stripe customer id', async () => {
+    prisma._store.user.push({ id: 'u1', email: 'a@x', premium: false, role: 'user', stripeCustomerId: 'cus_stored' });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_update',
+      type: 'customer.subscription.updated',
+      data: { object: { customer: 'cus_stored', status: 'active' } },
+    });
+    const res = await request(app).post('/webhook').set('Content-Type', 'application/json').set('stripe-signature', 'x').send(Buffer.from('{}'));
+    expect(res.status).toBe(200);
+    expect(prisma._store.user.find((u) => u.id === 'u1').premium).toBe(true);
+  });
+});
+
+describe('Stripe checkout and billing portal routes', () => {
+  let app;
+
+  beforeEach(() => {
+    prisma._reset();
+    mockCustomersRetrieve.mockReset();
+    mockCustomersList.mockReset();
+    mockCheckoutCreate.mockReset();
+    mockBillingPortalCreate.mockReset();
+    mockCheckoutCreate.mockResolvedValue({ id: 'cs_test', url: 'https://checkout.stripe.test/session' });
+    mockBillingPortalCreate.mockResolvedValue({ url: 'https://billing.stripe.test/session' });
+    delete process.env.FRONTEND_URL;
+    process.env.CORS_ORIGIN = 'https://sermonsmith.example';
+    process.env.STRIPE_PRICE_ID = 'price_123456789abcdef';
+    app = buildFunctionApp();
+  });
+
+  it('creates checkout with the stored Stripe customer id and public redirect URLs', async () => {
+    prisma._store.user.push({
+      id: 'u1',
+      email: 'a@x',
+      premium: false,
+      role: 'user',
+      stripeCustomerId: 'cus_existing',
+    });
+
+    const res = await request(app).post('/api/functions/createCheckoutSession').send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.url).toBe('https://checkout.stripe.test/session');
+    expect(mockCheckoutCreate).toHaveBeenCalledWith(expect.objectContaining({
+      customer: 'cus_existing',
+      customer_email: undefined,
+      success_url: 'https://sermonsmith.example/Settings?payment=success',
+      cancel_url: 'https://sermonsmith.example/Pricing?payment=cancelled',
+      line_items: [{ price: 'price_123456789abcdef', quantity: 1 }],
+    }));
+  });
+
+  it('opens the billing portal from stored customer id without email lookup', async () => {
+    prisma._store.user.push({
+      id: 'u1',
+      email: 'a@x',
+      premium: true,
+      role: 'user',
+      stripeCustomerId: 'cus_existing',
+    });
+
+    const res = await request(app).post('/api/functions/createBillingPortal').send({});
+
+    expect(res.status).toBe(200);
+    expect(mockCustomersList).not.toHaveBeenCalled();
+    expect(mockBillingPortalCreate).toHaveBeenCalledWith({
+      customer: 'cus_existing',
+      return_url: 'https://sermonsmith.example/Settings',
+    });
+  });
+
+  it('rejects production checkout when redirects would fall back to localhost', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    process.env.CORS_ORIGIN = 'http://localhost:5173';
+    prisma._store.user.push({ id: 'u1', email: 'a@x', premium: false, role: 'user' });
+
+    const res = await request(app).post('/api/functions/createCheckoutSession').send({});
+
+    expect(res.status).toBe(503);
+    expect(mockCheckoutCreate).not.toHaveBeenCalled();
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 });

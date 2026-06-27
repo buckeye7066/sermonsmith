@@ -153,6 +153,56 @@ async function getStripe() {
   return _stripe;
 }
 
+function serviceUnavailable(message) {
+  const err = new Error(message);
+  err.status = 503;
+  return err;
+}
+
+function isLocalHost(hostname) {
+  return ['localhost', '127.0.0.1', '0.0.0.0'].includes(String(hostname || '').toLowerCase());
+}
+
+function frontendBaseUrl() {
+  const raw = process.env.FRONTEND_URL || String(process.env.CORS_ORIGIN || '').split(',')[0]?.trim();
+  if (!raw) {
+    throw serviceUnavailable('Frontend URL not configured. Set FRONTEND_URL or CORS_ORIGIN.');
+  }
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw serviceUnavailable('Frontend URL is not a valid URL.');
+  }
+  if (process.env.NODE_ENV === 'production' && (url.protocol !== 'https:' || isLocalHost(url.hostname))) {
+    throw serviceUnavailable('Production Stripe redirects must use a public https FRONTEND_URL.');
+  }
+  return url.origin;
+}
+
+function subscriptionIsPremium(status) {
+  return ['active', 'trialing'].includes(status);
+}
+
+function subscriptionIsNonPremium(status) {
+  return ['canceled', 'unpaid', 'incomplete_expired'].includes(status);
+}
+
+async function setPremiumByStripeCustomer(stripe, customerId, premium) {
+  if (!customerId) return;
+
+  const byCustomer = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } }).catch(() => null);
+  if (byCustomer) {
+    await prisma.user.update({ where: { id: byCustomer.id }, data: { premium } });
+    return;
+  }
+
+  const customer = await stripe.customers.retrieve(customerId).catch(() => null);
+  if (customer?.email) {
+    await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium } });
+  }
+}
+
 // Bible passage — accepts both frontend naming (translationId/bookCode) and direct naming (book/translation)
 router.post('/biblePassage', optionalAuth, async (req, res, next) => {
   try {
@@ -279,12 +329,15 @@ router.post('/createCheckoutSession', authenticateToken, async (req, res, next) 
     if (!process.env.STRIPE_PRICE_ID) return res.status(503).json({ message: 'Stripe price not configured.' });
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const frontendUrl = frontendBaseUrl();
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'subscription',
-      customer_email: user.email,
+      customer: user.stripeCustomerId || undefined,
+      customer_email: user.stripeCustomerId ? undefined : user.email,
+      client_reference_id: req.userId,
       line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
       success_url: `${frontendUrl}/Settings?payment=success`,
       cancel_url: `${frontendUrl}/Pricing?payment=cancelled`,
@@ -310,15 +363,24 @@ router.post('/createBillingPortal', authenticateToken, async (req, res, next) =>
     if (!stripe) return res.status(503).json({ message: 'Stripe not configured. Set STRIPE_SECRET_KEY.' });
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const frontendUrl = frontendBaseUrl();
 
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
-    if (customers.data.length === 0) {
-      return res.status(404).json({ message: 'No billing account found. Have you subscribed to Premium?' });
+    let customerId = user.stripeCustomerId;
+    if (!customerId) {
+      const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+      if (customers.data.length === 0) {
+        return res.status(404).json({ message: 'No billing account found. Have you subscribed to Premium?' });
+      }
+      customerId = customers.data[0].id;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: customerId },
+      });
     }
 
     const session = await stripe.billingPortal.sessions.create({
-      customer: customers.data[0].id,
+      customer: customerId,
       return_url: `${frontendUrl}/Settings`,
     });
 
@@ -868,6 +930,15 @@ export async function handleStripeWebhook(req, res) {
               await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium: false } });
             }
           }
+        }
+        break;
+      }
+      case 'customer.subscription.updated': {
+        const sub = event.data?.object;
+        if (subscriptionIsPremium(sub?.status)) {
+          await setPremiumByStripeCustomer(stripe, sub?.customer, true);
+        } else if (subscriptionIsNonPremium(sub?.status)) {
+          await setPremiumByStripeCustomer(stripe, sub?.customer, false);
         }
         break;
       }
