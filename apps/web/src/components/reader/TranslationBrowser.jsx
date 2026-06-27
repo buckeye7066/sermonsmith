@@ -9,8 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
-  Globe, Search, Lock, Check, BookOpen, Loader2, Star, 
-  MapPin, Languages, Crown, ExternalLink, Sparkles
+  Globe, Search, Lock, Check, BookOpen, Loader2, Languages, Crown, Sparkles
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
@@ -40,7 +39,7 @@ export default function TranslationBrowser({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("all");
   const [isPremium, setIsPremium] = useState(false);
-  const [isDeveloper, setIsDeveloper] = useState(false);
+  const [, setIsDeveloper] = useState(false);
 
   useEffect(() => {
     if (open) {

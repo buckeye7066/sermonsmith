@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, BookOpen, Save, Loader2, MessageCircle, Lightbulb, Link2, Bot, GraduationCap, Calendar, Eye } from "lucide-react";
+import { Sparkles, BookOpen, Loader2, Lightbulb, Link2, Bot, GraduationCap, Calendar, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Link as RouterLink } from "react-router-dom";
 import { createPageUrl } from "@/utils";

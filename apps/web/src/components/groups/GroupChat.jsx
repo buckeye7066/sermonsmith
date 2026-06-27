@@ -3,7 +3,7 @@ import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+
 import { Send, Pin, MessageCircle, Book, Heart, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -19,6 +19,7 @@ export default function GroupChat({ group, user }) {
     loadMessages();
     const interval = setInterval(loadMessages, 5000); // Poll for new messages
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [group.id]);
 
   useEffect(() => {

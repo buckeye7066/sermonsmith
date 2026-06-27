@@ -31,6 +31,7 @@ export default function VersionComparison({ book, chapter, onClose }) {
     if (selectedVersions.length > 0 && book && chapter) {
       loadComparisonData();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [selectedVersions, book, chapter]);
 
   const loadAvailableTranslations = async () => {

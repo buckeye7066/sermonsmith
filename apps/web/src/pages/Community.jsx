@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Users, MessageSquare, BookOpen, TrendingUp, Heart, Calendar, Crown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { toast } from "sonner";
+
 
 export default function Community() {
   const { user, isLoadingAuth: loading } = useAuth();

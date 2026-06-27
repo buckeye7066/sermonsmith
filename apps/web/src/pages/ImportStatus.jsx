@@ -14,6 +14,7 @@ export default function ImportStatus() {
     checkStatus();
     const interval = setInterval(checkStatus, 30000); // Auto-refresh every 30s
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, []);
 
   const checkStatus = async () => {

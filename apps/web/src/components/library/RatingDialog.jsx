@@ -25,6 +25,7 @@ export default function RatingDialog({ open, onClose, sermon, user }) {
     if (open && user && sermon) {
       checkExistingRating();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, user, sermon]);
 
   const checkExistingRating = async () => {

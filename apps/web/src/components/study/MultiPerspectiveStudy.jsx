@@ -3,10 +3,8 @@ import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   Dialog,
@@ -19,15 +17,11 @@ import {
   Globe,
   BookOpen,
   Loader2,
-  Sparkles,
   Scale,
   Church,
   Eye,
   Layers,
   MessageSquare,
-  Copy,
-  Check,
-  Save,
   Users
 } from "lucide-react";
 import { toast } from "sonner";
@@ -111,7 +105,6 @@ export default function MultiPerspectiveStudy({ open, onClose, user }) {
   const [selectedWorldViews, setSelectedWorldViews] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState(null);
-  const [copied, setCopied] = useState(false);
 
   const togglePerspective = (id) => {
     setSelectedPerspectives(prev =>
@@ -197,12 +190,7 @@ Be fair, accurate, and respectful to every tradition. Present each view charitab
     }
   };
 
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    toast.success("Copied!");
-    setTimeout(() => setCopied(false), 2000);
-  };
+  
 
   const perspectiveColors = {
     'Roman Catholic': 'border-red-500 bg-red-50 dark:bg-red-900/20',

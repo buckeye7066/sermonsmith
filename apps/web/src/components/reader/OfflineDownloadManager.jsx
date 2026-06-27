@@ -7,21 +7,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
-  Download, Trash2, Check, Loader2, WifiOff, HardDrive, 
-  Pause, Play, X, CloudOff, Globe, BookOpen, AlertTriangle
+  Download, Trash2, Check, Loader2, WifiOff, HardDrive, Play, X, CloudOff, BookOpen
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   saveChapterOffline,
   saveTranslationMeta,
   getDownloadedTranslations,
-  isTranslationDownloaded,
   getDownloadProgress,
   updateDownloadProgress,
   deleteTranslation,
   getStorageEstimate,
-  isOnline,
-  countDownloadedChapters
+  isOnline
 } from "./OfflineBibleService";
 
 // Bible book codes and chapter counts

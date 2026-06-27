@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Users, Settings, ArrowLeft, MessageCircle, Calendar, TrendingUp, Crown, UserMinus } from "lucide-react";
+import { Users, ArrowLeft, MessageCircle, Calendar, TrendingUp, Crown, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -33,6 +33,7 @@ export default function GroupDetail() {
     if (user && groupId) {
       loadGroupData();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [user, groupId]);
 
   const loadGroupData = async () => {

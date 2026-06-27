@@ -7,10 +7,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Link2, Sparkles, BookOpen, TrendingUp, RefreshCw } from "lucide-react";
+import { Loader2, Link2, RefreshCw } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
@@ -23,6 +22,7 @@ export default function CrossReferencePanel({ open, onClose, verse, onNavigate }
     if (open && verse && !crossRefs) {
       generateCrossReferences();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, verse]);
 
   const generateCrossReferences = async () => {

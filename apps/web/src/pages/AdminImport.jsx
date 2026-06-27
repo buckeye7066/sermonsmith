@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 export default function AdminImport() {
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState('');
-  const [file, setFile] = useState(null);
+  const [, setFile] = useState(null);
 
   const importFromAPI = async () => {
     setIsImporting(true);
@@ -59,7 +59,7 @@ export default function AdminImport() {
 
     try {
       // Upload file
-      const { file_url } = await api.integrations.Core.UploadFile({ file: uploadedFile });
+      
       
       // Parse CSV and extract verses
       const text = await uploadedFile.text();

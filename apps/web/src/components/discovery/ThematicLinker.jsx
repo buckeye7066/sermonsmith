@@ -24,6 +24,7 @@ export default function ThematicLinker({
     if (sourceData) {
       findRelatedContent();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [sourceData]);
 
   const findRelatedContent = async () => {

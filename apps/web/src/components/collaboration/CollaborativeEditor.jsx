@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Edit3, Lock, Users } from "lucide-react";
+import { Edit3, Lock } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
@@ -28,6 +26,7 @@ export default function CollaborativeEditor({
       const interval = setInterval(checkLocks, 3000); // Check every 3 seconds
       return () => clearInterval(interval);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [sermon, field]);
 
   const checkLocks = async () => {

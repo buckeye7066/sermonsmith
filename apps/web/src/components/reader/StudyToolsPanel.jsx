@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, BookOpen, Brain, MessageSquare, Lightbulb, Save, X } from "lucide-react";
+import { Loader2, BookOpen, Brain, MessageSquare, Lightbulb, Save } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
@@ -34,6 +34,7 @@ export default function StudyToolsPanel({ open, onClose, verse, user }) {
       setLastVerse(verseKey);
       setStudyContent({ questions: [], outline: null, connections: null, insights: null });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [verse]);
 
   const generateStudyQuestions = async () => {

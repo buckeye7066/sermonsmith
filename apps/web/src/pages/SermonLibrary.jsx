@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
   SelectContent,
@@ -19,8 +18,6 @@ import {
   BookOpen,
   Search,
   Star,
-  TrendingUp,
-  Clock,
   Eye,
   GitFork,
   Loader2,
@@ -29,13 +26,12 @@ import {
   Users,
   FileText,
   Layers,
-  Heart,
   Share2,
   Download
 } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
-import { createPageUrl } from "@/utils";
+
+
 import SermonViewer from "@/components/library/SermonViewer";
 import ShareSermonDialog from "@/components/library/ShareSermonDialog";
 import ForkSermonDialog from "@/components/library/ForkSermonDialog";
@@ -98,11 +94,13 @@ export default function SermonLibrary() {
     };
 
     fetchDataAndRecommendations();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [user, sortBy]); // Rerun when user changes (login/logout) or sortBy changes
 
   // Effect for filtering content locally
   useEffect(() => {
     filterContent();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [sermons, sharedSeries, searchQuery, selectedTags, selectedDenomination, selectedSeries, dateRange, viewMode]); // Removed sortBy because loadData now handles sort order for sermons
 
   const loadData = async () => {

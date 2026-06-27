@@ -19,6 +19,7 @@ export default function CommentPanel({ sermon, user, pointIndex = null }) {
       const interval = setInterval(loadComments, 5000); // Poll for new comments
       return () => clearInterval(interval);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [sermon, pointIndex]);
 
   const loadComments = async () => {

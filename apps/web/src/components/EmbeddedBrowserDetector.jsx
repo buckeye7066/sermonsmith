@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ExternalLink, Copy, CheckCircle2, Chrome, AlertTriangle } from 'lucide-react';
+import { ExternalLink, Copy, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function EmbeddedBrowserDetector() {

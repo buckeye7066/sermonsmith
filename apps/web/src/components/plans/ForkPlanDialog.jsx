@@ -7,11 +7,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, GitFork, Wand2, Copy, Baby, GraduationCap, User, Heart } from "lucide-react";
 import { api } from '@/api/apiClient';
@@ -55,7 +55,6 @@ const FORK_OPTIONS = [
 export default function ForkPlanDialog({ open, onClose, plan, user }) {
   const [forkType, setForkType] = useState('copy');
   const [selectedAgeGroup, setSelectedAgeGroup] = useState(plan?.age_group || 'adults');
-  const [adaptationNotes, setAdaptationNotes] = useState("");
   const [isForking, setIsForking] = useState(false);
 
   const handleFork = async () => {
