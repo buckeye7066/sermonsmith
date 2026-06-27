@@ -159,6 +159,31 @@ describe('Stripe webhook idempotency + signature verification', () => {
     expect(res.status).toBe(200);
     expect(prisma._store.user.find((u) => u.id === 'u1').premium).toBe(true);
   });
+
+  it('keeps premium during Stripe past_due grace period', async () => {
+    prisma._store.user.push({ id: 'u1', email: 'a@x', premium: false, role: 'user', stripeCustomerId: 'cus_stored' });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_update_past_due',
+      type: 'customer.subscription.updated',
+      data: { object: { customer: 'cus_stored', status: 'past_due' } },
+    });
+    const res = await request(app).post('/webhook').set('Content-Type', 'application/json').set('stripe-signature', 'x').send(Buffer.from('{}'));
+    expect(res.status).toBe(200);
+    expect(prisma._store.user.find((u) => u.id === 'u1').premium).toBe(true);
+  });
+
+  it('revokes premium when subscription.updated reports unpaid', async () => {
+    prisma._store.user.push({ id: 'u1', email: 'a@x', premium: true, role: 'user', stripeCustomerId: 'cus_stored' });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_update_unpaid',
+      type: 'customer.subscription.updated',
+      data: { object: { customer: 'cus_stored', status: 'unpaid' } },
+    });
+    const res = await request(app).post('/webhook').set('Content-Type', 'application/json').set('stripe-signature', 'x').send(Buffer.from('{}'));
+    expect(res.status).toBe(200);
+    expect(prisma._store.user.find((u) => u.id === 'u1').premium).toBe(false);
+    expect(mockCustomersRetrieve).not.toHaveBeenCalled();
+  });
 });
 
 describe('Stripe checkout and billing portal routes', () => {

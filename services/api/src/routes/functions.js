@@ -181,7 +181,7 @@ function frontendBaseUrl() {
 }
 
 function subscriptionIsPremium(status) {
-  return ['active', 'trialing'].includes(status);
+  return ['active', 'trialing', 'past_due'].includes(status);
 }
 
 function subscriptionIsNonPremium(status) {
