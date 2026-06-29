@@ -35,7 +35,7 @@ vi.mock('../services/email.js', () => ({
   sendEmail: vi.fn(async () => ({ ok: true })),
 }));
 
-const { default: aiRoutes, __test: aiInternals } = await import('../routes/ai.js');
+const { default: aiRoutes, __test: aiInternals, extractJson } = await import('../routes/ai.js');
 
 function buildApp() {
   const app = express();
@@ -68,9 +68,20 @@ describe('ai routes — authentication & abuse limits', () => {
 
   it('clamps maxTokens for non-premium users', () => {
     expect(aiInternals.clampTokens(99999, false)).toBeLessThanOrEqual(1500);
-    expect(aiInternals.clampTokens(99999, true)).toBeLessThanOrEqual(4096);
+    // Premium ceiling raised to 8192 so deep structured outputs (e.g. the
+    // Worldview analysis schema) no longer truncate mid-JSON.
+    expect(aiInternals.clampTokens(99999, true)).toBeLessThanOrEqual(8192);
+    expect(aiInternals.clampTokens(99999, true)).toBeGreaterThan(4096);
     expect(aiInternals.clampTokens(undefined, false)).toBe(1500);
     expect(aiInternals.clampTokens(-50, false)).toBe(1500);
+  });
+
+  it('extractJson parses plain, fenced, and trailing-text JSON', () => {
+    expect(extractJson('{"a":1}')).toEqual({ ok: true, value: { a: 1 } });
+    expect(extractJson('```json\n{"a":1}\n```')).toEqual({ ok: true, value: { a: 1 } });
+    expect(extractJson('Sure! Here you go:\n{"a":1}\nHope that helps')).toEqual({ ok: true, value: { a: 1 } });
+    expect(extractJson('not json at all').ok).toBe(false);
+    expect(extractJson('').ok).toBe(false);
   });
 
   it('clamps temperature to [0, 2]', () => {

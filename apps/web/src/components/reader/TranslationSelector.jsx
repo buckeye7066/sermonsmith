@@ -89,7 +89,7 @@ export default function TranslationSelector({ currentTranslation = "KJV", onTran
       
       {stats && (
         <Badge variant="secondary" className="text-xs hidden md:flex">
-          {stats.total}+ translations • {stats.languages}+ languages
+          {stats.total} translation{stats.total === 1 ? '' : 's'} • {stats.languages} language{stats.languages === 1 ? '' : 's'}
         </Badge>
       )}
       

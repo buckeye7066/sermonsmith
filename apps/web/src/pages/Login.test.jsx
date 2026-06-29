@@ -28,6 +28,13 @@ vi.mock('sonner', () => ({
   },
 }));
 
+// Login calls useAuth() for checkAppState; the test renders it without an
+// AuthProvider, so stub the hook (otherwise useAuth throws "must be used
+// within an AuthProvider"). The routing assertions don't depend on real auth.
+vi.mock('@/lib/AuthContext', () => ({
+  useAuth: () => ({ checkAppState: vi.fn() }),
+}));
+
 import Login, { getSafeReturnUrl } from './Login.jsx';
 
 function LocationProbe() {

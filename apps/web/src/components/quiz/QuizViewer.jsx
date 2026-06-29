@@ -9,6 +9,7 @@ import {
   
 } from "@/components/ui/accordion";
 import { toast } from "sonner";
+import PrintButton from "@/components/common/PrintButton";
 
 export default function QuizViewer({ quizData, onSave, user }) {
   const [selectedAnswers, setSelectedAnswers] = useState({});
@@ -179,11 +180,11 @@ export default function QuizViewer({ quizData, onSave, user }) {
   };
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="space-y-6" data-print-section>
+      <Card data-print-break-inside-avoid>
         <CardHeader>
           {isEditingTitle ? (
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center" data-print-hidden>
               <Input 
                 value={editedTitle}
                 onChange={(e) => setEditedTitle(e.target.value)}
@@ -197,13 +198,17 @@ export default function QuizViewer({ quizData, onSave, user }) {
           ) : (
             <div className="flex justify-between items-start">
               <CardTitle className="text-2xl">{editedTitle}</CardTitle>
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={() => setIsEditingTitle(true)}
-              >
-                <Edit2 className="w-4 h-4" />
-              </Button>
+              <div className="flex items-center gap-2" data-print-hidden>
+                <PrintButton label="Print Quiz" />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsEditingTitle(true)}
+                  title="Edit title"
+                >
+                  <Edit2 className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           )}
           <div className="flex gap-2 mt-2">
@@ -215,7 +220,7 @@ export default function QuizViewer({ quizData, onSave, user }) {
       </Card>
 
       {showResults && (
-        <Card className="border-green-200 bg-green-50 dark:bg-green-900">
+        <Card className="border-green-200 bg-green-50 dark:bg-green-900" data-print-break-inside-avoid>
           <CardContent className="pt-6">
             <div className="text-center">
               <h3 className="text-2xl font-bold mb-2">Quiz Complete!</h3>
@@ -240,7 +245,7 @@ export default function QuizViewer({ quizData, onSave, user }) {
                 ? 'border-red-500 bg-red-50 dark:bg-red-900'
                 : 'border-gray-200'
               : 'border-gray-200'
-          }`}>
+          }`} data-print-break-inside-avoid>
             <CardHeader>
               <CardTitle className="text-lg">
                 {questionIndex + 1}. {question.question}
@@ -305,7 +310,7 @@ export default function QuizViewer({ quizData, onSave, user }) {
       </div>
 
       {!showResults && (
-        <div className="flex justify-center gap-3">
+        <div className="flex justify-center gap-3" data-print-hidden>
           <Button
             onClick={() => {
               // Validate on click (rather than only disabling the button) so an
@@ -338,7 +343,7 @@ export default function QuizViewer({ quizData, onSave, user }) {
       )}
 
       {showResults && onSave && (
-        <Button onClick={handleSave} className="w-full">
+        <Button onClick={handleSave} className="w-full" data-print-hidden>
           <Save className="w-4 h-4 mr-2" />
           Save Quiz
         </Button>
@@ -346,7 +351,7 @@ export default function QuizViewer({ quizData, onSave, user }) {
 
       {/* Example of where handleExport might be used, e.g., an export button for premium users */}
       {showResults && (
-        <div className="flex justify-center mt-4">
+        <div className="flex justify-center mt-4" data-print-hidden>
           <Button onClick={handleExport} disabled={!isPremium && user !== undefined} variant="secondary">
             <Download className="w-4 h-4 mr-2" />
             Export as PDF {isPremium ? '' : '(Premium)'}

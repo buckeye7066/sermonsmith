@@ -324,7 +324,9 @@ Be objective, fair, theologically sound.`;
               }
             }
           }
-        }
+        },
+        // Multi-section comparison — give it enough budget to finish the JSON.
+        max_tokens: 6000,
       });
 
       setComparisonResult(comparison);
@@ -362,7 +364,11 @@ Be respectful, accurate, pastoral.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
-        response_json_schema: analysisSchema
+        response_json_schema: analysisSchema,
+        // This is a deep 7-section analysis; the default 1500-token budget
+        // truncates it mid-JSON (which then fails to parse and surfaces as
+        // "Failed to generate analysis"). Give it room to complete.
+        max_tokens: 8000,
       });
 
       setAnalysis(response);
@@ -441,7 +447,7 @@ Be respectful, accurate, pastoral.`;
               <Globe className="w-16 h-16 mx-auto mb-4 text-gray-300" />
               <h2 className="text-2xl font-bold mb-2">Sign In Required</h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Study 50+ belief systems through a Christian lens
+                Study {BELIEF_SYSTEMS.length} belief systems through a Christian lens
               </p>
               <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
             </CardContent>
@@ -460,7 +466,7 @@ Be respectful, accurate, pastoral.`;
               <Crown className="w-16 h-16 mx-auto mb-4 text-purple-600" />
               <h2 className="text-2xl font-bold mb-2">Premium Feature</h2>
               <p className="text-gray-700 dark:text-gray-300 mb-6">
-                Study 50+ world religions through a biblical lens
+                Study {BELIEF_SYSTEMS.length} world religions through a biblical lens
               </p>
               <Link to={createPageUrl('Pricing')}>
                 <Button className="bg-purple-600 hover:bg-purple-700" size="lg">
@@ -485,7 +491,7 @@ Be respectful, accurate, pastoral.`;
             Worldview Explorer
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Study 50+ belief systems through a biblical, Christian lens
+            Study {BELIEF_SYSTEMS.length} belief systems through a biblical, Christian lens
           </p>
           <div className="flex items-center gap-2 mt-2">
             <Badge className="bg-purple-600">
@@ -540,7 +546,7 @@ Be respectful, accurate, pastoral.`;
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <Input
-              placeholder="Search 50+ belief systems..."
+              placeholder={`Search ${BELIEF_SYSTEMS.length} belief systems...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"

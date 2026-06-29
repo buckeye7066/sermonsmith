@@ -81,6 +81,8 @@ export default function Settings() {
     }
   };
 
+  // Opens Stripe's hosted billing portal so users can update payment method,
+  // change plan, or cancel. Backend mints a one-time portal session URL.
   const handleManageSubscription = async () => {
     setIsOpeningPortal(true);
     try {
@@ -90,6 +92,8 @@ export default function Settings() {
 
       logActivity('billing_portal_opened', { page_name: 'Settings' });
 
+      // Match Pricing.jsx: pop a new tab when embedded (Electron/iframe),
+      // otherwise navigate in place.
       const inIframe = window.self !== window.top;
       if (inIframe) {
         const newWindow = window.open(response.url, '_blank', 'noopener,noreferrer');

@@ -188,6 +188,83 @@ const ENTITY_SCHEMAS = {
   Plan: z.object({}).passthrough(),
   PlanProgress: z.object({}).passthrough(),
   Verse: z.object({}).passthrough(),
+
+  // ---------------------------------------------------------------------------
+  // Feature / relational entity types used by the frontend.
+  //
+  // These were previously absent from the allowlist, so EVERY create() against
+  // them failed with HTTP 400 "Unsupported entity type" — adding a resource
+  // tag (TagManager), saving a Bible study or reading plan, rating a sermon,
+  // posting/replying in the community, group collaboration, etc. Reads of
+  // unknown types silently returned [] (which is why empty states looked
+  // fine), masking the broken writes. They stay permissive (.passthrough)
+  // because the UI owns their exact shape; we only bound the obviously
+  // unbounded text fields so the size/abuse guarantees the allowlist exists
+  // to provide still hold.
+  // ---------------------------------------------------------------------------
+  ResourceTag: z.object({
+    tag: z.string().min(1).max(100),
+    resource_type: z.string().max(40).optional(),
+    resource_id: z.string().max(200).optional(),
+    color: z.string().max(40).optional(),
+    ai_suggested: z.boolean().optional(),
+  }).passthrough(),
+  BibleStudy: z.object({
+    title: z.string().min(1).max(300),
+    topic: z.string().max(300).optional(),
+    overview: z.string().max(50000).optional(),
+  }).passthrough(),
+  ReadingPlan: z.object({
+    title: z.string().max(300).optional(),
+    name: z.string().max(300).optional(),
+    description: z.string().max(20000).optional(),
+  }).passthrough(),
+  Collection: z.object({
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+  }).passthrough(),
+  CollectionItem: z.object({}).passthrough(),
+  EthicsAnalysis: z.object({
+    title: z.string().max(300).optional(),
+    topic: z.string().max(300).optional(),
+  }).passthrough(),
+  SermonRating: z.object({
+    rating: z.coerce.number().min(0).max(5).optional(),
+    review: z.string().max(5000).optional(),
+  }).passthrough(),
+  SermonSeries: z.object({
+    title: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+  }).passthrough(),
+  SharedSermon: z.object({}).passthrough(),
+  SharedSeries: z.object({}).passthrough(),
+  SharedPlanRating: z.object({
+    rating: z.coerce.number().min(0).max(5).optional(),
+    review: z.string().max(5000).optional(),
+  }).passthrough(),
+  // CommunityPost / CommunityReply are defined above (stricter schemas).
+  Comment: z.object({
+    content: z.string().max(20000).optional(),
+    body: z.string().max(20000).optional(),
+  }).passthrough(),
+  SermonComment: z.object({
+    content: z.string().max(20000).optional(),
+    body: z.string().max(20000).optional(),
+  }).passthrough(),
+  SermonCollaborator: z.object({}).passthrough(),
+  SeriesCollaborator: z.object({}).passthrough(),
+  SermonEdit: z.object({}).passthrough(),
+  GroupMessage: z.object({
+    content: z.string().max(20000).optional(),
+    message: z.string().max(20000).optional(),
+  }).passthrough(),
+  GroupProgress: z.object({}).passthrough(),
+  GroupMeeting: z.object({
+    title: z.string().max(300).optional(),
+  }).passthrough(),
+  MeetingAttendance: z.object({}).passthrough(),
+  GroupMembership: z.object({}).passthrough(),
+  ResourceLink: z.object({}).passthrough(),
 };
 
 function validateEntityPayload(type, body) {

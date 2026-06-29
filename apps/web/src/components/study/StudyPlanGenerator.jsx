@@ -24,6 +24,7 @@ import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import SharePlanDialog from "../plans/SharePlanDialog";
+import PrintButton from "@/components/common/PrintButton";
 
 const AGE_GROUPS = [
   { 
@@ -225,7 +226,7 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" data-print-full-width>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="w-6 h-6 text-indigo-600" />
@@ -334,15 +335,20 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
               </Button>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-6" data-print-section>
               {/* Plan Header */}
-              <Card className="border-l-4 border-indigo-600">
+              <Card className="border-l-4 border-indigo-600" data-print-break-inside-avoid>
                 <CardHeader>
-                  <CardTitle className="text-2xl">{generatedPlan.plan_title}</CardTitle>
-                  <div className="flex items-center gap-2 mt-2">
-                    <Badge>{duration} Days</Badge>
-                    <Badge variant="outline">{selectedAgeGroup.label}</Badge>
-                    <Badge variant="outline">{topic}</Badge>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <CardTitle className="text-2xl">{generatedPlan.plan_title}</CardTitle>
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <Badge>{duration} Days</Badge>
+                        <Badge variant="outline">{selectedAgeGroup.label}</Badge>
+                        <Badge variant="outline">{topic}</Badge>
+                      </div>
+                    </div>
+                    <PrintButton label="Print Plan" className="shrink-0" />
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -353,7 +359,7 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
               {/* Daily Lessons */}
               <div className="space-y-4">
                 {generatedPlan.daily_lessons.map((lesson, index) => (
-                  <Card key={index}>
+                  <Card key={index} data-print-break-inside-avoid>
                     <CardHeader>
                       <div className="flex items-center gap-3">
                         <Badge className="bg-indigo-600">Day {lesson.day}</Badge>
@@ -434,7 +440,7 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3">
+              <div className="flex gap-3" data-print-hidden>
                 <Button onClick={handleSavePlan} className="flex-1" size="lg">
                   <Save className="w-5 h-5 mr-2" />
                   Save to My Plans

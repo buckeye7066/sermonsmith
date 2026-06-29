@@ -257,11 +257,93 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
   }
 });
 
-// List available translations
-router.post('/listAvailableTranslations', optionalAuth, async (_req, res) => {
-  res.json({
-    translations: BIBLE_TRANSLATIONS.map((t) => translationMetadata(t.id)),
+// List available translations.
+//
+// Built from the shared `BIBLE_TRANSLATIONS` registry (single source of truth
+// for which translations exist + their license), enriched with the
+// presentation metadata the client reads: `available`, `shortName`, a full
+// `language` NAME, `languageCode`, `region`, `isComplete`, plus top-level
+// `byRegion` / `stats` / `is_premium`. The bare registry metadata left
+// `available` undefined (falsy), so the Reader's picker walled EVERY
+// translation — including genuinely public-domain ones (WEB/ASV/BBE/YLT/
+// Darby) — behind a bogus "Premium Required", and the count badge read
+// "8+ translations • 1+ languages". Every registry translation here is
+// public domain, so all are free for every account.
+const TRANSLATION_UI_META = {
+  kjv:        { shortName: 'KJV',     languageName: 'English',    languageCode: 'en', region: 'europe',   nativeName: 'King James Version' },
+  web:        { shortName: 'WEB',     languageName: 'English',    languageCode: 'en', region: 'americas', nativeName: 'World English Bible' },
+  bbe:        { shortName: 'BBE',     languageName: 'English',    languageCode: 'en', region: 'europe',   nativeName: 'Bible in Basic English' },
+  asv:        { shortName: 'ASV',     languageName: 'English',    languageCode: 'en', region: 'americas', nativeName: 'American Standard Version' },
+  ylt:        { shortName: 'YLT',     languageName: 'English',    languageCode: 'en', region: 'europe',   nativeName: "Young's Literal Translation" },
+  darby:      { shortName: 'DARBY',   languageName: 'English',    languageCode: 'en', region: 'europe',   nativeName: 'Darby Bible' },
+  clementine: { shortName: 'VULGATE', languageName: 'Latin',      languageCode: 'la', region: 'europe',   nativeName: 'Vulgata Clementina' },
+  almeida:    { shortName: 'ALMEIDA', languageName: 'Portuguese', languageCode: 'pt', region: 'americas', nativeName: 'João Ferreira de Almeida' },
+};
+
+const REGION_NAMES = {
+  europe: 'Europe', americas: 'Americas', middle_east: 'Middle East',
+  asia: 'Asia', africa: 'Africa', oceania: 'Oceania', other: 'Other',
+};
+
+router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
+  // optionalAuth only sets req.userId; look up the flags the UI reads.
+  let isPremium = false;
+  let isDeveloper = false;
+  if (req.userId) {
+    try {
+      const u = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { role: true, premium: true, premium_until: true },
+      });
+      if (u) {
+        isPremium = !!u.premium || (u.premium_until ? new Date(u.premium_until) > new Date() : false);
+        isDeveloper = u.role === 'admin' || u.role === 'dev';
+      }
+    } catch {
+      // Non-fatal — fall back to free/non-developer view.
+    }
+  }
+
+  const translations = BIBLE_TRANSLATIONS.map((t) => {
+    const ui = TRANSLATION_UI_META[t.id] || {};
+    return {
+      id: t.id,
+      name: t.name,
+      shortName: ui.shortName || t.id.toUpperCase(),
+      nativeName: ui.nativeName || t.name,
+      language: ui.languageName || t.language,   // full name for UI grouping
+      languageCode: ui.languageCode || t.language,
+      region: ui.region || 'other',
+      // Public-domain + display-licensed translations are free for everyone.
+      available: !!(t.publicDomain && t.displayAllowed),
+      isComplete: true,
+      textDirection: 'ltr',
+      // License/attribution metadata from the registry (the source of truth).
+      license: t.license,
+      attribution: t.attribution,
+      copyrightNotice: t.copyrightNotice,
+      sourceUrl: t.sourceUrl,
+      publicDomain: t.publicDomain,
+      displayAllowed: t.displayAllowed,
+      exportAllowed: t.exportAllowed,
+    };
   });
+
+  const byRegion = {};
+  for (const t of translations) {
+    const key = t.region || 'other';
+    if (!byRegion[key]) byRegion[key] = { name: REGION_NAMES[key] || 'Other', translations: [] };
+    byRegion[key].translations.push(t);
+  }
+
+  const stats = {
+    total: translations.length,
+    languages: new Set(translations.map((t) => t.languageCode)).size,
+    complete: translations.filter((t) => t.isComplete).length,
+    available: translations.filter((t) => t.available).length,
+  };
+
+  res.json({ translations, byRegion, stats, is_premium: isPremium, is_developer: isDeveloper });
 });
 
 // Multi-source passage
@@ -366,6 +448,9 @@ router.post('/createBillingPortal', authenticateToken, async (req, res, next) =>
     if (!user) return res.status(404).json({ message: 'User not found' });
     const frontendUrl = frontendBaseUrl();
 
+    // Prefer the customer id captured at checkout (survives email changes).
+    // Fall back to an email lookup for accounts created before that column
+    // existed, and backfill the id so subsequent calls skip the lookup.
     let customerId = user.stripeCustomerId;
     if (!customerId) {
       const customers = await stripe.customers.list({ email: user.email, limit: 1 });
@@ -868,6 +953,22 @@ router.post('/syncToGitHub', authenticateToken, requireAdmin, async (_req, res) 
   });
 });
 
+// Sets premium on/off for the account behind a Stripe customer id. Prefers the
+// stored stripeCustomerId (stable across email changes); falls back to an email
+// match for accounts that subscribed before that column was captured.
+async function setPremiumForCustomer(stripe, customerId, premium) {
+  if (!customerId) return;
+  const byCustomer = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } }).catch(() => null);
+  if (byCustomer) {
+    await prisma.user.update({ where: { id: byCustomer.id }, data: { premium } });
+    return;
+  }
+  const customer = await stripe.customers.retrieve(customerId).catch(() => null);
+  if (customer?.email) {
+    await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium } });
+  }
+}
+
 // Exported so index.js can mount it with express.raw() for signature verification
 export async function handleStripeWebhook(req, res) {
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
@@ -913,33 +1014,21 @@ export async function handleStripeWebhook(req, res) {
         }
         break;
       }
+      case 'customer.subscription.updated': {
+        // Fires on any subscription change: renewal, plan switch, entering a
+        // dunning state, or a scheduled cancel taking effect. Keep premium in
+        // sync with the live status rather than waiting for the delete event —
+        // 'active'/'trialing'/'past_due' (grace period) keep access; anything
+        // else (canceled, unpaid, paused, incomplete_expired) revokes it.
+        const sub = event.data?.object;
+        const grantsAccess = ['active', 'trialing', 'past_due'].includes(sub?.status);
+        await setPremiumForCustomer(stripe, sub?.customer, grantsAccess);
+        break;
+      }
       case 'customer.subscription.deleted':
       case 'customer.subscription.canceled': {
         const sub = event.data?.object;
-        const customerId = sub?.customer;
-        if (customerId) {
-          // Prefer the stored stripeCustomerId — stable even if the user changed
-          // their email after subscribing. Fall back to email match for accounts
-          // that subscribed before stripeCustomerId was captured.
-          const byCustomer = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } }).catch(() => null);
-          if (byCustomer) {
-            await prisma.user.update({ where: { id: byCustomer.id }, data: { premium: false } });
-          } else {
-            const customer = await stripe.customers.retrieve(customerId).catch(() => null);
-            if (customer?.email) {
-              await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium: false } });
-            }
-          }
-        }
-        break;
-      }
-      case 'customer.subscription.updated': {
-        const sub = event.data?.object;
-        if (subscriptionIsPremium(sub?.status)) {
-          await setPremiumByStripeCustomer(stripe, sub?.customer, true);
-        } else if (subscriptionIsNonPremium(sub?.status)) {
-          await setPremiumByStripeCustomer(stripe, sub?.customer, false);
-        }
+        await setPremiumForCustomer(stripe, sub?.customer, false);
         break;
       }
       default:

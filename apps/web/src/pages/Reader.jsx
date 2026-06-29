@@ -986,6 +986,8 @@ export default function Reader() {
             size="icon"
             onClick={() => navigateChapter('prev')}
             disabled={currentChapter <= 1 || isLoading}
+            aria-label="Previous chapter"
+            title="Previous chapter"
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -997,6 +999,8 @@ export default function Reader() {
             size="icon"
             onClick={() => navigateChapter('next')}
             disabled={currentChapter >= currentBookInfo?.chapters || isLoading}
+            aria-label="Next chapter"
+            title="Next chapter"
           >
             <ChevronRight className="w-4 h-4" />
           </Button>

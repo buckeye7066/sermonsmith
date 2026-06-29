@@ -38,7 +38,11 @@ export function OfflineProvider({ children }) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
         
-        await fetch('/icon.png', {
+        // Probe a tiny asset that actually exists. This used to hit
+        // '/icon.png', which the app doesn't ship (only icon.svg), so every
+        // 60s probe 404/503'd and, on a flaky 5xx, falsely flipped the app to
+        // "offline".
+        await fetch('/icon.svg', {
           method: 'HEAD',
           cache: 'no-store',
           signal: controller.signal

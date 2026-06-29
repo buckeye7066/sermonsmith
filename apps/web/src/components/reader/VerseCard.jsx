@@ -54,34 +54,38 @@ export default function VerseCard({
           : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
       }`}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <Badge variant="outline" className="text-xs">
-              {verse.verse}
-            </Badge>
-            {hasNotes && (
-              <Badge variant="secondary" className="text-xs flex items-center gap-1">
-                <StickyNote className="w-3 h-3" />
-                {notes.length}
-              </Badge>
-            )}
-          </div>
-          <p className="text-gray-800 dark:text-gray-200 leading-relaxed text-lg">
-            {verse.text}
-          </p>
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Badge variant="outline" className="text-xs">
+            {verse.verse}
+          </Badge>
           {hasNotes && (
-            <div className="mt-3 p-2 bg-gray-50 dark:bg-gray-700 rounded border-l-4 border-blue-500">
-              <p className="text-sm text-gray-600 dark:text-gray-300">
-                {notes[0].content.length > 100 
-                  ? `${notes[0].content.substring(0, 100)}...` 
-                  : notes[0].content}
-              </p>
-            </div>
+            <Badge variant="secondary" className="text-xs flex items-center gap-1">
+              <StickyNote className="w-3 h-3" />
+              {notes.length}
+            </Badge>
           )}
         </div>
-        
-        <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <p className="text-gray-800 dark:text-gray-200 leading-relaxed text-lg">
+          {verse.text}
+        </p>
+        {hasNotes && (
+          <div className="mt-3 p-2 bg-gray-50 dark:bg-gray-700 rounded border-l-4 border-blue-500">
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              {notes[0].content.length > 100
+                ? `${notes[0].content.substring(0, 100)}...`
+                : notes[0].content}
+            </p>
+          </div>
+        )}
+
+        {/* Action toolbar. Laid out as a horizontal wrapping row that reveals
+            on hover. Previously this was a vertical `flex-col` of ~10 icon
+            buttons kept `opacity-0` — but opacity-hidden elements still occupy
+            layout, so every verse card was forced to ~400px tall regardless of
+            how short the verse was. A wrapping horizontal bar collapses to a
+            single compact row, eliminating the dead whitespace. */}
+        <div className="mt-2 flex flex-wrap items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           <Button
             variant="ghost"
             size="icon"

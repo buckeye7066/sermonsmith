@@ -28,6 +28,7 @@ import {
   VolumeX
 } from "lucide-react";
 import { toast } from "sonner";
+import PrintButton from "@/components/common/PrintButton";
 
 const PRAYER_TYPES = [
   { value: 'personal', label: 'Personal Prayer', icon: User, description: 'For individual devotion' },
@@ -295,7 +296,7 @@ Same structure as before.`;
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-3 gap-6" data-print-layout>
           <div className="md:col-span-2 space-y-6">
             {!generatedPrayer ? (
               <Card>
@@ -400,8 +401,8 @@ Same structure as before.`;
                 </CardContent>
               </Card>
             ) : (
-              <div className="space-y-6">
-                <Card className="bg-gradient-to-br from-pink-50 to-purple-50 dark:from-pink-900/20 dark:to-purple-900/20 border-pink-200">
+              <div className="space-y-6" data-print-section>
+                <Card className="bg-gradient-to-br from-pink-50 to-purple-50 dark:from-pink-900/20 dark:to-purple-900/20 border-pink-200" data-print-break-inside-avoid>
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <div>
@@ -412,7 +413,8 @@ Same structure as before.`;
                           {generatedPrayer.theme && <Badge variant="secondary">{generatedPrayer.theme}</Badge>}
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2" data-print-hidden>
+                        <PrintButton label="Print" />
                         <Button variant="outline" size="icon" onClick={copyPrayer} title="Copy">
                           <Copy className="w-4 h-4" />
                         </Button>
@@ -461,7 +463,7 @@ Same structure as before.`;
                   </CardContent>
                 </Card>
 
-                <Tabs defaultValue="scripture" className="w-full">
+                <Tabs defaultValue="scripture" className="w-full" data-print-break-inside-avoid>
                   <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="scripture">Scripture Basis</TabsTrigger>
                     <TabsTrigger value="variations">Alternate Endings</TabsTrigger>
@@ -507,15 +509,27 @@ Same structure as before.`;
                   </TabsContent>
                 </Tabs>
 
-                <div className="flex gap-3 flex-wrap">
-                  <Button 
-                    variant="outline" 
+                <div className="flex gap-3 flex-wrap" data-print-hidden>
+                  <Button
+                    variant="outline"
                     onClick={() => setGeneratedPrayer(null)}
                     className="flex-1"
                   >
                     New Prayer
                   </Button>
-                  <Button 
+                  {/* Explicit, labelled save action. The header had only an
+                      icon-only Save button which was easy to miss, so a
+                      generated prayer appeared to have no way to reach the
+                      "Saved Prayers" panel. */}
+                  <Button
+                    variant="outline"
+                    onClick={savePrayer}
+                    className="flex-1"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Prayer
+                  </Button>
+                  <Button
                     onClick={generateVariation}
                     disabled={isGenerating}
                     className="flex-1"
@@ -532,7 +546,7 @@ Same structure as before.`;
             )}
           </div>
 
-          <div>
+          <div data-print-hidden>
             <Card className="sticky top-4">
               <CardHeader>
                 <CardTitle className="text-lg">Saved Prayers</CardTitle>
@@ -573,7 +587,7 @@ Same structure as before.`;
           </div>
         </div>
 
-        <Alert className="mt-8 bg-amber-50 dark:bg-amber-900/20 border-amber-300">
+        <Alert className="mt-8 bg-amber-50 dark:bg-amber-900/20 border-amber-300" data-print-hidden>
           <Heart className="w-4 h-4 text-amber-600" />
           <AlertDescription className="text-amber-800 dark:text-amber-200 text-sm">
             <p className="font-semibold mb-1">💡 Tips for Great Prayers:</p>

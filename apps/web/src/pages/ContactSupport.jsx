@@ -304,10 +304,14 @@ Return only the message text, nothing else.`;
             </div>
 
             <div className="flex gap-2">
+              {/* Intentionally NOT disabled on empty subject: a disabled
+                  button silently swallows the click and gives the user no
+                  feedback. handleAIGenerate guards an empty subject and
+                  surfaces a "Please enter a subject first" toast instead. */}
               <Button
                 variant="outline"
                 onClick={handleAIGenerate}
-                disabled={isGenerating || !subject.trim()}
+                disabled={isGenerating}
                 className="flex items-center gap-2"
               >
                 {isGenerating ? (

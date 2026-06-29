@@ -15,7 +15,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Navigation, AlertCircle } from "lucide-react";
 import { chaptersInBook, versesInChapter } from "@/lib/bibleVerseCounts";
 
-
 const BIBLE_BOOKS = [
   "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth",
   "1 Samuel", "2 Samuel", "1 Kings", "2 Kings", "1 Chronicles", "2 Chronicles", "Ezra",
@@ -159,7 +158,7 @@ export default function JumpToVerse({ open, onClose, onJump, currentBook, curren
                 type="number"
                 min="1"
                 value={verse}
-                onChange={(e) => setVerse(e.target.value)}
+                onChange={(e) => { setVerse(e.target.value); setError(""); }}
                 onKeyPress={handleKeyPress}
                 placeholder="e.g., 16"
               />

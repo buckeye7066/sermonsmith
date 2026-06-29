@@ -364,8 +364,8 @@ Return as JSON array of strings.`;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
-      <div className="max-w-5xl mx-auto">
-        <div className="mb-8">
+      <div className="max-w-5xl mx-auto" data-print-full-width>
+        <div className="mb-8" data-print-hidden={!!generatedStudy || undefined}>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <GraduationCap className="w-8 h-8 text-indigo-600" /> {/* Changed icon */}
             Bible Study Generator {/* Changed title */}
@@ -376,7 +376,7 @@ Return as JSON array of strings.`;
         </div>
 
         {/* Study Plan Generator Button */}
-        <Card className="mb-6 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border-purple-200">
+        <Card className="mb-6 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border-purple-200" data-print-hidden>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -402,7 +402,7 @@ Return as JSON array of strings.`;
         </Card>
 
         {/* Multi-Perspective Study Card */}
-        <Card className="mb-6 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 border-indigo-200">
+        <Card className="mb-6 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 border-indigo-200" data-print-hidden>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -494,7 +494,7 @@ Return as JSON array of strings.`;
         ) : (
           <div className="space-y-6">
             {/* Larry's AI Enhancement Tools */}
-            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800">
+            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800" data-print-hidden>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Bot className="w-5 h-5 text-blue-600" />
@@ -626,7 +626,7 @@ Return as JSON array of strings.`;
               enhancementType={enhancementType}
             />
 
-            <div className="flex gap-3">
+            <div className="flex gap-3" data-print-hidden>
               <Button
                 variant="outline"
                 onClick={() => {

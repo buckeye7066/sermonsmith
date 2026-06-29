@@ -25,9 +25,14 @@ async function getOpenAI() {
 // Hard caps so a single client cannot ask for an unbounded completion and
 // drain quota / rack up cost. Premium accounts can request more, but never
 // above the absolute ceiling.
-const ABSOLUTE_MAX_TOKENS = 4096;
+// Raised from 4096 → 8192: deep structured outputs (e.g. the Worldview
+// Explorer's 7-section analysis schema) routinely exceeded a 4096-token
+// completion and got truncated mid-JSON, which then failed JSON.parse and
+// surfaced as "Failed to generate analysis". gpt-4o / gpt-4o-mini both support
+// well above this, so the ceiling is the real constraint, not the model.
+const ABSOLUTE_MAX_TOKENS = 8192;
 const FREE_MAX_TOKENS = 1500;
-const PREMIUM_MAX_TOKENS = 4096;
+const PREMIUM_MAX_TOKENS = 8192;
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90_000);
 
 // Hard request-size caps so a malicious or buggy client can't ship a
@@ -253,6 +258,25 @@ export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500
   }
 }
 
+// Tolerant JSON extraction for structured-output calls. `json_object` mode
+// normally yields strict JSON, but a model can still (a) wrap it in a ```json
+// fence, or (b) get cut off by the token ceiling mid-object. We strip fences
+// and, as a last resort, slice the outermost {...}/[...] block before giving
+// up — so a stray fence never turns a perfectly good response into a 502.
+export function extractJson(raw) {
+  if (typeof raw !== 'string') return { ok: false };
+  let text = raw.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fence) text = fence[1].trim();
+  try { return { ok: true, value: JSON.parse(text) }; } catch { /* try salvage */ }
+  const first = text.search(/[{[]/);
+  const last = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'));
+  if (first !== -1 && last > first) {
+    try { return { ok: true, value: JSON.parse(text.slice(first, last + 1)) }; } catch { /* fall through */ }
+  }
+  return { ok: false };
+}
+
 const auditSummarySchema = z.object({
   days: z.coerce.number().int().min(1).max(90).default(7),
 });
@@ -394,10 +418,13 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
       '/ai/invoke',
     );
     const content = completion.choices[0]?.message?.content || '';
+    const finishReason = completion.choices[0]?.finish_reason;
 
     if (response_json_schema) {
-      try {
-        const json = JSON.parse(content);
+      // Tolerant parse (fence-stripping + outer-object salvage) so a stray
+      // code fence doesn't 502 an otherwise-valid response.
+      const parsed = extractJson(content);
+      if (parsed.ok) {
         await auditAiCall({
           ...auditBase,
           response: content,
@@ -405,26 +432,30 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
           tokenEstimate: estimateTokenCount(auditBase.prompt, content),
         });
         audited = true;
-        return res.json(json);
-      } catch {
-        // Fail loud on malformed JSON when the client asked for structured
-        // output. The previous behaviour returned `{ response: <text> }`,
-        // which the SermonBuilder/SeriesBuilder then treated as a valid
-        // structured object and crashed on `.points.map(...)` etc. A 502 +
-        // preview lets the UI surface a retryable error instead.
-        await auditAiCall({
-          ...auditBase,
-          response: content,
-          status: 'invalid_json',
-          failureType: 'invalid_json',
-          tokenEstimate: estimateTokenCount(auditBase.prompt, content),
-        });
-        audited = true;
-        return res.status(502).json({
-          message: 'AI returned invalid JSON. Please retry.',
-          responsePreview: content.slice(0, 500),
-        });
+        return res.json(parsed.value);
       }
+      // Fail loud on malformed JSON when the client asked for structured
+      // output. The previous behaviour returned `{ response: <text> }`,
+      // which the SermonBuilder/SeriesBuilder then treated as a valid
+      // structured object and crashed on `.points.map(...)` etc. A 502 +
+      // preview lets the UI surface a retryable error instead. When the model
+      // was cut off by the token ceiling we say so explicitly, since "retry"
+      // alone won't help if the request is simply too large.
+      await auditAiCall({
+        ...auditBase,
+        response: content,
+        status: 'invalid_json',
+        failureType: finishReason === 'length' ? 'truncated' : 'invalid_json',
+        tokenEstimate: estimateTokenCount(auditBase.prompt, content),
+      });
+      audited = true;
+      return res.status(502).json({
+        message: finishReason === 'length'
+          ? 'The AI response was too long and was cut off before it finished. Please try a narrower or more specific request.'
+          : 'AI returned invalid JSON. Please retry.',
+        truncated: finishReason === 'length',
+        responsePreview: content.slice(0, 500),
+      });
     }
     await auditAiCall({
       ...auditBase,

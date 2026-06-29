@@ -110,8 +110,8 @@ export default function QuizBuilder() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
+      <div className="max-w-6xl mx-auto" data-print-full-width>
+        <div className="mb-8" data-print-hidden={!!quizData || undefined}>
           <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
             <Brain className="w-8 h-8 text-purple-500" />
             Quiz Builder
@@ -121,8 +121,8 @@ export default function QuizBuilder() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-1">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8" data-print-layout>
+          <div className="lg:col-span-1" data-print-hidden>
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -184,7 +184,7 @@ export default function QuizBuilder() {
                   </div>
                 )}
                 {quizData && (
-                  <QuizViewer quizData={quizData} onSave={handleSaveQuiz} />
+                  <QuizViewer quizData={quizData} onSave={handleSaveQuiz} user={user} />
                 )}
                 {!isLoading && !quizData && (
                   <div className="text-center py-12 border-2 border-dashed rounded-lg">

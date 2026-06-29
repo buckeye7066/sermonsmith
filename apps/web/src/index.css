@@ -156,3 +156,117 @@ button:focus-visible {
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  @page {
+    margin: 0.55in;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  [data-print-hidden],
+  [data-app-sidebar],
+  [data-sonner-toaster],
+  nav,
+  button[aria-label="Toggle sidebar"],
+  .leaflet-control-container {
+    display: none !important;
+  }
+
+  [data-app-shell],
+  [data-print-layout] {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  main {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  [data-print-full-width] {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  [data-print-section] {
+    color: #111827 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  [data-print-section] *,
+  [data-print-section] ::before,
+  [data-print-section] ::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  [data-print-section] .dark\:bg-gray-900,
+  [data-print-section] .dark\:bg-gray-800 {
+    background: #ffffff !important;
+  }
+
+  [data-print-break-inside-avoid],
+  [data-print-section] .rounded,
+  [data-print-section] .rounded-lg,
+  [data-print-section] .rounded-xl,
+  [data-print-section] [class*="shadow"] {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  [data-print-section] [data-state="closed"],
+  [data-print-section] [hidden] {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    animation: none !important;
+  }
+
+  [role="dialog"] {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    transform: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+
+  [data-print-section] svg {
+    color: currentColor !important;
+  }
+
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}
