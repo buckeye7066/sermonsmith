@@ -40,6 +40,7 @@ export default function TranslationBrowser({
   const [selectedRegion, setSelectedRegion] = useState("all");
   const [isPremium, setIsPremium] = useState(false);
   const [, setIsDeveloper] = useState(false);
+  const [externalEnabled, setExternalEnabled] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -68,6 +69,7 @@ export default function TranslationBrowser({
       setStats(data.stats || null);
       setIsPremium(data.is_premium || false);
       setIsDeveloper(data.is_developer || false);
+      setExternalEnabled(!!data.external_enabled);
     } catch (error) {
       const msg = logError('Failed to load translations', error, {
         endpoint: 'listAvailableTranslations',
@@ -82,7 +84,7 @@ export default function TranslationBrowser({
   const handleSelectTranslation = (translation) => {
     if (!translation.available) {
       toast.error("Premium Required", {
-        description: "Upgrade to Premium to access 1000+ Bible translations in 200+ languages!"
+        description: "Upgrade to Premium to unlock this translation and the full multilingual library."
       });
       return;
     }
@@ -106,6 +108,12 @@ export default function TranslationBrowser({
     
     return matchesSearch && matchesRegion;
   });
+
+  // Honest premium-upsell figures: how many translations / languages are locked
+  // behind premium, computed from the real catalogue rather than hardcoded.
+  const lockedTranslations = translations.filter((t) => !t.available);
+  const lockedCount = lockedTranslations.length;
+  const lockedLanguages = new Set(lockedTranslations.map((t) => t.languageCode || t.language)).size;
 
   // Group filtered translations by language
   const groupedByLanguage = {};
@@ -180,7 +188,7 @@ export default function TranslationBrowser({
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
               <Loader2 className="w-12 h-12 animate-spin text-indigo-600 mx-auto mb-4" />
-              <p className="text-gray-600">Loading {">"}1000 translations...</p>
+              <p className="text-gray-600">Loading translations...</p>
             </div>
           </div>
         ) : (
@@ -209,8 +217,9 @@ export default function TranslationBrowser({
               </div>
             )}
 
-            {/* Premium Upsell */}
-            {!isPremium && (
+            {/* Premium Upsell — shown only when there is actually a premium
+                catalogue to unlock, with real counts (no hardcoded claims). */}
+            {!isPremium && externalEnabled && lockedCount > 0 && (
               <div className="p-4 bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-900/20 dark:to-amber-900/20 rounded-lg border border-yellow-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -218,7 +227,7 @@ export default function TranslationBrowser({
                     <div>
                       <h3 className="font-semibold text-yellow-800">Unlock All Translations</h3>
                       <p className="text-sm text-yellow-700">
-                        Get Premium to access 1000+ translations in 200+ languages!
+                        Get Premium to unlock {lockedCount.toLocaleString()} translations across {lockedLanguages} languages!
                       </p>
                     </div>
                   </div>
