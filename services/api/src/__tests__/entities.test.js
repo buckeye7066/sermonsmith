@@ -178,3 +178,47 @@ describe('entities — tenant isolation', () => {
     expect(entity.data.user_id).toBe('u-alice');
   });
 });
+
+describe('entities — allowlist (regression for broken creates)', () => {
+  let app;
+  beforeEach(() => {
+    prisma._reset();
+    app = buildApp();
+    prisma._store.user.push({ id: 'u-alice', email: 'a@x', role: 'user', premium: false });
+  });
+
+  // Regression: these types were missing from ENTITY_SCHEMAS, so every
+  // create() against them 400'd with "Unsupported entity type" — the
+  // "Failed to add tag" bug, plus saving studies/plans/ratings/etc.
+  it('allows creating a ResourceTag (was "Failed to add tag")', async () => {
+    const res = await request(app)
+      .post('/api/entities/ResourceTag')
+      .send({ tag: 'grace', resource_type: 'sermon', color: 'blue' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(res.status).toBe(200);
+    expect(res.body.tag).toBe('grace');
+    expect(res.body.id).toBeTruthy();
+  });
+
+  it('allows creating a BibleStudy and a ReadingPlan', async () => {
+    const study = await request(app)
+      .post('/api/entities/BibleStudy')
+      .send({ title: 'Romans overview', topic: 'grace' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(study.status).toBe(200);
+
+    const plan = await request(app)
+      .post('/api/entities/ReadingPlan')
+      .send({ name: '30-day plan' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(plan.status).toBe(200);
+  });
+
+  it('still rejects a genuinely unknown entity type', async () => {
+    const res = await request(app)
+      .post('/api/entities/TotallyMadeUpType')
+      .send({ foo: 'bar' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(res.status).toBe(400);
+  });
+});

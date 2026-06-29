@@ -172,20 +172,77 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
   }
 });
 
-// List available translations
-router.post('/listAvailableTranslations', optionalAuth, async (_req, res) => {
-  res.json({
-    translations: [
-      { id: 'kjv', name: 'King James Version', language: 'en' },
-      { id: 'web', name: 'World English Bible', language: 'en' },
-      { id: 'bbe', name: 'Bible in Basic English', language: 'en' },
-      { id: 'asv', name: 'American Standard Version', language: 'en' },
-      { id: 'ylt', name: "Young's Literal Translation", language: 'en' },
-      { id: 'darby', name: 'Darby Translation', language: 'en' },
-      { id: 'clementine', name: 'Clementine Vulgate', language: 'la' },
-      { id: 'almeida', name: 'João Ferreira de Almeida', language: 'pt' },
-    ],
-  });
+// List available translations.
+//
+// Every translation surfaced here is PUBLIC DOMAIN, so all of them are
+// available to every account — free or premium. (Premium is intended to
+// unlock the much larger external translation catalogue, not these.) The
+// previous response returned only `{ id, name, language }`, but the client
+// reads `available`, `shortName`, full `language` name, `languageCode`,
+// `region`, `isComplete`, plus top-level `byRegion` / `stats` /
+// `is_premium`. With those missing, `translation.available` was `undefined`
+// (falsy), so the Reader's translation picker slapped a "Premium Required"
+// wall on EVERY translation — including genuinely public-domain ones like
+// WEB, ASV, BBE, YLT and Darby — and the stats badge showed misleading
+// "8+ translations • 1+ languages". This returns the full shape so the
+// public-domain bibles are actually selectable and the counts are accurate.
+const BIBLE_TRANSLATION_CATALOG = [
+  { id: 'kjv', shortName: 'KJV', name: 'King James Version', nativeName: 'King James Version', language: 'English', languageCode: 'en', region: 'europe' },
+  { id: 'web', shortName: 'WEB', name: 'World English Bible', nativeName: 'World English Bible', language: 'English', languageCode: 'en', region: 'americas' },
+  { id: 'bbe', shortName: 'BBE', name: 'Bible in Basic English', nativeName: 'Bible in Basic English', language: 'English', languageCode: 'en', region: 'europe' },
+  { id: 'asv', shortName: 'ASV', name: 'American Standard Version', nativeName: 'American Standard Version', language: 'English', languageCode: 'en', region: 'americas' },
+  { id: 'ylt', shortName: 'YLT', name: "Young's Literal Translation", nativeName: "Young's Literal Translation", language: 'English', languageCode: 'en', region: 'europe' },
+  { id: 'darby', shortName: 'DARBY', name: 'Darby Translation', nativeName: 'Darby Translation', language: 'English', languageCode: 'en', region: 'europe' },
+  { id: 'clementine', shortName: 'VULGATE', name: 'Clementine Vulgate', nativeName: 'Vulgata Clementina', language: 'Latin', languageCode: 'la', region: 'europe' },
+  { id: 'almeida', shortName: 'ALMEIDA', name: 'João Ferreira de Almeida', nativeName: 'João Ferreira de Almeida', language: 'Portuguese', languageCode: 'pt', region: 'americas' },
+];
+
+const REGION_NAMES = {
+  europe: 'Europe', americas: 'Americas', middle_east: 'Middle East',
+  asia: 'Asia', africa: 'Africa', oceania: 'Oceania', other: 'Other',
+};
+
+router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
+  // optionalAuth only sets req.userId; look up the flags the UI reads.
+  let isPremium = false;
+  let isDeveloper = false;
+  if (req.userId) {
+    try {
+      const u = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: { role: true, premium: true, premium_until: true },
+      });
+      if (u) {
+        isPremium = !!u.premium || (u.premium_until ? new Date(u.premium_until) > new Date() : false);
+        isDeveloper = u.role === 'admin' || u.role === 'dev';
+      }
+    } catch {
+      // Non-fatal — fall back to free/non-developer view.
+    }
+  }
+
+  const translations = BIBLE_TRANSLATION_CATALOG.map((t) => ({
+    ...t,
+    available: true,        // public domain — never gated
+    isComplete: true,
+    textDirection: 'ltr',
+  }));
+
+  const byRegion = {};
+  for (const t of translations) {
+    const key = t.region || 'other';
+    if (!byRegion[key]) byRegion[key] = { name: REGION_NAMES[key] || 'Other', translations: [] };
+    byRegion[key].translations.push(t);
+  }
+
+  const stats = {
+    total: translations.length,
+    languages: new Set(translations.map((t) => t.languageCode)).size,
+    complete: translations.filter((t) => t.isComplete).length,
+    available: translations.filter((t) => t.available).length,
+  };
+
+  res.json({ translations, byRegion, stats, is_premium: isPremium, is_developer: isDeveloper });
 });
 
 // Multi-source passage

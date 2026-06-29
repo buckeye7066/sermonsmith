@@ -561,15 +561,28 @@ export default function Reader() {
       };
 
   const handleJumpToVerse = (book, chapter, verse) => {
-    // Validate book name
+    // Validate book name. Track the resolved target so the chapter clamp below
+    // uses the book we're actually switching to, not the previous one.
+    let targetBook = currentBook;
     if (book && BIBLE_BOOKS.find(b => b.name === book)) {
+      targetBook = book;
       setCurrentBook(book);
       localStorage.setItem('lastReadBook', book);
     }
-    
+
     if (chapter && chapter > 0) {
-      setCurrentChapter(chapter);
-      localStorage.setItem('lastReadChapter', chapter.toString());
+      // Clamp to the target book's real chapter count. JumpToVerse already
+      // validates, but deep links (?book=&chapter=) reach here directly — an
+      // out-of-range chapter previously sailed through to the API and could
+      // leave the reader stuck fetching a passage that doesn't exist.
+      const bookInfo = BIBLE_BOOKS.find(b => b.name === targetBook);
+      const maxChapter = bookInfo?.chapters || Infinity;
+      const safeChapter = Math.min(chapter, maxChapter);
+      if (safeChapter !== chapter) {
+        toast.error(`${targetBook} only has ${maxChapter} chapter${maxChapter === 1 ? '' : 's'} — showing chapter ${safeChapter}.`);
+      }
+      setCurrentChapter(safeChapter);
+      localStorage.setItem('lastReadChapter', safeChapter.toString());
     }
 
     if (verse) {
@@ -975,6 +988,8 @@ export default function Reader() {
             size="icon"
             onClick={() => navigateChapter('prev')}
             disabled={currentChapter <= 1 || isLoading}
+            aria-label="Previous chapter"
+            title="Previous chapter"
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -986,6 +1001,8 @@ export default function Reader() {
             size="icon"
             onClick={() => navigateChapter('next')}
             disabled={currentChapter >= currentBookInfo?.chapters || isLoading}
+            aria-label="Next chapter"
+            title="Next chapter"
           >
             <ChevronRight className="w-4 h-4" />
           </Button>

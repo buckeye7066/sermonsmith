@@ -11,6 +11,11 @@ const Toaster = ({
     (<Sonner
       theme={theme}
       className="toaster group"
+      // Auto-dismiss every toast after 5s (errors included — Sonner would
+      // otherwise keep some toasts up indefinitely) and give the user an
+      // explicit close affordance so a stack of them can always be cleared.
+      duration={5000}
+      closeButton
       toastOptions={{
         classNames: {
           toast:

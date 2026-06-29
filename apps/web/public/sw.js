@@ -1,8 +1,8 @@
-const CACHE_NAME = 'sermon-smith-v1';
+const CACHE_NAME = 'sermon-smith-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/icon.png'
+  '/icon.svg'
 ];
 
 // Install event - cache static assets

@@ -44,6 +44,11 @@ export default function TranslationBrowser({
 
   useEffect(() => {
     if (open) {
+      // Reset filter state each time the modal opens. Without this, a prior
+      // search term (and region tab) persisted across closes, so reopening
+      // could show a stale "No translations found" list.
+      setSearchQuery("");
+      setSelectedRegion("all");
       loadTranslations();
     }
   }, [open]);

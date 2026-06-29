@@ -94,3 +94,13 @@ export function versesInChapter(book, chapter) {
   if (!Number.isInteger(chapter) || chapter < 1 || chapter > arr.length) return null;
   return arr[chapter - 1];
 }
+
+/**
+ * Number of chapters in a book, or null if the book is unknown. `book` is
+ * matched case-insensitively. Lets the UI range-check a chapter number before
+ * it ever reaches the API.
+ */
+export function chaptersInBook(book) {
+  const arr = VERSE_COUNTS[String(book).toLowerCase()];
+  return arr ? arr.length : null;
+}

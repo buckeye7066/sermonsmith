@@ -77,7 +77,11 @@ export const PAGES = {
 }
 
 export const pagesConfig = {
-    mainPage: "Reader",
+    // Root "/" renders Home (the landing/dashboard), NOT Reader. Previously
+    // mainPage was "Reader", so "/" and "/Reader" rendered the identical
+    // page while the distinct sidebar "Home" link pointed at a route that
+    // duplicated the Bible reader. Home is the intended landing surface.
+    mainPage: "Home",
     Pages: PAGES,
     Layout: __Layout,
 };

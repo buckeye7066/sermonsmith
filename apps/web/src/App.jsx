@@ -11,6 +11,19 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import { OfflineProvider } from '@/lib/offlineDetector.jsx';
 import OfflineBanner from '@/components/OfflineBanner';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import AdminGuard from '@/components/AdminGuard';
+
+// Pages that must never render their UI to a non-admin. The API also enforces
+// this server-side; gating here stops the admin shell (search boxes, user
+// tables, action buttons) from ever mounting for a regular signed-in user.
+const ADMIN_PAGES = new Set([
+  'AdminUsers',
+  'AdminAnalytics',
+  'AdminMessages',
+  'AdminFunctionTester',
+  'AdminImport',
+  'FunctionReviewer',
+]);
 
 const Login = lazy(() => import('./pages/Login'));
 
@@ -60,7 +73,13 @@ const AuthenticatedApp = () => {
             path={`/${path}`}
             element={
               <LayoutWrapper currentPageName={path}>
-                <Page />
+                {ADMIN_PAGES.has(path) ? (
+                  <AdminGuard>
+                    <Page />
+                  </AdminGuard>
+                ) : (
+                  <Page />
+                )}
               </LayoutWrapper>
             }
           />

@@ -11,6 +11,7 @@ import { MapPin, Navigation, Clock, Book, Loader2, Crown, Search, Image as Image
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
+import PrintButton from "@/components/common/PrintButton";
 
 import InteractiveMap from "../components/maps/InteractiveMap";
 import TimelineViewer from "../components/maps/TimelineViewer";
@@ -352,19 +353,22 @@ Be detailed and descriptive for creating a visual representation.`;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-            <MapPin className="w-8 h-8 text-blue-500" />
-            Biblical Visual Explorer
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Search for locations, timelines, and visual aids from Scripture.
-          </p>
+      <div className="max-w-7xl mx-auto" data-print-full-width data-print-section>
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
+              <MapPin className="w-8 h-8 text-blue-500" />
+              Biblical Visual Explorer
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">
+              Search for locations, timelines, and visual aids from Scripture.
+            </p>
+          </div>
+          <PrintButton label="Print View" className="w-fit shrink-0" />
         </div>
 
         {/* AI Search Bar */}
-        <Card className="shadow-lg mb-6">
+        <Card className="shadow-lg mb-6" data-print-hidden>
           <CardContent className="pt-6">
             <div className="flex gap-3">
               <div className="flex-1">
@@ -415,14 +419,14 @@ Be detailed and descriptive for creating a visual representation.`;
         {/* Search Results */}
         {viewMode === "search" && searchResult && (
           <div className="space-y-6">
-            <Button variant="outline" onClick={handleBackToPresets}>
+            <Button variant="outline" onClick={handleBackToPresets} data-print-hidden>
               ← Back to Preset Journeys
             </Button>
 
             {searchResult.type === "location" && (
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6" data-print-layout>
                 <div className="lg:col-span-1">
-                  <Card className="shadow-lg">
+                  <Card className="shadow-lg" data-print-break-inside-avoid>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <MapPin className="w-5 h-5 text-orange-500" />
@@ -457,7 +461,7 @@ Be detailed and descriptive for creating a visual representation.`;
                   </Card>
                 </div>
                 <div className="lg:col-span-3">
-                  <Card className="shadow-lg h-full">
+                  <Card className="shadow-lg h-full" data-print-break-inside-avoid>
                     <CardHeader>
                       <CardTitle>{searchResult.data.title}</CardTitle>
                     </CardHeader>
@@ -470,7 +474,7 @@ Be detailed and descriptive for creating a visual representation.`;
             )}
 
             {searchResult.type === "timeline" && (
-              <Card className="shadow-lg">
+              <Card className="shadow-lg" data-print-break-inside-avoid>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Clock className="w-5 h-5 text-blue-500" />
@@ -485,7 +489,7 @@ Be detailed and descriptive for creating a visual representation.`;
             )}
 
             {searchResult.type === "visual" && (
-              <Card className="shadow-lg">
+              <Card className="shadow-lg" data-print-break-inside-avoid>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <ImageIcon className="w-5 h-5 text-purple-500" />
@@ -518,7 +522,7 @@ Be detailed and descriptive for creating a visual representation.`;
         {viewMode === "preset" && (
           <div>
             {/* Tab toggle for journeys vs timelines */}
-            <div className="flex gap-2 mb-6 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg w-fit">
+            <div className="flex gap-2 mb-6 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg w-fit" data-print-hidden>
               <Button
                 variant={presetTab === "journeys" ? "default" : "ghost"}
                 size="sm"
@@ -539,8 +543,8 @@ Be detailed and descriptive for creating a visual representation.`;
 
             {/* Journeys tab */}
             {presetTab === "journeys" && (
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                <div className="lg:col-span-1">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6" data-print-layout>
+                <div className="lg:col-span-1" data-print-hidden>
                   <Card className="shadow-lg">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
@@ -572,7 +576,7 @@ Be detailed and descriptive for creating a visual representation.`;
                 </div>
 
                 <div className="lg:col-span-3 space-y-6">
-                  <Card className="shadow-lg">
+                  <Card className="shadow-lg" data-print-break-inside-avoid>
                     <CardHeader>
                       <CardTitle className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -589,7 +593,7 @@ Be detailed and descriptive for creating a visual representation.`;
                     </CardContent>
                   </Card>
 
-                  <Card className="shadow-lg">
+                  <Card className="shadow-lg" data-print-break-inside-avoid>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2 text-lg">
                         <Book className="w-5 h-5 text-purple-500" />
@@ -623,8 +627,8 @@ Be detailed and descriptive for creating a visual representation.`;
 
             {/* Timelines tab */}
             {presetTab === "timelines" && (
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                <div className="lg:col-span-1">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6" data-print-layout>
+                <div className="lg:col-span-1" data-print-hidden>
                   <Card className="shadow-lg">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
@@ -658,7 +662,7 @@ Be detailed and descriptive for creating a visual representation.`;
                 </div>
 
                 <div className="lg:col-span-3">
-                  <Card className="shadow-lg">
+                  <Card className="shadow-lg" data-print-break-inside-avoid>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <Clock className="w-5 h-5 text-blue-500" />

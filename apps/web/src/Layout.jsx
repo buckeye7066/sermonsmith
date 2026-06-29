@@ -257,18 +257,18 @@ export default function Layout({ children, currentPageName }) {
   return (
     <SidebarProvider>
       <EmbeddedBrowserDetector />
-      <div className="flex h-screen bg-gray-50">
+      <div className="flex h-screen w-full overflow-hidden bg-gray-50" data-app-shell>
         <Sidebar className="border-r border-gray-200 hidden md:flex">
-          <SidebarHeader className="p-6 border-b border-gray-200">
-            <div className="flex items-center space-x-3">
+          <SidebarHeader className="border-b border-gray-200 p-4 group-data-[state=closed]/sidebar:px-3">
+            <div className="flex min-w-0 items-center gap-3 group-data-[state=closed]/sidebar:justify-center">
               <SafeImg
                 src={APP_ICON_URL}
                 alt="SermonSmith"
-                className="h-10 w-10 rounded-full"
+                className="h-10 w-10 shrink-0 rounded-full"
                 useFallbackIcon={true}
               />
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">SermonSmith</h1>
+              <div className="min-w-0 group-data-[state=closed]/sidebar:hidden">
+                <h1 className="truncate text-xl font-bold text-gray-900">SermonSmith</h1>
                 <p className="text-sm text-gray-500 truncate">{user.full_name || user.email}</p>
                 {devOverride && (
                   <p className="text-xs text-yellow-600 font-medium">Developer Access</p>
@@ -277,7 +277,7 @@ export default function Layout({ children, currentPageName }) {
             </div>
           </SidebarHeader>
 
-          <SidebarContent className="p-4">
+          <SidebarContent className="p-3">
             <SidebarMenu>
               {!isPremium && (
                 <SidebarMenuItem className="mb-4">
@@ -324,8 +324,8 @@ export default function Layout({ children, currentPageName }) {
           </SidebarContent>
         </Sidebar>
 
-        <main className="flex-1 overflow-auto pb-16 md:pb-0">
-          <div className="p-4 md:p-6">
+        <main className="min-w-0 flex-1 overflow-auto pb-16 md:pb-0">
+          <div className="w-full p-4 md:p-6">
             <div className="flex items-center justify-between mb-6 md:mb-4">
               <SidebarTrigger />
             </div>
