@@ -8,6 +8,13 @@ import {
   requireBibleTranslation,
   translationMetadata,
 } from '../services/bibleSources.js';
+import {
+  premiumProvider,
+  isPremiumTranslationId,
+  listPremiumTranslations,
+  fetchPremiumChapter,
+  sliceVerses,
+} from '../services/premiumTranslations.js';
 
 const router = Router();
 
@@ -103,6 +110,48 @@ async function getCachedBibleChapter({ book, chapter, translationId }) {
   return { ...data, cacheHit: false };
 }
 
+// Premium translations are fetched a whole chapter at a time from the external
+// provider and cached in the same durable bibleChapterCache (keyed by the
+// namespaced translation id, e.g. "gb:akjv"), so a verse request slices the
+// cached chapter instead of making a second upstream call.
+async function getCachedPremiumChapter({ id, book, chapter }) {
+  const cacheKey = { translation: id, book, chapter: Number(chapter) };
+
+  const cached = await prisma.bibleChapterCache.findUnique({
+    where: { translation_book_chapter: cacheKey },
+  });
+  if (bibleCacheFresh(cached)) {
+    return { ...cached.payload, cacheHit: true };
+  }
+
+  const data = await fetchPremiumChapter({ id, book, chapter });
+
+  await prisma.bibleChapterCache.upsert({
+    where: { translation_book_chapter: cacheKey },
+    create: { ...cacheKey, payload: data },
+    update: { payload: data, fetchedAt: new Date() },
+  });
+
+  return { ...data, cacheHit: false };
+}
+
+// Resolve effective premium access for the caller. `optionalAuth` only sets
+// req.userId (no role/premium), so on those routes we look the user up. Admins
+// and devs always count as premium.
+async function userHasPremium(req) {
+  if (req.userPremium || req.userRole === 'admin' || req.userRole === 'dev') return true;
+  if (!req.userId) return false;
+  const u = await prisma.user.findUnique({
+    where: { id: req.userId },
+    select: { role: true, premium: true, premium_until: true },
+  });
+  if (!u) return false;
+  return !!u.premium
+    || (u.premium_until ? new Date(u.premium_until) > new Date() : false)
+    || u.role === 'admin'
+    || u.role === 'dev';
+}
+
 function normalizePassageRef(ref) {
   return String(ref || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
@@ -180,29 +229,6 @@ function frontendBaseUrl() {
   return url.origin;
 }
 
-function subscriptionIsPremium(status) {
-  return ['active', 'trialing', 'past_due'].includes(status);
-}
-
-function subscriptionIsNonPremium(status) {
-  return ['canceled', 'unpaid', 'incomplete_expired'].includes(status);
-}
-
-async function setPremiumByStripeCustomer(stripe, customerId, premium) {
-  if (!customerId) return;
-
-  const byCustomer = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } }).catch(() => null);
-  if (byCustomer) {
-    await prisma.user.update({ where: { id: byCustomer.id }, data: { premium } });
-    return;
-  }
-
-  const customer = await stripe.customers.retrieve(customerId).catch(() => null);
-  if (customer?.email) {
-    await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium } });
-  }
-}
-
 // Bible passage — accepts both frontend naming (translationId/bookCode) and direct naming (book/translation)
 router.post('/biblePassage', optionalAuth, async (req, res, next) => {
   try {
@@ -218,6 +244,24 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
     const chapter = body.chapter;
     const translationRaw = body.translationId || body.translation || 'kjv';
     const verses = body.verses ?? body.verse;
+
+    // Premium (external) translations are namespaced (gb:/ab:), gated to paying
+    // accounts, and served from the external provider instead of bible-api.com.
+    if (isPremiumTranslationId(translationRaw)) {
+      if (!(await userHasPremium(req))) {
+        return res.status(402).json({ message: 'This translation requires Premium. Upgrade to read it.' });
+      }
+      const chapterData = await getCachedPremiumChapter({ id: translationRaw, book, chapter });
+      const sliced = sliceVerses(chapterData, verses);
+      return res.json({
+        reference: sliced.reference,
+        translation: { id: translationRaw },
+        translationLabel: translationRaw,
+        verses: sliced.verses || [],
+        text: sliced.text || '',
+        cacheHit: !!chapterData.cacheHit,
+      });
+    }
 
     const translation = requireBibleTranslation(translationRaw);
     const translationId = translation.id;
@@ -329,6 +373,21 @@ router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
     };
   });
 
+  // Append the premium (external) catalogue — getBible.net by default, or
+  // API.Bible's full 1000+/200+ catalogue when API_BIBLE_KEY is set. These are
+  // available only to premium accounts; everyone else sees them locked in the
+  // picker. A flaky upstream degrades to the free catalogue, never an error.
+  let externalEnabled = false;
+  try {
+    const premium = await listPremiumTranslations();
+    externalEnabled = premium.length > 0;
+    for (const p of premium) {
+      translations.push({ ...p, available: isPremium, publicDomain: false });
+    }
+  } catch {
+    // Non-fatal — degrade to the free catalogue only.
+  }
+
   const byRegion = {};
   for (const t of translations) {
     const key = t.region || 'other';
@@ -343,7 +402,17 @@ router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
     available: translations.filter((t) => t.available).length,
   };
 
-  res.json({ translations, byRegion, stats, is_premium: isPremium, is_developer: isDeveloper });
+  res.json({
+    translations,
+    byRegion,
+    stats,
+    is_premium: isPremium,
+    is_developer: isDeveloper,
+    // Drives honest upsell copy on the client: only claim a large premium
+    // catalogue when one is actually being served.
+    external_enabled: externalEnabled,
+    premium_provider: premiumProvider(),
+  });
 });
 
 // Multi-source passage
@@ -363,32 +432,49 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
     const { chapter } = data;
     const verse = data.verse ?? data.verses;
 
-    // Cap unique translations and filter to the supported allowlist before
-    // fanning out to bible-api.com. Anything outside is dropped silently
-    // because callers can legitimately pass a mix of valid and unknown
-    // translation codes during UI migrations.
+    // Split requested translations into public-domain (free, bible-api.com) and
+    // premium (external provider) buckets, de-duped and capped. Unknown
+    // public-domain codes are dropped silently (UI migrations pass a mix).
     const requested = data.translations || ['kjv', 'web', 'bbe'];
-    const translations = [...new Set(
-      requested
-        .map(normalizeBibleTranslation)
-        .filter((t) => BIBLE_TRANSLATION_IDS.has(t))
-    )].slice(0, MAX_TRANSLATIONS);
+    const seen = new Set();
+    const ordered = [];
+    for (const raw of requested) {
+      if (isPremiumTranslationId(raw)) {
+        if (!seen.has(raw)) { seen.add(raw); ordered.push(raw); }
+      } else {
+        const norm = normalizeBibleTranslation(raw);
+        if (BIBLE_TRANSLATION_IDS.has(norm) && !seen.has(norm)) { seen.add(norm); ordered.push(norm); }
+      }
+    }
+    const translations = ordered.slice(0, MAX_TRANSLATIONS);
     if (translations.length === 0) {
       return res.status(400).json({ message: 'No supported translations requested' });
     }
 
+    // Resolve premium access once if any premium translation was requested.
+    const allowPremium = translations.some(isPremiumTranslationId) ? await userHasPremium(req) : false;
+    const wholeChapter = verse === undefined || verse === null || verse === '';
+
     const results = await Promise.allSettled(
       translations.map(async (translationId) => {
+        const meta = isPremiumTranslationId(translationId)
+          ? { id: translationId }
+          : translationMetadata(translationId);
         try {
-          if (verse === undefined || verse === null || verse === '') {
+          if (isPremiumTranslationId(translationId)) {
+            if (!allowPremium) return { translation: meta, error: 'Premium required' };
+            const chapterData = await getCachedPremiumChapter({ id: translationId, book, chapter });
+            return { translation: meta, ...(wholeChapter ? chapterData : sliceVerses(chapterData, verse)) };
+          }
+          if (wholeChapter) {
             const cached = await getCachedBibleChapter({ book, chapter, translationId });
-            return { translation: translationMetadata(translationId), ...cached };
+            return { translation: meta, ...cached };
           }
           const ref = `${book} ${chapter}:${verse}`;
           const json = await getCachedBiblePassage({ ref, translationId });
-          return { translation: translationMetadata(translationId), ...json };
+          return { translation: meta, ...json };
         } catch (err) {
-          return { translation: translationMetadata(translationId), error: err.message || 'Upstream error' };
+          return { translation: meta, error: err.message || 'Upstream error' };
         }
       })
     );
