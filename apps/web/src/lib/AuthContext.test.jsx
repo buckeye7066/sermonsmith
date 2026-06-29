@@ -8,6 +8,7 @@ const me = vi.fn();
 const logoutRequest = vi.fn();
 const primeCachedUser = vi.fn();
 const logError = vi.fn();
+const setUnauthorizedHandler = vi.fn();
 
 vi.mock('@/api/apiClient', () => ({
   api: {
@@ -16,6 +17,8 @@ vi.mock('@/api/apiClient', () => ({
       logout: (...args) => logoutRequest(...args),
     },
   },
+  // AuthContext registers an app-wide 401 handler via this export on mount.
+  setUnauthorizedHandler: (...args) => setUnauthorizedHandler(...args),
 }));
 
 vi.mock('@/components/admin/UserActivityLogger', () => ({
