@@ -56,6 +56,35 @@ export function __resetApiBaseCache() {
 }
 
 // ---------------------------------------------------------------------------
+// Unauthorized (session-expired) handling
+//
+// A single app-level handler may register here. apiFetch invokes it whenever
+// the server answers 401 on a call that is NOT part of the auth handshake
+// itself (login / register / me / logout). AuthContext registers it to clear
+// auth state and bounce the user to /Login with an honest "session expired"
+// message — see lib/AuthContext.jsx.
+//
+// We keep this as a plain module-scope callback (not React state) so the
+// framework-agnostic client stays decoupled from React. Every feature page
+// already routes its requests through apiFetch, so wiring the redirect here
+// fixes the whole class of "silent 401 behind a generic error" bugs in one
+// place instead of page-by-page.
+// ---------------------------------------------------------------------------
+let _onUnauthorized = null;
+export function setUnauthorizedHandler(fn) {
+  _onUnauthorized = typeof fn === 'function' ? fn : null;
+}
+
+// Auth-handshake paths whose 401s are *expected* and handled inline by the
+// caller: a wrong password on /login, the "not logged in" answer on the
+// startup /me probe, an already-expired cookie on /logout. Firing the global
+// session-expired flow for these would, e.g., redirect the login page to
+// itself after a bad-password attempt.
+function isAuthHandshakePath(path) {
+  return path.startsWith('/api/auth/');
+}
+
+// ---------------------------------------------------------------------------
 // Fetch wrapper
 // ---------------------------------------------------------------------------
 
@@ -154,6 +183,16 @@ async function apiFetch(path, options = {}, _retryCount = 0) {
     const error = new Error(body.message || `API error ${res.status}`);
     error.status = res.status;
     error.data = body;
+
+    // Surface a real, mid-session 401 to the app-level handler so the UI can
+    // tell the user their session expired and route them to login — instead
+    // of each page swallowing it into a vague "couldn't do X" message. We skip
+    // the auth-handshake endpoints (their 401s are expected and handled by the
+    // caller). The handler itself decides whether we were actually logged in.
+    if (res.status === 401 && !isAuthHandshakePath(path)) {
+      try { _onUnauthorized?.(path); } catch { /* a broken handler must never mask the API error */ }
+    }
+
     throw error;
   }
 

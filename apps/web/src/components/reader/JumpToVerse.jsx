@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Navigation, AlertCircle } from "lucide-react";
+import { chaptersInBook, versesInChapter } from "@/lib/bibleVerseCounts";
 
 
 const BIBLE_BOOKS = [
@@ -30,15 +32,57 @@ export default function JumpToVerse({ open, onClose, onJump, currentBook, curren
   const [book, setBook] = useState(currentBook);
   const [chapter, setChapter] = useState(currentChapter.toString());
   const [verse, setVerse] = useState("");
+  const [error, setError] = useState("");
+
+  // Re-sync the form to the reader's current location each time the dialog
+  // opens (useState initialisers only run once, so without this a reopen kept
+  // stale values), and clear any prior validation message.
+  useEffect(() => {
+    if (open) {
+      setBook(currentBook);
+      setChapter(String(currentChapter));
+      setVerse("");
+      setError("");
+    }
+  }, [open, currentBook, currentChapter]);
+
+  const maxChapter = chaptersInBook(book);
 
   const handleJump = () => {
-    const chapterNum = parseInt(chapter);
-    const verseNum = verse ? parseInt(verse) : null;
-    
-    if (book && !isNaN(chapterNum) && chapterNum > 0) {
-      onJump(book, chapterNum, verseNum);
-      onClose();
+    const chapterNum = parseInt(chapter, 10);
+    const verseNum = verse ? parseInt(verse, 10) : null;
+
+    // Validate the reference *before* navigating so an impossible chapter or
+    // verse can never reach the Reader (and the API). Previously an invalid
+    // entry silently did nothing — or, for an out-of-range chapter, sent the
+    // reader off to fetch a passage that doesn't exist.
+    if (!book) {
+      setError("Please choose a book.");
+      return;
     }
+    if (!Number.isInteger(chapterNum) || chapterNum < 1) {
+      setError("Enter a chapter number (1 or higher).");
+      return;
+    }
+    if (maxChapter && chapterNum > maxChapter) {
+      setError(`${book} only has ${maxChapter} chapter${maxChapter === 1 ? "" : "s"}.`);
+      return;
+    }
+    if (verseNum !== null) {
+      if (!Number.isInteger(verseNum) || verseNum < 1) {
+        setError("Verse must be 1 or higher.");
+        return;
+      }
+      const maxVerse = versesInChapter(book, chapterNum);
+      if (maxVerse && verseNum > maxVerse) {
+        setError(`${book} ${chapterNum} only has ${maxVerse} verse${maxVerse === 1 ? "" : "s"}.`);
+        return;
+      }
+    }
+
+    setError("");
+    onJump(book, chapterNum, verseNum);
+    onClose();
   };
 
   const handleKeyPress = (e) => {
@@ -63,7 +107,7 @@ export default function JumpToVerse({ open, onClose, onJump, currentBook, curren
         <div className="space-y-4">
           <div>
             <Label htmlFor="book">Book</Label>
-            <Select value={book} onValueChange={setBook}>
+            <Select value={book} onValueChange={(v) => { setBook(v); setError(""); }}>
               <SelectTrigger id="book">
                 <SelectValue placeholder="Select book" />
               </SelectTrigger>
@@ -101,8 +145,9 @@ export default function JumpToVerse({ open, onClose, onJump, currentBook, curren
                 id="chapter"
                 type="number"
                 min="1"
+                max={maxChapter || undefined}
                 value={chapter}
-                onChange={(e) => setChapter(e.target.value)}
+                onChange={(e) => { setChapter(e.target.value); setError(""); }}
                 onKeyPress={handleKeyPress}
                 placeholder="e.g., 3"
               />
@@ -126,6 +171,13 @@ export default function JumpToVerse({ open, onClose, onJump, currentBook, curren
               💡 <strong>Tip:</strong> Leave verse empty to jump to the beginning of the chapter
             </p>
           </div>
+
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="w-4 h-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
         </div>
 
         <DialogFooter>
