@@ -60,17 +60,26 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, [checkAuth]);
 
+  // De-dupe ref for the burst of parallel 401s a single expiry produces, so we
+  // don't stack toasts or fire multiple redirects. Declared up here so the
+  // auth-mirror effect below can re-arm it on every (re)authentication.
+  const sessionExpiredHandledRef = useRef(false);
+
   // Mirror isAuthenticated into a ref so the (non-React) unauthorized handler
   // can read the *current* value without being re-registered on every change.
   const isAuthenticatedRef = useRef(false);
-  useEffect(() => { isAuthenticatedRef.current = isAuthenticated; }, [isAuthenticated]);
+  useEffect(() => {
+    isAuthenticatedRef.current = isAuthenticated;
+    // Re-arm the session-expiry guard whenever we become authenticated again
+    // (fresh login or post-login re-sync). Without this, once a session expired
+    // the guard stayed latched true for the page's lifetime, so a *later*
+    // expiry after re-login would be silently swallowed.
+    if (isAuthenticated) sessionExpiredHandledRef.current = false;
+  }, [isAuthenticated]);
 
   // Register the app-wide 401 handler. When a feature request 401s mid-session
   // (cookie expired, tokenVersion bumped), clear auth state, tell the user
-  // honestly, and bounce to login preserving where they were. A guard ref
-  // de-dupes the burst of parallel 401s a single expiry produces so we don't
-  // stack toasts or fire multiple redirects.
-  const sessionExpiredHandledRef = useRef(false);
+  // honestly, and bounce to login preserving where they were.
   useEffect(() => {
     setUnauthorizedHandler(() => {
       // A 401 while we already believe we're logged out is just a protected

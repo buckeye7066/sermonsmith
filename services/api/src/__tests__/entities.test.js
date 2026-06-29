@@ -178,3 +178,65 @@ describe('entities — tenant isolation', () => {
     expect(entity.data.user_id).toBe('u-alice');
   });
 });
+
+describe('entities — community forum types', () => {
+  let app;
+  beforeEach(() => {
+    prisma._reset();
+    app = buildApp();
+    prisma._store.user.push({ id: 'u-carol', email: 'carol@x', role: 'user', premium: false });
+  });
+
+  // Regression: the Forum page POSTs CommunityPost/CommunityReply, but those
+  // types were absent from ENTITY_SCHEMAS, so every "New Post" 400'd with
+  // "Unsupported entity type: CommunityPost".
+  it('creates a CommunityPost', async () => {
+    const res = await request(app)
+      .post('/api/entities/CommunityPost')
+      .send({
+        title: 'How should I study Romans?',
+        content: 'Looking for a good approach to the book of Romans.',
+        post_type: 'question',
+        scripture_reference: 'Romans 1:1',
+        user_name: 'Carol',
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe('How should I study Romans?');
+    expect(res.body.post_type).toBe('question');
+  });
+
+  it('defaults CommunityPost.post_type to discussion when omitted', async () => {
+    const res = await request(app)
+      .post('/api/entities/CommunityPost')
+      .send({ title: 'Just sharing', content: 'A testimony of grace.' })
+      .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
+    expect(res.status).toBe(200);
+    expect(res.body.post_type).toBe('discussion');
+  });
+
+  it('creates a CommunityReply', async () => {
+    const res = await request(app)
+      .post('/api/entities/CommunityReply')
+      .send({ post_id: 'p-1', content: 'Great question — start with the gospel framing.', user_name: 'Carol' })
+      .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
+    expect(res.status).toBe(200);
+    expect(res.body.content).toBe('Great question — start with the gospel framing.');
+  });
+
+  it('rejects a CommunityPost with no content (400)', async () => {
+    const res = await request(app)
+      .post('/api/entities/CommunityPost')
+      .send({ title: 'Empty body' })
+      .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
+    expect(res.status).toBe(400);
+  });
+
+  it('still rejects a genuinely unknown entity type (400)', async () => {
+    const res = await request(app)
+      .post('/api/entities/NotARealType')
+      .send({ title: 'x' })
+      .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
+    expect(res.status).toBe(400);
+  });
+});
