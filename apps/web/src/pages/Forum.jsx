@@ -75,7 +75,9 @@ export default function Forum() {
       setNewPost({ title: '', content: '', post_type: 'discussion', scripture_reference: '', tags: [] });
       loadPosts();
     } catch (error) {
-      toast.error("Failed to create post");
+      // Surface the server's actual reason (e.g. a validation message) instead
+      // of an opaque "Failed to create post" that hides the real HTTP error.
+      toast.error(error?.data?.message || error?.message || "Failed to create post");
     }
   };
 
@@ -103,7 +105,7 @@ export default function Forum() {
       loadReplies(selectedPost.id);
       loadPosts();
     } catch (error) {
-      toast.error("Failed to post reply");
+      toast.error(error?.data?.message || error?.message || "Failed to post reply");
     }
   };
 

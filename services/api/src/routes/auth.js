@@ -73,6 +73,54 @@ function sanitizeUser(user) {
   return { ...safeProfile, ...safeUser, profile: safeProfile };
 }
 
+const PRIVACY_EXPORT_MODELS = [
+  ['sermons', 'sermon'],
+  ['sermonSeries', 'sermonSeries'],
+  ['sermonOutlines', 'sermonOutline'],
+  ['bibleStudies', 'bibleStudy'],
+  ['studyNotes', 'studyNote'],
+  ['highlights', 'highlight'],
+  ['bookmarks', 'bookmark'],
+  ['prayerRequests', 'prayerRequest'],
+  ['sharedContents', 'sharedContent'],
+  ['forumPosts', 'forumPost'],
+  ['studyGroups', 'studyGroup'],
+  ['savedContents', 'savedContent'],
+];
+
+async function exportRows(modelName, userId) {
+  const model = prisma[modelName];
+  if (!model?.findMany) return [];
+  try {
+    return await model.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+  } catch {
+    // During phased deploys, the route should still return the generic Entity
+    // export even if a typed table migration has not been applied yet.
+    return [];
+  }
+}
+
+async function recordAudit(action, userId, metadata = {}) {
+  if (!prisma.auditLog?.create) return;
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action,
+        targetType: 'User',
+        targetId: userId,
+        metadata,
+      },
+    });
+  } catch {
+    // Privacy operations must not fail because a best-effort audit insert did.
+  }
+}
+
 router.post('/register', async (req, res, next) => {
   try {
     const { email, password, name } = req.body;
@@ -234,6 +282,75 @@ router.patch('/me', authenticateToken, async (req, res, next) => {
     });
 
     res.json(sanitizeUser(user));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/export', authenticateToken, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const entities = await prisma.entity.findMany({
+      where: { userId: req.userId },
+      orderBy: { createdAt: 'desc' },
+      take: 10000,
+      select: { id: true, type: true, data: true, createdAt: true, updatedAt: true },
+    });
+
+    const typedEntries = await Promise.all(
+      PRIVACY_EXPORT_MODELS.map(async ([key, modelName]) => [key, await exportRows(modelName, req.userId)])
+    );
+
+    await recordAudit('privacy.export', req.userId, {
+      entityCount: entities.length,
+      typedCounts: Object.fromEntries(typedEntries.map(([key, rows]) => [key, rows.length])),
+    });
+
+    res.json({
+      exportedAt: new Date().toISOString(),
+      user: sanitizeUser(user),
+      entities,
+      typed: Object.fromEntries(typedEntries),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/me', authenticateToken, async (req, res, next) => {
+  try {
+    const target = await prisma.user.findUnique({ where: { id: req.userId } });
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    await recordAudit('privacy.account_delete_requested', req.userId, { selfService: true });
+    await prisma.user.update({
+      where: { id: req.userId },
+      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+    });
+    res.clearCookie(AUTH_COOKIE, cookieOptions());
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/revoke-sessions', authenticateToken, async (req, res, next) => {
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
+
+    await recordAudit('auth.sessions_revoked', req.userId, { selfService: true });
+
+    const token = signToken(user);
+    res.cookie(AUTH_COOKIE, token, cookieOptions());
+    res.json({
+      message: 'Other sessions revoked',
+      user: sanitizeUser(user),
+    });
   } catch (err) {
     next(err);
   }

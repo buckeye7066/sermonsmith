@@ -6,6 +6,25 @@ import { primeCachedUser } from '@/components/admin/UserActivityLogger';
 
 const AuthContext = createContext();
 
+function usesHashRouter() {
+  return typeof window !== 'undefined' && Boolean(window.electron?.isElectron);
+}
+
+export function getCurrentAppReturnPath() {
+  if (typeof window === 'undefined') return '/';
+  const hashRoute = window.location.hash || '';
+  if (hashRoute.startsWith('#/')) {
+    return hashRoute.slice(1) || '/';
+  }
+  return `${window.location.pathname}${window.location.search}${window.location.hash}` || '/';
+}
+
+export function getLoginPath(returnTo) {
+  const base = usesHashRouter() ? '#/Login' : '/Login';
+  if (!returnTo) return base;
+  return `${base}?return=${encodeURIComponent(returnTo)}`;
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -41,17 +60,26 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, [checkAuth]);
 
+  // De-dupe ref for the burst of parallel 401s a single expiry produces, so we
+  // don't stack toasts or fire multiple redirects. Declared up here so the
+  // auth-mirror effect below can re-arm it on every (re)authentication.
+  const sessionExpiredHandledRef = useRef(false);
+
   // Mirror isAuthenticated into a ref so the (non-React) unauthorized handler
   // can read the *current* value without being re-registered on every change.
   const isAuthenticatedRef = useRef(false);
-  useEffect(() => { isAuthenticatedRef.current = isAuthenticated; }, [isAuthenticated]);
+  useEffect(() => {
+    isAuthenticatedRef.current = isAuthenticated;
+    // Re-arm the session-expiry guard whenever we become authenticated again
+    // (fresh login or post-login re-sync). Without this, once a session expired
+    // the guard stayed latched true for the page's lifetime, so a *later*
+    // expiry after re-login would be silently swallowed.
+    if (isAuthenticated) sessionExpiredHandledRef.current = false;
+  }, [isAuthenticated]);
 
   // Register the app-wide 401 handler. When a feature request 401s mid-session
-  // (cookie expired, token version bumped), clear auth state, tell the user
-  // honestly, and bounce to /Login preserving where they were. A guard ref
-  // de-dupes the burst of parallel 401s a single expiry produces so we don't
-  // stack toasts or fire multiple redirects.
-  const sessionExpiredHandledRef = useRef(false);
+  // (cookie expired, tokenVersion bumped), clear auth state, tell the user
+  // honestly, and bounce to login preserving where they were.
   useEffect(() => {
     setUnauthorizedHandler(() => {
       // A 401 while we already believe we're logged out is just a protected
@@ -66,10 +94,11 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(false);
       primeCachedUser(null);
 
-      if (!window.location.pathname.startsWith('/Login')) {
+      const returnTo = getCurrentAppReturnPath();
+      const onLoginPage = returnTo.replace(/^[#/]+/, '').toLowerCase().startsWith('login');
+      if (!onLoginPage) {
         toast.error('Your session has expired. Please sign in again.');
-        const returnUrl = encodeURIComponent(window.location.href);
-        window.location.href = `/Login?return=${returnUrl}`;
+        window.location.href = getLoginPath(returnTo);
       }
     });
     return () => setUnauthorizedHandler(null);
@@ -82,12 +111,12 @@ export const AuthProvider = ({ children }) => {
     setAuthError(null);
     primeCachedUser(null);
     if (shouldRedirect) {
-      window.location.href = '/Login';
+      window.location.href = getLoginPath();
     }
   }, []);
 
   const navigateToLogin = useCallback(() => {
-    window.location.href = `/Login?return=${encodeURIComponent(window.location.href)}`;
+    window.location.href = getLoginPath(getCurrentAppReturnPath());
   }, []);
 
   const value = useMemo(() => ({

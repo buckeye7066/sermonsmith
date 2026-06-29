@@ -16,6 +16,7 @@ export default function TranslationSelector({ currentTranslation = "KJV", onTran
 
   useEffect(() => {
     loadTranslations();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [user, isPremium]);
 
   useEffect(() => {

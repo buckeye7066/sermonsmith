@@ -18,7 +18,6 @@ import { toast } from "sonner";
 import SeriesCollabManager from "@/components/collaboration/SeriesCollabManager";
 
 export default function SeriesManager({ open, onClose, user }) {
-  const [series, setSeries] = useState([]);
   const [mySeries, setMySeries] = useState([]);
   const [sermons, setSermons] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
@@ -35,6 +34,7 @@ export default function SeriesManager({ open, onClose, user }) {
     if (open && user) {
       loadData();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, user]);
 
   const loadData = async () => {

@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { HelpCircle, Loader2, Brain, Play, Save } from "lucide-react";
+
+import { HelpCircle, Loader2, Brain, Play } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
-import { createPageUrl } from "@/utils";
+
+
 
 import QuizViewer from "../components/quiz/QuizViewer";
 

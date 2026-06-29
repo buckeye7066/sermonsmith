@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 
 import {
-  FileText,
+  
   BookOpen,
   Sparkles,
   Bot,
@@ -31,7 +31,6 @@ import {
   Lightbulb,
   Globe,
   Download,
-  Share2,
   Settings,
   Scale,
   Archive,
@@ -145,7 +144,7 @@ export default function Home() {
   ];
 
   const aiCapabilities = [
-    { icon: Sparkles, text: "Full sermon & lesson generation in 30 seconds", highlight: true },
+    { icon: Sparkles, text: "Draft sermon & lesson generation for review", highlight: true },
     { icon: Lightbulb, text: "AI-powered illustrations and anecdotes" },
     { icon: BookOpen, text: "Scripture suggestions and cross-references" },
     { icon: Users, text: "Audience adaptation (youth, adults, seniors, children)" },
@@ -158,8 +157,8 @@ export default function Home() {
   ];
 
   const stats = [
-    { number: "30 sec", label: "Sermon Generation", icon: Clock },
-    { number: "95%", label: "Time Saved", icon: Zap },
+    { number: "Draft", label: "Sermon Generation", icon: Clock },
+    { number: "Assist", label: "Prep Support", icon: Zap },
     { number: "200+", label: "Bible Translations", icon: Globe },
     { number: "AI×2", label: "Smart Assistants", icon: Bot }
   ];
@@ -224,7 +223,7 @@ export default function Home() {
               <p className="text-xl text-gray-500 dark:text-gray-400 max-w-3xl mx-auto mb-12">
               Meet <strong className="text-blue-600">Larry</strong> and <strong className="text-purple-600">Arlynn</strong> - 
               your AI teaching assistants. Perfect for pastors, Sunday School teachers, VBS leaders, and Christian educators. 
-              Generate complete lessons in 30 seconds, study Scripture through multiple interpretive lenses, 
+              Generate review-ready lesson drafts, study Scripture through multiple interpretive lenses,
               explore 50+ worldviews, and share with your community.
             </p>
 
@@ -439,7 +438,7 @@ export default function Home() {
                       👋 Hi! I'm Larry, your Teaching & Sermon Assistant.
                     </p>
                     <p className="text-gray-700 dark:text-gray-300">
-                      I help pastors and teachers create complete biblical lessons in just 30 seconds! Whether you're preparing for Sunday service, VBS, Sunday School, or Christian schools, I'll generate sermons with illustrations, applications, and supporting scriptures. I can even adapt content for children, youth, or adults, and provide real-time coaching while you're teaching. Think of me as your personal ministry partner who knows theology, understands your denomination, and helps you address tough ethical questions and current events from a biblical perspective.
+                      I help pastors and teachers create review-ready biblical lesson drafts. Whether you're preparing for Sunday service, VBS, Sunday School, or Christian schools, I'll help shape sermons with illustrations, applications, and supporting scriptures. I can adapt content for children, youth, or adults, and provide coaching prompts while you're teaching. Think of me as your ministry prep partner: useful, denominationally aware, and always expecting your final judgment.
                     </p>
                   </div>
                 </div>
@@ -505,7 +504,7 @@ export default function Home() {
                   <strong className="text-blue-600">Larry</strong> + <strong className="text-purple-600">Arlynn</strong> = Your complete ministry team
                 </p>
                 <p className="text-gray-600 dark:text-gray-400 mt-2">
-                  We're here to save you 95% of your prep time so you can focus on shepherding your flock! 🎉
+                  We're here to lighten the prep load so you can focus on shepherding your flock.
                 </p>
               </div>
             </CardContent>
@@ -534,7 +533,7 @@ export default function Home() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-gray-700 dark:text-gray-300 text-lg">
-                  Your personal teaching and preaching partner. Larry creates complete biblical lessons and sermons in 30 seconds - perfect for church services, Sunday School, VBS, and Christian schools.
+                  Your personal teaching and preaching partner. Larry creates review-ready biblical lesson and sermon drafts for church services, Sunday School, VBS, and Christian schools.
                 </p>
                 
                 <div className="space-y-3">
@@ -818,7 +817,7 @@ export default function Home() {
           <div className="grid md:grid-cols-4 gap-8">
             {[
               { step: "1", title: "Choose Your Topic", description: "Enter a scripture passage or sermon theme", icon: BookOpen },
-              { step: "2", title: "AI Generates Content", description: "Larry or Arlynn creates your sermon in 30 seconds", icon: Sparkles },
+              { step: "2", title: "AI Drafts Content", description: "Larry or Arlynn prepares a sermon draft for review", icon: Sparkles },
               { step: "3", title: "Customize & Enhance", description: "Review, edit, and add your personal touches", icon: Lightbulb },
               { step: "4", title: "Present with AI", description: "Use live presentation mode with real-time assistance", icon: Presentation }
             ].map((step, index) => {
@@ -860,8 +859,8 @@ export default function Home() {
               More Time for Ministry
             </h2>
             <p className="text-xl text-gray-600 dark:text-gray-400 mb-8">
-              Stop spending 10-15 hours on sermon prep. Let AI handle the research and structure 
-              so you can focus on what matters most - shepherding your flock.
+              Reduce repetitive sermon-prep work. Let AI help organize research and structure
+              so you can focus on what matters most: shepherding your flock.
             </p>
             
             <div className="space-y-4">
@@ -870,8 +869,8 @@ export default function Home() {
                   <Clock className="w-6 h-6 text-green-600" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Save 95% of Prep Time</h3>
-                  <p className="text-gray-600 dark:text-gray-400">What took 12 hours now takes 30 minutes</p>
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Spend Less Time Starting From Scratch</h3>
+                  <p className="text-gray-600 dark:text-gray-400">Move from blank page to editable draft faster</p>
                 </div>
               </div>
 
@@ -909,8 +908,8 @@ export default function Home() {
               <CardContent className="p-8">
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Traditional Prep</span>
-                    <span className="text-2xl font-bold text-red-600">12 hours</span>
+                    <span className="text-gray-600 dark:text-gray-400">Without a draft helper</span>
+                    <span className="text-2xl font-bold text-red-600">Blank page</span>
                   </div>
                   <div className="h-3 bg-red-200 dark:bg-red-900/30 rounded-full overflow-hidden">
                     <div className="h-full bg-red-600 w-full"></div>
@@ -918,7 +917,7 @@ export default function Home() {
 
                   <div className="flex items-center justify-between mt-8">
                     <span className="text-gray-600 dark:text-gray-400">With SermonSmith</span>
-                    <span className="text-2xl font-bold text-green-600">30 min</span>
+                    <span className="text-2xl font-bold text-green-600">Editable draft</span>
                   </div>
                   <div className="h-3 bg-green-200 dark:bg-green-900/30 rounded-full overflow-hidden">
                     <div className="h-full bg-green-600 w-[4%]"></div>
@@ -926,8 +925,8 @@ export default function Home() {
 
                   <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
                     <div className="text-center">
-                      <div className="text-4xl font-bold text-indigo-600 mb-2">11.5 hours</div>
-                      <div className="text-gray-600 dark:text-gray-400">saved per week for ministry</div>
+                      <div className="text-4xl font-bold text-indigo-600 mb-2">More focus</div>
+                      <div className="text-gray-600 dark:text-gray-400">for study, prayer, and people</div>
                     </div>
                   </div>
                 </div>

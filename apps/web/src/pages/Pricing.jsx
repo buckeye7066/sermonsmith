@@ -3,10 +3,10 @@ import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { CheckCircle2, Star, Zap, Settings, ExternalLink, Loader2, Crown } from "lucide-react";
+import { CheckCircle2, Star, Zap, ExternalLink, Loader2, Crown } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
-import { createPageUrl } from "@/utils";
+
+
 import { usePremiumAccess } from '../components/hooks/usePremiumAccess';
 
 const freeFeatures = [

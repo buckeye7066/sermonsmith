@@ -43,6 +43,7 @@ export default function TagManager({ open, onClose, resourceType, resourceId, us
       loadExistingTags();
       setTags(currentTags);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, currentTags]);
 
   const loadExistingTags = async () => {

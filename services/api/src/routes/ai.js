@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticateToken, prisma } from '../middleware/auth.js';
+import crypto from 'crypto';
+import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -47,6 +48,7 @@ const invokeRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(MAX_PROMPT_CHARS),
   system_prompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).optional(),
   response_json_schema: z.any().optional(),
+  feature: z.string().trim().min(1).max(80).optional(),
   model: z.string().max(100).optional(),
   max_tokens: z.union([z.number(), z.string()]).optional(),
   temperature: z.union([z.number(), z.string()]).optional(),
@@ -70,6 +72,59 @@ const invokeRequestSchema = z.object({
     }
   }
 });
+
+export function hashText(value) {
+  if (value === undefined || value === null || value === '') return null;
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
+export function estimateTokenCount(...parts) {
+  const chars = parts
+    .flat()
+    .filter((p) => p !== undefined && p !== null)
+    .map((p) => (typeof p === 'string' ? p : JSON.stringify(p)))
+    .join('\n')
+    .length;
+  return Math.max(1, Math.ceil(chars / 4));
+}
+
+function classifyAiFailure(err) {
+  if (err?.status) return `http_${err.status}`;
+  if (err?.response?.status) return `http_${err.response.status}`;
+  if (err?.name) return err.name;
+  return 'unknown';
+}
+
+async function auditAiCall({
+  userId,
+  feature,
+  model,
+  prompt,
+  response,
+  startTime,
+  status,
+  failureType,
+  tokenEstimate,
+}) {
+  if (!prisma.aiAuditLog?.create) return;
+  try {
+    await prisma.aiAuditLog.create({
+      data: {
+        userId,
+        feature: feature || 'general',
+        model: model || null,
+        promptHash: hashText(prompt),
+        responseHash: hashText(response),
+        tokenEstimate: tokenEstimate ?? estimateTokenCount(prompt, response),
+        durationMs: startTime ? Date.now() - startTime : null,
+        status,
+        failureType: failureType || null,
+      },
+    });
+  } catch {
+    // Never let observability break the AI request path.
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Model allowlist.
@@ -171,6 +226,17 @@ function withTimeout(promise, ms, label = 'OpenAI call') {
   });
 }
 
+export function buildJsonSchemaInstruction(responseJsonSchema) {
+  return [
+    'Respond ONLY with valid JSON matching this schema.',
+    'Do not include markdown, prose, or code fences in the response body.',
+    'Schema:',
+    '```json',
+    JSON.stringify(responseJsonSchema, null, 2),
+    '```',
+  ].join('\n');
+}
+
 // Retry transient OpenAI failures (429 rate-limit, 5xx overloaded/server) with
 // exponential backoff + jitter. We deliberately do NOT retry our own 504
 // timeout (the client is already waiting at the edge of AI_TIMEOUT_MS) nor 4xx
@@ -211,8 +277,87 @@ export function extractJson(raw) {
   return { ok: false };
 }
 
+const auditSummarySchema = z.object({
+  days: z.coerce.number().int().min(1).max(90).default(7),
+});
+
+function bumpCounter(target, key, amount = 1) {
+  const safeKey = key || 'unknown';
+  target[safeKey] = (target[safeKey] || 0) + amount;
+}
+
+function summarizeAiAudits(rows, { days, since }) {
+  const byFeature = {};
+  const byStatus = {};
+  const byModel = {};
+  const byFailureType = {};
+  let totalTokenEstimate = 0;
+  let totalDurationMs = 0;
+  let durationSamples = 0;
+
+  for (const row of rows) {
+    bumpCounter(byFeature, row.feature || 'general');
+    bumpCounter(byStatus, row.status || 'unknown');
+    bumpCounter(byModel, row.model || 'unknown');
+    if (row.failureType) bumpCounter(byFailureType, row.failureType);
+    totalTokenEstimate += Number(row.tokenEstimate || 0);
+    if (Number.isFinite(row.durationMs)) {
+      totalDurationMs += Number(row.durationMs);
+      durationSamples++;
+    }
+  }
+
+  return {
+    windowDays: days,
+    since: since.toISOString(),
+    totalCalls: rows.length,
+    totalTokenEstimate,
+    averageDurationMs: durationSamples ? Math.round(totalDurationMs / durationSamples) : null,
+    byFeature,
+    byStatus,
+    byModel,
+    byFailureType,
+    recentFailures: rows
+      .filter((row) => row.status !== 'success')
+      .slice(0, 10)
+      .map((row) => ({
+        id: row.id,
+        createdAt: row.createdAt,
+        feature: row.feature,
+        model: row.model,
+        status: row.status,
+        failureType: row.failureType,
+        durationMs: row.durationMs,
+        tokenEstimate: row.tokenEstimate,
+      })),
+  };
+}
+
+router.get('/audit/summary', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = auditSummarySchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid audit summary query', issues: parsed.error.issues });
+    }
+
+    const { days } = parsed.data;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const rows = await prisma.aiAuditLog.findMany({
+      where: { createdAt: { gte: since } },
+      orderBy: { createdAt: 'desc' },
+      take: 10_000,
+    });
+
+    res.json(summarizeAiAudits(rows, { days, since }));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // LLM invocation
 router.post('/invoke', authenticateToken, async (req, res, next) => {
+  let auditBase = null;
+  let audited = false;
   try {
     const parsed = invokeRequestSchema.safeParse(req.body || {});
     if (!parsed.success) {
@@ -221,13 +366,24 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
         issues: parsed.error.issues,
       });
     }
-    const { prompt, system_prompt, response_json_schema, model, max_tokens, temperature } = parsed.data;
+    const { prompt, system_prompt, response_json_schema, feature, model, max_tokens, temperature } = parsed.data;
 
     // Resolve model and clamp tokens/temperature BEFORE consuming usage so a
     // misconfigured allowlist or bad model name doesn't burn a daily count.
     const resolvedModel = resolveModel(model, req.userPremium);
     const clampedTokens = clampTokens(max_tokens, req.userPremium);
     const clampedTemperature = clampTemperature(temperature);
+    auditBase = {
+      userId: req.userId,
+      feature: feature || 'general',
+      model: resolvedModel,
+      prompt: [
+        system_prompt,
+        prompt,
+        response_json_schema ? JSON.stringify(response_json_schema) : null,
+      ].filter(Boolean).join('\n'),
+      startTime: Date.now(),
+    };
 
     // Same logic for OpenAI: if the SDK is missing or DISABLE_AI is set, the
     // call would 503 anyway — we don't want to also subtract one from the
@@ -253,7 +409,7 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
     if (response_json_schema) {
       params.response_format = { type: 'json_object' };
       const schemaIdx = system_prompt ? 0 : messages.length - 1;
-      messages[schemaIdx].content += `\n\nRespond ONLY with valid JSON matching this schema: ${JSON.stringify(response_json_schema)}`;
+      messages[schemaIdx].content += `\n\n${buildJsonSchemaInstruction(response_json_schema)}`;
     }
 
     const completion = await withTimeout(
@@ -265,8 +421,19 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
     const finishReason = completion.choices[0]?.finish_reason;
 
     if (response_json_schema) {
+      // Tolerant parse (fence-stripping + outer-object salvage) so a stray
+      // code fence doesn't 502 an otherwise-valid response.
       const parsed = extractJson(content);
-      if (parsed.ok) return res.json(parsed.value);
+      if (parsed.ok) {
+        await auditAiCall({
+          ...auditBase,
+          response: content,
+          status: 'success',
+          tokenEstimate: estimateTokenCount(auditBase.prompt, content),
+        });
+        audited = true;
+        return res.json(parsed.value);
+      }
       // Fail loud on malformed JSON when the client asked for structured
       // output. The previous behaviour returned `{ response: <text> }`,
       // which the SermonBuilder/SeriesBuilder then treated as a valid
@@ -274,6 +441,14 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
       // preview lets the UI surface a retryable error instead. When the model
       // was cut off by the token ceiling we say so explicitly, since "retry"
       // alone won't help if the request is simply too large.
+      await auditAiCall({
+        ...auditBase,
+        response: content,
+        status: 'invalid_json',
+        failureType: finishReason === 'length' ? 'truncated' : 'invalid_json',
+        tokenEstimate: estimateTokenCount(auditBase.prompt, content),
+      });
+      audited = true;
       return res.status(502).json({
         message: finishReason === 'length'
           ? 'The AI response was too long and was cut off before it finished. Please try a narrower or more specific request.'
@@ -282,8 +457,22 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
         responsePreview: content.slice(0, 500),
       });
     }
+    await auditAiCall({
+      ...auditBase,
+      response: content,
+      status: 'success',
+      tokenEstimate: estimateTokenCount(auditBase.prompt, content),
+    });
+    audited = true;
     res.json(content);
   } catch (err) {
+    if (auditBase && !audited) {
+      await auditAiCall({
+        ...auditBase,
+        status: 'failure',
+        failureType: classifyAiFailure(err),
+      });
+    }
     next(err);
   }
 });
@@ -294,6 +483,8 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
 // completions, so the route is premium-only by default. Admins/devs are
 // allowed through for testing.
 router.post('/image', authenticateToken, async (req, res, next) => {
+  let auditBase = null;
+  let audited = false;
   try {
     const { prompt, size } = req.body;
     if (!prompt) return res.status(400).json({ message: 'prompt is required' });
@@ -309,6 +500,13 @@ router.post('/image', authenticateToken, async (req, res, next) => {
       return res.status(429).json({ message: `Daily AI limit reached (${usage.limit}). Upgrade or try again tomorrow.` });
     }
 
+    auditBase = {
+      userId: req.userId,
+      feature: 'image',
+      model: 'dall-e-3',
+      prompt,
+      startTime: Date.now(),
+    };
     const openai = await getOpenAI();
     const response = await withTimeout(
       openai.images.generate({ model: 'dall-e-3', prompt, n: 1, size: size || '1024x1024' }),
@@ -316,8 +514,22 @@ router.post('/image', authenticateToken, async (req, res, next) => {
       '/ai/image',
     );
 
+    await auditAiCall({
+      ...auditBase,
+      response: response.data?.[0]?.url || 'image-generated',
+      status: 'success',
+      tokenEstimate: estimateTokenCount(prompt),
+    });
+    audited = true;
     res.json({ url: response.data[0].url });
   } catch (err) {
+    if (auditBase && !audited) {
+      await auditAiCall({
+        ...auditBase,
+        status: 'failure',
+        failureType: classifyAiFailure(err),
+      });
+    }
     next(err);
   }
 });
@@ -430,6 +642,9 @@ export const __test = {
   consumeUsageDb,
   resolveModel,
   invokeRequestSchema,
+  hashText,
+  estimateTokenCount,
+  buildJsonSchemaInstruction,
   EMAIL_TEMPLATES,
 };
 

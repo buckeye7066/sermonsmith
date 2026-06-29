@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Languages, BookOpen, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { BOOK_NAME_TO_OSIS } from "../bible/bibleSources";
 
 export default function VersionComparison({ book, chapter, onClose }) {
   const [selectedVersions, setSelectedVersions] = useState(['en-kjv', 'en-web']);
@@ -30,6 +31,7 @@ export default function VersionComparison({ book, chapter, onClose }) {
     if (selectedVersions.length > 0 && book && chapter) {
       loadComparisonData();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [selectedVersions, book, chapter]);
 
   const loadAvailableTranslations = async () => {
@@ -50,7 +52,6 @@ export default function VersionComparison({ book, chapter, onClose }) {
   const loadComparisonData = async () => {
     setIsLoading(true);
     try {
-      const { BOOK_NAME_TO_OSIS } = await import("../bible/bibleSources");
       const bookCode = BOOK_NAME_TO_OSIS[book];
       
       if (!bookCode) {
@@ -123,10 +124,10 @@ Provide:
 1. **Key Differences**: What are the main translation differences and why?
 2. **Linguistic Analysis**: Which words or phrases differ most significantly?
 3. **Theological Implications**: Do these differences affect meaning or interpretation?
-4. **Original Language Insight**: What does the Hebrew/Greek/Aramaic reveal?
+4. **Original Language Caveat**: Note whether the app has supplied enough source material for Hebrew/Greek/Aramaic claims. If not, say pastoral review and a lexicon/source check are required instead of inventing details.
 5. **Recommendation**: Which translation captures the meaning best for general readers?
 
-Be scholarly yet accessible. About 300-350 words.`;
+Be scholarly yet accessible. Do not fabricate original-language claims or citations. About 300-350 words.`;
 
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,

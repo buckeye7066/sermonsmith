@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
+import {
+  BIBLE_TRANSLATIONS,
+  BIBLE_TRANSLATION_IDS,
+  normalizeBibleTranslation,
+  requireBibleTranslation,
+  translationMetadata,
+} from '../services/bibleSources.js';
 
 const router = Router();
 
@@ -13,14 +20,10 @@ const router = Router();
 // structured `issues` list and stops obviously-invalid requests from
 // hitting the upstream at all.
 //
-// `ALLOWED_TRANSLATIONS` keeps `getPassageMultiSource` from being a
+// The Bible source registry keeps `getPassageMultiSource` from being a
 // generic translation enumerator that fans out to any string the client
-// sends; we cap to the ones our app actually surfaces.
+// sends; we cap to the ones our app can display/export with attribution.
 // ---------------------------------------------------------------------------
-const ALLOWED_TRANSLATIONS = new Set([
-  'kjv', 'web', 'bbe', 'asv', 'ylt', 'darby', 'clementine', 'almeida',
-]);
-
 const passageSchema = z.object({
   book: z.string().min(1).max(40).optional(),
   bookCode: z.string().min(1).max(40).optional(),
@@ -48,10 +51,6 @@ const passageSchema = z.object({
 // must trigger a real refetch next time, not be remembered as truth.
 // ---------------------------------------------------------------------------
 const BIBLE_CACHE_TTL_MS = Number(process.env.BIBLE_CACHE_TTL_MS || 30 * 24 * 60 * 60 * 1000);
-
-function normalizeBibleTranslation(raw) {
-  return String(raw || 'kjv').replace(/^en-/, '').toLowerCase();
-}
 
 function bibleCacheFresh(row) {
   return row && Date.now() - new Date(row.updatedAt || row.fetchedAt).getTime() < BIBLE_CACHE_TTL_MS;
@@ -104,6 +103,42 @@ async function getCachedBibleChapter({ book, chapter, translationId }) {
   return { ...data, cacheHit: false };
 }
 
+function normalizePassageRef(ref) {
+  return String(ref || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+async function getCachedBiblePassage({ ref, translationId }) {
+  const normalizedRef = normalizePassageRef(ref);
+  const cacheKey = { translationId, normalizedRef };
+
+  const cached = await prisma.biblePassageCache.findUnique({
+    where: { translationId_normalizedRef: cacheKey },
+  });
+
+  if (bibleCacheFresh(cached)) {
+    return { ...cached.payload, cacheHit: true };
+  }
+
+  const data = await fetchBibleApiJson(ref, translationId);
+
+  await prisma.biblePassageCache.upsert({
+    where: { translationId_normalizedRef: cacheKey },
+    create: {
+      translationId,
+      reference: ref,
+      normalizedRef,
+      payload: data,
+    },
+    update: {
+      reference: ref,
+      payload: data,
+      fetchedAt: new Date(),
+    },
+  });
+
+  return { ...data, cacheHit: false };
+}
+
 // Stripe SDK is lazy-loaded — see getStripe() below. The previous
 // top-level await meant the API would crash at import time if the SDK was
 // missing or the key was unset; now booting works in test/dev without
@@ -116,6 +151,56 @@ async function getStripe() {
     _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   }
   return _stripe;
+}
+
+function serviceUnavailable(message) {
+  const err = new Error(message);
+  err.status = 503;
+  return err;
+}
+
+function isLocalHost(hostname) {
+  return ['localhost', '127.0.0.1', '0.0.0.0'].includes(String(hostname || '').toLowerCase());
+}
+
+function frontendBaseUrl() {
+  const raw = process.env.FRONTEND_URL || String(process.env.CORS_ORIGIN || '').split(',')[0]?.trim();
+  if (!raw) {
+    throw serviceUnavailable('Frontend URL not configured. Set FRONTEND_URL or CORS_ORIGIN.');
+  }
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw serviceUnavailable('Frontend URL is not a valid URL.');
+  }
+  if (process.env.NODE_ENV === 'production' && (url.protocol !== 'https:' || isLocalHost(url.hostname))) {
+    throw serviceUnavailable('Production Stripe redirects must use a public https FRONTEND_URL.');
+  }
+  return url.origin;
+}
+
+function subscriptionIsPremium(status) {
+  return ['active', 'trialing', 'past_due'].includes(status);
+}
+
+function subscriptionIsNonPremium(status) {
+  return ['canceled', 'unpaid', 'incomplete_expired'].includes(status);
+}
+
+async function setPremiumByStripeCustomer(stripe, customerId, premium) {
+  if (!customerId) return;
+
+  const byCustomer = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } }).catch(() => null);
+  if (byCustomer) {
+    await prisma.user.update({ where: { id: byCustomer.id }, data: { premium } });
+    return;
+  }
+
+  const customer = await stripe.customers.retrieve(customerId).catch(() => null);
+  if (customer?.email) {
+    await prisma.user.updateMany({ where: { email: customer.email.toLowerCase() }, data: { premium } });
+  }
 }
 
 // Bible passage — accepts both frontend naming (translationId/bookCode) and direct naming (book/translation)
@@ -134,16 +219,13 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
     const translationRaw = body.translationId || body.translation || 'kjv';
     const verses = body.verses ?? body.verse;
 
-    const translationId = normalizeBibleTranslation(translationRaw);
-    if (!ALLOWED_TRANSLATIONS.has(translationId)) {
-      return res.status(400).json({ message: `Unsupported translation: ${translationId}` });
-    }
+    const translation = requireBibleTranslation(translationRaw);
+    const translationId = translation.id;
 
     const ref = verses ? `${book} ${chapter}:${verses}` : `${book} ${chapter}`;
 
-    // Whole-chapter requests go through the cache so we don't pay the
-    // upstream round-trip every page view. Verse-level requests bypass
-    // it because the cache key is chapter-granular.
+    // Whole chapters and verse/range requests both go through durable
+    // caches so common references do not repeatedly hit bible-api.com.
     let data;
     let cacheHit = false;
     if (verses === undefined || verses === null || verses === '') {
@@ -151,12 +233,15 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
       cacheHit = !!cached.cacheHit;
       data = cached;
     } else {
-      data = await fetchBibleApiJson(ref, translationId);
+      const cached = await getCachedBiblePassage({ ref, translationId });
+      cacheHit = !!cached.cacheHit;
+      data = cached;
     }
 
     res.json({
       reference: data.reference || ref,
-      translationLabel: translationRaw,
+      translation: translationMetadata(translationId),
+      translationLabel: translation.name,
       verses: data.verses || [],
       text: data.text || '',
       cacheHit,
@@ -174,28 +259,26 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
 
 // List available translations.
 //
-// Every translation surfaced here is PUBLIC DOMAIN, so all of them are
-// available to every account — free or premium. (Premium is intended to
-// unlock the much larger external translation catalogue, not these.) The
-// previous response returned only `{ id, name, language }`, but the client
-// reads `available`, `shortName`, full `language` name, `languageCode`,
-// `region`, `isComplete`, plus top-level `byRegion` / `stats` /
-// `is_premium`. With those missing, `translation.available` was `undefined`
-// (falsy), so the Reader's translation picker slapped a "Premium Required"
-// wall on EVERY translation — including genuinely public-domain ones like
-// WEB, ASV, BBE, YLT and Darby — and the stats badge showed misleading
-// "8+ translations • 1+ languages". This returns the full shape so the
-// public-domain bibles are actually selectable and the counts are accurate.
-const BIBLE_TRANSLATION_CATALOG = [
-  { id: 'kjv', shortName: 'KJV', name: 'King James Version', nativeName: 'King James Version', language: 'English', languageCode: 'en', region: 'europe' },
-  { id: 'web', shortName: 'WEB', name: 'World English Bible', nativeName: 'World English Bible', language: 'English', languageCode: 'en', region: 'americas' },
-  { id: 'bbe', shortName: 'BBE', name: 'Bible in Basic English', nativeName: 'Bible in Basic English', language: 'English', languageCode: 'en', region: 'europe' },
-  { id: 'asv', shortName: 'ASV', name: 'American Standard Version', nativeName: 'American Standard Version', language: 'English', languageCode: 'en', region: 'americas' },
-  { id: 'ylt', shortName: 'YLT', name: "Young's Literal Translation", nativeName: "Young's Literal Translation", language: 'English', languageCode: 'en', region: 'europe' },
-  { id: 'darby', shortName: 'DARBY', name: 'Darby Translation', nativeName: 'Darby Translation', language: 'English', languageCode: 'en', region: 'europe' },
-  { id: 'clementine', shortName: 'VULGATE', name: 'Clementine Vulgate', nativeName: 'Vulgata Clementina', language: 'Latin', languageCode: 'la', region: 'europe' },
-  { id: 'almeida', shortName: 'ALMEIDA', name: 'João Ferreira de Almeida', nativeName: 'João Ferreira de Almeida', language: 'Portuguese', languageCode: 'pt', region: 'americas' },
-];
+// Built from the shared `BIBLE_TRANSLATIONS` registry (single source of truth
+// for which translations exist + their license), enriched with the
+// presentation metadata the client reads: `available`, `shortName`, a full
+// `language` NAME, `languageCode`, `region`, `isComplete`, plus top-level
+// `byRegion` / `stats` / `is_premium`. The bare registry metadata left
+// `available` undefined (falsy), so the Reader's picker walled EVERY
+// translation — including genuinely public-domain ones (WEB/ASV/BBE/YLT/
+// Darby) — behind a bogus "Premium Required", and the count badge read
+// "8+ translations • 1+ languages". Every registry translation here is
+// public domain, so all are free for every account.
+const TRANSLATION_UI_META = {
+  kjv:        { shortName: 'KJV',     languageName: 'English',    languageCode: 'en', region: 'europe',   nativeName: 'King James Version' },
+  web:        { shortName: 'WEB',     languageName: 'English',    languageCode: 'en', region: 'americas', nativeName: 'World English Bible' },
+  bbe:        { shortName: 'BBE',     languageName: 'English',    languageCode: 'en', region: 'europe',   nativeName: 'Bible in Basic English' },
+  asv:        { shortName: 'ASV',     languageName: 'English',    languageCode: 'en', region: 'americas', nativeName: 'American Standard Version' },
+  ylt:        { shortName: 'YLT',     languageName: 'English',    languageCode: 'en', region: 'europe',   nativeName: "Young's Literal Translation" },
+  darby:      { shortName: 'DARBY',   languageName: 'English',    languageCode: 'en', region: 'europe',   nativeName: 'Darby Bible' },
+  clementine: { shortName: 'VULGATE', languageName: 'Latin',      languageCode: 'la', region: 'europe',   nativeName: 'Vulgata Clementina' },
+  almeida:    { shortName: 'ALMEIDA', languageName: 'Portuguese', languageCode: 'pt', region: 'americas', nativeName: 'João Ferreira de Almeida' },
+};
 
 const REGION_NAMES = {
   europe: 'Europe', americas: 'Americas', middle_east: 'Middle East',
@@ -221,12 +304,30 @@ router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
     }
   }
 
-  const translations = BIBLE_TRANSLATION_CATALOG.map((t) => ({
-    ...t,
-    available: true,        // public domain — never gated
-    isComplete: true,
-    textDirection: 'ltr',
-  }));
+  const translations = BIBLE_TRANSLATIONS.map((t) => {
+    const ui = TRANSLATION_UI_META[t.id] || {};
+    return {
+      id: t.id,
+      name: t.name,
+      shortName: ui.shortName || t.id.toUpperCase(),
+      nativeName: ui.nativeName || t.name,
+      language: ui.languageName || t.language,   // full name for UI grouping
+      languageCode: ui.languageCode || t.language,
+      region: ui.region || 'other',
+      // Public-domain + display-licensed translations are free for everyone.
+      available: !!(t.publicDomain && t.displayAllowed),
+      isComplete: true,
+      textDirection: 'ltr',
+      // License/attribution metadata from the registry (the source of truth).
+      license: t.license,
+      attribution: t.attribution,
+      copyrightNotice: t.copyrightNotice,
+      sourceUrl: t.sourceUrl,
+      publicDomain: t.publicDomain,
+      displayAllowed: t.displayAllowed,
+      exportAllowed: t.exportAllowed,
+    };
+  });
 
   const byRegion = {};
   for (const t of translations) {
@@ -262,14 +363,16 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
     const { chapter } = data;
     const verse = data.verse ?? data.verses;
 
-    // Cap translations and filter to the supported allowlist before
+    // Cap unique translations and filter to the supported allowlist before
     // fanning out to bible-api.com. Anything outside is dropped silently
     // because callers can legitimately pass a mix of valid and unknown
     // translation codes during UI migrations.
-    const requested = (data.translations || ['kjv', 'web', 'bbe']).slice(0, MAX_TRANSLATIONS);
-    const translations = requested
-      .map(normalizeBibleTranslation)
-      .filter((t) => ALLOWED_TRANSLATIONS.has(t));
+    const requested = data.translations || ['kjv', 'web', 'bbe'];
+    const translations = [...new Set(
+      requested
+        .map(normalizeBibleTranslation)
+        .filter((t) => BIBLE_TRANSLATION_IDS.has(t))
+    )].slice(0, MAX_TRANSLATIONS);
     if (translations.length === 0) {
       return res.status(400).json({ message: 'No supported translations requested' });
     }
@@ -279,13 +382,13 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
         try {
           if (verse === undefined || verse === null || verse === '') {
             const cached = await getCachedBibleChapter({ book, chapter, translationId });
-            return { translation: translationId, ...cached };
+            return { translation: translationMetadata(translationId), ...cached };
           }
           const ref = `${book} ${chapter}:${verse}`;
-          const json = await fetchBibleApiJson(ref, translationId);
-          return { translation: translationId, ...json };
+          const json = await getCachedBiblePassage({ ref, translationId });
+          return { translation: translationMetadata(translationId), ...json };
         } catch (err) {
-          return { translation: translationId, error: err.message || 'Upstream error' };
+          return { translation: translationMetadata(translationId), error: err.message || 'Upstream error' };
         }
       })
     );
@@ -308,12 +411,15 @@ router.post('/createCheckoutSession', authenticateToken, async (req, res, next) 
     if (!process.env.STRIPE_PRICE_ID) return res.status(503).json({ message: 'Stripe price not configured.' });
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const frontendUrl = frontendBaseUrl();
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'subscription',
-      customer_email: user.email,
+      customer: user.stripeCustomerId || undefined,
+      customer_email: user.stripeCustomerId ? undefined : user.email,
+      client_reference_id: req.userId,
       line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
       success_url: `${frontendUrl}/Settings?payment=success`,
       cancel_url: `${frontendUrl}/Pricing?payment=cancelled`,
@@ -339,7 +445,8 @@ router.post('/createBillingPortal', authenticateToken, async (req, res, next) =>
     if (!stripe) return res.status(503).json({ message: 'Stripe not configured. Set STRIPE_SECRET_KEY.' });
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const frontendUrl = frontendBaseUrl();
 
     // Prefer the customer id captured at checkout (survives email changes).
     // Fall back to an email lookup for accounts created before that column
@@ -351,7 +458,10 @@ router.post('/createBillingPortal', authenticateToken, async (req, res, next) =>
         return res.status(404).json({ message: 'No billing account found. Have you subscribed to Premium?' });
       }
       customerId = customers.data[0].id;
-      await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: customerId },
+      });
     }
 
     const session = await stripe.billingPortal.sessions.create({
@@ -603,7 +713,7 @@ router.post('/getFunctionDetails', authenticateToken, requireAdmin, async (req, 
   // source file; for a self-hosted Express app we return route documentation.
   const details = {
     biblePassage: { code: '// Proxies bible-api.com — see routes/functions.js:13', method: 'POST', auth: 'optional' },
-    listAvailableTranslations: { code: '// Returns hardcoded translation list — see routes/functions.js:55', method: 'POST', auth: 'optional' },
+    listAvailableTranslations: { code: '// Returns Bible source registry metadata — see routes/functions.js', method: 'POST', auth: 'optional' },
     getPassageMultiSource: { code: '// Parallel multi-translation fetch — see routes/functions.js:74', method: 'POST', auth: 'optional' },
     createCheckoutSession: { code: '// Stripe checkout — see routes/functions.js:107', method: 'POST', auth: 'required' },
     createBillingPortal: { code: '// Stripe billing portal — see routes/functions.js:137', method: 'POST', auth: 'required' },
@@ -701,7 +811,7 @@ const BIBLE_BOOKS = [
 
 router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    const translation = req.body.translation || 'kjv';
+    const translation = requireBibleTranslation(req.body.translation || 'kjv').id;
     let imported = 0;
     let errors = 0;
 

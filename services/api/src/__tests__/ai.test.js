@@ -90,6 +90,97 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(aiInternals.clampTemperature('not-a-number')).toBe(0.7);
   });
 
+  it('fences structured-output schemas as JSON instruction blocks', () => {
+    const instruction = aiInternals.buildJsonSchemaInstruction({
+      type: 'object',
+      properties: { title: { type: 'string' } },
+    });
+
+    expect(instruction).toContain('Respond ONLY with valid JSON');
+    expect(instruction).toContain('```json');
+    expect(instruction).toContain('"title"');
+    expect(instruction).toContain('```');
+  });
+
+  it('hashes AI audit text without retaining raw prompt content', () => {
+    const prompt = 'Explain Romans 8 for a youth group';
+    const first = aiInternals.hashText(prompt);
+    const second = aiInternals.hashText(prompt);
+
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[a-f0-9]{64}$/);
+    expect(first).not.toContain('Romans');
+    expect(aiInternals.estimateTokenCount(prompt)).toBeGreaterThan(1);
+  });
+
+  it('accepts an explicit feature tag on AI invocation requests', () => {
+    const parsed = aiInternals.invokeRequestSchema.safeParse({
+      prompt: 'Draft an outline',
+      feature: 'sermon_builder',
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.feature).toBe('sermon_builder');
+  });
+
+  it('summarizes AI audit logs for admin dashboards without raw content', async () => {
+    prisma._store.user.push({ id: 'u-admin', role: 'admin', premium: true, email: 'admin@example.com' });
+    const now = new Date();
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    prisma._store.aiAuditLog.push(
+      {
+        id: 'audit-1',
+        userId: 'u-admin',
+        feature: 'sermon_builder',
+        model: 'gpt-4o-mini',
+        promptHash: 'prompt-hash-1',
+        responseHash: 'response-hash-1',
+        tokenEstimate: 120,
+        durationMs: 1000,
+        status: 'success',
+        failureType: null,
+        createdAt: now,
+      },
+      {
+        id: 'audit-2',
+        userId: 'u-admin',
+        feature: 'sermon_builder',
+        model: 'gpt-4o-mini',
+        promptHash: 'prompt-hash-2',
+        responseHash: 'response-hash-2',
+        tokenEstimate: 80,
+        durationMs: 2000,
+        status: 'failure',
+        failureType: 'http_500',
+        createdAt: now,
+      },
+      {
+        id: 'audit-old',
+        userId: 'u-admin',
+        feature: 'old',
+        model: 'gpt-4o-mini',
+        tokenEstimate: 999,
+        durationMs: 10,
+        status: 'success',
+        createdAt: old,
+      },
+    );
+
+    const res = await request(app)
+      .get('/api/ai/audit/summary?days=14')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.totalCalls).toBe(2);
+    expect(res.body.totalTokenEstimate).toBe(200);
+    expect(res.body.averageDurationMs).toBe(1500);
+    expect(res.body.byFeature.sermon_builder).toBe(2);
+    expect(res.body.byStatus.failure).toBe(1);
+    expect(res.body.byFailureType.http_500).toBe(1);
+    expect(res.body.recentFailures).toHaveLength(1);
+    expect(JSON.stringify(res.body)).not.toContain('prompt-hash');
+    expect(JSON.stringify(res.body)).not.toContain('response-hash');
+  });
+
   it('enforces a daily usage cap (DB-backed, persistent across calls)', async () => {
     const userId = 'u-quota';
     let lastResult;

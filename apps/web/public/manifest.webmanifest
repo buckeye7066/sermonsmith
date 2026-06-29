@@ -11,8 +11,8 @@
   "categories": ["education", "productivity", "lifestyle"],
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
-    { "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },
-    { "src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "/icon.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ],
   "shortcuts": [
     {
@@ -20,21 +20,21 @@
       "short_name": "Read Bible",
       "description": "Open Bible Reader",
       "url": "/Reader?source=shortcut",
-      "icons": [{ "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+      "icons": [{ "src": "/icon.png", "sizes": "1024x1024", "type": "image/png" }]
     },
     {
       "name": "Sermon Builder",
       "short_name": "New Sermon",
       "description": "Create new sermon",
       "url": "/SermonBuilder?source=shortcut",
-      "icons": [{ "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+      "icons": [{ "src": "/icon.png", "sizes": "1024x1024", "type": "image/png" }]
     },
     {
       "name": "Bible Study",
       "short_name": "Study",
       "description": "Create Bible study",
       "url": "/BibleStudy?source=shortcut",
-      "icons": [{ "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+      "icons": [{ "src": "/icon.png", "sizes": "1024x1024", "type": "image/png" }]
     }
   ],
   "share_target": {

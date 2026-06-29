@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Users, Plus, Mail, Trash2, Shield, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Users, Plus, Mail, Trash2, CheckCircle, XCircle, Clock } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
@@ -32,6 +32,7 @@ export default function CollaboratorManager({ open, onClose, sermon, user }) {
     if (open && sermon) {
       loadCollaborators();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, sermon]);
 
   const loadCollaborators = async () => {

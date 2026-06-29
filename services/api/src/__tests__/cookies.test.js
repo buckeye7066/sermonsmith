@@ -44,6 +44,14 @@ describe('cookieOptions in production', () => {
     expect(opts.path).toBe('/');
   });
 
+  it('is a session cookie (no maxAge/expires) so a browser session must re-login', async () => {
+    process.env.NODE_ENV = 'production';
+    const { cookieOptions } = await import('../middleware/auth.js');
+    const opts = cookieOptions();
+    expect(opts.maxAge).toBeUndefined();
+    expect(opts.expires).toBeUndefined();
+  });
+
   it('honours COOKIE_SAMESITE=lax for same-domain deploys', async () => {
     process.env.NODE_ENV = 'production';
     process.env.COOKIE_SAMESITE = 'lax';

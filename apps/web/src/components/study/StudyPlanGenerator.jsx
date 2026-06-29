@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
   SelectContent,
@@ -20,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Calendar, Users, Sparkles, Save, Baby, User, GraduationCap, Heart, Share2 } from "lucide-react";
+import { Loader2, Calendar, Sparkles, Save, Baby, User, GraduationCap, Heart, Share2 } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';

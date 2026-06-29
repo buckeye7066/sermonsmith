@@ -4,7 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
-import { BrowserRouter, HashRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -47,8 +47,14 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   <Layout currentPageName={currentPageName}>{children}</Layout>
   : <>{children}</>;
 
-const AuthenticatedApp = () => {
-  const { isLoadingAuth, authError } = useAuth();
+function loginRedirectFor(location) {
+  const returnTo = `${location.pathname}${location.search}${location.hash}` || '/';
+  return `/Login?return=${encodeURIComponent(returnTo)}`;
+}
+
+export const AuthenticatedApp = () => {
+  const { isAuthenticated, isLoadingAuth, authError } = useAuth();
+  const location = useLocation();
 
   if (isLoadingAuth) {
     return <PageLoader />;
@@ -56,6 +62,17 @@ const AuthenticatedApp = () => {
 
   if (authError && authError.type === 'user_not_registered') {
     return <UserNotRegisteredError />;
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/Login" element={<Login />} />
+          <Route path="*" element={<Navigate to={loginRedirectFor(location)} replace />} />
+        </Routes>
+      </Suspense>
+    );
   }
 
   return (

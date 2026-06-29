@@ -12,6 +12,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 import PrintButton from "@/components/common/PrintButton";
+import { usePremiumAccess } from "@/components/hooks/usePremiumAccess";
 
 import InteractiveMap from "../components/maps/InteractiveMap";
 import TimelineViewer from "../components/maps/TimelineViewer";
@@ -127,8 +128,8 @@ const biblicalTimelines = [
 ];
 
 export default function BibleMaps() {
-  // Centralised auth — drives both `user` and the loading state.
-  const { user, isLoadingAuth: loading } = useAuth();
+  // Centralised auth — drives the loading state.
+  const { isLoadingAuth: loading } = useAuth();
   const [selectedJourney, setSelectedJourney] = useState(biblicalJourneys[0]);
   const [selectedTimeline, setSelectedTimeline] = useState(biblicalTimelines[0]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -137,9 +138,12 @@ export default function BibleMaps() {
   const [viewMode, setViewMode] = useState("preset"); // "preset", "search"
   const [presetTab, setPresetTab] = useState("journeys"); // "journeys", "timelines"
 
-  const isPremium = user?.subscription_tier === 'premium' || 
-                    user?.premium_override === true ||
-                    (user?.premium_until && new Date(user.premium_until) > new Date());
+  // Single source of truth for premium/dev access — the same hook
+  // WorldviewExplorer and Layout use. The previous inline check here diverged:
+  // it ignored the admin/dev override and the `user.premium` boolean, so an
+  // admin saw this page walled while WorldviewExplorer — carrying the same
+  // Premium badge — opened. Sharing the hook keeps the two gates from drifting.
+  const { isPremium } = usePremiumAccess();
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {

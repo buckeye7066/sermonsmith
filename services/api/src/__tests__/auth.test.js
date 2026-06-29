@@ -12,7 +12,12 @@ vi.mock('../middleware/auth.js', () => ({
   prisma,
   AUTH_COOKIE: 'ss_token',
   cookieOptions: () => ({ httpOnly: true, secure: false, sameSite: 'lax' }),
-  signToken: (id) => jwt.sign({ userId: id }, 'test-jwt-secret-that-is-at-least-32-chars-long', { algorithm: 'HS256', expiresIn: '1h' }),
+  signToken: (userOrId) => {
+    const isString = typeof userOrId === 'string';
+    const payload = { userId: isString ? userOrId : userOrId.id };
+    if (!isString && typeof userOrId.tokenVersion === 'number') payload.tv = userOrId.tokenVersion;
+    return jwt.sign(payload, 'test-jwt-secret-that-is-at-least-32-chars-long', { algorithm: 'HS256', expiresIn: '1h' });
+  },
   authenticateToken: async (req, res, next) => {
     const token = req.cookies?.ss_token;
     if (!token) return res.status(401).json({ message: 'Authentication required' });
@@ -42,6 +47,11 @@ vi.mock('../services/email.js', () => ({
 process.env.JWT_SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 
 const { default: authRoutes } = await import('../routes/auth.js');
+const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
+
+function tokenFor(id) {
+  return jwt.sign({ userId: id }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+}
 
 function buildApp() {
   const app = express();
@@ -137,5 +147,98 @@ describe('auth routes', () => {
   it('reset-password rejects unknown / tampered tokens', async () => {
     const res = await request(app).post('/api/auth/reset-password').send({ token: 'not-a-real-token', newPassword: 'newlongpass1' });
     expect(res.status).toBe(400);
+  });
+
+  it('exports user data without password fields and includes typed migration rows', async () => {
+    prisma._store.user.push({
+      id: 'u-export',
+      email: 'export@example.com',
+      password: 'secret-hash',
+      role: 'user',
+      premium: false,
+      profile: { theme: 'dark', role: 'admin' },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    prisma._store.entity.push({
+      id: 'entity-1',
+      type: 'Sermon',
+      userId: 'u-export',
+      data: { title: 'Generic Sermon' },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    prisma._store.sermon.push({
+      id: 'sermon-1',
+      userId: 'u-export',
+      title: 'Typed Sermon',
+      status: 'draft',
+      content: { title: 'Typed Sermon' },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(app)
+      .get('/api/auth/export')
+      .set('Cookie', [`ss_token=${tokenFor('u-export')}`]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.password).toBeUndefined();
+    expect(res.body.user.profile.role).toBeUndefined();
+    expect(res.body.user.theme).toBe('dark');
+    expect(res.body.entities).toHaveLength(1);
+    expect(res.body.typed.sermons).toHaveLength(1);
+    expect(prisma._store.auditLog.some((row) => row.action === 'privacy.export')).toBe(true);
+  });
+
+  it('self-delete soft deletes the account, bumps tokenVersion, and clears the cookie', async () => {
+    prisma._store.user.push({
+      id: 'u-delete',
+      email: 'delete@example.com',
+      password: 'hash',
+      role: 'user',
+      premium: false,
+      tokenVersion: 0,
+    });
+
+    const res = await request(app)
+      .delete('/api/auth/me')
+      .set('Cookie', [`ss_token=${tokenFor('u-delete')}`]);
+
+    expect(res.status).toBe(204);
+    const stored = prisma._store.user.find((u) => u.id === 'u-delete');
+    expect(stored.deletedAt).toBeInstanceOf(Date);
+    expect(stored.tokenVersion).toBe(1);
+    expect(res.headers['set-cookie']?.[0]).toMatch(/ss_token=/);
+    expect(prisma._store.auditLog.some((row) => row.action === 'privacy.account_delete_requested')).toBe(true);
+  });
+
+  it('revoke-sessions bumps tokenVersion, audits the action, and reissues the cookie', async () => {
+    prisma._store.user.push({
+      id: 'u-revoke',
+      email: 'revoke@example.com',
+      password: 'hash',
+      role: 'user',
+      premium: false,
+      tokenVersion: 2,
+    });
+
+    const res = await request(app)
+      .post('/api/auth/revoke-sessions')
+      .set('Cookie', [`ss_token=${tokenFor('u-revoke')}`]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.tokenVersion).toBe(3);
+    expect(res.body.user.password).toBeUndefined();
+    const stored = prisma._store.user.find((u) => u.id === 'u-revoke');
+    expect(stored.tokenVersion).toBe(3);
+    expect(prisma._store.auditLog.some((row) => row.action === 'auth.sessions_revoked')).toBe(true);
+
+    const cookie = res.headers['set-cookie']?.[0] || '';
+    const token = cookie.match(/ss_token=([^;]+)/)?.[1];
+    expect(token).toBeTruthy();
+    const decoded = jwt.verify(token, SECRET, { algorithms: ['HS256'] });
+    expect(decoded.userId).toBe('u-revoke');
+    expect(decoded.tv).toBe(3);
   });
 });

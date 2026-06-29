@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Scale, X } from "lucide-react";
+import { Loader2, Scale } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ export default function ReligiousViewpointsDialog({ open, onClose, verse, user }
     if (open && verse && !viewpoints) {
       generateViewpoints();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, verse]);
 
   const generateViewpoints = async () => {

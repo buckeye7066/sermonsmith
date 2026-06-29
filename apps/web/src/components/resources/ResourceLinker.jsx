@@ -45,6 +45,7 @@ export default function ResourceLinker({ open, onClose, sourceType, sourceId, us
       loadLinkedResources();
       loadAvailableResources();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, selectedType]);
 
   const loadLinkedResources = async () => {

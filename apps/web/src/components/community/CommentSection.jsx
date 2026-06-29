@@ -18,6 +18,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
     if (contentId) {
       loadComments();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [contentId]);
 
   const loadComments = async () => {

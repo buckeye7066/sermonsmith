@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Loader2, ArrowLeft, Mail, KeyRound } from 'lucide-react';
@@ -12,11 +13,14 @@ import { Loader2, ArrowLeft, Mail, KeyRound } from 'lucide-react';
 // crafted login link could ship the user off-site after a successful
 // authentication. We parse against our own origin and require the URL
 // resolve back to it; on any mismatch (or parse error) we fall back to '/'.
-function getSafeReturnUrl(raw) {
+export function getSafeReturnUrl(raw) {
   if (!raw) return '/';
   try {
     const url = new URL(raw, window.location.origin);
     if (url.origin !== window.location.origin) return '/';
+    if (url.pathname === '/' && url.hash.startsWith('#/')) {
+      return url.hash.slice(1) || '/';
+    }
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return '/';
@@ -31,6 +35,8 @@ export default function Login() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const { checkAppState } = useAuth();
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('return');
   const resetToken = searchParams.get('reset_token');
@@ -46,14 +52,14 @@ export default function Login() {
       setResetTokenState(resetToken);
       setMode('reset');
       try {
-        window.history.replaceState({}, document.title, '/Login');
+        navigate('/Login', { replace: true });
       } catch {
         // history API unavailable (very old browser / private mode in
         // some embedded webviews) — the token is still in the URL but we
         // tried.
       }
     }
-  }, [resetToken]);
+  }, [navigate, resetToken]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -61,13 +67,21 @@ export default function Login() {
     try {
       if (mode === 'register') {
         await api.auth.register(email, password, name);
-        toast.success('Account created successfully!');
       } else {
         await api.auth.login(email, password);
-        toast.success('Welcome back!');
       }
+      // Re-sync AuthContext from the server (sets `user` + `isAuthenticated`)
+      // BEFORE navigating. The login endpoint sets the httpOnly cookie, but the
+      // SPA's auth state only refreshes on mount — so without this the page we
+      // navigate to still believes we're logged out and the protected route
+      // bounces straight back to /Login (the "logged in but everything 401s
+      // until a hard reload" bug). Showing the success toast only after the
+      // confirmed re-sync also stops the premature "Welcome back!" that used to
+      // flash on the login screen mid-bounce.
+      await checkAppState();
+      toast.success(mode === 'register' ? 'Account created successfully!' : 'Welcome back!');
       const safeReturn = getSafeReturnUrl(returnUrl);
-      window.location.href = safeReturn;
+      navigate(safeReturn, { replace: true });
     } catch (error) {
       toast.error(error.message || 'Authentication failed');
     } finally {

@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { logError } from '@/lib/logError';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, BookOpen, Trash2, Search, Pin, Filter } from 'lucide-react';
+import { Loader2, BookOpen, Trash2, Search, Pin } from 'lucide-react';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 

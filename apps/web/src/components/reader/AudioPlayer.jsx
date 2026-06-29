@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Play, Pause, Volume2, VolumeX, Loader2, Crown, Settings, Globe, AlertTriangle, Info, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
-import { api } from '@/api/apiClient';
+
 import {
   Select,
   SelectContent,
@@ -87,12 +87,11 @@ const getInstallInstructions = (os, language) => {
 export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline, currentTranslation }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [audioUrl, setAudioUrl] = useState(null);
+  const [isGenerating] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState([80]);
   const [showSettings, setShowSettings] = useState(false);
-  const [allVoices, setAllVoices] = useState([]);
+  const [, setAllVoices] = useState([]);
   const [availableVoices, setAvailableVoices] = useState([]);
   const [selectedVoice, setSelectedVoice] = useState(null);
   const [speechRate, setSpeechRate] = useState([0.9]);
@@ -102,7 +101,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
   const [availableLanguages, setAvailableLanguages] = useState([]);
   const [showLanguageHelp, setShowLanguageHelp] = useState(false);
   const [userOS, setUserOS] = useState('');
-  const audioRef = useRef(null);
+  
   const utteranceRef = useRef(null);
 
   useEffect(() => {
@@ -169,6 +168,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
         window.speechSynthesis.cancel();
       }
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [currentTranslation, isPremium]);
 
   // Load saved settings

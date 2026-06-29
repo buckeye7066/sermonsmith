@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
-import { Card } from "@/components/ui/card";
+
 import { Badge } from "@/components/ui/badge";
 import { MapPin, AlertTriangle } from "lucide-react";
 import 'leaflet/dist/leaflet.css';

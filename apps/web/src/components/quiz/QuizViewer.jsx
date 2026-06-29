@@ -6,10 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckCircle2, XCircle, ChevronRight, Save, Edit2, Download } from "lucide-react";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
+  
 } from "@/components/ui/accordion";
 import { toast } from "sonner";
 import PrintButton from "@/components/common/PrintButton";
@@ -314,10 +311,24 @@ export default function QuizViewer({ quizData, onSave, user }) {
 
       {!showResults && (
         <div className="flex justify-center gap-3" data-print-hidden>
-          <Button 
-            onClick={() => setShowResults(true)} 
+          <Button
+            onClick={() => {
+              // Validate on click (rather than only disabling the button) so an
+              // incomplete submit gives the user a reason instead of silently
+              // doing nothing.
+              const total = quizData.questions?.length || 0;
+              const answered = Object.keys(selectedAnswers).length;
+              if (total === 0) {
+                toast.error('This quiz has no questions to submit.');
+                return;
+              }
+              if (answered < total) {
+                toast.error(`Please answer all questions first — ${total - answered} of ${total} still unanswered.`);
+                return;
+              }
+              setShowResults(true);
+            }}
             className="bg-green-600 hover:bg-green-700"
-            disabled={Object.keys(selectedAnswers).length < quizData.questions.length}
           >
             Submit Quiz
             <ChevronRight className="w-4 h-4 ml-2" />

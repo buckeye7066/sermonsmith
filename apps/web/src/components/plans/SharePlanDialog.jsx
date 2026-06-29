@@ -9,7 +9,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Loader2, Share2, Sparkles } from "lucide-react";
 import { api } from '@/api/apiClient';
-import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
 
 export default function SharePlanDialog({ open, onClose, plan, user }) {
@@ -21,42 +20,6 @@ export default function SharePlanDialog({ open, onClose, plan, user }) {
     setIsSharing(true);
 
     try {
-      // Generate AI tags and categorization
-      const prompt = `Analyze this Bible study plan and generate comprehensive tags:
-
-Plan: "${plan.plan_title}"
-Duration: ${plan.duration} days
-Age Group: ${plan.age_group}
-Topic: ${plan.topic}
-Overview: ${plan.plan_overview}
-
-Generate:
-1. Content tags (8-12): Topics, themes, biblical concepts covered
-2. Age group suitability
-3. Category (Spiritual Growth, Bible Knowledge, Prayer, Character, Service, etc.)
-4. Keywords for searchability
-
-Make it discoverable for the community.`;
-
-      const tagsResponse = await api.integrations.Core.InvokeLLM({
-        system_prompt: LARRY_SYSTEM_PROMPT,
-        prompt,
-        response_json_schema: {
-          type: "object",
-          properties: {
-            content_tags: {
-              type: "array",
-              items: { type: "string" }
-            },
-            category: { type: "string" },
-            keywords: {
-              type: "array",
-              items: { type: "string" }
-            }
-          }
-        }
-      });
-
       // Share the plan publicly
       await api.entities.ReadingPlan.create({
         creator_id: user.id,

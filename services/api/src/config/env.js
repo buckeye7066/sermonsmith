@@ -66,6 +66,20 @@ function isWeakSecret(value) {
   return false;
 }
 
+function isValidStripePriceId(value) {
+  if (!value) return false;
+  if (!/^price_[A-Za-z0-9_]{6,}$/.test(value)) return false;
+  return !/^price_(your|id|test|placeholder)/i.test(value);
+}
+
+function isValidStripeLiveSecret(value) {
+  return typeof value === 'string' && value.startsWith('sk_live_') && value.length > 'sk_live_'.length + 8;
+}
+
+function isValidStripeWebhookSecret(value) {
+  return typeof value === 'string' && value.startsWith('whsec_') && value.length > 'whsec_'.length + 8;
+}
+
 export function loadEnv(opts = {}) {
   const source = opts.source || process.env;
   const warn = opts.warn || ((msg) => console.warn(`[env] ${msg}`));
@@ -100,6 +114,16 @@ export function loadEnv(opts = {}) {
     if (billingEnabled) {
       if (!env.STRIPE_SECRET_KEY) missing.push('STRIPE_SECRET_KEY (set DISABLE_BILLING=1 to disable billing)');
       if (!env.STRIPE_WEBHOOK_SECRET) missing.push('STRIPE_WEBHOOK_SECRET (set DISABLE_BILLING=1 to disable billing)');
+      if (!env.STRIPE_PRICE_ID) missing.push('STRIPE_PRICE_ID (set DISABLE_BILLING=1 to disable billing)');
+      if (env.STRIPE_SECRET_KEY && !isValidStripeLiveSecret(env.STRIPE_SECRET_KEY)) {
+        weak.push('STRIPE_SECRET_KEY (must be a live-mode sk_live_ key for production)');
+      }
+      if (env.STRIPE_WEBHOOK_SECRET && !isValidStripeWebhookSecret(env.STRIPE_WEBHOOK_SECRET)) {
+        weak.push('STRIPE_WEBHOOK_SECRET (must be a Stripe whsec_ signing secret)');
+      }
+      if (env.STRIPE_PRICE_ID && !isValidStripePriceId(env.STRIPE_PRICE_ID)) {
+        weak.push('STRIPE_PRICE_ID (must be a real Stripe price_ id, not a placeholder)');
+      }
     }
     if (resetEnabled && !env.RESEND_API_KEY) {
       missing.push('RESEND_API_KEY (set DISABLE_PASSWORD_RESET=1 to disable email-driven reset)');

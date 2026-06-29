@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+
 import { Settings as SettingsIcon, User, Crown, Bell, Loader2, Sparkles, Mail, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
@@ -250,7 +250,7 @@ export default function Settings() {
                       </AlertDescription>
                     </Alert>
 
-                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex flex-col gap-4 p-4 border rounded-lg sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-medium">Manage Subscription</p>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -261,6 +261,7 @@ export default function Settings() {
                         variant="outline"
                         onClick={handleManageSubscription}
                         disabled={isOpeningPortal}
+                        className="w-full sm:w-auto"
                       >
                         {isOpeningPortal ? (
                           <>

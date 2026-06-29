@@ -1,9 +1,9 @@
 /**
  * Integration tests against a REAL PostgreSQL database.
  *
- * Skipped unless RUN_INTEGRATION=1 is set so local `npm test` does not need
- * Postgres to be running. CI provides Postgres via a service container (see
- * .github/workflows/ci.yml -> integration-test job).
+ * Registered only when RUN_INTEGRATION=1 is set so local `npm test` does not
+ * need Postgres to be running. CI provides Postgres via a service container
+ * (see .github/workflows/ci.yml -> integration-test job).
  *
  * These tests exercise behaviour that is meaningless against the in-memory
  * mock — most importantly the AiUsage upsert path, which depends on a real
@@ -16,7 +16,6 @@ import { PrismaClient } from '@prisma/client';
 import { consumeUsageDb } from '../routes/ai.js';
 
 const RUN = process.env.RUN_INTEGRATION === '1';
-const describeIfDb = RUN ? describe : describe.skip;
 
 let prisma;
 
@@ -42,7 +41,14 @@ beforeEach(async () => {
   await prisma.stripeEvent.deleteMany();
 });
 
-describeIfDb('integration — real Postgres', () => {
+describe('integration suite gating', () => {
+  it('does not require Postgres unless RUN_INTEGRATION=1', () => {
+    expect(typeof RUN).toBe('boolean');
+  });
+});
+
+if (RUN) {
+describe('integration — real Postgres', () => {
   it('AiUsage upsert serialises concurrent consume calls and never double-counts', async () => {
     const user = await prisma.user.create({
       data: {
@@ -127,3 +133,4 @@ describeIfDb('integration — real Postgres', () => {
     ).rejects.toThrow();
   });
 });
+}

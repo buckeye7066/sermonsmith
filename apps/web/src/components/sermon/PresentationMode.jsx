@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
+
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Dialog,
@@ -29,14 +29,10 @@ import {
   CheckCircle2,
   Loader2,
   Settings,
-  Volume2,
-  VolumeX,
   Mic,
   MicOff,
-  TrendingUp,
   Users,
   Search,
-  Zap,
   MessageCircle,
   Heart,
   Target,
@@ -89,7 +85,7 @@ export default function PresentationMode({ sermon, onClose }) {
   const [isRunning, setIsRunning] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [fontSize, setFontSize] = useState(28);
+  const [fontSize] = useState(28);
   const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const [lastSuggestionPoint, setLastSuggestionPoint] = useState(-999);
@@ -153,6 +149,7 @@ export default function PresentationMode({ sermon, onClose }) {
     return () => {
       if (vocalFeedbackTimerRef.current) clearInterval(vocalFeedbackTimerRef.current);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [isVocalMonitoring, settings.enableVocalFeedback, isRunning]);
 
   // Auto-engagement suggestions
@@ -165,6 +162,7 @@ export default function PresentationMode({ sermon, onClose }) {
 
       return () => clearInterval(interval);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [settings.enableEngagementSuggestions, isRunning, currentPointIndex]);
 
   // Monitor pauses for auto-suggestions
@@ -190,6 +188,7 @@ export default function PresentationMode({ sermon, onClose }) {
     return () => {
       if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [isRunning, currentPointIndex, pauseStartTime, settings.autoSuggestOnPause]);
 
   const handleUserAction = () => {
@@ -494,6 +493,7 @@ Match the ${personalityData.description} tone!`;
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [currentPointIndex, isRunning]);
 
   return (

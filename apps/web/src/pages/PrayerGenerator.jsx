@@ -24,10 +24,8 @@ import {
   Church,
   Baby,
   GraduationCap,
-  Mic,
   Volume2,
-  VolumeX,
-  Download
+  VolumeX
 } from "lucide-react";
 import { toast } from "sonner";
 import PrintButton from "@/components/common/PrintButton";

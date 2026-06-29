@@ -25,7 +25,6 @@ import {
   AlertTriangle,
   Compass,
   Cross,
-  Filter,
   FileText,
   GitCompare,
   Save,
@@ -198,10 +197,11 @@ export default function WorldviewExplorer() {
   const { isPremium, loading: accessLoading } = usePremiumAccess();
   const [selectedSystem, setSelectedSystem] = useState(null);
   const [analysis, setAnalysis] = useState(null);
+  const [analysisError, setAnalysisError] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [customBelief, setCustomBelief] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategory] = useState('all');
   const [systemSummaries, setSystemSummaries] = useState({});
   const [isLoadingSummary, setIsLoadingSummary] = useState({});
   const [showCompareDialog, setShowCompareDialog] = useState(false);
@@ -343,6 +343,7 @@ Be objective, fair, theologically sound.`;
     setIsAnalyzing(true);
     setSelectedSystem(systemName);
     setAnalysis(null);
+    setAnalysisError(null);
 
     try {
       const denomination = user?.denomination || "Non-Denominational";
@@ -374,6 +375,11 @@ Be respectful, accurate, pastoral.`;
       toast.success(`Analysis complete!`);
     } catch (error) {
       console.error('Error:', error);
+      // Record the failure in state so the UI can show a real error panel.
+      // Previously the catch only fired a toast and left both `analysis` and
+      // `isAnalyzing` empty/false — so the page rendered nothing and looked
+      // like the click was simply ignored.
+      setAnalysisError(error?.data?.message || error?.message || 'Something went wrong while generating this analysis. Please try again.');
       toast.error("Failed to generate analysis");
     } finally {
       setIsAnalyzing(false);
@@ -651,6 +657,25 @@ Be respectful, accurate, pastoral.`;
                 Analyzing {selectedSystem}...
               </h3>
               <p className="text-gray-600 dark:text-gray-400">This may take 30-60 seconds</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Analysis Error */}
+        {analysisError && !isAnalyzing && (
+          <Card className="mt-8 border-red-200 dark:border-red-900">
+            <CardContent className="pt-6 text-center py-12">
+              <AlertTriangle className="w-12 h-12 mx-auto text-red-500 mb-4" />
+              <h3 className="text-xl font-semibold mb-2">Analysis didn't complete</h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-md mx-auto">{analysisError}</p>
+              {selectedSystem && (
+                <Button
+                  variant="outline"
+                  onClick={() => analyzeBeliefSystem('retry', selectedSystem)}
+                >
+                  Try Again
+                </Button>
+              )}
             </CardContent>
           </Card>
         )}

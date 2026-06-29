@@ -26,7 +26,8 @@ export function Sidebar({ className, children, ...props }) {
         // `md:flex` defaulted to row layout, which crushed the menu into a
         // thin column (labels showed as "Hor", "Bib Rea", ...). `shrink-0`
         // stops wide page content from squeezing the sidebar below its
-        // w-64/w-16 width.
+        // w-64/w-16 width. `overflow-hidden` + the `group/sidebar` marker let
+        // the collapsed (w-16) state hide labels instead of overflowing.
         "group/sidebar flex-col shrink-0 h-screen overflow-hidden border-r bg-background text-sm transition-all duration-200 ease-in-out",
         open ? "w-64" : "w-16",
         className

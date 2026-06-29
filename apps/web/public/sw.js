@@ -1,3 +1,5 @@
+// Bumped v1 -> v2 so the activate handler purges the old cache, which could
+// hold a stale /api/auth/me 401 that kept users stuck on the sign-in page.
 const CACHE_NAME = 'sermon-smith-v2';
 const STATIC_ASSETS = [
   '/',
@@ -41,6 +43,20 @@ self.addEventListener('fetch', (event) => {
   
   // Skip cross-origin requests
   if (!request.url.startsWith(self.location.origin)) {
+    return;
+  }
+
+  // NEVER cache or serve API/auth traffic from the SW — it must always hit the
+  // network so session state is real-time. The web app now talks to the API
+  // same-origin (vercel.json proxies /api/* to Railway), so these requests are
+  // same-origin and would otherwise fall into the cache-first branch below.
+  // That replayed a stale /api/auth/me 401 right after login, so the app thought
+  // the user was logged out and bounced back to the sign-in page (the reported
+  // "Welcome back" toast then stuck-on-login bug). Caching authenticated API
+  // responses is also a cross-account data-leak risk. Always let the browser do
+  // a normal, credentialed network fetch for these.
+  const apiUrl = new URL(request.url);
+  if (request.method !== 'GET' || apiUrl.pathname.startsWith('/api/')) {
     return;
   }
 
