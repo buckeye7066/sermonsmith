@@ -29,6 +29,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+// User records come from the Prisma model (sanitizeUser) and carry `createdAt`,
+// NOT the `created_date` that Entity blobs (activities, notes) expose. Reading
+// `u.created_date` therefore yielded `new Date(undefined)` → "Invalid Date".
+// Prefer createdAt, fall back to created_date, and guard so a missing/garbled
+// value renders an em-dash instead of "Invalid Date".
+function formatJoinedDate(u) {
+  const raw = u?.createdAt || u?.created_date;
+  if (!raw) return '—';
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+}
+
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -240,7 +252,7 @@ export default function AdminUsers() {
                           </div>
                           <div className="flex items-center gap-2">
                             <Calendar className="w-4 h-4" />
-                            Joined {new Date(u.created_date).toLocaleDateString()}
+                            Joined {formatJoinedDate(u)}
                           </div>
                           <div className="flex items-center gap-2">
                             <Activity className="w-4 h-4 text-green-600" />

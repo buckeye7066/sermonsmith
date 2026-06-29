@@ -149,6 +149,26 @@ const ENTITY_SCHEMAS = {
     title: z.string().min(1).max(200),
     body: z.string().max(20000).optional(),
   }).passthrough(),
+  // The community Forum page (apps/web/src/pages/Forum.jsx) reads/writes these
+  // two types. They were missing from the registry, so every "New Post" POST
+  // 400'd with "Unsupported entity type: CommunityPost". Field names mirror the
+  // client form exactly (content/post_type/scripture_reference). passthrough()
+  // keeps the denormalized counters (replies_count/likes_count) and flags.
+  CommunityPost: z.object({
+    title: z.string().min(1).max(200),
+    content: z.string().min(1).max(20000),
+    post_type: z.enum(['question', 'discussion', 'testimony', 'prayer_request']).default('discussion'),
+    scripture_reference: z.string().max(200).optional(),
+    tags: z.array(z.string().max(60)).max(20).optional(),
+    user_name: z.string().max(200).optional(),
+  }).passthrough(),
+  CommunityReply: z.object({
+    post_id: z.string().min(1).max(200),
+    content: z.string().min(1).max(20000),
+    user_name: z.string().max(200).optional(),
+    is_ai_response: z.boolean().optional(),
+    is_accepted_answer: z.boolean().optional(),
+  }).passthrough(),
   StudyGroup: z.object({
     name: z.string().min(1).max(200),
     description: z.string().max(2000).optional(),

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Loader2, ArrowLeft, Mail, KeyRound } from 'lucide-react';
@@ -35,6 +36,7 @@ export default function Login() {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { checkAppState } = useAuth();
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('return');
   const resetToken = searchParams.get('reset_token');
@@ -65,11 +67,19 @@ export default function Login() {
     try {
       if (mode === 'register') {
         await api.auth.register(email, password, name);
-        toast.success('Account created successfully!');
       } else {
         await api.auth.login(email, password);
-        toast.success('Welcome back!');
       }
+      // Re-sync AuthContext from the server (sets `user` + `isAuthenticated`)
+      // BEFORE navigating. The login endpoint sets the httpOnly cookie, but the
+      // SPA's auth state only refreshes on mount — so without this the page we
+      // navigate to still believes we're logged out and the protected route
+      // bounces straight back to /Login (the "logged in but everything 401s
+      // until a hard reload" bug). Showing the success toast only after the
+      // confirmed re-sync also stops the premature "Welcome back!" that used to
+      // flash on the login screen mid-bounce.
+      await checkAppState();
+      toast.success(mode === 'register' ? 'Account created successfully!' : 'Welcome back!');
       const safeReturn = getSafeReturnUrl(returnUrl);
       navigate(safeReturn, { replace: true });
     } catch (error) {
