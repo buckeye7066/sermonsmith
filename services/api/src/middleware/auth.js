@@ -47,11 +47,15 @@ export function cookieOptions() {
   // browser warnings.
   const secure = isProd || sameSite === 'none';
 
+  // Session cookie: no maxAge/expires, so the browser drops it when fully
+  // closed. Combined with the short token TTL below this means a signed-in
+  // browser stays in only for the current session — reopening the app in a new
+  // browser session requires logging in again (owner requirement: the app must
+  // not silently auto-resume a 30-day login).
   const opts = {
     httpOnly: true,
     secure,
     sameSite,
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     path: '/',
   };
 
@@ -79,7 +83,9 @@ export function signToken(userOrId) {
   if (!isString && typeof userOrId.tokenVersion === 'number') {
     payload.tv = userOrId.tokenVersion;
   }
-  return jwt.sign(payload, jwtSecret(), { algorithm: 'HS256', expiresIn: '30d' });
+  // 1-day TTL (was 30d). With the session cookie above, a signed-in browser
+  // stays in for the current session, capped at 24h, then must log in again.
+  return jwt.sign(payload, jwtSecret(), { algorithm: 'HS256', expiresIn: '1d' });
 }
 
 /**
