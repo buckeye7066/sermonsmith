@@ -339,6 +339,47 @@ const integrations = {
       }
       return result;
     },
+
+    // Streaming variant of InvokeLLM. Reads the chunked text response and calls
+    // `onDelta(fullTextSoFar, chunk)` as tokens arrive; resolves with the full
+    // text. Throws on a pre-stream error (4xx/5xx) just like apiFetch so callers
+    // can fall back to InvokeLLM. NOT auto-retried (each call bills the user).
+    StreamLLM: async (p, onDelta) => {
+      const apiBase = await getApiBaseUrl();
+      // A network failure here rejects naturally — callers fall back to InvokeLLM.
+      const res = await fetch(`${apiBase}/api/ai/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(p || {}),
+      });
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => ({ message: `API error ${res.status}` }));
+        const error = new Error(body.message || `API error ${res.status}`);
+        error.status = res.status;
+        error.data = body;
+        if (res.status === 401 && !isAuthHandshakePath('/api/ai/stream')) {
+          try { _onUnauthorized?.('/api/ai/stream'); } catch { /* never mask */ }
+        }
+        throw error;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        if (chunk) {
+          full += chunk;
+          if (typeof onDelta === 'function') {
+            try { onDelta(full, chunk); } catch { /* a render hiccup must not kill the stream */ }
+          }
+        }
+      }
+      return full;
+    },
     SendEmail:                  (p) => apiFetch('/api/ai/email',    { method: 'POST', body: JSON.stringify(p) }),
     SendSMS:                    (p) => apiFetch('/api/ai/sms',      { method: 'POST', body: JSON.stringify(p) }),
     UploadFile:                 (p) => apiFetch('/api/ai/upload',   { method: 'POST', body: JSON.stringify(p) }),

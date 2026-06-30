@@ -38,9 +38,9 @@ export default function PageNotFound() {
                                     <div className="w-2 h-2 rounded-full bg-orange-400"></div>
                                 </div>
                                 <div className="text-left space-y-1">
-                                    <p className="text-sm font-medium text-slate-700">Admin Note</p>
+                                    <p className="text-sm font-medium text-slate-700">Admin note</p>
                                     <p className="text-sm text-slate-600 leading-relaxed">
-                                        No route is registered for this path. Check the link, or add the page to <span className="font-mono">pages.config.js</span> if it should exist.
+                                        No page is registered for this path. Double-check the link that brought you here.
                                     </p>
                                 </div>
                             </div>

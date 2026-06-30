@@ -625,6 +625,105 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Streaming LLM invocation.
+//
+// Same gating/quota/model rules as /invoke, but proxies OpenAI token-by-token
+// so the UI can render content as it's written ("watch Larry write") instead
+// of staring at a 20-60s spinner. Streams the raw model text as a chunked
+// text/plain response; the client accumulates it and (for json_object calls)
+// partial-parses to render fields progressively. Errors BEFORE the first byte
+// return a normal JSON error; once streaming has started we can only end the
+// (partial) stream, so the client treats a truncated body as a soft failure.
+// ---------------------------------------------------------------------------
+router.post('/stream', authenticateToken, async (req, res, next) => {
+  let usageConsumed = false;
+  let started = false;
+  let auditBase = null;
+  try {
+    const parsed = invokeRequestSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid AI request', issues: parsed.error.issues });
+    }
+    const { prompt, system_prompt, response_json_schema, feature, model, max_tokens, temperature } = parsed.data;
+    const resolvedModel = resolveModel(model, req.userPremium);
+    const clampedTokens = clampTokens(max_tokens, req.userPremium);
+    const clampedTemperature = clampTemperature(temperature);
+    const openai = await getOpenAI();
+
+    const usage = await consumeUsageDb(req.userId, req.userPremium);
+    usageConsumed = true;
+    if (!usage.allowed) {
+      return res.status(429).json({ message: `Daily AI limit reached (${usage.limit}). Upgrade or try again tomorrow.` });
+    }
+
+    const messages = [];
+    if (system_prompt) messages.push({ role: 'system', content: system_prompt });
+    messages.push({ role: 'user', content: prompt });
+
+    const params = {
+      model: resolvedModel,
+      messages,
+      max_tokens: clampedTokens,
+      temperature: clampedTemperature,
+      stream: true,
+    };
+    if (response_json_schema) {
+      params.response_format = { type: 'json_object' };
+      const schemaIdx = system_prompt ? 0 : messages.length - 1;
+      messages[schemaIdx].content += `\n\n${buildJsonSchemaInstruction(response_json_schema)}`;
+    }
+
+    auditBase = {
+      userId: req.userId,
+      feature: feature || 'general',
+      model: resolvedModel,
+      prompt: [system_prompt, prompt, response_json_schema ? JSON.stringify(response_json_schema) : null].filter(Boolean).join('\n'),
+      startTime: Date.now(),
+    };
+
+    // Open the upstream stream. A failure here (before any byte is sent) is a
+    // normal error path — refund the quota and return JSON.
+    const completion = await callWithRetry(() => openai.chat.completions.create(params));
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no'); // ask proxies not to buffer the stream
+    started = true;
+
+    let full = '';
+    for await (const chunk of completion) {
+      const delta = chunk?.choices?.[0]?.delta?.content || '';
+      if (delta) {
+        full += delta;
+        res.write(delta);
+      }
+    }
+    res.end();
+
+    await auditAiCall({
+      ...auditBase,
+      response: full,
+      status: 'success',
+      tokenEstimate: estimateTokenCount(auditBase.prompt, full),
+    });
+  } catch (err) {
+    // Quota was counted but nothing streamed → give it back (transient upstream
+    // failure, not the user's fault).
+    if (usageConsumed && !started) await refundUsageDb(req.userId);
+    if (auditBase && started) {
+      await auditAiCall({ ...auditBase, status: 'failure', failureType: classifyAiFailure(err) });
+    }
+    if (started) {
+      // Headers already sent — just end the partial stream.
+      try { res.end(); } catch { /* already closed */ }
+      return;
+    }
+    next(err);
+  }
+});
+
 // Image generation.
 //
 // DALL-E calls are significantly more expensive per request than text

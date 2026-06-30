@@ -6,11 +6,14 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 // --- Mock the heavy dependency chain so we test SermonBuilder's own flow,
 //     not the network, auth, router, or its child builders. ---
 const invokeLLM = vi.fn();
+// Streaming is unavailable in the test env, so it throws and the builder falls
+// back to InvokeLLM — which is exactly what the assertions below exercise.
+const streamLLM = vi.fn(async () => { throw new Error('stream-unavailable-in-test'); });
 const createSermon = vi.fn(async (data) => ({ id: 'sermon-1', ...data }));
 
 vi.mock('@/api/apiClient', () => ({
   api: {
-    integrations: { Core: { InvokeLLM: (...a) => invokeLLM(...a) } },
+    integrations: { Core: { InvokeLLM: (...a) => invokeLLM(...a), StreamLLM: (...a) => streamLLM(...a) } },
     entities: { Sermon: { create: (...a) => createSermon(...a) } },
   },
 }));
@@ -52,16 +55,19 @@ describe('SermonBuilder UI flow', () => {
     expect(screen.getByRole('button', { name: /Generate Sermon with Larry/i })).toBeInTheDocument();
   });
 
-  it('keeps the generate button disabled until BOTH topic and passage are set', () => {
+  it('stays clickable and gives clear feedback when required fields are missing', async () => {
     render(<SermonBuilder />);
     const btn = screen.getByRole('button', { name: /Generate Sermon with Larry/i });
-    expect(btn).toBeDisabled();
-
-    fireEvent.change(screen.getByPlaceholderText(/Faith, Grace, Prayer/i), { target: { value: 'Grace' } });
-    expect(btn).toBeDisabled(); // topic only — still blocked
-
-    fireEvent.change(screen.getByPlaceholderText(/John 3:16, Romans/i), { target: { value: 'Ephesians 2:8' } });
+    // Intentionally NOT disabled — a silently-disabled button reads as broken;
+    // clicking with empty fields surfaces a toast instead.
     expect(btn).toBeEnabled();
+
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Please provide both a topic and scripture passage'),
+    );
+    expect(invokeLLM).not.toHaveBeenCalled();
+    expect(streamLLM).not.toHaveBeenCalled();
   });
 
   it('calls Larry and renders the editor once a topic + passage are given', async () => {
