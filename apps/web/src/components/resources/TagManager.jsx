@@ -64,22 +64,30 @@ export default function TagManager({ open, onClose, resourceType, resourceId, us
   const generateAISuggestions = async () => {
     setIsLoadingSuggestions(true);
     try {
-      // Get resource content for AI analysis
+      // Get resource content for AI analysis. NOTE: fetch by id with .get() —
+      // `.filter({ id })` matches against the JSON `data` blob, which does NOT
+      // contain `id` (it's the row's own column), so it always returned [] and
+      // the whole suggestion flow silently no-op'd.
       let content = "";
-      
+
       if (resourceType === 'sermon') {
-        const sermon = await api.entities.Sermon.filter({ id: resourceId });
-        if (sermon[0]) {
-          content = `${sermon[0].title} ${sermon[0].topic} ${sermon[0].big_idea}`;
+        const sermon = await api.entities.Sermon.get(resourceId).catch(() => null);
+        if (sermon) {
+          content = [sermon.title, sermon.topic, sermon.big_idea].filter(Boolean).join(' ').trim();
         }
       } else if (resourceType === 'study') {
-        const study = await api.entities.BibleStudy.filter({ id: resourceId });
-        if (study[0]) {
-          content = `${study[0].title} ${study[0].topic} ${study[0].overview}`;
+        const study = await api.entities.BibleStudy.get(resourceId).catch(() => null);
+        if (study) {
+          content = [study.title, study.topic, study.overview].filter(Boolean).join(' ').trim();
         }
       }
 
-      if (content) {
+      if (!content) {
+        toast.error("Couldn't load this item's content to suggest tags. Try saving it first.");
+        return;
+      }
+
+      {
         const prompt = `Analyze this ${resourceType} content and suggest 5-8 relevant tags or categories that would help organize and find this content later. Focus on topics, themes, biblical books, and practical applications.
 
 Content: ${content}

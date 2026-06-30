@@ -70,6 +70,7 @@ export default function SermonBuilder() {
   const [audience, setAudience] = useState("general");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedSermon, setGeneratedSermon] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
   const { user } = useAuth();
   const [suggestedPassages, setSuggestedPassages] = useState([]);
   const [isLoadingPassages, setIsLoadingPassages] = useState(false);
@@ -417,6 +418,11 @@ Return the full adapted sermon in the same JSON format.`;
       return;
     }
 
+    // Re-entrancy guard: a rapid double-click previously created two identical
+    // records before any id was written back.
+    if (isSaving) return;
+    setIsSaving(true);
+
     // Normalize before validation/save so partial AI shapes (or shapes
     // mutated by the per-point enhancers) still satisfy the entity schema.
     const normalizedSermon = normalizeSermon(sermon);
@@ -431,7 +437,7 @@ Return the full adapted sermon in the same JSON format.`;
         toast.warning('Some Scripture references look invalid — please verify before publishing.');
       }
 
-      const saved = await api.entities.Sermon.create({
+      const payload = {
         user_id: user.id,
         title: normalizedSermon.title,
         topic: normalizedSermon.topic,
@@ -445,26 +451,41 @@ Return the full adapted sermon in the same JSON format.`;
         denomination: normalizedSermon.denomination,
         scripture_validation: validation.refs,
         status: validation.allValid ? 'draft' : 'needs_review',
-      });
+      };
+
+      // If this sermon was already saved (it carries an id), UPDATE it instead
+      // of creating a second identical record. This fixes the silent
+      // duplication when the user clicks Save again.
+      const existingId = generatedSermon?.id || sermon?.id;
+      const saved = existingId
+        ? await api.entities.Sermon.update(existingId, payload)
+        : await api.entities.Sermon.create(payload);
+
+      // Write the id (and status) back onto the in-memory sermon so the viewer
+      // reflects the saved state and the Export button unlocks (it was gated on
+      // `sermonData.id`, which never got set before).
+      setGeneratedSermon((prev) => ({ ...(prev || normalizedSermon), id: saved.id, status: payload.status }));
 
       logActivity('sermon_created', {
         page_name: 'SermonBuilder',
         resource_type: 'sermon',
         resource_id: saved.id,
-        data_modified: 'sermon_saved',
+        data_modified: existingId ? 'sermon_updated' : 'sermon_saved',
         new_value: normalizedSermon.title,
         metadata: {
           title: normalizedSermon.title,
           topic: normalizedSermon.topic,
           passage: normalizedSermon.anchor_passage,
           point_count: normalizedSermon.points.length,
-          status: validation.allValid ? 'draft' : 'needs_review',
+          status: payload.status,
         }
       });
 
-      toast.success("Sermon saved successfully!");
+      toast.success(existingId ? "Sermon updated!" : "Sermon saved successfully!");
     } catch (error) {
       toast.error('Failed to save sermon: ' + logError('SermonBuilder save', error));
+    } finally {
+      setIsSaving(false);
     }
   };
 

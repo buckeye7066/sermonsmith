@@ -323,7 +323,7 @@ Return only the message text, nothing else.`;
               </Button>
               <Button
                 onClick={handleSend}
-                disabled={isSending || !subject.trim() || !message.trim()}
+                disabled={isSending}
                 className={`flex items-center gap-2 ml-auto ${currentTheme.bg} ${currentTheme.hover} text-white`}
               >
                 {isSending ? (
