@@ -22,9 +22,18 @@ concurrency:
   group: deploy-api
   cancel-in-progress: false
 
+# Least privilege: this job uses RAILWAY_TOKEN, not the GitHub token, so it
+# needs no repository write scopes.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # The production deploy token must only ever ship code from main. push
+    # events here are already main-only, but this also stops a manual
+    # workflow_dispatch from deploying an arbitrary ref with the prod token.
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
@@ -40,9 +49,12 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Pin the CLI to an exact, known-good version (not floating latest) so a
+      # compromised future release can't run in a job that holds the production
+      # deploy token.
       - name: Install Railway CLI
         if: steps.gate.outputs.enabled == 'true'
-        run: npm install -g @railway/cli
+        run: npm install -g @railway/cli@4.30.5
 
       - name: Deploy API to Railway
         if: steps.gate.outputs.enabled == 'true'
