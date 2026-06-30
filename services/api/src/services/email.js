@@ -51,11 +51,24 @@ export async function sendEmail({ to, subject, html, text }) {
   return { id: data.id };
 }
 
+// Resolve the public web origin for links in emails. Prefer FRONTEND_URL, then
+// the first CORS_ORIGIN entry (always set in prod — see config/env.js), and only
+// fall back to localhost in dev. Without the CORS_ORIGIN fallback, a prod deploy
+// that set CORS_ORIGIN but forgot FRONTEND_URL shipped reset emails linking to
+// http://localhost:5173 — dead links, with no error anywhere.
+export function resolveFrontendBaseUrl() {
+  const fromFrontend = process.env.FRONTEND_URL?.trim();
+  if (fromFrontend) return fromFrontend.replace(/\/+$/, '');
+  const fromCors = String(process.env.CORS_ORIGIN || '').split(',')[0]?.trim();
+  if (fromCors) return fromCors.replace(/\/+$/, '');
+  return 'http://localhost:5173';
+}
+
 /**
  * Send a password-reset email with a tokenized link.
  */
 export async function sendPasswordResetEmail(email, resetToken) {
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const frontendUrl = resolveFrontendBaseUrl();
   const resetLink = `${frontendUrl}/Login?reset_token=${encodeURIComponent(resetToken)}`;
 
   return sendEmail({

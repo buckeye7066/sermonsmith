@@ -123,6 +123,135 @@ router.get('/share/:slug', optionalAuth, async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Public forum + community feeds.
+//
+// The Forum and Community landing previously read posts/replies/groups/plans
+// through the generic entity API, which tenant-scopes to the caller — so every
+// member only ever saw THEIR OWN content and the community looked empty. These
+// routes return community-visible rows across ALL users (hiding moderated
+// ones), mirroring the shared-content pattern above.
+// ---------------------------------------------------------------------------
+
+router.get('/posts', optionalAuth, async (req, res, next) => {
+  try {
+    const rows = await prisma.entity.findMany({
+      where: { type: 'CommunityPost' },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true, data: true, createdAt: true, updatedAt: true },
+    });
+    res.json(
+      rows
+        .filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})))
+        .map(formatEntity),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/posts/:id/replies', optionalAuth, async (req, res, next) => {
+  try {
+    const rows = await prisma.entity.findMany({
+      where: { type: 'CommunityReply', data: { path: ['post_id'], equals: req.params.id } },
+      orderBy: { createdAt: 'asc' },
+      take: 300,
+      select: { id: true, data: true, createdAt: true, updatedAt: true },
+    });
+    res.json(
+      rows
+        .filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})))
+        .map(formatEntity),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+const replySchema = z.object({
+  content: z.string().trim().min(1).max(5000),
+  user_name: z.string().trim().max(120).optional(),
+  is_ai_response: z.boolean().optional(),
+});
+
+// Post a reply to ANY public post. The reply is owned by the caller, and the
+// post's replies_count is incremented server-side — the Forum previously did
+// this via the tenant-scoped entity API, so replying to someone else's post
+// 403'd on the count update (the reply was created but the UI showed an error).
+router.post('/posts/:id/reply', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = replySchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid reply', issues: parsed.error.issues });
+    }
+    const post = await prisma.entity.findUnique({ where: { id: req.params.id } });
+    if (!post || post.type !== 'CommunityPost') {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+    if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(post.data || {}))) {
+      return res.status(403).json({ message: 'This post is closed to replies' });
+    }
+
+    const isAi = parsed.data.is_ai_response === true;
+    const reply = await prisma.entity.create({
+      data: {
+        type: 'CommunityReply',
+        userId: req.userId,
+        data: {
+          post_id: req.params.id,
+          user_id: req.userId,
+          user_name: isAi ? 'AI Assistant' : (parsed.data.user_name || 'Member'),
+          content: parsed.data.content,
+          is_ai_response: isAi,
+          created_date: new Date().toISOString(),
+        },
+      },
+    });
+
+    await prisma.entity.update({
+      where: { id: post.id },
+      data: { data: { ...post.data, replies_count: Number(post.data?.replies_count || 0) + 1 } },
+    });
+
+    res.json(formatEntity(reply));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/study-groups', optionalAuth, async (_req, res, next) => {
+  try {
+    const rows = await prisma.entity.findMany({
+      where: { type: 'StudyGroup' },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true, data: true, createdAt: true, updatedAt: true },
+    });
+    res.json(
+      rows
+        .filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})))
+        .map(formatEntity),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/reading-plans', optionalAuth, async (_req, res, next) => {
+  try {
+    const rows = await prisma.entity.findMany({
+      where: { type: 'ReadingPlan', data: { path: ['is_public'], equals: true } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true, data: true, createdAt: true, updatedAt: true },
+    });
+    res.json(rows.map(formatEntity));
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/shared-content/:id/like', authenticateToken, async (req, res, next) => {
   try {
     const existing = await prisma.entity.findUnique({ where: { id: req.params.id } });

@@ -974,6 +974,23 @@ const BIBLE_BOOKS = [
 router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
     const translation = requireBibleTranslation(req.body.translation || 'kjv').id;
+
+    // Idempotency guard. `Verse` is a world-readable (PUBLIC_TYPES) entity and
+    // these inserts use create (not upsert), so re-running — e.g. an impatient
+    // admin re-clicking after the request appears to hang — would insert a
+    // SECOND full copy (~31k rows) that every user then sees doubled. Refuse if
+    // this translation is already imported unless `force: true` is passed.
+    const existingCount = await prisma.entity.count({
+      where: { type: 'Verse', data: { path: ['translation'], equals: translation } },
+    });
+    if (existingCount > 0 && req.body.force !== true) {
+      return res.status(409).json({
+        message: `'${translation}' already has ${existingCount} imported verses. Pass { force: true } to re-import (this will create duplicates unless you clear the existing rows first).`,
+        translation,
+        existingCount,
+      });
+    }
+
     let imported = 0;
     let errors = 0;
 
@@ -1038,8 +1055,24 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
     }
 
     const bibleId = req.body.bibleId || 'de4e12af7f28f599-02'; // KJV
+    // Label rows by the actual Bible being imported, not a hardcoded 'kjv'
+    // (which mislabeled every non-KJV import and let them collide).
+    const translation = String(req.body.translation || bibleId).toLowerCase();
     const baseUrl = `https://api.scripture.api.bible/v1/bibles/${bibleId}`;
     const headers = { 'api-key': apiKey };
+
+    // Idempotency guard — see importFullBible. Prevents a re-run from inserting
+    // a second full copy of world-readable Verse rows.
+    const existingCount = await prisma.entity.count({
+      where: { type: 'Verse', data: { path: ['translation'], equals: translation } },
+    });
+    if (existingCount > 0 && req.body.force !== true) {
+      return res.status(409).json({
+        message: `'${translation}' already has ${existingCount} imported verses. Pass { force: true } to re-import.`,
+        translation,
+        existingCount,
+      });
+    }
 
     // Fetch list of books
     const booksResp = await fetch(`${baseUrl}/books`, { headers });
@@ -1076,7 +1109,7 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
                         chapter: parseInt(chapter.number) || 0,
                         verse: parseInt(v.reference?.split(':')[1]) || 0,
                         text: v.text || '',
-                        translation: 'kjv',
+                        translation,
                         scripture_api_id: v.id,
                         user_id: req.userId,
                         created_date: new Date().toISOString(),

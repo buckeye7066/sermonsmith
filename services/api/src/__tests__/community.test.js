@@ -166,6 +166,48 @@ describe('community routes', () => {
     expect(prisma._store.savedContent).toHaveLength(1);
   });
 
+  it('serves the public forum feed across ALL users and hides removed posts', async () => {
+    prisma._store.entity.push({ id: 'p-mine', type: 'CommunityPost', userId: 'u-reader', data: { title: 'Mine', status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
+    prisma._store.entity.push({ id: 'p-theirs', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Theirs', status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
+    prisma._store.entity.push({ id: 'p-removed', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Bad', status: 'removed' }, createdAt: new Date(), updatedAt: new Date() });
+
+    const res = await request(app).get('/api/community/posts');
+    expect(res.status).toBe(200);
+    const ids = res.body.map((r) => r.id);
+    expect(ids).toContain('p-mine');
+    expect(ids).toContain('p-theirs'); // another user's post is visible (was not before)
+    expect(ids).not.toContain('p-removed');
+  });
+
+  it('lets a member reply to ANOTHER user\'s post and bumps the count server-side', async () => {
+    prisma._store.entity.push({ id: 'p-owner', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Q', replies_count: 0, status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
+
+    const res = await request(app)
+      .post('/api/community/posts/p-owner/reply')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]) // NOT the post owner
+      .send({ content: 'Great question — here is my take.', user_name: 'Reader' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.content).toMatch(/Great question/);
+    expect(res.body.user_id).toBe('u-reader');
+    // The post's reply count was incremented even though replier != owner.
+    const post = prisma._store.entity.find((r) => r.id === 'p-owner');
+    expect(post.data.replies_count).toBe(1);
+    // The reply is readable on the public thread feed.
+    const replies = await request(app).get('/api/community/posts/p-owner/replies');
+    expect(replies.status).toBe(200);
+    expect(replies.body).toHaveLength(1);
+    expect(replies.body[0].user_id).toBe('u-reader');
+  });
+
+  it('rejects an empty reply and an anonymous reply', async () => {
+    prisma._store.entity.push({ id: 'p-x', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Q', status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
+    const empty = await request(app).post('/api/community/posts/p-x/reply').set('Cookie', [`ss_token=${tokenFor('u-reader')}`]).send({ content: '   ' });
+    expect(empty.status).toBe(400);
+    const anon = await request(app).post('/api/community/posts/p-x/reply').send({ content: 'hi' });
+    expect(anon.status).toBe(401);
+  });
+
   it('requires admin access for the moderation queue', async () => {
     prisma._store.entity.push(sharedContent('queued', { reported_count: 2 }));
 

@@ -216,4 +216,20 @@ if (isMainModule) {
   }
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+
+  // Safety net: on Node a stray unhandled promise rejection terminates the
+  // process by default, which would cycle the Railway container. Log + report
+  // it but keep serving (a single bad request must not take the service down).
+  // A truly uncaught exception leaves the process in an unknown state, so for
+  // that we report and then drain/exit so Railway restarts cleanly.
+  process.on('unhandledRejection', (reason) => {
+    const error = reason instanceof Error ? reason : new Error(`Unhandled rejection: ${String(reason)}`);
+    console.error('[unhandledRejection]', error.message);
+    try { reportErrorToOwner({ error, source: 'unhandledRejection' }); } catch { /* never throw from the handler */ }
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[uncaughtException]', err?.message || err);
+    try { reportErrorToOwner({ error: err instanceof Error ? err : new Error(String(err)), source: 'uncaughtException' }); } catch { /* ignore */ }
+    shutdown('uncaughtException');
+  });
 }
