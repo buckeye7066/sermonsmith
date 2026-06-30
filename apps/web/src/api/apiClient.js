@@ -382,6 +382,17 @@ const community = {
     const q = type && type !== 'all' ? `?type=${encodeURIComponent(type)}` : '';
     return apiFetch(`/api/community/shared-content${q}`);
   },
+  // Public forum/community feeds — these read across ALL users (unlike the
+  // tenant-scoped entity API), so members actually see each other's content.
+  posts: () => apiFetch('/api/community/posts'),
+  postReplies: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/replies`),
+  replyToPost: (postId, payload) =>
+    apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/reply`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  studyGroups: () => apiFetch('/api/community/study-groups'),
+  readingPlans: () => apiFetch('/api/community/reading-plans'),
   share: (slug) => apiFetch(`/api/community/share/${encodeURIComponent(slug)}`),
   like: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/like`, { method: 'POST' }),
   save: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/save`, { method: 'POST' }),

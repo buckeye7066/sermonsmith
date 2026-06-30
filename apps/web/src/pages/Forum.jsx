@@ -41,7 +41,8 @@ export default function Forum() {
 
   const loadPosts = async () => {
     try {
-      const allPosts = await api.entities.CommunityPost.list('-created_date', 50);
+      // Public forum feed — every member's posts, not just the viewer's own.
+      const allPosts = await api.community.posts();
       setPosts(allPosts);
     } catch (error) {
       console.error('Error loading posts:', error);
@@ -50,7 +51,8 @@ export default function Forum() {
 
   const loadReplies = async (postId) => {
     try {
-      const postReplies = await api.entities.CommunityReply.filter({ post_id: postId }, 'created_date');
+      // Public replies — see everyone's replies on the thread, not just yours.
+      const postReplies = await api.community.postReplies(postId);
       setReplies(postReplies);
     } catch (error) {
       console.error('Error loading replies:', error);
@@ -88,16 +90,12 @@ export default function Forum() {
     }
 
     try {
-      await api.entities.CommunityReply.create({
-        post_id: selectedPost.id,
-        user_id: user.id,
+      // Single server call creates the reply AND bumps the post's count — works
+      // even when replying to ANOTHER member's post (the old client-side count
+      // update was owner-gated and 403'd on other people's posts).
+      await api.community.replyToPost(selectedPost.id, {
         user_name: user.full_name || user.email,
-        content: newReply
-      });
-
-      // Update reply count
-      await api.entities.CommunityPost.update(selectedPost.id, {
-        replies_count: (selectedPost.replies_count || 0) + 1
+        content: newReply,
       });
 
       toast.success("Reply posted!");
@@ -130,17 +128,9 @@ Keep response under 300 words.`;
 
       const aiResponse = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
 
-      await api.entities.CommunityReply.create({
-        post_id: selectedPost.id,
-        user_id: user.id,
-        user_name: "AI Assistant",
+      await api.community.replyToPost(selectedPost.id, {
         content: aiResponse,
-        is_ai_response: true
-      });
-
-      // Update reply count
-      await api.entities.CommunityPost.update(selectedPost.id, {
-        replies_count: (selectedPost.replies_count || 0) + 1
+        is_ai_response: true,
       });
 
       toast.success("AI response generated!");

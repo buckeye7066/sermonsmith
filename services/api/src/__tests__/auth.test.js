@@ -127,6 +127,23 @@ describe('auth routes', () => {
     expect(res.headers['set-cookie']?.[0]).toMatch(/ss_token=/);
   });
 
+  it('login rejects a banned account with 403 (even with correct password)', async () => {
+    const passwordHash = await bcrypt.hash('correct-password', 4);
+    prisma._store.user.push({ id: 'u1', email: 'banned@example.com', password: passwordHash, role: 'user', premium: false, is_banned: true });
+    const res = await request(app).post('/api/auth/login').send({ email: 'banned@example.com', password: 'correct-password' });
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/suspended/i);
+    expect(res.headers['set-cookie']).toBeUndefined();
+  });
+
+  it('login rejects a soft-deleted account with a generic 401 (no existence leak)', async () => {
+    const passwordHash = await bcrypt.hash('correct-password', 4);
+    prisma._store.user.push({ id: 'u1', email: 'gone@example.com', password: passwordHash, role: 'user', premium: false, deletedAt: new Date() });
+    const res = await request(app).post('/api/auth/login').send({ email: 'gone@example.com', password: 'correct-password' });
+    expect(res.status).toBe(401);
+    expect(res.body.message).toMatch(/invalid email or password/i);
+  });
+
   it('forgot-password stores hashed token and never returns it', async () => {
     prisma._store.user.push({ id: 'u1', email: 'alice@example.com', password: 'x', role: 'user', premium: false });
     const res = await request(app).post('/api/auth/forgot-password').send({ email: 'alice@example.com' });

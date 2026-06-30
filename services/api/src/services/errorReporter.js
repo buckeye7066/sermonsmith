@@ -331,7 +331,12 @@ export function reportErrorToOwner({ error, source, userEmail, route, method, re
         </div>
       `;
 
-      const to = process.env.ERROR_REPORT_EMAIL || DEFAULT_RECIPIENT;
+      // Recipient resolution: explicit ERROR_REPORT_EMAIL wins; otherwise the
+      // deployment's first ADMIN_EMAILS entry (so a fresh operator's production
+      // errors go to THEM, not to a hardcoded third party); the hardcoded
+      // address remains only as a last-resort default for this deployment.
+      const adminFallback = String(process.env.ADMIN_EMAILS || '').split(',')[0]?.trim();
+      const to = process.env.ERROR_REPORT_EMAIL || adminFallback || DEFAULT_RECIPIENT;
       await sendEmail({ to, subject, html, text });
     } catch (e) {
       console.error('[errorReporter]', e);

@@ -40,17 +40,22 @@ export default function Community() {
 
   const loadCommunityData = async () => {
     try {
+      // Public community feeds (across all members) — the old entity-API reads
+      // were tenant-scoped, so the landing only ever showed the viewer's own
+      // content and looked empty.
       const [posts, shared, groups, plans] = await Promise.all([
-        api.entities.CommunityPost.list('-created_date', 5),
-        api.entities.SharedContent.list('-likes_count', 5),
-        api.entities.StudyGroup.list('-member_count', 5),
-        api.entities.ReadingPlan.list('-followers_count', 5)
+        api.community.posts(),
+        api.community.sharedContent('all'),
+        api.community.studyGroups(),
+        api.community.readingPlans(),
       ]);
 
-      setRecentPosts(posts);
-      setPopularShared(shared);
-      setActiveGroups(groups);
-      setReadingPlans(plans);
+      setRecentPosts((posts || []).slice(0, 5));
+      setPopularShared(
+        (shared || []).slice().sort((a, b) => (b.likes_count || 0) - (a.likes_count || 0)).slice(0, 5),
+      );
+      setActiveGroups((groups || []).slice(0, 5));
+      setReadingPlans((plans || []).slice(0, 5));
     } catch (error) {
       logError('Error loading community data', error);
     }

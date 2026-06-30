@@ -227,6 +227,15 @@ function modelSet(envName, fallbackList) {
 }
 const FREE_MODELS = modelSet('AI_FREE_MODELS', ['gpt-4o-mini']);
 const PREMIUM_MODELS = modelSet('AI_PREMIUM_MODELS', ['gpt-4o-mini', 'gpt-4o']);
+// The deployment's configured default model must ALWAYS be allowed — otherwise
+// setting OPENAI_MODEL to anything outside the default allowlist (e.g.
+// gpt-4.1-mini) makes resolveModel 403 every single generation even though the
+// key is valid. Auto-include it in both tiers.
+const CONFIGURED_MODEL = (process.env.OPENAI_MODEL || '').trim();
+if (CONFIGURED_MODEL) {
+  FREE_MODELS.add(CONFIGURED_MODEL);
+  PREMIUM_MODELS.add(CONFIGURED_MODEL);
+}
 
 function resolveModel(requested, isPremium) {
   const fallback = process.env.OPENAI_MODEL || 'gpt-4o-mini';
