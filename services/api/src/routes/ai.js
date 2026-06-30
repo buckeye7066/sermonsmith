@@ -35,6 +35,12 @@ const FREE_MAX_TOKENS = 1500;
 const PREMIUM_MAX_TOKENS = 8192;
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90_000);
 
+// Image-generation model. Hardcoding 'dall-e-3' broke image generation on
+// accounts without dall-e-3 access ("the model 'dall-e-3' does not exist").
+// Make it configurable so the deployment can point at whatever image model its
+// OpenAI account actually has (e.g. 'dall-e-2', 'gpt-image-1').
+const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'dall-e-3';
+
 // Hard request-size caps so a malicious or buggy client can't ship a
 // novel-length prompt and rack up token cost (or melt the worker
 // serializing it). 24K characters is a safe upper bound for a sermon-
@@ -417,13 +423,42 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
       AI_TIMEOUT_MS,
       '/ai/invoke',
     );
-    const content = completion.choices[0]?.message?.content || '';
-    const finishReason = completion.choices[0]?.finish_reason;
+    let content = completion.choices[0]?.message?.content || '';
+    let finishReason = completion.choices[0]?.finish_reason;
 
     if (response_json_schema) {
       // Tolerant parse (fence-stripping + outer-object salvage) so a stray
       // code fence doesn't 502 an otherwise-valid response.
-      const parsed = extractJson(content);
+      let parsed = extractJson(content);
+
+      // One repair attempt when the model returned prose / malformed JSON (but
+      // NOT when truncated — a retry would just truncate again). This catches
+      // the intermittent "AI returned invalid JSON" failures without burning an
+      // extra quota unit (daily usage was already counted above).
+      if (!parsed.ok && finishReason !== 'length') {
+        try {
+          const repairMessages = [
+            ...messages,
+            { role: 'assistant', content: content.slice(0, 2000) },
+            { role: 'user', content: 'Your previous response was not valid JSON. Respond with ONLY the JSON object matching the requested schema — no prose, no explanation, no markdown code fences.' },
+          ];
+          const repair = await withTimeout(
+            callWithRetry(() => openai.chat.completions.create({ ...params, messages: repairMessages })),
+            AI_TIMEOUT_MS,
+            '/ai/invoke(repair)',
+          );
+          const repairContent = repair.choices[0]?.message?.content || '';
+          const repairParsed = extractJson(repairContent);
+          if (repairParsed.ok) {
+            content = repairContent;
+            finishReason = repair.choices[0]?.finish_reason;
+            parsed = repairParsed;
+          }
+        } catch {
+          // Keep the original failure; the 502 below still fires.
+        }
+      }
+
       if (parsed.ok) {
         await auditAiCall({
           ...auditBase,
@@ -503,13 +538,13 @@ router.post('/image', authenticateToken, async (req, res, next) => {
     auditBase = {
       userId: req.userId,
       feature: 'image',
-      model: 'dall-e-3',
+      model: OPENAI_IMAGE_MODEL,
       prompt,
       startTime: Date.now(),
     };
     const openai = await getOpenAI();
     const response = await withTimeout(
-      openai.images.generate({ model: 'dall-e-3', prompt, n: 1, size: size || '1024x1024' }),
+      openai.images.generate({ model: OPENAI_IMAGE_MODEL, prompt, n: 1, size: size || '1024x1024' }),
       AI_TIMEOUT_MS,
       '/ai/image',
     );
@@ -528,6 +563,15 @@ router.post('/image', authenticateToken, async (req, res, next) => {
         ...auditBase,
         status: 'failure',
         failureType: classifyAiFailure(err),
+      });
+    }
+    // Turn the opaque "model does not exist" OpenAI error into an actionable
+    // message instead of a generic 500 — the configured image model isn't
+    // available to this account; set OPENAI_IMAGE_MODEL to one that is.
+    const msg = String(err?.message || '');
+    if (err?.status === 404 || /does not exist|model_not_found/i.test(msg)) {
+      return res.status(502).json({
+        message: `Image generation is unavailable: the model '${OPENAI_IMAGE_MODEL}' is not available to this OpenAI account. An admin can set OPENAI_IMAGE_MODEL to a supported model.`,
       });
     }
     next(err);

@@ -40,7 +40,7 @@ export default function PageNotFound() {
                                 <div className="text-left space-y-1">
                                     <p className="text-sm font-medium text-slate-700">Admin Note</p>
                                     <p className="text-sm text-slate-600 leading-relaxed">
-                                        This could mean that the AI hasn't implemented this page yet. Ask it to implement it in the chat.
+                                        No route is registered for this path. Check the link, or add the page to <span className="font-mono">pages.config.js</span> if it should exist.
                                     </p>
                                 </div>
                             </div>

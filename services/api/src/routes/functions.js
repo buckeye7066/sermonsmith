@@ -857,6 +857,63 @@ router.post('/testAllFunctions', authenticateToken, requireAdmin, async (_req, r
     ...(billingConfigured ? {} : { error: 'Not configured' }),
   });
 
+  // LIVE OpenAI checks. The old suite only checked that a key STRING existed —
+  // it reported "all passed" even while real AI calls were 502-ing and image
+  // generation was failing with "model 'dall-e-3' does not exist". These two
+  // checks actually hit OpenAI (cheaply) so the suite reflects real health.
+  if (process.env.OPENAI_API_KEY && process.env.DISABLE_AI !== '1') {
+    // (1) A tiny live completion confirms the key works (catches 401/quota).
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+        body: JSON.stringify({
+          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+          max_tokens: 5,
+          messages: [{ role: 'user', content: 'Reply with the word OK.' }],
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      checks.push({ name: 'OpenAI Chat (live)', status: resp.ok ? 'pass' : 'fail', ...(resp.ok ? {} : { error: `HTTP ${resp.status}` }) });
+    } catch (e) {
+      checks.push({ name: 'OpenAI Chat (live)', status: 'fail', error: e.name === 'AbortError' ? 'Timed out' : 'Unreachable' });
+    }
+
+    // (2) Confirm the configured image model actually exists for this account.
+    const imageModel = process.env.OPENAI_IMAGE_MODEL || 'dall-e-3';
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const resp = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(imageModel)}`, {
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      checks.push({
+        name: `Image model (${imageModel})`,
+        status: resp.ok ? 'pass' : 'fail',
+        ...(resp.ok ? {} : { error: resp.status === 404 ? 'Not available to this account' : `HTTP ${resp.status}` }),
+      });
+    } catch (e) {
+      checks.push({ name: `Image model (${imageModel})`, status: 'fail', error: e.name === 'AbortError' ? 'Timed out' : 'Unreachable' });
+    }
+  }
+
+  // Premium translation catalogue (external provider).
+  try {
+    const premium = await listPremiumTranslations();
+    checks.push({
+      name: 'Premium translations',
+      status: premium.length > 0 ? 'pass' : 'warn',
+      ...(premium.length > 0 ? {} : { error: 'No external catalogue (free tier only)' }),
+    });
+  } catch {
+    checks.push({ name: 'Premium translations', status: 'warn', error: 'Catalogue fetch failed' });
+  }
+
   const passed = checks.filter(c => c.status === 'pass').length;
   const failed = checks.filter(c => c.status === 'fail').length;
 
