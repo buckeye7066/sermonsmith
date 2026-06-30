@@ -150,10 +150,10 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
           setSelectedVoice(preferredVoice);
         } else {
           setSelectedVoice(null);
-          // Show help message for missing language
-          if (isPremium) {
-            setTimeout(() => setShowLanguageHelp(true), 500);
-          }
+          // Do NOT auto-open the voice-install help on load — it was intrusive
+          // (fired unprompted) and disclosed the user's OS. The help is still
+          // reachable on intent: when the user presses Play with no voice
+          // (handlePlayPause) and via the inline "install voice" button below.
         }
       }
     };

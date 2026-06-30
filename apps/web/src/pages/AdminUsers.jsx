@@ -222,8 +222,8 @@ export default function AdminUsers() {
               return (
                 <Card key={u.id}>
                   <CardContent className="pt-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex-1 min-w-0 break-words">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold text-lg">{u.full_name || 'No name'}</h3>
                           {u.role === 'admin' && (
@@ -281,7 +281,7 @@ export default function AdminUsers() {
                         </div>
                       </div>
                       
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2 sm:shrink-0">
                         <div className="text-right text-xs text-gray-500 mb-2">
                           <div>ID: {u.id?.substring(0, 8)}...</div>
                           {u.onboarding_completed && (

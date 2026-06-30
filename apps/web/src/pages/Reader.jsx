@@ -149,8 +149,15 @@ export default function Reader() {
     return "Genesis";
   });
   const [currentChapter, setCurrentChapter] = useState(() => {
-    const saved = parseInt(localStorage.getItem('lastReadChapter'));
-    return saved > 0 ? saved : 1;
+    // Clamp the restored chapter to the saved book's real chapter count. A bare
+    // `saved > 0` check let a stale/polluted localStorage value (e.g. 998 left
+    // over from earlier navigation) load an impossible passage like
+    // "Genesis 998", which then errored on every load.
+    const savedBook = localStorage.getItem('lastReadBook');
+    const book = (savedBook && BIBLE_BOOKS.find(b => b.name === savedBook)) ? savedBook : 'Genesis';
+    const maxChapter = BIBLE_BOOKS.find(b => b.name === book)?.chapters || 1;
+    const saved = parseInt(localStorage.getItem('lastReadChapter'), 10);
+    return saved > 0 && saved <= maxChapter ? saved : 1;
   });
   const [currentTranslation, setCurrentTranslation] = useState("kjv");
   const [highlights, setHighlights] = useState([]);
@@ -517,6 +524,17 @@ export default function Reader() {
   useEffect(() => {
     loadUserData();
   }, [loadUserData]);
+
+  // Safety net: if the chapter is ever out of range for the current book (stale
+  // state, a book switch that left a too-high chapter, etc.), clamp it so we
+  // never try to render/fetch an impossible passage.
+  useEffect(() => {
+    const info = BIBLE_BOOKS.find(b => b.name === currentBook);
+    if (info && currentChapter > info.chapters) {
+      setCurrentChapter(info.chapters);
+      localStorage.setItem('lastReadChapter', String(info.chapters));
+    }
+  }, [currentBook, currentChapter]);
 
   const navigateChapter = (direction) => {
     const currentBookInfo = BIBLE_BOOKS.find(b => b.name === currentBook);
