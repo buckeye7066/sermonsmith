@@ -16,6 +16,7 @@ import clientErrorRoutes from './routes/clientErrors.js';
 import { handleStripeWebhook } from './routes/functions.js';
 import { prisma } from './middleware/auth.js';
 import { reportErrorToOwner } from './services/errorReporter.js';
+import { makeRateLimitStore } from './middleware/rateLimitStore.js';
 
 // Validate the runtime environment FIRST so a misconfigured production
 // process exits cleanly with a descriptive error instead of failing inside
@@ -26,9 +27,14 @@ function isSafeRequestId(value) {
   return typeof value === 'string' && /^[A-Za-z0-9._:-]{8,128}$/.test(value);
 }
 
-export function buildApp() {
+export function buildApp(opts = {}) {
   const app = express();
   const allowedOrigins = env.corsAllowList();
+  // Optional shared rate-limit stores (Redis), resolved by the caller when
+  // REDIS_URL is set. Undefined → express-rate-limit's default in-memory store,
+  // which is correct for a single instance. Passing them per-limiter is what
+  // makes the counters survive restarts and stay shared across replicas.
+  const stores = opts.rateLimitStores || {};
 
   // CRITICAL for rate limiting: behind Railway's TLS-terminating proxy, the
   // socket peer is the proxy, so without this every client's `req.ip` collapses
@@ -53,10 +59,10 @@ export function buildApp() {
   app.use(compression());
 
   // Rate limits — applied per-route below, with conservative defaults.
-  const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many login attempts — try again later' } });
-  const registerLimiter = rateLimit({ windowMs: 60 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many registration attempts — try again later' } });
-  const resetLimiter = rateLimit({ windowMs: 15 * 60_000, max: 5, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many reset attempts — try again later' } });
-  const aiLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many AI requests — try again shortly' } });
+  const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false, store: stores.auth, message: { message: 'Too many login attempts — try again later' } });
+  const registerLimiter = rateLimit({ windowMs: 60 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false, store: stores.register, message: { message: 'Too many registration attempts — try again later' } });
+  const resetLimiter = rateLimit({ windowMs: 15 * 60_000, max: 5, standardHeaders: true, legacyHeaders: false, store: stores.reset, message: { message: 'Too many reset attempts — try again later' } });
+  const aiLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false, store: stores.ai, message: { message: 'Too many AI requests — try again shortly' } });
   // Public Bible proxy endpoints are optionalAuth, so without their own
   // limit they're effectively a free unauthenticated proxy to bible-api.com.
   // A single misbehaving client (or a scraper) could burn through our
@@ -66,12 +72,13 @@ export function buildApp() {
     max: 60,
     standardHeaders: true,
     legacyHeaders: false,
+    store: stores.public,
     message: { message: 'Too many Bible lookup requests — please slow down.' },
   });
   // /api/report-client-error is intentionally unauthenticated (a crash can
   // happen before/around auth). Without a limit, anyone can drive owner emails
   // + an OpenAI analysis per distinct message. Throttle per IP.
-  const clientErrorLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many error reports' } });
+  const clientErrorLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false, store: stores.clientError, message: { message: 'Too many error reports' } });
 
   app.use('/api/auth/login', authLimiter);
   app.use('/api/auth/register', registerLimiter);
@@ -178,12 +185,49 @@ export function buildApp() {
 const isMainModule = import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` ||
   import.meta.url.endsWith('/index.js') && process.argv[1]?.endsWith('index.js');
 
+// Resolve shared (Redis) rate-limit stores ONLY when REDIS_URL is configured.
+// Without it we return {} and the limiters use the in-memory store (correct for
+// a single instance). makeRateLimitStore returns undefined if the optional
+// redis packages aren't installed, so this degrades gracefully either way.
+async function resolveRateLimitStores() {
+  if (!process.env.REDIS_URL) return {};
+  const [auth, register, reset, ai, pub, clientError] = await Promise.all([
+    makeRateLimitStore('login'),
+    makeRateLimitStore('register'),
+    makeRateLimitStore('reset'),
+    makeRateLimitStore('ai'),
+    makeRateLimitStore('public'),
+    makeRateLimitStore('clienterror'),
+  ]);
+  return { auth, register, reset, ai, public: pub, clientError };
+}
+
+// Bound the durable bible_passage_cache: it's keyed on every distinct
+// verse/range string a user types, so it grows with usage. Rows are only read
+// when fresh (<=30d), so anything older is dead weight — prune it on boot and
+// daily. (The chapter cache is self-bounding at ~9.5k rows and needs no prune.)
+async function pruneStaleCaches() {
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const result = await prisma.biblePassageCache.deleteMany({ where: { fetchedAt: { lt: cutoff } } });
+    if (result.count > 0) console.log(`[cache] pruned ${result.count} stale bible_passage_cache rows`);
+  } catch (err) {
+    console.error('[cache] prune failed:', err?.message || err);
+  }
+}
+
 if (isMainModule) {
-  const app = buildApp();
+  const rateLimitStores = await resolveRateLimitStores();
+  const app = buildApp({ rateLimitStores });
   const PORT = env.PORT;
   const server = app.listen(PORT, env.HOST, () => {
     console.log(`SermonSmith API running on ${env.HOST}:${PORT}`);
   });
+
+  // Prune stale cache rows on boot, then once a day. unref() so the timer never
+  // keeps the process alive during shutdown.
+  pruneStaleCaches();
+  setInterval(pruneStaleCaches, 24 * 60 * 60 * 1000).unref?.();
 
   // Graceful shutdown.
   //

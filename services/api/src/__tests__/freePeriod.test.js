@@ -138,3 +138,36 @@ describe('grantFreePeriod (free week / free month)', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('Bible import (background job + idempotency)', () => {
+  let app;
+  beforeEach(() => {
+    prisma._reset();
+    app = buildApp();
+  });
+
+  it('refuses to re-import a translation that already has verses (409, no duplicate)', async () => {
+    prisma._store.entity.push({
+      id: 'v1', type: 'Verse', userId: 'u1',
+      data: { translation: 'kjv', book_name: 'John', chapter: 3, verse: 16 },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    const res = await request(app).post('/api/functions/importFullBible').set('x-role', 'admin').send({ translation: 'kjv' });
+    expect(res.status).toBe(409);
+    expect(res.body.existingCount).toBe(1);
+  });
+
+  it('getImportStatus reports counts filtered by translation', async () => {
+    prisma._store.entity.push({ id: 'v1', type: 'Verse', userId: 'u1', data: { translation: 'kjv' }, createdAt: new Date(), updatedAt: new Date() });
+    prisma._store.entity.push({ id: 'v2', type: 'Verse', userId: 'u1', data: { translation: 'web' }, createdAt: new Date(), updatedAt: new Date() });
+    const res = await request(app).post('/api/functions/getImportStatus').set('x-role', 'admin').send({ translation: 'kjv' });
+    expect(res.status).toBe(200);
+    expect(res.body.totalVerses).toBe(1); // only the kjv row
+    expect(res.body.status).toBe('complete');
+  });
+
+  it('import endpoints are admin-only', async () => {
+    const res = await request(app).post('/api/functions/importFullBible').set('x-role', 'user').send({ translation: 'kjv' });
+    expect(res.status).toBe(403);
+  });
+});

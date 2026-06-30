@@ -728,10 +728,73 @@ router.post('/listUsers', authenticateToken, requireAdmin, async (req, res, next
 });
 
 // Import status
+// ---------------------------------------------------------------------------
+// Background Bible-import jobs.
+//
+// A full-Bible walk is 1,189 chapters with per-chapter fetch + a throttle
+// sleep — several MINUTES, far longer than any HTTP/proxy timeout. Holding the
+// request open meant the admin always saw a 502 even though the import kept
+// running server-side (the exact thing that invited a re-click → duplicates).
+// We now run the walk DETACHED and report progress via getImportStatus.
+// ---------------------------------------------------------------------------
+const _importJobs = new Map(); // translation -> progress record
+
+function importJobView(translation) {
+  const job = _importJobs.get(translation);
+  return job ? { translation, ...job } : null;
+}
+
+// Start a detached import. The worker mutates the shared job record as it goes;
+// it never throws into the request and never blocks the response.
+function startImportJob(translation, total, worker) {
+  const job = {
+    status: 'running', imported: 0, errors: 0, total,
+    startedAt: new Date().toISOString(), finishedAt: null, message: null,
+  };
+  _importJobs.set(translation, job);
+  Promise.resolve()
+    .then(() => worker(job))
+    .then(() => { job.status = 'complete'; job.message = `Imported ${job.imported} verses (${job.errors} chapter errors)`; })
+    .catch((err) => { job.status = 'failed'; job.message = err?.message || 'Import failed'; })
+    .finally(() => { job.finishedAt = new Date().toISOString(); });
+  return job;
+}
+
 router.post('/getImportStatus', authenticateToken, async (req, res, next) => {
   try {
-    const count = await prisma.entity.count({ where: { type: 'Verse' } });
-    res.json({ totalVerses: count, status: count > 0 ? 'complete' : 'pending' });
+    const translation = req.body?.translation
+      ? String(req.body.translation).trim().toLowerCase()
+      : null;
+    const where = translation
+      ? { type: 'Verse', data: { path: ['translation'], equals: translation } }
+      : { type: 'Verse' };
+    const count = await prisma.entity.count({ where });
+    const job = translation ? importJobView(translation) : null;
+    res.json({
+      totalVerses: count,
+      status: job?.status || (count > 0 ? 'complete' : 'pending'),
+      job,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Latest activity timestamp per user, in ONE aggregate query. The admin Users
+// page previously fetched this per-user in a sequential loop (an N+1 — up to
+// 1000 round-trips on page load); this collapses it to a single GROUP BY.
+router.post('/getUsersLastActivity', authenticateToken, requireAdmin, async (_req, res, next) => {
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT data->>'user_id' AS user_id, MAX(created_at) AS last_at
+      FROM entities
+      WHERE type = 'UserActivity' AND data->>'user_id' IS NOT NULL
+      GROUP BY data->>'user_id'`;
+    const map = {};
+    for (const row of rows) {
+      if (row.user_id) map[row.user_id] = row.last_at;
+    }
+    res.json(map);
   } catch (err) {
     next(err);
   }
@@ -1050,54 +1113,66 @@ router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res
       });
     }
 
-    let imported = 0;
-    let errors = 0;
-
-    for (const book of BIBLE_BOOKS) {
-      for (let ch = 1; ch <= book.chapters; ch++) {
-        try {
-          const ref = `${book.name} ${ch}`;
-          const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translation}`;
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 15000);
-          const resp = await fetch(url, { signal: controller.signal });
-          clearTimeout(timeout);
-
-          if (!resp.ok) { errors++; continue; }
-          const data = await resp.json();
-
-          if (data.verses && data.verses.length > 0) {
-            await prisma.$transaction(
-              data.verses.map(v =>
-                prisma.entity.create({
-                  data: {
-                    type: 'Verse',
-                    userId: req.userId,
-                    data: {
-                      book_name: book.name,
-                      chapter: ch,
-                      verse: v.verse,
-                      text: v.text,
-                      translation,
-                      user_id: req.userId,
-                      created_date: new Date().toISOString(),
-                    },
-                  },
-                })
-              )
-            );
-            imported += data.verses.length;
-          }
-
-          // Small delay to avoid hammering the API
-          await new Promise(r => setTimeout(r, 200));
-        } catch {
-          errors++;
-        }
-      }
+    // Don't run two imports for the same translation at once.
+    if (_importJobs.get(translation)?.status === 'running') {
+      return res.status(409).json({ message: `An import for '${translation}' is already running.`, job: importJobView(translation) });
     }
 
-    res.json({ message: `Imported ${imported} verses (${errors} chapter errors)`, imported, errors });
+    const total = BIBLE_BOOKS.reduce((sum, b) => sum + b.chapters, 0);
+    const userId = req.userId;
+    startImportJob(translation, total, async (job) => {
+      for (const book of BIBLE_BOOKS) {
+        for (let ch = 1; ch <= book.chapters; ch++) {
+          try {
+            const ref = `${book.name} ${ch}`;
+            const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translation}`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15000);
+            const resp = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeout);
+
+            if (!resp.ok) { job.errors++; continue; }
+            const data = await resp.json();
+
+            if (data.verses && data.verses.length > 0) {
+              await prisma.$transaction(
+                data.verses.map(v =>
+                  prisma.entity.create({
+                    data: {
+                      type: 'Verse',
+                      userId,
+                      data: {
+                        book_name: book.name,
+                        chapter: ch,
+                        verse: v.verse,
+                        text: v.text,
+                        translation,
+                        user_id: userId,
+                        created_date: new Date().toISOString(),
+                      },
+                    },
+                  })
+                )
+              );
+              job.imported += data.verses.length;
+            }
+
+            // Small delay to avoid hammering the API
+            await new Promise(r => setTimeout(r, 200));
+          } catch {
+            job.errors++;
+          }
+        }
+      }
+    });
+
+    // 202 Accepted — the walk runs in the background; the admin UI polls
+    // getImportStatus({ translation }) for progress instead of waiting here.
+    res.status(202).json({
+      message: `Import started for '${translation}'. Poll getImportStatus for progress.`,
+      translation,
+      job: importJobView(translation),
+    });
   } catch (err) {
     next(err);
   }
@@ -1132,65 +1207,73 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
         existingCount,
       });
     }
+    if (_importJobs.get(translation)?.status === 'running') {
+      return res.status(409).json({ message: `An import for '${translation}' is already running.`, job: importJobView(translation) });
+    }
 
-    // Fetch list of books
+    // Fetch the book list synchronously so we can fail fast on a bad key/bibleId
+    // (502) before backgrounding the long per-chapter walk.
     const booksResp = await fetch(`${baseUrl}/books`, { headers });
     if (!booksResp.ok) {
       return res.status(502).json({ message: `Scripture API returned ${booksResp.status}` });
     }
     const { data: books } = await booksResp.json();
+    const userId = req.userId;
 
-    let imported = 0;
-    let errors = 0;
+    startImportJob(translation, books.length, async (job) => {
+      for (const book of books) {
+        try {
+          const chaptersResp = await fetch(`${baseUrl}/books/${book.id}/chapters`, { headers });
+          if (!chaptersResp.ok) { job.errors++; continue; }
+          const { data: chapters } = await chaptersResp.json();
 
-    for (const book of books) {
-      try {
-        const chaptersResp = await fetch(`${baseUrl}/books/${book.id}/chapters`, { headers });
-        if (!chaptersResp.ok) { errors++; continue; }
-        const { data: chapters } = await chaptersResp.json();
+          for (const chapter of chapters) {
+            if (chapter.id === `${book.id}.intro`) continue; // skip intro sections
+            try {
+              const verseResp = await fetch(`${baseUrl}/chapters/${chapter.id}/verses`, { headers });
+              if (!verseResp.ok) { job.errors++; continue; }
+              const { data: verses } = await verseResp.json();
 
-        for (const chapter of chapters) {
-          if (chapter.id === `${book.id}.intro`) continue; // skip intro sections
-          try {
-            const verseResp = await fetch(`${baseUrl}/chapters/${chapter.id}/verses`, { headers });
-            if (!verseResp.ok) { errors++; continue; }
-            const { data: verses } = await verseResp.json();
-
-            if (verses && verses.length > 0) {
-              await prisma.$transaction(
-                verses.map(v =>
-                  prisma.entity.create({
-                    data: {
-                      type: 'Verse',
-                      userId: req.userId,
+              if (verses && verses.length > 0) {
+                await prisma.$transaction(
+                  verses.map(v =>
+                    prisma.entity.create({
                       data: {
-                        book_name: book.name,
-                        chapter: parseInt(chapter.number) || 0,
-                        verse: parseInt(v.reference?.split(':')[1]) || 0,
-                        text: v.text || '',
-                        translation,
-                        scripture_api_id: v.id,
-                        user_id: req.userId,
-                        created_date: new Date().toISOString(),
+                        type: 'Verse',
+                        userId,
+                        data: {
+                          book_name: book.name,
+                          chapter: parseInt(chapter.number) || 0,
+                          verse: parseInt(v.reference?.split(':')[1]) || 0,
+                          text: v.text || '',
+                          translation,
+                          scripture_api_id: v.id,
+                          user_id: userId,
+                          created_date: new Date().toISOString(),
+                        },
                       },
-                    },
-                  })
-                )
-              );
-              imported += verses.length;
+                    })
+                  )
+                );
+                job.imported += verses.length;
+              }
+
+              await new Promise(r => setTimeout(r, 100));
+            } catch {
+              job.errors++;
             }
-
-            await new Promise(r => setTimeout(r, 100));
-          } catch {
-            errors++;
           }
+        } catch {
+          job.errors++;
         }
-      } catch {
-        errors++;
       }
-    }
+    });
 
-    res.json({ message: `Imported ${imported} verses from Scripture API (${errors} errors)`, imported, errors });
+    res.status(202).json({
+      message: `Import started for '${translation}'. Poll getImportStatus for progress.`,
+      translation,
+      job: importJobView(translation),
+    });
   } catch (err) {
     next(err);
   }

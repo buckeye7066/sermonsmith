@@ -87,24 +87,16 @@ export default function AdminUsers() {
     try {
       const allUsers = await api.entities.User.list('-created_date', 1000);
       setUsers(allUsers);
-      
-      // Load last login for each user
-      const lastLoginData = {};
-      for (const u of allUsers) {
-        try {
-          const activities = await api.entities.UserActivity.filter(
-            { user_id: u.id },
-            '-created_date',
-            1
-          );
-          if (activities.length > 0) {
-            lastLoginData[u.id] = activities[0].created_date;
-          }
-        } catch (error) {
-          console.error(`Failed to load activity for user ${u.id}`);
-        }
+
+      // Last-active per user in ONE aggregate query (was an N+1 loop that fired
+      // up to 1000 sequential requests on page load).
+      try {
+        const lastLoginData = await api.functions.invoke('getUsersLastActivity', {});
+        setUserLastLogin(lastLoginData || {});
+      } catch (error) {
+        console.error('Failed to load last-activity map:', error);
+        setUserLastLogin({});
       }
-      setUserLastLogin(lastLoginData);
     } catch (error) {
       console.error("Error loading users:", error);
       toast.error("Failed to load users");
