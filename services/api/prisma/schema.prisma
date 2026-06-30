@@ -39,6 +39,14 @@ model User {
   // hard-deleting the row and cascade-wiping the user's sermons/studies. Auth
   // and login reject users with deleted_at set; data is recoverable / auditable.
   deletedAt            DateTime? @map("deleted_at")
+  // Admin ban. Field names are snake_case on purpose: the admin UI persists a
+  // ban via the generic User entity-update path (api.entities.User.update with
+  // { is_banned, banned_at }), which writes straight to these columns — so the
+  // Prisma field names must match those keys. Login and token validation reject
+  // banned accounts. Previously these columns did not exist, so every Ban click
+  // threw "Unknown argument is_banned" and silently did nothing.
+  is_banned            Boolean  @default(false)
+  banned_at            DateTime?
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 

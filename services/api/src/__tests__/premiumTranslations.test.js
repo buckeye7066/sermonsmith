@@ -7,6 +7,7 @@ import {
   listPremiumTranslations,
   fetchPremiumChapter,
   bookByName,
+  canonScope,
   _resetPremiumCatalogCache,
 } from '../services/premiumTranslations.js';
 
@@ -72,6 +73,26 @@ describe('premiumTranslations — pure helpers', () => {
     expect(bookByName('psalm')).toMatchObject({ number: 19, osis: 'PSA' });
     expect(bookByName('Revelations')).toMatchObject({ number: 66 });
     expect(bookByName('Nonsense')).toBeNull();
+  });
+
+  it('bookByName resolves OSIS codes and numeric indexes (what the Reader sends)', () => {
+    // The Reader posts OSIS codes (Reader.jsx → bookCode). These previously
+    // 400'd ("Unknown book: ACT/JHN") on every premium chapter.
+    expect(bookByName('JHN')).toMatchObject({ number: 43, name: 'John' });
+    expect(bookByName('act')).toMatchObject({ number: 44, name: 'Acts' });
+    expect(bookByName('GEN')).toMatchObject({ number: 1, name: 'Genesis' });
+    expect(bookByName('1co')).toMatchObject({ number: 46, name: '1 Corinthians' });
+    expect(bookByName('44')).toMatchObject({ name: 'Acts' });
+    expect(bookByName(43)).toMatchObject({ name: 'John' });
+  });
+
+  it('canonScope flags NT-only / OT-only editions (fixes RV1858 "66 Books")', () => {
+    expect(canonScope('Reina Valera NT 1858')).toBe('nt');
+    expect(canonScope('New Testament in Basic English')).toBe('nt');
+    expect(canonScope('Nuevo Testamento')).toBe('nt');
+    expect(canonScope('Old Testament Hebrew')).toBe('ot');
+    expect(canonScope('King James Version')).toBe('full');
+    expect(canonScope('Reina Valera 1960')).toBe('full');
   });
 });
 

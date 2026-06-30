@@ -181,6 +181,13 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    // Banned accounts cannot sign in. Distinct, honest message (unlike the
+    // soft-delete case) so a banned user understands the account is suspended
+    // rather than thinking they mistyped their password.
+    if (user.is_banned) {
+      return res.status(403).json({ message: 'This account has been suspended. Contact support if you believe this is an error.' });
+    }
+
     // Promote env-allowlisted admin emails on every login so access is
     // never lost even after a manual demotion. Note: admin status comes
     // from the deployment's ADMIN_EMAILS env, never from a hardcoded list.

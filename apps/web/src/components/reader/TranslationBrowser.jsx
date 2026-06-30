@@ -153,12 +153,25 @@ export default function TranslationBrowser({
               <Badge className={config.lightColor}>
                 {config.icon} {translation.language}
               </Badge>
-              {translation.isComplete && (
+              {/* Show the REAL canon scope from the backend catalogue. Don't
+                  print "66 Books" for NT-only / OT-only editions (e.g. "Reina
+                  Valera NT 1858" used to claim 66 books impossibly). */}
+              {translation.scope === 'nt' ? (
+                <Badge variant="outline" className="text-xs">
+                  <BookOpen className="w-3 h-3 mr-1" />
+                  New Testament
+                </Badge>
+              ) : translation.scope === 'ot' ? (
+                <Badge variant="outline" className="text-xs">
+                  <BookOpen className="w-3 h-3 mr-1" />
+                  Old Testament
+                </Badge>
+              ) : translation.isComplete ? (
                 <Badge variant="outline" className="text-xs">
                   <BookOpen className="w-3 h-3 mr-1" />
                   66 Books
                 </Badge>
-              )}
+              ) : null}
             </div>
           </div>
           {translation.textDirection === 'rtl' && (

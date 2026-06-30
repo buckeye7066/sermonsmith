@@ -48,13 +48,29 @@ export async function getTranslationBooks(translationId) {
     return translationBooksCache.get(translationId);
   }
 
+  // Premium (external-catalogue) translations are namespaced gb:/ab: and are NOT
+  // known to bible.helloao.org — querying it returned the SPA's index.html
+  // (HTTP 200, "<!doctype html>"), so response.json() threw
+  // "Unexpected token '<'" on every non-English selection. Their canon scope
+  // comes from the backend catalogue (translation.scope) instead, so skip the
+  // helloao lookup entirely and let the caller fall back to "assume full".
+  if (typeof translationId === 'string' && (translationId.startsWith('gb:') || translationId.startsWith('ab:'))) {
+    return null;
+  }
+
   try {
     const response = await fetch(`https://bible.helloao.org/api/${translationId}/books.json`);
     if (!response.ok) {
       // If API fails, assume full Bible to avoid blocking
       return null;
     }
-    
+    // Guard against a non-JSON body (e.g. an HTML error/redirect page): parsing
+    // it would throw "Unexpected token '<'". Bail to the safe "assume full" path.
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return null;
+    }
+
     const data = await response.json();
     const books = data.books || [];
     

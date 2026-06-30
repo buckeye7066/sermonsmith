@@ -295,7 +295,7 @@ export default function AdminUsers() {
                             </Badge>
                           )}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2 sm:justify-end">
                           <Button
                             size="sm"
                             variant="outline"
