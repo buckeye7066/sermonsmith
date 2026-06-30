@@ -7,6 +7,8 @@
  * are stored in localStorage or sessionStorage (OWASP best practice).
  */
 
+import { coerceToSchema } from '@/lib/aiStructured';
+
 // ---------------------------------------------------------------------------
 // API base URL resolution.
 //
@@ -324,7 +326,19 @@ const auth = {
 
 const integrations = {
   Core: {
-    InvokeLLM:                  (p) => apiFetch('/api/ai/invoke',   { method: 'POST', body: JSON.stringify(p) }),
+    // When the caller declares a `response_json_schema`, coerce the response to
+    // that schema's types at this single boundary. The model can return a valid
+    // JSON object whose FIELD TYPES still drift from the schema (an object where
+    // a string was promised, a scalar where an array was). Rendering such a
+    // value throws React error #31 and blanks the page. Coercing here protects
+    // every page at once instead of relying on per-page normalizers.
+    InvokeLLM: async (p) => {
+      const result = await apiFetch('/api/ai/invoke', { method: 'POST', body: JSON.stringify(p) });
+      if (p && p.response_json_schema) {
+        try { return coerceToSchema(result, p.response_json_schema); } catch { /* fall back to raw */ }
+      }
+      return result;
+    },
     SendEmail:                  (p) => apiFetch('/api/ai/email',    { method: 'POST', body: JSON.stringify(p) }),
     SendSMS:                    (p) => apiFetch('/api/ai/sms',      { method: 'POST', body: JSON.stringify(p) }),
     UploadFile:                 (p) => apiFetch('/api/ai/upload',   { method: 'POST', body: JSON.stringify(p) }),

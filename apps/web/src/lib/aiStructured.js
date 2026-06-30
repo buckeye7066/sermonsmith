@@ -21,6 +21,101 @@ export function asString(value, fallback = '') {
   return String(value);
 }
 
+// Turn a kebab/snake/camel key into a human label ("key_scriptures" → "Key
+// scriptures") for the object-flattening fallback in toDisplayText.
+function humanizeKey(key) {
+  return String(key)
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/^\s*(\w)/, (m, c) => c.toUpperCase())
+    .trim();
+}
+
+/**
+ * Coerce ANY value into something React can safely render as a text child.
+ *
+ * The LLM occasionally returns an object or array where the schema promised a
+ * string (e.g. `definition` comes back as `{ short, long }`). Rendering that
+ * object directly throws React error #31 ("Objects are not valid as a React
+ * child") and the ErrorBoundary blanks the whole page. This never lets that
+ * happen — a malformed field degrades to readable text instead of a crash.
+ */
+export function toDisplayText(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value.map(toDisplayText).filter((s) => s !== '').join('\n');
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .map(([k, v]) => {
+        const text = toDisplayText(v);
+        return text === '' ? '' : `${humanizeKey(k)}: ${text}`;
+      })
+      .filter((s) => s !== '')
+      .join('\n');
+  }
+  return String(value);
+}
+
+/**
+ * Recursively coerce an AI payload to the shape declared by its
+ * `response_json_schema`, so the value the UI receives ALWAYS matches the
+ * types the components were written against:
+ *   - `string`  → forced to text (objects/arrays flattened, never raw)
+ *   - `array`   → always an array (scalars wrapped, null → [])
+ *   - `object`  → always an object, known props coerced, extras preserved
+ *   - number/integer/boolean → coerced when sensible
+ *
+ * This is applied once at the API boundary (apiClient.InvokeLLM) so EVERY
+ * page is protected against shape drift, not just the ones that have a
+ * hand-written normalizer. Unknown/unspecified schema → value passes through.
+ */
+export function coerceToSchema(value, schema) {
+  if (!schema || typeof schema !== 'object') return value;
+
+  // Union types: best-effort — if a string is allowed and we got a non-string
+  // object/array, flatten it to text; otherwise pass through untouched.
+  const type = Array.isArray(schema.type)
+    ? (schema.type.includes('string') && value && typeof value === 'object' ? 'string' : schema.type[0])
+    : schema.type;
+
+  switch (type) {
+    case 'string':
+      return toDisplayText(value);
+    case 'number':
+    case 'integer': {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : undefined;
+    }
+    case 'boolean':
+      if (typeof value === 'boolean') return value;
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      return Boolean(value);
+    case 'array': {
+      const arr = Array.isArray(value)
+        ? value
+        : value === null || value === undefined
+          ? []
+          : [value];
+      return schema.items ? arr.map((item) => coerceToSchema(item, schema.items)) : arr;
+    }
+    case 'object': {
+      const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+      if (!schema.properties) return obj;
+      const out = { ...obj };
+      for (const [key, propSchema] of Object.entries(schema.properties)) {
+        if (key in obj) out[key] = coerceToSchema(obj[key], propSchema);
+      }
+      return out;
+    }
+    default:
+      return value;
+  }
+}
+
 export function mergeUniqueStrings(...lists) {
   const seen = new Set();
   const out = [];

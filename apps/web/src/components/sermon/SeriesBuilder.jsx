@@ -34,6 +34,7 @@ import {
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { ARLYNN_SYSTEM_PROMPT } from '@/ai/personas';
+import { denominationPromptBlock } from '@/lib/denominations';
 import { asArray, normalizeOutline, normalizeSermon, normalizeSeriesOutline } from '@/lib/aiStructured';
 import { validateAiSermon } from '@/lib/scriptureRefs';
 import { getAiErrorMessage } from '@/lib/aiErrors';
@@ -113,7 +114,9 @@ Request:
 ${formatUserInputBlock('Topic', outlineTopic)}
 ${formatUserInputBlock('Scripture', outlinePassage, 'Choose best passage')}
 ${formatUserInputBlock('Theme', outlineTheme)}
-${formatUserInputBlock('Denominational/theological preference', user?.denomination, 'Non-Denominational')}
+
+${denominationPromptBlock(user?.denomination)}
+
 Teaching Context: ${contextInfo?.label || 'Sunday Service'} (${contextInfo?.desc || ''})
 
 Create a complete sermon outline with:
@@ -254,7 +257,9 @@ Series Request:
 Type: ${seriesType === 'theme' ? 'Thematic Series' : 'Book Study'}
 ${seriesInput}
 Length: ${seriesLength} sermons
-${formatUserInputBlock('Denominational/theological preference', user?.denomination, 'Non-Denominational')}
+
+${denominationPromptBlock(user?.denomination)}
+
 Teaching Context: ${contextInfo?.label || 'Sunday Service'} (${contextInfo?.desc || ''})
 
 IMPORTANT: Adapt all content, language, illustrations, and applications for a ${contextInfo?.label || 'Sunday Service'} context.
@@ -404,8 +409,9 @@ Create a COMPLETE sermon that:
 2. Advances the theological trajectory
 3. Stands alone but connects to the whole
 4. Builds anticipation for next week (if not final)
-5. Is aligned with this stated denominational/theological preference:
-${formatUserInputBlock('Denominational/theological preference', user?.denomination, 'Non-Denominational')}
+5. Is preached from the denominational viewpoint below:
+
+${denominationPromptBlock(user?.denomination)}
 
 Include:
 - Title and Big Idea

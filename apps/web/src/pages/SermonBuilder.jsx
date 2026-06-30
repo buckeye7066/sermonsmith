@@ -6,11 +6,12 @@ import { validateAiSermon } from '@/lib/scriptureRefs';
 import { asArray, mergeUniqueStrings, normalizeSermon } from '@/lib/aiStructured';
 import { getAiErrorMessage } from '@/lib/aiErrors';
 import { formatUserInputBlock } from '@/lib/aiPrompt';
+import { DENOMINATION_GROUPS, denominationPromptBlock, resolveDenominationProfile } from '@/lib/denominations';
 import { logError } from '@/lib/logError';
 import { Button } from "@/components/ui/button";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +69,10 @@ export default function SermonBuilder() {
   const [passage, setPassage] = useState("");
   const [tone, setTone] = useState("inspirational");
   const [audience, setAudience] = useState("general");
+  // Per-sermon denomination viewpoint. Defaults to the user's profile
+  // denomination but can be overridden for any individual sermon (e.g. a guest
+  // preacher or a cross-tradition study) without changing the saved profile.
+  const [denomination, setDenomination] = useState("Non-Denominational");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedSermon, setGeneratedSermon] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -85,6 +90,9 @@ export default function SermonBuilder() {
 
   // Apply user study preferences when AuthContext resolves the user.
   useEffect(() => {
+    if (user?.denomination) {
+      setDenomination(user.denomination);
+    }
     if (!user?.study_preferences) return;
     if (user.study_preferences.preferredSermonTone) {
       setTone(user.study_preferences.preferredSermonTone);
@@ -151,10 +159,8 @@ Return as JSON array of objects with "reference" and "reason" fields.`;
     }
 
     setIsGenerating(true);
-    console.log('[SermonBuilder] Generating sermon with topic:', topic, 'passage:', passage);
+    console.log('[SermonBuilder] Generating sermon with topic:', topic, 'passage:', passage, 'denomination:', denomination);
     try {
-      const denomination = user?.denomination || "Non-Denominational";
-      
       const audienceContext = {
         general: "general congregation with mixed ages and backgrounds",
         youth: "youth group (ages 13-18), using relatable examples and contemporary language",
@@ -175,17 +181,19 @@ You are Larry, an expert AI sermon assistant helping pastors create powerful, bi
 
 ${formatUserInputBlock('Sermon topic', topic)}
 ${formatUserInputBlock('Anchor passage', passage)}
-${formatUserInputBlock('Denominational/theological preference', denomination, 'Non-Denominational')}
+
+${denominationPromptBlock(denomination)}
+
 Tone: ${tone}
 Audience: ${audienceContext[audience]}${topicContext}
 
 Create a sermon that includes:
 1. A compelling title that captures attention
 2. A clear "Big Idea" - one memorable sentence summarizing the sermon
-3. Theological notes about the stated denominational/theological perspective on this topic
+3. Theological notes explaining this tradition's perspective on the topic (per the denominational viewpoint above)
 4. 3-4 main points, each with:
    - Point title (action-oriented)
-   - Exegesis (2-3 paragraphs explaining the passage, aligned with the stated denominational/theological perspective)
+   - Exegesis (2-3 paragraphs explaining the passage, aligned with the denominational viewpoint above)
    - Illustration (a story, example, or analogy that brings the point to life - make it ${tone} in nature)
    - Application (specific, practical ways to apply this truth)
    - 3-5 supporting scriptures that reinforce this point
@@ -690,14 +698,42 @@ Return the full adapted sermon in the same JSON format.`;
                 </div>
               </div>
 
-              {user?.denomination && (
-                <Alert>
-                  <Sparkles className="w-4 h-4" />
-                  <AlertDescription>
-                    Larry will align this sermon with <strong>{user.denomination}</strong> theology
-                  </AlertDescription>
-                </Alert>
-              )}
+              <div>
+                <label className="text-sm font-medium mb-2 block">Denominational Viewpoint</label>
+                <Select value={denomination} onValueChange={setDenomination}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a tradition..." />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-96">
+                    {DENOMINATION_GROUPS.map((group) => (
+                      <SelectGroup key={group.family}>
+                        <SelectLabel>{group.family}</SelectLabel>
+                        {group.options.map((opt) => (
+                          <SelectItem key={opt} value={opt}>
+                            {opt}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                    {/* Preserve a profile denomination that isn't in the curated
+                        list so the user's own saved tradition is always selectable. */}
+                    {user?.denomination && !DENOMINATION_GROUPS.some((g) => g.options.includes(user.denomination)) && (
+                      <SelectGroup>
+                        <SelectLabel>Your Profile</SelectLabel>
+                        <SelectItem value={user.denomination}>{user.denomination}</SelectItem>
+                      </SelectGroup>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Alert>
+                <Sparkles className="w-4 h-4" />
+                <AlertDescription>
+                  Larry will preach from a <strong>{denomination}</strong> viewpoint —{' '}
+                  {resolveDenominationProfile(denomination).summary}
+                </AlertDescription>
+              </Alert>
 
               <Button
                 onClick={generateSermon}

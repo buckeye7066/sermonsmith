@@ -508,7 +508,12 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
             { role: 'user', content: 'Your previous response was not valid JSON. Respond with ONLY the JSON object matching the requested schema — no prose, no explanation, no markdown code fences.' },
           ];
           const repair = await withTimeout(
-            callWithRetry(() => openai.chat.completions.create({ ...params, messages: repairMessages })),
+            // Force temperature 0 on the repair pass: we want the single most
+            // probable, well-formed JSON completion, not creative variation.
+            // This is the deterministic root-cause fix for the intermittent
+            // "AI returned invalid JSON" 502 — the retry now strongly favors
+            // valid JSON instead of re-rolling at the original temperature.
+            callWithRetry(() => openai.chat.completions.create({ ...params, messages: repairMessages, temperature: 0 })),
             AI_TIMEOUT_MS,
             '/ai/invoke(repair)',
           );
