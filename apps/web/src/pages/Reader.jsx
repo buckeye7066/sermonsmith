@@ -559,6 +559,16 @@ export default function Reader() {
       };
 
   const handleJumpToVerse = (book, chapter, verse) => {
+    // Reject an unrecognized book name outright with a clear message, rather
+    // than silently navigating within the current book (confusing) or — as the
+    // old build did — handing the bad name to the API and hanging on a passage
+    // that can never resolve. This is the loader-independent guard for every
+    // path into the reader (dialog, deep link, search).
+    if (book && !BIBLE_BOOKS.find(b => b.name === book)) {
+      toast.error(`"${book}" isn't a recognized book of the Bible. Please check the spelling.`);
+      return;
+    }
+
     // Validate book name. Track the resolved target so the chapter clamp below
     // uses the book we're actually switching to, not the previous one.
     let targetBook = currentBook;

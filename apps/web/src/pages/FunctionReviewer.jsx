@@ -26,51 +26,49 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-// Simple syntax highlighting for JavaScript
+// Lightweight single-pass JS syntax highlighter.
+//
+// The previous version ran a series of regex .replace() passes over text that
+// ALREADY contained the HTML it had just inserted — so the later "numbers" and
+// "strings" passes matched the digits/quotes inside class names like
+// `text-purple-600` and corrupted the markup (the QA report saw garbage like
+// `500 italic">// ...`). This tokenizes the source ONCE and escapes each
+// segment, so inserted markup is never re-processed.
+const HL_KEYWORDS = new Set([
+  'import', 'export', 'from', 'const', 'let', 'var', 'function', 'async', 'await',
+  'return', 'if', 'else', 'for', 'while', 'try', 'catch', 'throw', 'new', 'class',
+  'extends', 'switch', 'case', 'break', 'default', 'continue', 'typeof', 'instanceof',
+]);
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function highlightCode(code) {
   if (!code) return "";
-  
-  // Escape HTML first
-  let escaped = code
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  
-  // Keywords
-  escaped = escaped.replace(
-    /\b(import|export|from|const|let|var|function|async|await|return|if|else|for|while|try|catch|throw|new|class|extends|switch|case|break|default|continue|typeof|instanceof)\b/g,
-    '<span class="text-purple-600 dark:text-purple-400 font-semibold">$1</span>'
-  );
-  
-  // Strings
-  escaped = escaped.replace(
-    /(["'`])(?:(?!\1)[^\\]|\\.)*\1/g,
-    '<span class="text-green-600 dark:text-green-400">$&</span>'
-  );
-  
-  // Comments
-  escaped = escaped.replace(
-    /(\/\/.*$)/gm,
-    '<span class="text-gray-500 italic">$1</span>'
-  );
-  escaped = escaped.replace(
-    /(\/\*[\s\S]*?\*\/)/g,
-    '<span class="text-gray-500 italic">$1</span>'
-  );
-  
-  // Numbers
-  escaped = escaped.replace(
-    /\b(\d+)\b/g,
-    '<span class="text-orange-500">$1</span>'
-  );
-  
-  // Function calls
-  escaped = escaped.replace(
-    /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g,
-    '<span class="text-blue-600 dark:text-blue-400">$1</span>('
-  );
-  
-  return escaped;
+  // One scanner for comments | strings | numbers | identifiers; everything
+  // else (whitespace, punctuation) is escaped as-is between matches.
+  const tokenRe = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][A-Za-z0-9_$]*)/g;
+  let out = "";
+  let last = 0;
+  let m;
+  while ((m = tokenRe.exec(code)) !== null) {
+    out += escapeHtml(code.slice(last, m.index));
+    if (m[1]) {
+      out += `<span class="text-gray-500 italic">${escapeHtml(m[1])}</span>`;
+    } else if (m[2]) {
+      out += `<span class="text-green-600 dark:text-green-400">${escapeHtml(m[2])}</span>`;
+    } else if (m[3]) {
+      out += `<span class="text-orange-500">${escapeHtml(m[3])}</span>`;
+    } else if (m[4]) {
+      out += HL_KEYWORDS.has(m[4])
+        ? `<span class="text-purple-600 dark:text-purple-400 font-semibold">${escapeHtml(m[4])}</span>`
+        : escapeHtml(m[4]);
+    }
+    last = tokenRe.lastIndex;
+  }
+  out += escapeHtml(code.slice(last));
+  return out;
 }
 
 function CodeBlock({ code, title, filePath, defaultOpen = true }) {
