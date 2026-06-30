@@ -2,6 +2,11 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from '@/App.jsx'
 import '@/index.css'
+import { registerGlobalErrorReporting } from '@/lib/reportClientError'
+
+// Capture uncaught errors / unhandled rejections and report them to the owner
+// (server enforces the non-admin-only rule).
+registerGlobalErrorReporting()
 
 // Register service worker for offline support
 const isWebProtocol = window.location.protocol === 'http:' || window.location.protocol === 'https:';

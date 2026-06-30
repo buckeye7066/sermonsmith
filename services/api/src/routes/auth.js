@@ -15,7 +15,7 @@ function adminEmails() {
   return raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 }
 
-function isAdminEmail(email) {
+export function isAdminEmail(email) {
   if (!email) return false;
   return adminEmails().includes(email.toLowerCase());
 }
