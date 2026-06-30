@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
@@ -221,9 +221,21 @@ export default function WorldviewExplorer() {
   const [currentNote, setCurrentNote] = useState('');
   const [showNotesDialog, setShowNotesDialog] = useState(false);
 
+  // Anchor for the analysis panel. The belief-system grid is very long (59
+  // cards), so when a card deep in the list is analyzed the result paints far
+  // below the fold and looks like "nothing happened" / "it appeared on a
+  // different card". Scroll the panel into view as soon as analysis starts.
+  const analysisAnchorRef = useRef(null);
+
   useEffect(() => {
     loadUserNotes();
   }, []);
+
+  useEffect(() => {
+    if (isAnalyzing || analysis || analysisError) {
+      analysisAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [isAnalyzing, analysis, analysisError]);
 
   useEffect(() => {
     if (showNotesDialog && selectedSystem) {
@@ -602,7 +614,7 @@ Be respectful, accurate, pastoral.`;
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     <span>{categoryLabels[category]}</span>
-                    <Badge variant="secondary">{systems.length} systems</Badge>
+                    <Badge variant="secondary">{systems.length} system{systems.length === 1 ? '' : 's'}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -655,6 +667,9 @@ Be respectful, accurate, pastoral.`;
             );
           })}
         </div>
+
+        {/* Scroll target for the analysis panel (see analysisAnchorRef effect). */}
+        <div ref={analysisAnchorRef} />
 
         {/* Analysis Loading */}
         {isAnalyzing && (

@@ -288,10 +288,15 @@ export default function ChristianEthics() {
   };
 
   const saveToHistory = (question, topic) => {
+    // De-dupe: re-asking the same question (or an ask whose topic_title matches
+    // a prior question) must not create duplicate "Recent Questions" badges.
+    const deduped = searchHistory.filter(
+      (h) => h.question?.trim().toLowerCase() !== String(question).trim().toLowerCase()
+    );
     const newHistory = [
       { question, topic, timestamp: new Date().toISOString() },
-      ...searchHistory.slice(0, 9)
-    ];
+      ...deduped,
+    ].slice(0, 10);
     setSearchHistory(newHistory);
     localStorage.setItem('ethics_history', JSON.stringify(newHistory));
   };

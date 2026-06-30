@@ -202,11 +202,11 @@ export default function Community() {
                     <div className="flex items-center gap-4 mt-4 text-sm text-gray-600">
                       <span className="flex items-center gap-1">
                         <MessageSquare className="w-4 h-4" />
-                        {post.replies_count} replies
+                        {post.replies_count || 0} replies
                       </span>
                       <span className="flex items-center gap-1">
                         <Heart className="w-4 h-4" />
-                        {post.likes_count} likes
+                        {post.likes_count || 0} likes
                       </span>
                     </div>
                   </CardContent>
@@ -249,9 +249,9 @@ export default function Community() {
                       <div className="flex items-center gap-4 mt-4 text-sm text-gray-600">
                         <span className="flex items-center gap-1">
                           <Heart className="w-4 h-4" />
-                          {content.likes_count}
+                          {content.likes_count || 0}
                         </span>
-                        <span>{content.saves_count} saves</span>
+                        <span>{content.saves_count || 0} saves</span>
                       </div>
                     </CardContent>
                   </Card>

@@ -21,7 +21,6 @@ import {
   WifiOff,
   Settings,
   Navigation,
-  Search,
   CloudOff
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,7 +40,6 @@ import VersionComparison from "../components/reader/VersionComparison";
 import ReaderSettings from "../components/reader/ReaderSettings";
 import JumpToVerse from "../components/reader/JumpToVerse";
 import AudioPlayer from "../components/reader/AudioPlayer";
-import SearchDialog from "../components/reader/SearchDialog";
 import ShareMenu from "../components/reader/ShareMenu";
 import VerseOfTheDay from "../components/reader/VerseOfTheDay";
 import CrossReferencePanel from "../components/reader/CrossReferencePanel";
@@ -177,7 +175,6 @@ export default function Reader() {
   const [showVersionComparison, setShowVersionComparison] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showJumpToVerse, setShowJumpToVerse] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isCached, setIsCached] = useState(false);
@@ -986,14 +983,6 @@ export default function Reader() {
             >
               <Navigation className="w-4 h-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setShowSearch(true)}
-              title="Search"
-            >
-              <Search className="w-4 h-4" />
-            </Button>
           </div>
         </div>
 
@@ -1255,13 +1244,6 @@ export default function Reader() {
                         currentChapter={currentChapter}
                         translationBookInfo={translationBookInfo}
                       />
-
-        <SearchDialog
-          open={showSearch}
-          onClose={() => setShowSearch(false)}
-          onSelectVerse={handleJumpToVerse}
-          currentTranslation={currentTranslation}
-        />
 
         {showVersionComparison && (
           <VersionComparison

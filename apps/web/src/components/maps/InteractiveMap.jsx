@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 
 import { Badge } from "@/components/ui/badge";
 import { MapPin, AlertTriangle } from "lucide-react";
@@ -13,6 +13,23 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
+
+// Frame the map to ALL of the journey's stops. Without this the map used a
+// fixed zoom centered on the averaged coordinate, so multi-region journeys
+// (e.g. Paul's: Damascus → Rome) stayed zoomed into one area with markers off
+// screen. Re-fits whenever the set of points changes.
+function FitBounds({ positions }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!positions || positions.length === 0) return;
+    if (positions.length === 1) {
+      map.setView(positions[0], 8);
+      return;
+    }
+    map.fitBounds(positions, { padding: [48, 48], maxZoom: 10 });
+  }, [map, positions]);
+  return null;
+}
 
 export default function InteractiveMap({ journey }) {
   const [mapSupported, setMapSupported] = useState(true);
@@ -67,7 +84,9 @@ export default function InteractiveMap({ journey }) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         />
-        
+
+        <FitBounds positions={pathCoordinates} />
+
         {/* Draw the journey path */}
         <Polyline 
           positions={pathCoordinates} 

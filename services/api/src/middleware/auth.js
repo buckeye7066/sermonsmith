@@ -114,12 +114,18 @@ export async function authenticateToken(req, res, next) {
     // Also acts as a revocation check — deleted users are rejected immediately.
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { role: true, premium: true, email: true, tokenVersion: true, deletedAt: true, premium_until: true },
+      select: { role: true, premium: true, email: true, tokenVersion: true, deletedAt: true, premium_until: true, is_banned: true },
     });
     if (!user || user.deletedAt) {
       // Treat soft-deleted accounts as gone — their tokenVersion was also bumped
       // on deletion, but this is the loader-independent net.
       return res.status(401).json({ message: 'User account not found' });
+    }
+
+    // Kill an active session the moment the account is banned — a ban must take
+    // effect immediately, not only at the next login.
+    if (user.is_banned) {
+      return res.status(403).json({ message: 'This account has been suspended.' });
     }
 
     // Session-revocation check. Any token issued before the latest

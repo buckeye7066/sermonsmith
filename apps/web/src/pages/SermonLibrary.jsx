@@ -553,13 +553,13 @@ Be strategic and personalized.`;
                       type="date"
                       value={dateRange.start}
                       onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                      className="flex-1"
+                      className="flex-1 min-w-0"
                     />
                     <Input
                       type="date"
                       value={dateRange.end}
                       onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                      className="flex-1"
+                      className="flex-1 min-w-0"
                     />
                   </div>
                 </div>

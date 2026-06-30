@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
+import { chaptersInBook, versesInChapter } from "@/lib/bibleVerseCounts";
 
 const BIBLE_BOOKS = [
   "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth",
@@ -95,6 +96,25 @@ export default function SearchDialog({ open, onClose, onSelectVerse, currentTran
 
     if (!book) {
       const msg = `"${rawBook}" isn't a recognized book. Check the spelling (e.g., "John", "Genesis").`;
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    // Range-check the chapter and verse against the actual book, so an
+    // impossible reference like "John 99:1" gives a clear error instead of
+    // silently clamping/navigating nowhere (the book name was validated but the
+    // chapter/verse never were).
+    const maxChapter = chaptersInBook(book);
+    if (maxChapter && (chapter < 1 || chapter > maxChapter)) {
+      const msg = `${book} has ${maxChapter} chapter${maxChapter === 1 ? '' : 's'} — chapter ${chapter} doesn't exist.`;
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
+    const maxVerse = versesInChapter(book, chapter);
+    if (maxVerse && (verse < 1 || verse > maxVerse)) {
+      const msg = `${book} ${chapter} has ${maxVerse} verse${maxVerse === 1 ? '' : 's'} — verse ${verse} doesn't exist.`;
       setError(msg);
       toast.error(msg);
       return;

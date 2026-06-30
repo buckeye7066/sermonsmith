@@ -20,6 +20,7 @@ import {
   getStorageEstimate,
   isOnline
 } from "./OfflineBibleService";
+import { api } from "@/api/apiClient";
 
 // Bible book codes and chapter counts
 const BIBLE_BOOKS = [
@@ -125,13 +126,17 @@ export default function OfflineDownloadManager({ open, onClose, translations = [
           }
           
           try {
-            const url = `https://bible.helloao.org/api/${translation.id}/${book.code}/${chapter}.json`;
-            const response = await fetch(url, {
-              signal: abortControllers.current[translation.id]?.signal
+            // Download through OUR backend (biblePassage), which resolves OSIS
+            // book codes for every translation — free (bible-api.com) AND premium
+            // (gb:/ab: via getBible/API.Bible). The previous hardcoded
+            // bible.helloao.org URL didn't know the gb:/ab: ids and returned an
+            // HTML page, so premium offline downloads silently saved nothing.
+            const data = await api.functions.invoke('biblePassage', {
+              translationId: translation.id,
+              bookCode: book.code,
+              chapter,
             });
-            
-            if (response.ok) {
-              const data = await response.json();
+            if (data && Array.isArray(data.verses) && data.verses.length > 0) {
               await saveChapterOffline(translation.id, book.code, chapter, data);
             }
           } catch (fetchError) {

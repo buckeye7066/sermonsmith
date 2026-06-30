@@ -95,6 +95,13 @@ export const BOOKS = [
 ];
 
 const BOOK_BY_NAME = new Map(BOOKS.map((b) => [b.name.toLowerCase(), b]));
+// OSIS / Paratext 3-letter codes (GEN, JHN, ACT…). The Reader identifies books
+// by these codes everywhere (Reader.jsx → BOOK_NAME_TO_OSIS → bookCode), so the
+// premium providers MUST accept them — historically bookByName only knew full
+// English names, which 400'd ("Unknown book: ACT/JHN") every gb:/ab: chapter.
+const BOOK_BY_OSIS = new Map(BOOKS.map((b) => [b.osis.toLowerCase(), b]));
+// getBible's 1-based book index, in case a caller passes the raw number.
+const BOOK_BY_NUMBER = new Map(BOOKS.map((b) => [String(b.number), b]));
 // Common aliases the Reader / deep links may send.
 for (const [alias, canonical] of [
   ['psalm', 'Psalms'],
@@ -107,9 +114,18 @@ for (const [alias, canonical] of [
   if (target) BOOK_BY_NAME.set(alias, target);
 }
 
+// Resolve a book from ANY identifier the client might send: full name, an OSIS
+// 3-letter code, a known alias, or the numeric index. This is the single place
+// premium chapter fetches resolve books, so accepting every common form here
+// permanently removes the name-vs-code mismatch class of bug.
 export function bookByName(name) {
-  if (!name) return null;
-  return BOOK_BY_NAME.get(String(name).trim().toLowerCase()) || null;
+  if (name === null || name === undefined) return null;
+  const key = String(name).trim().toLowerCase();
+  if (!key) return null;
+  return BOOK_BY_NAME.get(key)
+    || BOOK_BY_OSIS.get(key)
+    || BOOK_BY_NUMBER.get(key)
+    || null;
 }
 
 // getBible re-publishes some of the same public-domain English bibles we serve
@@ -130,6 +146,19 @@ const LANG_REGION = {
 };
 function regionForLang(code) {
   return LANG_REGION[String(code || '').slice(0, 2).toLowerCase()] || 'other';
+}
+
+// Infer testament scope from a translation's title/abbreviation. getBible and
+// API.Bible both ship NT-only and OT-only editions but provide no machine
+// book-count, so we detect the common multilingual markers. Returns
+// 'nt' | 'ot' | 'full'. Conservative: only flags partial on a clear marker.
+const NT_ONLY_RE = /\bn\.?\s?t\.?\b|new testament|nuevo testamento|novo testamento|neues testament|nouveau testament|nuovo testamento/i;
+const OT_ONLY_RE = /\bo\.?\s?t\.?\b|old testament|antiguo testamento|velho testamento|altes testament|ancien testament/i;
+export function canonScope(title) {
+  const s = String(title || '');
+  if (NT_ONLY_RE.test(s)) return 'nt';
+  if (OT_ONLY_RE.test(s)) return 'ot';
+  return 'full';
 }
 
 export function premiumProvider() {
@@ -169,6 +198,7 @@ async function getBibleCatalog() {
     const abbr = String(t.abbreviation || key).toLowerCase();
     const lang = String(t.lang || 'und').toLowerCase();
     if (lang === 'en' && PD_ENGLISH_ABBRS.has(abbr)) continue; // avoid free-tier dupes
+    const scope = canonScope(`${t.translation || ''} ${t.abbreviation || ''} ${abbr}`);
     out.push({
       id: `gb:${abbr}`,
       name: t.translation || t.abbreviation || abbr,
@@ -178,7 +208,12 @@ async function getBibleCatalog() {
       languageCode: lang,
       region: regionForLang(lang),
       textDirection: String(t.direction || 'LTR').toLowerCase() === 'rtl' ? 'rtl' : 'ltr',
-      isComplete: true,
+      // Don't blanket-claim every translation is a full 66-book bible: getBible
+      // ships NT-only / OT-only editions (e.g. "Reina Valera NT 1858"), and
+      // marking them complete made the UI print a bogus "66 Books". Infer scope
+      // from the title; `isComplete` is true only when it's not flagged partial.
+      scope,
+      isComplete: scope === 'full',
       source: 'getbible',
     });
   }
@@ -214,6 +249,7 @@ async function apiBibleCatalog() {
   for (const b of data.data || []) {
     const lang = b.language || {};
     const code = String(lang.id || 'und').toLowerCase();
+    const scope = canonScope(`${b.name || ''} ${b.nameLocal || ''} ${b.abbreviation || ''} ${b.description || ''}`);
     out.push({
       id: `ab:${b.id}`,
       name: b.name || b.abbreviation || b.id,
@@ -223,7 +259,8 @@ async function apiBibleCatalog() {
       languageCode: code,
       region: regionForLang(code),
       textDirection: String(lang.scriptDirection || 'LTR').toLowerCase() === 'rtl' ? 'rtl' : 'ltr',
-      isComplete: true,
+      scope,
+      isComplete: scope === 'full',
       source: 'api-bible',
     });
   }
@@ -329,4 +366,4 @@ export function sliceVerses(chapterPayload, versesSpec) {
 }
 
 // Exposed for tests.
-export const __test = { parseVerseNumberedText, getBibleCatalog, apiBibleCatalog, regionForLang, sliceVerses };
+export const __test = { parseVerseNumberedText, getBibleCatalog, apiBibleCatalog, regionForLang, sliceVerses, bookByName, canonScope };
