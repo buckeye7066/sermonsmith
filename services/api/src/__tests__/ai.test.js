@@ -67,13 +67,19 @@ describe('ai routes — authentication & abuse limits', () => {
   });
 
   it('clamps maxTokens for non-premium users', () => {
-    expect(aiInternals.clampTokens(99999, false)).toBeLessThanOrEqual(1500);
-    // Premium ceiling raised to 8192 so deep structured outputs (e.g. the
-    // Worldview analysis schema) no longer truncate mid-JSON.
+    // Free ceiling raised 1500 → 4096 so a full sermon/study no longer
+    // truncates mid-JSON for free users.
+    expect(aiInternals.clampTokens(99999, false)).toBeLessThanOrEqual(4096);
+    // Premium ceiling 8192 so deep structured outputs (e.g. the Worldview
+    // analysis schema) complete.
     expect(aiInternals.clampTokens(99999, true)).toBeLessThanOrEqual(8192);
     expect(aiInternals.clampTokens(99999, true)).toBeGreaterThan(4096);
-    expect(aiInternals.clampTokens(undefined, false)).toBe(1500);
-    expect(aiInternals.clampTokens(-50, false)).toBe(1500);
+    // No explicit request now defaults to the tier's FULL ceiling (was 1500),
+    // because almost every structured call site omits max_tokens and was being
+    // silently truncated.
+    expect(aiInternals.clampTokens(undefined, false)).toBe(4096);
+    expect(aiInternals.clampTokens(-50, false)).toBe(4096);
+    expect(aiInternals.clampTokens(undefined, true)).toBe(8192);
   });
 
   it('extractJson parses plain, fenced, and trailing-text JSON', () => {
@@ -232,6 +238,19 @@ describe('ai routes — authentication & abuse limits', () => {
       const r = await aiInternals.consumeUsageDb(userId, true, prisma);
       expect(r.allowed).toBe(true);
     }
+  });
+
+  it('refundUsageDb gives back a consumed unit (transient-failure path)', async () => {
+    const userId = 'u-refund';
+    await aiInternals.consumeUsageDb(userId, false, prisma); // count = 1
+    await aiInternals.consumeUsageDb(userId, false, prisma); // count = 2
+    await aiInternals.refundUsageDb(userId, prisma);         // count = 1
+    const next = await aiInternals.consumeUsageDb(userId, false, prisma);
+    expect(next.count).toBe(2);
+  });
+
+  it('refundUsageDb is a no-op (does not throw) when no row exists', async () => {
+    await expect(aiInternals.refundUsageDb('u-never-used', prisma)).resolves.toBeUndefined();
   });
 
   it('returns 503 when DISABLE_AI=1 (the default in tests)', async () => {

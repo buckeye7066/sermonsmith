@@ -347,10 +347,24 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
 });
 
 // --- Bulk create (uses transaction for atomicity) ---
+const MAX_BULK_ITEMS = 200;
+
 router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
   try {
+    // Public reference types (Verse) must not be writable by ordinary users —
+    // those rows are world-readable, so a non-admin could otherwise inject
+    // fake "Bible" data that every user sees.
+    if (PUBLIC_TYPES.has(req.params.type) && !isAdmin(req)) {
+      return res.status(403).json({ message: `Creating '${req.params.type}' entities is not permitted.` });
+    }
+
     const items = req.body.items || req.body;
     const arr = Array.isArray(items) ? items : [items];
+    // Bound the batch so one request can't open a giant transaction that holds
+    // locks / drains the connection pool for everyone else.
+    if (arr.length > MAX_BULK_ITEMS) {
+      return res.status(400).json({ message: `Too many items; max ${MAX_BULK_ITEMS} per bulk request.` });
+    }
     const now = new Date().toISOString();
 
     // Validate every item BEFORE we open the transaction so a partial
@@ -384,6 +398,10 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
 // --- Create ---
 router.post('/:type', authenticateToken, async (req, res, next) => {
   try {
+    // Public reference types (Verse) are read-only for non-admins — see bulk.
+    if (PUBLIC_TYPES.has(req.params.type) && !isAdmin(req)) {
+      return res.status(403).json({ message: `Creating '${req.params.type}' entities is not permitted.` });
+    }
     // eslint-disable-next-line no-unused-vars
     const { user_id, userId, id, ...rawBody } = req.body || {};
     const body = validateEntityPayload(req.params.type, rawBody);

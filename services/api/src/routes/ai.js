@@ -30,9 +30,15 @@ async function getOpenAI() {
 // completion and got truncated mid-JSON, which then failed JSON.parse and
 // surfaced as "Failed to generate analysis". gpt-4o / gpt-4o-mini both support
 // well above this, so the ceiling is the real constraint, not the model.
-const ABSOLUTE_MAX_TOKENS = 8192;
-const FREE_MAX_TOKENS = 1500;
-const PREMIUM_MAX_TOKENS = 8192;
+const ABSOLUTE_MAX_TOKENS = Number(process.env.AI_ABSOLUTE_MAX_TOKENS || 8192);
+// Raised 1500 → 4096. The core sermon / study / series generators emit large
+// structured JSON that did not fit in 1500 tokens, so completions were
+// truncated mid-JSON → JSON.parse fails → 502 for EVERY user. The web client
+// almost never passes max_tokens, so even premium silently fell back to the
+// 1500 default (see clampTokens). 4096 fits a full sermon/study outline on
+// gpt-4o-mini at trivial cost; tune via AI_FREE_MAX_TOKENS.
+const FREE_MAX_TOKENS = Number(process.env.AI_FREE_MAX_TOKENS || 4096);
+const PREMIUM_MAX_TOKENS = Number(process.env.AI_PREMIUM_MAX_TOKENS || 8192);
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90_000);
 
 // Image-generation model. Hardcoding 'dall-e-3' broke image generation on
@@ -267,6 +273,24 @@ export async function consumeUsageDb(userId, premium, prismaOverride) {
   return { allowed: row.count <= limit, count: row.count, limit };
 }
 
+// Give a daily-quota unit back when the AI call we already counted ends up
+// failing for a reason that is NOT the user's fault (transient OpenAI 5xx /
+// timeout / our own misconfiguration). Without this, every flaky upstream error
+// permanently costs the user one of their 30/500 daily generations. Best-effort:
+// never let a refund failure mask the original error.
+export async function refundUsageDb(userId, prismaOverride) {
+  const db = prismaOverride || prisma;
+  const bucket = todayKey();
+  try {
+    await db.aiUsage.update({
+      where: { userId_bucket: { userId, bucket } },
+      data: { count: { decrement: 1 } },
+    });
+  } catch {
+    // Row missing or DB hiccup — nothing to refund; swallow.
+  }
+}
+
 // Legacy export kept only for the existing __test surface; never called from
 // route handlers any more.
 function consumeUsage(_userId, premium) {
@@ -277,7 +301,11 @@ function consumeUsage(_userId, premium) {
 function clampTokens(requested, premium) {
   const ceiling = premium ? PREMIUM_MAX_TOKENS : Math.min(FREE_MAX_TOKENS, ABSOLUTE_MAX_TOKENS);
   const requestedNum = Number(requested);
-  if (!Number.isFinite(requestedNum) || requestedNum <= 0) return Math.min(FREE_MAX_TOKENS, ceiling);
+  // No explicit request → give the tier's FULL ceiling. Almost every structured
+  // call site omits max_tokens; defaulting to 1500 silently truncated them mid-
+  // JSON. OpenAI bills actual completion tokens (not the ceiling), so this only
+  // stops cut-offs — it does not raise cost for naturally-short responses.
+  if (!Number.isFinite(requestedNum) || requestedNum <= 0) return ceiling;
   return Math.min(Math.floor(requestedNum), ceiling);
 }
 
@@ -429,6 +457,7 @@ router.get('/audit/summary', authenticateToken, requireAdmin, async (req, res, n
 router.post('/invoke', authenticateToken, async (req, res, next) => {
   let auditBase = null;
   let audited = false;
+  let usageConsumed = false;
   try {
     const parsed = invokeRequestSchema.safeParse(req.body || {});
     if (!parsed.success) {
@@ -462,6 +491,7 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
     const openai = await getOpenAI();
 
     const usage = await consumeUsageDb(req.userId, req.userPremium);
+    usageConsumed = true;
     if (!usage.allowed) {
       return res.status(429).json({ message: `Daily AI limit reached (${usage.limit}). Upgrade or try again tomorrow.` });
     }
@@ -571,6 +601,10 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
     audited = true;
     res.json(content);
   } catch (err) {
+    // The call we already counted failed (OpenAI 5xx/timeout/misconfig, not a
+    // 429 — that path returns, it doesn't throw). Refund the quota unit so a
+    // flaky upstream doesn't eat the user's daily allowance.
+    if (usageConsumed) await refundUsageDb(req.userId);
     if (auditBase && !audited) {
       await auditAiCall({
         ...auditBase,
@@ -590,6 +624,7 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
 router.post('/image', authenticateToken, async (req, res, next) => {
   let auditBase = null;
   let audited = false;
+  let usageConsumed = false;
   try {
     const { prompt, size } = req.body;
     if (!prompt) return res.status(400).json({ message: 'prompt is required' });
@@ -601,6 +636,7 @@ router.post('/image', authenticateToken, async (req, res, next) => {
     }
 
     const usage = await consumeUsageDb(req.userId, req.userPremium);
+    usageConsumed = true;
     if (!usage.allowed) {
       return res.status(429).json({ message: `Daily AI limit reached (${usage.limit}). Upgrade or try again tomorrow.` });
     }
@@ -630,6 +666,9 @@ router.post('/image', authenticateToken, async (req, res, next) => {
     // directly as an <img src>.
     res.json({ url: src, model });
   } catch (err) {
+    // Refund the counted unit on a genuine failure (model-missing/provider
+    // error) so a broken image backend doesn't drain the user's daily quota.
+    if (usageConsumed) await refundUsageDb(req.userId);
     if (auditBase && !audited) {
       await auditAiCall({
         ...auditBase,
@@ -754,6 +793,7 @@ export const __test = {
   clampTemperature,
   consumeUsage,
   consumeUsageDb,
+  refundUsageDb,
   resolveModel,
   invokeRequestSchema,
   hashText,

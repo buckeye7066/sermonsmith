@@ -30,6 +30,14 @@ export function buildApp() {
   const app = express();
   const allowedOrigins = env.corsAllowList();
 
+  // CRITICAL for rate limiting: behind Railway's TLS-terminating proxy, the
+  // socket peer is the proxy, so without this every client's `req.ip` collapses
+  // to the proxy address. express-rate-limit then keys ALL traffic into ONE
+  // bucket — so the per-IP login/reset/AI limits become a single global limit
+  // (one attacker, or normal traffic, locks everyone out) AND per-attacker
+  // brute-force throttling is defeated. Trust exactly one proxy hop.
+  app.set('trust proxy', 1);
+
   app.use((req, res, next) => {
     const incoming = req.get('x-request-id');
     const requestId = isSafeRequestId(incoming) ? incoming : crypto.randomUUID();
@@ -60,6 +68,10 @@ export function buildApp() {
     legacyHeaders: false,
     message: { message: 'Too many Bible lookup requests — please slow down.' },
   });
+  // /api/report-client-error is intentionally unauthenticated (a crash can
+  // happen before/around auth). Without a limit, anyone can drive owner emails
+  // + an OpenAI analysis per distinct message. Throttle per IP.
+  const clientErrorLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many error reports' } });
 
   app.use('/api/auth/login', authLimiter);
   app.use('/api/auth/register', registerLimiter);
@@ -69,6 +81,7 @@ export function buildApp() {
   app.use('/api/functions/biblePassage', publicFunctionLimiter);
   app.use('/api/functions/listAvailableTranslations', publicFunctionLimiter);
   app.use('/api/functions/getPassageMultiSource', publicFunctionLimiter);
+  app.use('/api/report-client-error', clientErrorLimiter);
 
   app.use(cors({ origin: allowedOrigins, credentials: true }));
   app.use(cookieParser(process.env.COOKIE_SECRET));

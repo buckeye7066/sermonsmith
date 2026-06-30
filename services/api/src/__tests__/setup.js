@@ -84,8 +84,10 @@ export function createPrismaMock() {
       }),
       update: vi.fn(async ({ where, data }) => {
         const arr = getStore(name);
-        const key = Object.keys(where)[0];
-        const idx = arr.findIndex((x) => x[key] === where[key]);
+        // Use the same matcher as findUnique/upsert so compound unique keys
+        // (e.g. where: { userId_bucket: { userId, bucket } }) resolve correctly,
+        // mirroring real Prisma instead of only matching the first simple field.
+        const idx = arr.findIndex((x) => matchesUniqueWhere(x, where));
         if (idx === -1) throw new Error(`${name}.update: not found`);
         const next = { ...arr[idx], updatedAt: new Date() };
         for (const [k, v] of Object.entries(data)) {
