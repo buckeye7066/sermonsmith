@@ -201,7 +201,8 @@ export default function FunctionReviewer() {
   
   const currentIndex = useMemo(() => {
     if (!selectedFunction) return -1;
-    return filteredFunctions.findIndex(f => f.functionId === selectedFunction.functionId);
+    const sel = selectedFunction.functionId || selectedFunction.id;
+    return filteredFunctions.findIndex(f => (f.functionId || f.id) === sel);
   }, [filteredFunctions, selectedFunction]);
   
   const loadFunctionDetails = async (func) => {
@@ -211,7 +212,10 @@ export default function FunctionReviewer() {
     
     try {
       const result = await api.functions.invoke('getFunctionDetails', {
-        functionId: func.functionId
+        // Discovery returns objects keyed by `id`; older shapes used
+        // `functionId`. Accept either so the detail view never sends undefined
+        // (which the backend rejects with "functionId is required").
+        functionId: func.functionId || func.id
       });
       
       if (result?.ok) {
@@ -494,10 +498,10 @@ export default function FunctionReviewer() {
                     <div>
                       <CardTitle className="flex items-center gap-2">
                         <FileCode className="w-5 h-5 text-blue-500" />
-                        {selectedFunction.functionId}
+                        {selectedFunction.functionId || selectedFunction.id || selectedFunction.name}
                       </CardTitle>
                       <CardDescription className="mt-1">
-                        {selectedFunction.filePath}
+                        {selectedFunction.filePath || selectedFunction.path}
                       </CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
@@ -569,11 +573,11 @@ export default function FunctionReviewer() {
                       </TabsList>
                       
                       <TabsContent value="code" className="space-y-4">
-                        {functionDetails?.sourceCode ? (
+                        {(functionDetails?.sourceCode || functionDetails?.code) ? (
                           <CodeBlock
-                            code={functionDetails.sourceCode}
-                            title={`${selectedFunction.functionId}.js`}
-                            filePath={selectedFunction.filePath}
+                            code={functionDetails.sourceCode || functionDetails.code}
+                            title={`${selectedFunction.functionId || selectedFunction.id}.js`}
+                            filePath={selectedFunction.filePath || selectedFunction.path}
                             defaultOpen={true}
                           />
                         ) : (
