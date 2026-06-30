@@ -1,9 +1,15 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Languages, Loader2, X } from "lucide-react";
+import { Languages, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
@@ -64,7 +70,7 @@ const languages = [
   { code: "km", name: "Khmer (Cambodian)" }
 ];
 
-export default function TranslationPanel({ verse, onClose }) {
+export default function TranslationPanel({ open, onClose, verse }) {
   const [targetLanguage, setTargetLanguage] = useState("es");
   const [translatedText, setTranslatedText] = useState("");
   const [isTranslating, setIsTranslating] = useState(false);
@@ -100,19 +106,22 @@ Provide only the translated verse text in ${targetLangName}:`;
     }
   };
 
+  if (!verse) return null;
+
   return (
-    <Card className="mt-4 border-2 border-purple-200 dark:border-purple-800">
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Languages className="w-5 h-5 text-purple-500" />
-          Verse Translation
-          <Badge variant="secondary" className="ml-2">Premium</Badge>
-        </CardTitle>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="w-4 h-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-lg flex items-center gap-2">
+            <Languages className="w-5 h-5 text-purple-500" />
+            Verse Translation
+            <Badge variant="secondary" className="ml-2">Premium</Badge>
+          </DialogTitle>
+          <DialogDescription>
+            Translate {verse.book_name} {verse.chapter}:{verse.verse} into another language.
+          </DialogDescription>
+        </DialogHeader>
+      <div className="space-y-4">
         <div className="p-3 bg-blue-50 dark:bg-blue-900 rounded-lg">
           <div className="text-xs text-blue-600 dark:text-blue-400 mb-1">
             {verse.book_name} {verse.chapter}:{verse.verse} (English)
@@ -166,7 +175,8 @@ Provide only the translated verse text in ${targetLangName}:`;
             </p>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+      </DialogContent>
+    </Dialog>
   );
 }

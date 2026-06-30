@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "sonner";
 
 const BIBLE_BOOKS = [
   "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth",
@@ -63,6 +64,7 @@ const normalizeBookName = (input) => {
 
 export default function SearchDialog({ open, onClose, onSelectVerse, currentTranslation }) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState("");
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
@@ -70,29 +72,38 @@ export default function SearchDialog({ open, onClose, onSelectVerse, currentTran
     }
   };
 
+  // NOTE: never use window.alert() here — a native alert blocks the renderer
+  // (and hangs automated/embedded browsers entirely). Surface validation via a
+  // toast + inline message instead.
   const handleSearch = () => {
     if (!searchQuery.trim()) return;
-    
+
     // Parse search query for verse reference (e.g., "John 3:16")
     const verseMatch = searchQuery.match(/(.+?)\s+(\d+):(\d+)/);
-    
-    if (verseMatch) {
-      const rawBook = verseMatch[1].trim();
-      const book = normalizeBookName(rawBook);
-      const chapter = parseInt(verseMatch[2]);
-      const verse = parseInt(verseMatch[3]);
-      
-      if (book) {
-        onSelectVerse(book, chapter, verse);
-        onClose();
-        setSearchQuery("");
-      } else {
-        // Invalid book name
-        alert(`Book "${rawBook}" not found. Please check spelling or try a different format.`);
-      }
-    } else {
-      alert("Invalid format. Please use: Book Chapter:Verse (e.g., John 3:16)");
+
+    if (!verseMatch) {
+      const msg = 'Enter a reference like "John 3:16" (Book Chapter:Verse).';
+      setError(msg);
+      toast.error(msg);
+      return;
     }
+
+    const rawBook = verseMatch[1].trim();
+    const book = normalizeBookName(rawBook);
+    const chapter = parseInt(verseMatch[2]);
+    const verse = parseInt(verseMatch[3]);
+
+    if (!book) {
+      const msg = `"${rawBook}" isn't a recognized book. Check the spelling (e.g., "John", "Genesis").`;
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    setError("");
+    onSelectVerse(book, chapter, verse);
+    onClose();
+    setSearchQuery("");
   };
 
   return (
@@ -101,7 +112,7 @@ export default function SearchDialog({ open, onClose, onSelectVerse, currentTran
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Search className="w-5 h-5 text-blue-500" />
-            Jump to Verse
+            Go to Verse
           </DialogTitle>
           <DialogDescription>
             Enter a verse reference (e.g., "John 3:16", "Genesis 1:1")
@@ -126,7 +137,7 @@ export default function SearchDialog({ open, onClose, onSelectVerse, currentTran
             <Input
               placeholder="Enter verse reference (e.g., John 3:16)..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); if (error) setError(""); }}
               onKeyPress={handleKeyPress}
               className="flex-1"
               autoFocus
@@ -139,6 +150,13 @@ export default function SearchDialog({ open, onClose, onSelectVerse, currentTran
               Go
             </Button>
           </div>
+
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
           <div className="text-sm text-gray-600 dark:text-gray-400">
             <p className="font-medium mb-2">Popular Verses:</p>
