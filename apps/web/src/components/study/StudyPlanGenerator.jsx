@@ -62,6 +62,45 @@ const PLAN_DURATIONS = [
   { value: 90, label: '3 Months' }
 ];
 
+// Generate the plan in batches of days rather than all at once. A full 60/90-day
+// plan is far more than one completion can hold (it truncated mid-JSON and the
+// whole plan failed). Batching both fixes that AND streams days into the UI as
+// they're produced, so even short plans feel faster. 10 days/batch fits well
+// within the token budget.
+const BATCH_DAYS = 10;
+
+const DAY_ITEM_SCHEMA = {
+  type: 'object',
+  properties: {
+    day: { type: 'number' },
+    title: { type: 'string' },
+    scripture_reading: { type: 'array', items: { type: 'string' } },
+    key_verse: { type: 'string' },
+    devotional_context: { type: 'string' },
+    activities: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { type: { type: 'string' }, description: { type: 'string' } },
+      },
+    },
+    discussion_questions: { type: 'array', items: { type: 'string' } },
+    prayer_points: { type: 'array', items: { type: 'string' } },
+  },
+};
+const FIRST_BATCH_SCHEMA = {
+  type: 'object',
+  properties: {
+    plan_title: { type: 'string' },
+    plan_overview: { type: 'string' },
+    daily_lessons: { type: 'array', items: DAY_ITEM_SCHEMA },
+  },
+};
+const CONTINUE_BATCH_SCHEMA = {
+  type: 'object',
+  properties: { daily_lessons: { type: 'array', items: DAY_ITEM_SCHEMA } },
+};
+
 export default function StudyPlanGenerator({ open, onClose, user }) {
   const [topic, setTopic] = useState("");
   const [ageGroup, setAgeGroup] = useState("adults");
@@ -70,6 +109,18 @@ export default function StudyPlanGenerator({ open, onClose, user }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedPlan, setGeneratedPlan] = useState(null);
   const [showShareDialog, setShowShareDialog] = useState(false);
+  // Progressive-generation progress: how many days have been produced so far.
+  const [genProgress, setGenProgress] = useState({ done: 0, total: 0 });
+
+  const activitiesGuide = (group) => (
+    group === 'children'
+      ? 'Craft/Art Project, Game/Movement, Memory Challenge, Story Time'
+      : group === 'youth'
+        ? 'Discussion Starter, Challenge, Social Media Prompt, Real Talk (doubts/hard questions)'
+        : group === 'seniors'
+          ? 'Reflection Exercise, Legacy Application, Prayer Focus, Testimony Prompt'
+          : 'Reflection Questions, Practical Application, Prayer Focus, Journal Prompt'
+  );
 
   const generatePlan = async () => {
     if (!topic.trim()) {
@@ -78,114 +129,75 @@ export default function StudyPlanGenerator({ open, onClose, user }) {
     }
 
     setIsGenerating(true);
+    setGeneratedPlan(null);
+    setGenProgress({ done: 0, total: duration });
 
-    try {
-      const ageGroupInfo = AGE_GROUPS.find(g => g.value === ageGroup);
-      
-      const prompt = `Larry, create an interactive ${duration}-day Bible study plan on "${topic}" for ${ageGroupInfo.label}.
-
-Age Group: ${ageGroupInfo.label}
+    const ageGroupInfo = AGE_GROUPS.find(g => g.value === ageGroup);
+    const baseContext = `Age Group: ${ageGroupInfo.label}
 Focus: ${ageGroupInfo.description}
-Duration: ${duration} days
+Topic: "${topic}"
 Custom Notes: ${customNotes || 'Standard approach'}
 Denomination: ${user?.denomination || 'Non-Denominational'}
 
-For EACH DAY create:
+For EACH DAY include: a progressive day TITLE; 1-3 SCRIPTURE READINGS (age-appropriate length); one KEY VERSE; a DEVOTIONAL CONTEXT (what's happening, why it matters, connection to "${topic}"); ACTIVITIES (${activitiesGuide(ageGroup)}); 2-3 DISCUSSION QUESTIONS; and PRAYER POINTS. Keep it engaging and age-appropriate.`;
 
-1. DAY TITLE: Engaging, progressive title showing journey
-2. SCRIPTURE READING: 1-3 passages (appropriate length for age)
-3. KEY VERSE: One memorable verse to focus on
-4. DEVOTIONAL CONTEXT: 
-   - What's happening in this passage? (age-appropriate explanation)
-   - Why does it matter?
-   - Connection to "${topic}" theme
+    // Build day-range batches so a 60/90-day plan never has to fit in one
+    // completion (it used to truncate and fail entirely).
+    const batches = [];
+    for (let start = 1; start <= duration; start += BATCH_DAYS) {
+      batches.push([start, Math.min(start + BATCH_DAYS - 1, duration)]);
+    }
 
-5. AGE-SPECIFIC ACTIVITIES:
-${ageGroup === 'children' ? `
-   - Craft/Art Project: Hands-on activity reinforcing the lesson
-   - Game/Movement: Active learning exercise
-   - Memory Challenge: Fun way to remember key verse
-   - Story Time: Simple retelling or modern parallel
-` : ageGroup === 'youth' ? `
-   - Discussion Starter: Provocative question for group
-   - Challenge: Practical action for the day
-   - Social Media Prompt: Shareable reflection
-   - Real Talk: Address doubts/hard questions
-` : ageGroup === 'seniors' ? `
-   - Reflection Exercise: Deep personal contemplation
-   - Legacy Application: How to pass this truth on
-   - Prayer Focus: Specific intercession
-   - Testimony Prompt: Share your experience with this truth
-` : `
-   - Reflection Questions: 3-4 deep questions
-   - Practical Application: Specific action steps
-   - Prayer Focus: How to pray about this
-   - Journal Prompt: Writing exercise
-`}
+    let planMeta = { plan_title: `${topic} — ${duration}-Day Study`, plan_overview: '' };
+    const allLessons = [];
+    let failures = 0;
 
-6. FAMILY/GROUP DISCUSSION QUESTIONS: 2-3 questions for sharing
+    try {
+      for (let i = 0; i < batches.length; i++) {
+        const [from, to] = batches[i];
+        const isFirst = i === 0;
+        const prompt = isFirst
+          ? `Larry, create days ${from}-${to} of an interactive ${duration}-day Bible study plan, plus a plan_title and a 2-3 sentence plan_overview.\n\n${baseContext}\n\nNumber the days ${from} through ${to}.`
+          : `Larry, continue the ${duration}-day study plan titled "${planMeta.plan_title}" on "${topic}". Produce ONLY days ${from} to ${to}, building progressively on the earlier days.\n\n${baseContext}\n\nNumber the days ${from} through ${to}.`;
 
-7. PRAYER POINTS: How to pray about today's lesson
-
-Make it engaging, age-appropriate, and progressively building toward deeper understanding of "${topic}".`;
-
-      const response = await api.integrations.Core.InvokeLLM({
-        system_prompt: LARRY_SYSTEM_PROMPT,
-        prompt,
-        response_json_schema: {
-          type: "object",
-          properties: {
-            plan_title: { type: "string" },
-            plan_overview: { type: "string" },
-            daily_lessons: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  day: { type: "number" },
-                  title: { type: "string" },
-                  scripture_reading: {
-                    type: "array",
-                    items: { type: "string" }
-                  },
-                  key_verse: { type: "string" },
-                  devotional_context: { type: "string" },
-                  activities: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        type: { type: "string" },
-                        description: { type: "string" }
-                      }
-                    }
-                  },
-                  discussion_questions: {
-                    type: "array",
-                    items: { type: "string" }
-                  },
-                  prayer_points: {
-                    type: "array",
-                    items: { type: "string" }
-                  }
-                }
-              }
-            }
+        try {
+          const resp = await api.integrations.Core.InvokeLLM({
+            system_prompt: LARRY_SYSTEM_PROMPT,
+            prompt,
+            response_json_schema: isFirst ? FIRST_BATCH_SCHEMA : CONTINUE_BATCH_SCHEMA,
+            max_tokens: 6000,
+          });
+          if (isFirst && resp.plan_title) {
+            planMeta = { plan_title: resp.plan_title, plan_overview: resp.plan_overview || '' };
           }
+          allLessons.push(...(resp.daily_lessons || []));
+        } catch (batchErr) {
+          console.error(`Plan batch ${from}-${to} failed:`, batchErr);
+          failures++;
         }
-      });
 
-      setGeneratedPlan({
-        ...response,
-        topic,
-        age_group: ageGroup,
-        duration
-      });
+        // Stream what we have into the UI as each batch lands.
+        setGeneratedPlan({
+          ...planMeta,
+          daily_lessons: [...allLessons],
+          topic,
+          age_group: ageGroup,
+          duration,
+        });
+        setGenProgress({ done: Math.min(to, duration), total: duration });
+      }
 
-      toast.success(`Created ${duration}-day study plan! 📚`);
+      if (allLessons.length === 0) {
+        setGeneratedPlan(null);
+        toast.error('Failed to generate study plan. Please try again.');
+      } else if (failures > 0) {
+        toast.warning(`Created ${allLessons.length} of ${duration} days — some sections didn't generate. You can retry or save what's here.`);
+      } else {
+        toast.success(`Created ${duration}-day study plan! 📚`);
+      }
     } catch (error) {
       console.error('Error generating plan:', error);
-      toast.error("Failed to generate study plan");
+      if (allLessons.length === 0) toast.error('Failed to generate study plan');
     } finally {
       setIsGenerating(false);
     }
@@ -356,6 +368,26 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
                 </CardContent>
               </Card>
 
+              {/* Live progress while the plan streams in batch-by-batch */}
+              {isGenerating && (
+                <Card className="bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200" data-print-hidden>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                      <span className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
+                        Building your plan… day {genProgress.done} of {genProgress.total}
+                      </span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-indigo-100 dark:bg-indigo-950 overflow-hidden">
+                      <div
+                        className="h-full bg-indigo-600 transition-all duration-500"
+                        style={{ width: `${genProgress.total ? Math.round((genProgress.done / genProgress.total) * 100) : 0}%` }}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Daily Lessons */}
               <div className="space-y-4">
                 {generatedPlan.daily_lessons.map((lesson, index) => (
@@ -371,7 +403,7 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
                       <div>
                         <h4 className="font-semibold text-sm mb-2">📖 Scripture Reading</h4>
                         <div className="flex flex-wrap gap-2">
-                          {lesson.scripture_reading.map((passage, pIndex) => (
+                          {(lesson.scripture_reading || []).map((passage, pIndex) => (
                             <Badge key={pIndex} variant="outline">{passage}</Badge>
                           ))}
                         </div>
@@ -397,7 +429,7 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
                       <div>
                         <h4 className="font-semibold text-sm mb-2">🎯 Activities</h4>
                         <div className="space-y-2">
-                          {lesson.activities.map((activity, aIndex) => (
+                          {(lesson.activities || []).map((activity, aIndex) => (
                             <div key={aIndex} className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded border-l-2 border-yellow-500">
                               <div className="font-semibold text-xs text-yellow-900 dark:text-yellow-100 mb-1">
                                 {activity.type}
@@ -414,7 +446,7 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
                       <div>
                         <h4 className="font-semibold text-sm mb-2">💬 Discussion Questions</h4>
                         <ul className="space-y-1">
-                          {lesson.discussion_questions.map((q, qIndex) => (
+                          {(lesson.discussion_questions || []).map((q, qIndex) => (
                             <li key={qIndex} className="text-sm text-gray-700 dark:text-gray-300">
                               {qIndex + 1}. {q}
                             </li>
@@ -426,7 +458,7 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
                       <div>
                         <h4 className="font-semibold text-sm mb-2">🙏 Prayer Focus</h4>
                         <ul className="space-y-1">
-                          {lesson.prayer_points.map((prayer, prIndex) => (
+                          {(lesson.prayer_points || []).map((prayer, prIndex) => (
                             <li key={prIndex} className="text-sm text-gray-700 dark:text-gray-300 flex items-start gap-2">
                               <span className="text-green-600">•</span>
                               {prayer}
@@ -439,18 +471,18 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
                 ))}
               </div>
 
-              {/* Actions */}
+              {/* Actions — disabled until the whole plan has finished streaming */}
               <div className="flex gap-3" data-print-hidden>
-                <Button onClick={handleSavePlan} className="flex-1" size="lg">
+                <Button onClick={handleSavePlan} className="flex-1" size="lg" disabled={isGenerating}>
                   <Save className="w-5 h-5 mr-2" />
                   Save to My Plans
                 </Button>
-                <Button 
-                  onClick={handleShare} 
-                  variant="outline" 
-                  className="flex-1" 
+                <Button
+                  onClick={handleShare}
+                  variant="outline"
+                  className="flex-1"
                   size="lg"
-                  disabled={!generatedPlan}
+                  disabled={isGenerating || !generatedPlan}
                 >
                   <Share2 className="w-5 h-5 mr-2" />
                   Share to Community
@@ -459,6 +491,7 @@ Make it engaging, age-appropriate, and progressively building toward deeper unde
                   variant="outline"
                   onClick={() => setGeneratedPlan(null)}
                   size="lg"
+                  disabled={isGenerating}
                 >
                   Create New Plan
                 </Button>
