@@ -34,6 +34,7 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { usePremiumAccess } from "@/components/hooks/usePremiumAccess";
+import { WORLDVIEW_COUNT } from "@/lib/appStats";
 
 const BELIEF_SYSTEMS = [
   // Major World Religions (6)
@@ -119,6 +120,13 @@ const BELIEF_SYSTEMS = [
   { id: 'agnosticism', name: 'Agnosticism', category: 'philosophy', icon: '❓', description: 'Skepticism about divine knowledge' },
   { id: 'deism', name: 'Deism', category: 'philosophy', icon: '⚙️', description: 'Clockmaker God, no intervention' }
 ];
+
+// Keep the shared marketing count (used by the homepage) in sync with the real
+// list — warn in dev if someone adds/removes a belief system without updating
+// src/lib/appStats.js.
+if (import.meta.env?.DEV && BELIEF_SYSTEMS.length !== WORLDVIEW_COUNT) {
+  console.warn(`[appStats] WORLDVIEW_COUNT (${WORLDVIEW_COUNT}) != BELIEF_SYSTEMS.length (${BELIEF_SYSTEMS.length}); update src/lib/appStats.js`);
+}
 
 const analysisSchema = {
   type: "object",

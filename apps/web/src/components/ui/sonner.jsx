@@ -11,12 +11,14 @@ const Toaster = ({
     (<Sonner
       theme={theme}
       className="toaster group"
-      // Auto-dismiss every toast after 5s (errors included — Sonner would
-      // otherwise keep some toasts up indefinitely) and give the user an
-      // explicit close affordance so a stack of them can always be cleared.
-      duration={5000}
+      // Auto-dismiss every toast after 4s (errors included) and give the user an
+      // explicit close affordance so a stack of them can always be cleared. We
+      // set the duration BOTH as the top-level prop and inside toastOptions so
+      // it holds regardless of how a given Sonner version resolves the default.
+      duration={4000}
       closeButton
       toastOptions={{
+        duration: 4000,
         classNames: {
           toast:
             "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",

@@ -360,8 +360,22 @@ export default function MySermons() {
               <FileText className="w-8 h-8 text-indigo-600" />
               My Sermons
             </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-2">
-              {filteredSermons.length} of {sermons.length} sermons
+            <p className="text-gray-600 dark:text-gray-400 mt-2 flex items-center gap-2">
+              <span>{filteredSermons.length} of {sermons.length} sermons</span>
+              {filteredSermons.length !== sermons.length && (
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="px-0 h-auto text-indigo-600"
+                  onClick={() => {
+                    setFilteredSermons(sermons);
+                    setSelectedCollection(null);
+                    setActiveView('all');
+                  }}
+                >
+                  Show all {sermons.length}
+                </Button>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
