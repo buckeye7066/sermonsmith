@@ -40,6 +40,7 @@ import { motion } from "framer-motion";
 import VerseOfTheDay from "@/components/reader/VerseOfTheDay";
 import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import { logActivity } from "../components/admin/UserActivityLogger";
+import { TRANSLATIONS_LABEL, LANGUAGES_LABEL, WORLDVIEWS_LABEL } from "@/lib/appStats";
 
 const testimonials = [
   { name: "Pastor Michael Harper", church: "Church of God of Prophecy", text: "SermonSmith reduced my prep time by 10 hours weekly while improving depth." },
@@ -148,7 +149,7 @@ export default function Home() {
     { icon: Lightbulb, text: "AI-powered illustrations and anecdotes" },
     { icon: BookOpen, text: "Scripture suggestions and cross-references" },
     { icon: Users, text: "Audience adaptation (youth, adults, seniors, children)" },
-    { icon: Languages, text: "Multi-language translation (50+ languages)" },
+    { icon: Languages, text: `Multi-language translation (${LANGUAGES_LABEL} languages)` },
     { icon: TrendingUp, text: "Theological trajectory planning" },
     { icon: Mic, text: "Real-time vocal feedback while teaching" },
     { icon: MessageSquare, text: "Counter-arguments and Q&A prep" },
@@ -159,7 +160,7 @@ export default function Home() {
   const stats = [
     { number: "Draft", label: "Sermon Generation", icon: Clock },
     { number: "Assist", label: "Prep Support", icon: Zap },
-    { number: "100+", label: "Bible Translations", icon: Globe },
+    { number: TRANSLATIONS_LABEL, label: "Bible Translations", icon: Globe },
     { number: "AI×2", label: "Smart Assistants", icon: Bot }
   ];
 
@@ -224,7 +225,7 @@ export default function Home() {
               Meet <strong className="text-blue-600">Larry</strong> and <strong className="text-purple-600">Arlynn</strong> - 
               your AI teaching assistants. Perfect for pastors, Sunday School teachers, VBS leaders, and Christian educators. 
               Generate review-ready lesson drafts, study Scripture through multiple interpretive lenses,
-              explore 50+ worldviews, and share with your community.
+              explore {WORLDVIEWS_LABEL} worldviews, and share with your community.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 flex-wrap">
@@ -469,7 +470,7 @@ export default function Home() {
                 <div className="flex-1">
                   <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-tl-none p-4 shadow-md">
                     <p className="text-gray-700 dark:text-gray-300">
-                      Exactly! And together, we help with the entire SermonSmith platform. The app also has a powerful Bible Reader with 100+ translations in multiple languages, instant scripture search, verse highlighting, and personal note-taking. Plus there's a Community feature where you can share your sermons and studies with other ministry leaders, discover what's working in churches around the world, and even adapt other people's content for your congregation.
+                      Exactly! And together, we help with the entire SermonSmith platform. The app also has a powerful Bible Reader with {TRANSLATIONS_LABEL} translations in multiple languages, instant scripture search, verse highlighting, and personal note-taking. Plus there's a Community feature where you can share your sermons and studies with other ministry leaders, discover what's working in churches around the world, and even adapt other people's content for your congregation.
                     </p>
                   </div>
                 </div>
@@ -988,7 +989,7 @@ export default function Home() {
             </div>
 
             <p className="text-indigo-100 mt-6">
-              No credit card required • Works on all devices • 100+ Bible translations
+              No credit card required • Works on all devices • {TRANSLATIONS_LABEL} Bible translations
             </p>
           </motion.div>
         </div>

@@ -157,6 +157,27 @@ button:focus-visible {
   }
 }
 
+/* --- Global responsive guard ------------------------------------------------
+   Recurring QA finding across pages (Admin Users, Sermon Library, …): content
+   overflowed horizontally on narrow viewports — native date inputs, wide
+   images, and long <pre> blocks have intrinsic widths that don't shrink, which
+   forced a page-level horizontal scrollbar and clipped controls. Constrain the
+   usual offenders app-wide so no single page can push past the viewport, rather
+   than patching each page one at a time. */
+[data-app-shell] input,
+[data-app-shell] select,
+[data-app-shell] textarea,
+[data-app-shell] img,
+[data-app-shell] video,
+[data-app-shell] pre {
+  max-width: 100%;
+}
+[data-app-shell] {
+  /* Never let descendant content scroll the whole shell sideways; genuinely
+     wide widgets opt into their own `overflow-x-auto` container. */
+  overflow-x: hidden;
+}
+
 @media print {
   @page {
     margin: 0.55in;
