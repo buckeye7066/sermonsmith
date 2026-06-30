@@ -31,13 +31,15 @@ export function createPrismaMock() {
         // { path: ['key'], equals: value } — JSON column lookups
         const target = v.path.reduce((acc, key) => (acc ? acc[key] : undefined), item.data);
         if (target !== v.equals) return false;
-      } else if (typeof v === 'object' && v !== null && ('gt' in v || 'lt' in v || 'gte' in v || 'lte' in v || 'equals' in v)) {
+      } else if (typeof v === 'object' && v !== null && ('gt' in v || 'lt' in v || 'gte' in v || 'lte' in v || 'equals' in v || 'not' in v)) {
         const cur = item[k];
         if ('gt' in v && !(cur > v.gt)) return false;
         if ('gte' in v && !(cur >= v.gte)) return false;
         if ('lt' in v && !(cur < v.lt)) return false;
         if ('lte' in v && !(cur <= v.lte)) return false;
         if ('equals' in v && cur !== v.equals) return false;
+        // Prisma's `{ not: x }` — including `{ not: null }` (i.e. IS NOT NULL).
+        if ('not' in v && (cur === v.not || (v.not === null && (cur === null || cur === undefined)))) return false;
       } else if (item[k] !== v) {
         return false;
       }

@@ -603,8 +603,54 @@ router.post('/grantMePremium', authenticateToken, requireAdmin, async (req, res,
 // If the user already has a longer free window we keep the later date so a grant
 // never shortens an existing trial.
 const FREE_PERIOD_DAYS = { week: 7, month: 30 };
+// Persisted state for the GLOBAL "free premium for all users" toggle, so the
+// admin switch reflects on/off across sessions. Stored as a singleton row in
+// the entity table (admin-only reads/writes via the routes below — never the
+// tenant-scoped entity API). Revoking only clears trial windows (premium_until);
+// it never touches a paid `premium` subscription.
+const GLOBAL_FREE_PREMIUM_ID = 'app-setting-global-free-premium';
+
+async function readGlobalFreePremium() {
+  const row = await prisma.entity.findUnique({ where: { id: GLOBAL_FREE_PREMIUM_ID } }).catch(() => null);
+  const data = row?.data || {};
+  const active = data.active === true && data.expires_at && new Date(data.expires_at) > new Date();
+  return { active: !!active, period: data.period || null, expires_at: data.expires_at || null, granted_at: data.granted_at || null };
+}
+
+async function writeGlobalFreePremium(data, adminUserId) {
+  await prisma.entity.upsert({
+    where: { id: GLOBAL_FREE_PREMIUM_ID },
+    create: { id: GLOBAL_FREE_PREMIUM_ID, type: 'AppSetting', userId: adminUserId, data: { key: 'global_free_premium', ...data } },
+    update: { data: { key: 'global_free_premium', ...data } },
+  }).catch(() => null);
+}
+
 router.post('/grantFreePeriod', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
+    const isAll = req.body?.scope === 'all';
+    const isRevoke = req.body?.revoke === true;
+
+    // ---- Revoke (turn the toggle OFF) ----------------------------------------
+    // Clears the comp window only; a paid `premium` subscription is untouched.
+    if (isRevoke) {
+      if (isAll) {
+        const result = await prisma.user.updateMany({
+          where: { deletedAt: null, premium_until: { not: null } },
+          data: { premium_until: null },
+        });
+        await writeGlobalFreePremium({ active: false, period: null, expires_at: null }, req.userId);
+        return res.json({ scope: 'all', revoked: result.count });
+      }
+      const where = req.body?.userId ? { id: String(req.body.userId) }
+        : req.body?.email ? { email: String(req.body.email).toLowerCase() } : null;
+      if (!where) return res.status(400).json({ message: 'Provide userId, email, or scope:"all"' });
+      const target = await prisma.user.findUnique({ where });
+      if (!target) return res.status(404).json({ message: 'User not found' });
+      const updated = await prisma.user.update({ where: { id: target.id }, data: { premium_until: null } });
+      return res.json({ userId: updated.id, email: updated.email, revoked: true });
+    }
+
+    // ---- Grant (turn the toggle ON) ------------------------------------------
     const period = req.body?.period;
     const days = FREE_PERIOD_DAYS[period];
     if (!days) {
@@ -612,13 +658,17 @@ router.post('/grantFreePeriod', authenticateToken, requireAdmin, async (req, res
     }
     const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
-    if (req.body?.scope === 'all') {
+    if (isAll) {
       // Don't shorten anyone's existing longer trial: only push out accounts
       // whose window is null or earlier than the new one.
       const result = await prisma.user.updateMany({
         where: { deletedAt: null, OR: [{ premium_until: null }, { premium_until: { lt: until } }] },
         data: { premium_until: until },
       });
+      await writeGlobalFreePremium(
+        { active: true, period, granted_at: new Date().toISOString(), expires_at: until.toISOString() },
+        req.userId,
+      );
       return res.json({ scope: 'all', period, granted: result.count, premium_until: until });
     }
 
@@ -639,6 +689,15 @@ router.post('/grantFreePeriod', authenticateToken, requireAdmin, async (req, res
       data: { premium_until: newUntil },
     });
     res.json({ userId: updated.id, email: updated.email, period, premium_until: updated.premium_until });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Current state of the global free-premium toggle (drives the admin switch).
+router.post('/getGlobalFreePremium', authenticateToken, requireAdmin, async (_req, res, next) => {
+  try {
+    res.json(await readGlobalFreePremium());
   } catch (err) {
     next(err);
   }

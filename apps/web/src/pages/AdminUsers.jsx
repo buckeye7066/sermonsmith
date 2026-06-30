@@ -5,17 +5,21 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { 
-  Users, 
-  Search, 
-  Crown, 
-  Mail, 
-  Calendar, 
-  Loader2, 
-  Trash2, 
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Users,
+  Search,
+  Crown,
+  Mail,
+  Calendar,
+  Loader2,
+  Trash2,
   Ban,
   Activity,
-  AlertTriangle
+  AlertTriangle,
+  Sparkles,
+  Globe
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -50,6 +54,10 @@ export default function AdminUsers() {
   const [banConfirm, setBanConfirm] = useState(null);
   const [selectedUserActivities, setSelectedUserActivities] = useState(null);
   const [userLastLogin, setUserLastLogin] = useState({});
+  // Global "free premium for all users" toggle.
+  const [globalFree, setGlobalFree] = useState({ active: false, period: null, expires_at: null });
+  const [globalPeriod, setGlobalPeriod] = useState('week'); // 'week' = 7 days, 'month' = 30
+  const [globalBusy, setGlobalBusy] = useState(false);
 
   useEffect(() => {
     if (isLoadingAuth) return;
@@ -62,7 +70,18 @@ export default function AdminUsers() {
       return;
     }
     loadUsers();
+    loadGlobalFree();
   }, [isLoadingAuth, user]);
+
+  const loadGlobalFree = async () => {
+    try {
+      const state = await api.functions.invoke('getGlobalFreePremium', {});
+      setGlobalFree(state || { active: false, period: null, expires_at: null });
+      if (state?.period) setGlobalPeriod(state.period);
+    } catch (error) {
+      console.error('Error loading global free-premium state:', error);
+    }
+  };
 
   const loadUsers = async () => {
     try {
@@ -141,12 +160,54 @@ export default function AdminUsers() {
     try {
       const res = await api.functions.invoke('grantFreePeriod', { userId, period });
       const until = res?.premium_until ? new Date(res.premium_until).toLocaleDateString() : '';
-      toast.success(`Granted a free ${period}${until ? ` (premium until ${until})` : ''}`);
+      toast.success(`Granted free premium for a ${period === 'week' ? '7-day' : '30-day'} period${until ? ` (until ${until})` : ''}`);
       loadUsers();
     } catch (error) {
       console.error('Error granting free period:', error);
       toast.error(`Failed to grant free ${period}`);
     }
+  };
+
+  // Per-user revoke: clears the comp window. A paid subscription is untouched.
+  const revokeFreePeriod = async (userId) => {
+    try {
+      await api.functions.invoke('grantFreePeriod', { userId, revoke: true });
+      toast.success('Free premium trial revoked');
+      loadUsers();
+    } catch (error) {
+      console.error('Error revoking free period:', error);
+      toast.error('Failed to revoke free premium');
+    }
+  };
+
+  // Master toggle: grant (or revoke) free premium for EVERY user at once.
+  const toggleGlobalFree = async (enabled) => {
+    setGlobalBusy(true);
+    try {
+      if (enabled) {
+        const res = await api.functions.invoke('grantFreePeriod', { scope: 'all', period: globalPeriod });
+        toast.success(`Free premium granted to all ${res?.granted ?? ''} users for ${globalPeriod === 'week' ? '7 days' : '30 days'}`);
+      } else {
+        const res = await api.functions.invoke('grantFreePeriod', { scope: 'all', revoke: true });
+        toast.success(`Free premium revoked for all users${typeof res?.revoked === 'number' ? ` (${res.revoked})` : ''}`);
+      }
+      await loadGlobalFree();
+      loadUsers();
+    } catch (error) {
+      console.error('Error toggling global free premium:', error);
+      toast.error('Failed to update global free premium');
+    } finally {
+      setGlobalBusy(false);
+    }
+  };
+
+  // A user is on a free trial when premium_until is in the future and they are
+  // not a paid subscriber. (Paid `premium` accounts are shown as paid, not trial.)
+  const trialActiveUntil = (u) => {
+    if (u?.premium) return null;
+    if (!u?.premium_until) return null;
+    const until = new Date(u.premium_until);
+    return until > new Date() ? until : null;
   };
 
   const viewUserActivity = async (userId, userEmail) => {
@@ -193,6 +254,48 @@ export default function AdminUsers() {
             {users.length} total users
           </p>
         </div>
+
+        {/* Global free-premium toggle — grant/revoke for EVERY user at once */}
+        <Card className="mb-6 border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20">
+          <CardContent className="pt-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <Globe className="w-6 h-6 text-amber-600 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-amber-900 dark:text-amber-100 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    Free Premium for All Users
+                  </h3>
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    {globalFree.active
+                      ? `Active — every user has free premium until ${globalFree.expires_at ? new Date(globalFree.expires_at).toLocaleDateString() : '—'}.`
+                      : 'Off — grant free premium to your entire user base with one switch.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <Select value={globalPeriod} onValueChange={setGlobalPeriod} disabled={globalFree.active || globalBusy}>
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="week">7 Days Free</SelectItem>
+                    <SelectItem value="month">30 Days Free</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2">
+                  {globalBusy && <Loader2 className="w-4 h-4 animate-spin text-amber-600" />}
+                  <Switch
+                    checked={globalFree.active}
+                    disabled={globalBusy}
+                    onCheckedChange={toggleGlobalFree}
+                    aria-label="Toggle free premium for all users"
+                  />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card className="mb-6">
           <CardHeader>
@@ -294,6 +397,12 @@ export default function AdminUsers() {
                               BANNED
                             </Badge>
                           )}
+                          {trialActiveUntil(u) && (
+                            <Badge className="mt-2 bg-amber-500 hover:bg-amber-600">
+                              <Sparkles className="w-3 h-3 mr-1" />
+                              Free until {trialActiveUntil(u).toLocaleDateString()}
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-2 sm:justify-end">
                           <Button
@@ -310,21 +419,32 @@ export default function AdminUsers() {
                             variant="outline"
                             onClick={() => grantFreePeriod(u.id, 'week')}
                             className="gap-1 text-yellow-600 hover:text-yellow-700"
-                            title="Grant 1 week of Premium free"
+                            title="Grant 7 days of Premium free"
                           >
                             <Crown className="w-3 h-3" />
-                            Free Week
+                            7 Days
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => grantFreePeriod(u.id, 'month')}
                             className="gap-1 text-yellow-600 hover:text-yellow-700"
-                            title="Grant 1 month of Premium free"
+                            title="Grant 30 days of Premium free"
                           >
                             <Crown className="w-3 h-3" />
-                            Free Month
+                            30 Days
                           </Button>
+                          {trialActiveUntil(u) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => revokeFreePeriod(u.id)}
+                              className="gap-1 text-gray-600 hover:text-gray-800"
+                              title="Revoke this user's free premium trial"
+                            >
+                              Revoke Free
+                            </Button>
+                          )}
                           {u.is_banned ? (
                             <Button
                               size="sm"
