@@ -38,39 +38,20 @@ Text: "${verse.text}"
 
 Provide:
 
-1. DIRECT CROSS-REFERENCES (5-8 verses):
-   - Verses that reference the same event/teaching
-   - Parallel passages in other Gospels
-   - Old Testament references quoted
-   - Related prophecies fulfilled
+1. DIRECT CROSS-REFERENCES (4-5 verses): same event/teaching, parallel passages, OT references quoted, prophecies fulfilled.
+2. THEMATIC CONNECTIONS (4-5 verses): same theological theme, similar application, complementary or contrasting teaching.
+3. CONTEXTUAL PASSAGES (2-3 verses): verses immediately before/after or key verses in the same chapter/book.
+4. PRACTICAL CONNECTIONS (2-3 verses): other verses applying this same truth, or character examples living it out.
 
-2. THEMATIC CONNECTIONS (5-8 verses):
-   - Same theological theme (grace, faith, love, etc.)
-   - Similar life application
-   - Complementary teaching
-   - Contrasting perspective for fuller understanding
-
-3. CONTEXTUAL PASSAGES (3-5 verses):
-   - Verses immediately before/after
-   - Same chapter key verses
-   - Same book related sections
-
-4. PRACTICAL CONNECTIONS (3-5 verses):
-   - How other verses apply this same truth
-   - Modern-day application parallels
-   - Character examples living this out
-
-For each reference provide:
-- Scripture reference
-- Brief text snippet
-- Why it connects (1 sentence)
-- Type of connection
-
-Make it useful for Bible study and sermon prep!`;
+For each reference provide: scripture reference, a SHORT text snippet (under 15 words), why it connects (one short sentence), and the type of connection. Be concise — this must fit in a single response. Make it useful for Bible study and sermon prep!`;
 
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        // This is a multi-section structured output; without an explicit budget
+        // it hit the 1500-token default and truncated ("response too long"),
+        // failing with an empty modal. Give it room to finish.
+        max_tokens: 4096,
         response_json_schema: {
           type: "object",
           properties: {

@@ -537,17 +537,34 @@ export default function Reader() {
   }, [currentBook, currentChapter]);
 
   const navigateChapter = (direction) => {
-    const currentBookInfo = BIBLE_BOOKS.find(b => b.name === currentBook);
-    if (!currentBookInfo) return;
+    const idx = BIBLE_BOOKS.findIndex(b => b.name === currentBook);
+    const info = BIBLE_BOOKS[idx];
+    if (!info) return;
 
-    if (direction === 'prev' && currentChapter > 1) {
-      const newChapter = currentChapter - 1;
-      setCurrentChapter(newChapter);
-      localStorage.setItem('lastReadChapter', newChapter.toString());
-    } else if (direction === 'next' && currentChapter < currentBookInfo.chapters) {
-      const newChapter = currentChapter + 1;
-      setCurrentChapter(newChapter);
-      localStorage.setItem('lastReadChapter', newChapter.toString());
+    const goTo = (book, chapter) => {
+      if (book !== currentBook) {
+        setCurrentBook(book);
+        localStorage.setItem('lastReadBook', book);
+      }
+      setCurrentChapter(chapter);
+      localStorage.setItem('lastReadChapter', String(chapter));
+    };
+
+    if (direction === 'prev') {
+      if (currentChapter > 1) {
+        goTo(currentBook, currentChapter - 1);
+      } else if (idx > 0) {
+        // Roll over to the previous book's last chapter instead of dead-ending.
+        const prev = BIBLE_BOOKS[idx - 1];
+        goTo(prev.name, prev.chapters);
+      }
+    } else if (direction === 'next') {
+      if (currentChapter < info.chapters) {
+        goTo(currentBook, currentChapter + 1);
+      } else if (idx < BIBLE_BOOKS.length - 1) {
+        // Roll over to the next book's first chapter.
+        goTo(BIBLE_BOOKS[idx + 1].name, 1);
+      }
     }
   };
 
@@ -1013,7 +1030,7 @@ export default function Reader() {
             variant="outline"
             size="icon"
             onClick={() => navigateChapter('prev')}
-            disabled={currentChapter <= 1 || isLoading}
+            disabled={(currentBookIndex <= 0 && currentChapter <= 1) || isLoading}
             aria-label="Previous chapter"
             title="Previous chapter"
           >
@@ -1026,7 +1043,7 @@ export default function Reader() {
             variant="outline"
             size="icon"
             onClick={() => navigateChapter('next')}
-            disabled={currentChapter >= currentBookInfo?.chapters || isLoading}
+            disabled={(currentBookIndex >= BIBLE_BOOKS.length - 1 && currentChapter >= (currentBookInfo?.chapters || 1)) || isLoading}
             aria-label="Next chapter"
             title="Next chapter"
           >
@@ -1254,15 +1271,14 @@ export default function Reader() {
           />
         )}
 
-        {showTranslationPanel && selectedVerse && (
-          <TranslationPanel
-            verse={selectedVerse}
-            onClose={() => {
-              setShowTranslationPanel(false);
-              setSelectedVerse(null);
-            }}
-          />
-        )}
+        <TranslationPanel
+          open={showTranslationPanel}
+          verse={selectedVerse}
+          onClose={() => {
+            setShowTranslationPanel(false);
+            setSelectedVerse(null);
+          }}
+        />
 
         <HighlightDrawer
           open={showHighlightDrawer}
