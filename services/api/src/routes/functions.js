@@ -152,6 +152,25 @@ async function userHasPremium(req) {
     || u.role === 'dev';
 }
 
+// Developer-tools gate. The Function Reviewer surface (source/metadata
+// exposure + "Sync All to GitHub") is powerful internal tooling. It is already
+// admin-gated, but defense-in-depth says it should not even be reachable in a
+// production deployment unless explicitly turned on. Enabled when
+// ENABLE_DEV_TOOLS=true, or in any non-production environment; off by default
+// in production. Set ENABLE_DEV_TOOLS=true on the host to use it in prod.
+function devToolsEnabled() {
+  if (process.env.ENABLE_DEV_TOOLS === 'true') return true;
+  if (process.env.ENABLE_DEV_TOOLS === 'false') return false;
+  return process.env.NODE_ENV !== 'production';
+}
+
+function requireDevTools(req, res, next) {
+  if (!devToolsEnabled()) {
+    return res.status(403).json({ message: 'Developer tools are disabled in this environment.' });
+  }
+  next();
+}
+
 function normalizePassageRef(ref) {
   return String(ref || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
@@ -722,7 +741,7 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
 // API diagnostics — replaces Base44-era "discoverFunctions" for the
 // FunctionReviewer admin page. Returns a map of all backend routes/endpoints.
 // ---------------------------------------------------------------------------
-router.post('/discoverFunctions', authenticateToken, requireAdmin, async (req, res) => {
+router.post('/discoverFunctions', authenticateToken, requireAdmin, requireDevTools, async (req, res) => {
   const functions = [
     { id: 'biblePassage', name: 'Bible Passage', description: 'Fetch a Bible passage from bible-api.com', category: 'bible', path: 'routes/functions.js' },
     { id: 'listAvailableTranslations', name: 'List Translations', description: 'Return available Bible translations', category: 'bible', path: 'routes/functions.js' },
@@ -789,7 +808,7 @@ router.post('/discoverFunctions', authenticateToken, requireAdmin, async (req, r
 // ---------------------------------------------------------------------------
 // Get function details — returns metadata for a specific function/route
 // ---------------------------------------------------------------------------
-router.post('/getFunctionDetails', authenticateToken, requireAdmin, async (req, res) => {
+router.post('/getFunctionDetails', authenticateToken, requireAdmin, requireDevTools, async (req, res) => {
   const { functionId } = req.body;
   if (!functionId) {
     return res.status(400).json({ message: 'functionId is required' });
@@ -883,7 +902,7 @@ router.post('/testAllFunctions', authenticateToken, requireAdmin, async (_req, r
     }
 
     // (2) Confirm the configured image model actually exists for this account.
-    const imageModel = process.env.OPENAI_IMAGE_MODEL || 'dall-e-3';
+    const imageModel = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
@@ -1089,7 +1108,7 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
 // GitHub sync stub — the FunctionReviewer page has a "sync to GitHub" button.
 // In a self-hosted app this is informational only.
 // ---------------------------------------------------------------------------
-router.post('/syncToGitHub', authenticateToken, requireAdmin, async (_req, res) => {
+router.post('/syncToGitHub', authenticateToken, requireAdmin, requireDevTools, async (_req, res) => {
   res.json({
     ok: true,
     message: 'SermonSmith is self-hosted — use git push to deploy changes.',
