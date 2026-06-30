@@ -101,6 +101,9 @@ export const AuthenticatedApp = () => {
             }
           />
         ))}
+        {/* The sidebar labels the reader "Bible Reader" (route is /Reader), so
+            users who guess /BibleReader from the label hit a 404. Redirect it. */}
+        <Route path="/BibleReader" element={<Navigate to="/Reader" replace />} />
         <Route path="*" element={<PageNotFound />} />
       </Routes>
     </Suspense>

@@ -66,6 +66,18 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(res.status).toBe(401);
   });
 
+  it('rejects anonymous /stream', async () => {
+    const res = await request(app).post('/api/ai/stream').send({ prompt: 'hi' });
+    expect(res.status).toBe(401);
+  });
+
+  it('/stream returns a pre-stream JSON error (503) when AI is disabled', async () => {
+    prisma._store.user.push({ id: 'u-s', role: 'user', premium: false });
+    process.env.DISABLE_AI = '1';
+    const res = await request(app).post('/api/ai/stream').send({ prompt: 'hi' }).set('Cookie', [`ss_token=${tokenFor('u-s')}`]);
+    expect(res.status).toBe(503);
+  });
+
   it('clamps maxTokens for non-premium users', () => {
     // Free ceiling raised 1500 → 4096 so a full sermon/study no longer
     // truncates mid-JSON for free users.

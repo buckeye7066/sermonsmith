@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { validateAiSermon } from '@/lib/scriptureRefs';
 import { asArray, mergeUniqueStrings, normalizeSermon } from '@/lib/aiStructured';
+import { parsePartialJson } from '@/lib/partialJson';
 import { getAiErrorMessage } from '@/lib/aiErrors';
 import { formatUserInputBlock } from '@/lib/aiPrompt';
 import { DENOMINATION_GROUPS, denominationPromptBlock, resolveDenominationProfile } from '@/lib/denominations';
@@ -21,6 +22,7 @@ import { Link as RouterLink } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import SermonEditor from "@/components/sermon/SermonEditor";
 import SeriesBuilder from "@/components/sermon/SeriesBuilder";
+import StreamingSermonPreview from "@/components/sermon/StreamingSermonPreview";
 
 const SERMON_TONES = [
   { value: "inspirational", label: "Inspirational" },
@@ -75,6 +77,8 @@ export default function SermonBuilder() {
   const [denomination, setDenomination] = useState("Non-Denominational");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedSermon, setGeneratedSermon] = useState(null);
+  // Live partial sermon rendered while the response streams in.
+  const [streamingSermon, setStreamingSermon] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const { user } = useAuth();
   const [suggestedPassages, setSuggestedPassages] = useState([]);
@@ -159,7 +163,8 @@ Return as JSON array of objects with "reference" and "reason" fields.`;
     }
 
     setIsGenerating(true);
-    console.log('[SermonBuilder] Generating sermon with topic:', topic, 'passage:', passage, 'denomination:', denomination);
+    setStreamingSermon(null);
+    setGeneratedSermon(null);
     try {
       const audienceContext = {
         general: "general congregation with mixed ages and backgrounds",
@@ -201,22 +206,34 @@ Create a sermon that includes:
 
 Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblically accurate, engaging, and practical.`;
 
-      console.log('[SermonBuilder] Calling InvokeLLM...');
-      const response = await api.integrations.Core.InvokeLLM({
-        system_prompt: LARRY_SYSTEM_PROMPT,
-        prompt,
-        response_json_schema: sermonGenerationSchema
-      });
+      const fallbackCtx = { topic, anchor_passage: passage, tone, audience, denomination };
 
-      console.log('[SermonBuilder] Got response:', response);
-      const sermon = normalizeSermon(response, {
-        topic,
-        anchor_passage: passage,
-        tone,
-        audience,
-        denomination,
-      });
+      // Stream the sermon so the user watches it appear instead of waiting on a
+      // blank spinner. Falls back to the non-streaming call if streaming isn't
+      // available (older API, proxy that buffers, network quirk).
+      let rawResponse;
+      try {
+        const fullText = await api.integrations.Core.StreamLLM(
+          { system_prompt: LARRY_SYSTEM_PROMPT, prompt, response_json_schema: sermonGenerationSchema, feature: 'sermon' },
+          (accumulated) => {
+            const partial = parsePartialJson(accumulated);
+            if (partial && typeof partial === 'object') {
+              setStreamingSermon(normalizeSermon(partial, fallbackCtx));
+            }
+          },
+        );
+        rawResponse = parsePartialJson(fullText) || {};
+      } catch (streamErr) {
+        console.warn('[SermonBuilder] streaming unavailable, falling back to invoke:', streamErr?.message);
+        rawResponse = await api.integrations.Core.InvokeLLM({
+          system_prompt: LARRY_SYSTEM_PROMPT,
+          prompt,
+          response_json_schema: sermonGenerationSchema,
+        });
+      }
 
+      const sermon = normalizeSermon(rawResponse, fallbackCtx);
+      setStreamingSermon(null);
       setGeneratedSermon(sermon);
 
       logActivity('ai_feature_used', {
@@ -238,7 +255,7 @@ Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblica
       toast.success("Larry created your sermon! 🎉");
     } catch (error) {
       console.error('[SermonBuilder] Error generating sermon:', error);
-      console.error('[SermonBuilder] Error details:', error.message, error.stack);
+      setStreamingSermon(null);
       toast.error(getAiErrorMessage(error, 'generate the sermon'));
     } finally {
       setIsGenerating(false);
@@ -594,7 +611,9 @@ Return the full adapted sermon in the same JSON format.`;
           </CardContent>
         </Card>
 
-        {!generatedSermon ? (
+        {streamingSermon ? (
+          <StreamingSermonPreview sermon={streamingSermon} />
+        ) : !generatedSermon ? (
           <Card>
             <CardHeader>
               <CardTitle>Build Your Sermon</CardTitle>
@@ -735,9 +754,12 @@ Return the full adapted sermon in the same JSON format.`;
                 </AlertDescription>
               </Alert>
 
+              {/* Kept clickable when fields are empty so the click surfaces a
+                  clear "provide a topic and passage" toast — a disabled button
+                  that silently does nothing reads as a broken app. */}
               <Button
                 onClick={generateSermon}
-                disabled={isGenerating || !topic.trim() || !passage.trim()}
+                disabled={isGenerating}
                 className="w-full"
                 size="lg"
               >

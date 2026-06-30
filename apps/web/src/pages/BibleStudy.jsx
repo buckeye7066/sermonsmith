@@ -16,6 +16,9 @@ import { createPageUrl } from "@/utils";
 import StudyGuideViewer from "@/components/study/StudyGuideViewer";
 import StudyPlanGenerator from "@/components/study/StudyPlanGenerator";
 import MultiPerspectiveStudy from "@/components/study/MultiPerspectiveStudy";
+import StreamingStudyPreview from "@/components/study/StreamingStudyPreview";
+import { parsePartialJson } from '@/lib/partialJson';
+import { coerceToSchema } from '@/lib/aiStructured';
 
 const STUDY_TYPES = [
   { value: "personal", label: "Personal Study" },
@@ -59,6 +62,7 @@ export default function BibleStudy() {
   const [studyType, setStudyType] = useState("personal");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedStudy, setGeneratedStudy] = useState(null);
+  const [streamingStudy, setStreamingStudy] = useState(null);
   const { user } = useAuth();
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [enhancementType, setEnhancementType] = useState(null);
@@ -88,9 +92,11 @@ export default function BibleStudy() {
     }
 
     setIsGenerating(true);
+    setStreamingStudy(null);
+    setGeneratedStudy(null);
     try {
       const denomination = user?.denomination || "Non-Denominational";
-      
+
       // Personalize with user topics
       const userTopics = user?.content_preferences?.favoriteTopics || [];
       const topicContext = userTopics.length > 0 
@@ -117,14 +123,32 @@ Generate a Bible study guide that includes:
 
 Make it engaging, biblically sound, and appropriate for ${studyType} study. Use clear, accessible language.`;
 
-      const response = await api.integrations.Core.InvokeLLM({
-        system_prompt: LARRY_SYSTEM_PROMPT,
-        prompt,
-        response_json_schema: studyGenerationSchema
-      });
+      // Stream so the study appears section-by-section instead of after a long
+      // blank wait; fall back to the non-streaming call if streaming fails.
+      let response;
+      try {
+        const fullText = await api.integrations.Core.StreamLLM(
+          { system_prompt: LARRY_SYSTEM_PROMPT, prompt, response_json_schema: studyGenerationSchema, feature: 'bible_study' },
+          (accumulated) => {
+            const partial = parsePartialJson(accumulated);
+            if (partial && typeof partial === 'object') {
+              setStreamingStudy(coerceToSchema(partial, studyGenerationSchema));
+            }
+          },
+        );
+        response = coerceToSchema(parsePartialJson(fullText) || {}, studyGenerationSchema);
+      } catch (streamErr) {
+        console.warn('[BibleStudy] streaming unavailable, falling back to invoke:', streamErr?.message);
+        response = await api.integrations.Core.InvokeLLM({
+          system_prompt: LARRY_SYSTEM_PROMPT,
+          prompt,
+          response_json_schema: studyGenerationSchema,
+        });
+      }
 
+      setStreamingStudy(null);
       setGeneratedStudy(response);
-      
+
       logActivity('ai_feature_used', {
         page_name: 'BibleStudy',
         resource_type: 'study',
@@ -143,6 +167,7 @@ Make it engaging, biblically sound, and appropriate for ${studyType} study. Use 
       toast.success("Larry has created your Bible study! 🎉");
     } catch (error) {
       console.error("Error generating study:", error);
+      setStreamingStudy(null);
       toast.error("Failed to generate study. Please try again.");
     } finally {
       setIsGenerating(false);
@@ -427,7 +452,9 @@ Return as JSON array of strings.`;
           </CardContent>
         </Card>
 
-        {!generatedStudy ? (
+        {streamingStudy ? (
+          <StreamingStudyPreview study={streamingStudy} />
+        ) : !generatedStudy ? (
           <Card>
             <CardHeader>
               <CardTitle>Create Your Bible Study</CardTitle>
