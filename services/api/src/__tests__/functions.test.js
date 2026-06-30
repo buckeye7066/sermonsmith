@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
@@ -38,6 +39,7 @@ const { default: functionRoutes } = await import('../routes/functions.js');
 function buildApp() {
   const app = express();
   app.use(express.json());
+  app.use(cookieParser());
   app.use('/api/functions', functionRoutes);
   app.use((err, _req, res, _next) => res.status(err.status || 500).json({ message: err.message }));
   return app;
@@ -188,5 +190,43 @@ describe('function routes - premium translations', () => {
       .post('/api/functions/biblePassage')
       .send({ book: 'John', chapter: 3, translationId: 'gb:akjv' });
     expect(res.status).toBe(402);
+  });
+});
+
+describe('function routes - developer tools gating', () => {
+  let app;
+
+  beforeEach(() => {
+    prisma._reset();
+    app = buildApp();
+    prisma._store.user.push({ id: 'u-admin', email: 'admin@x', role: 'admin', premium: true });
+  });
+
+  afterEach(() => {
+    delete process.env.ENABLE_DEV_TOOLS;
+  });
+
+  const adminCookie = () => [`ss_token=${jwt.sign({ userId: 'u-admin' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' })}`];
+
+  it('blocks the source-exposure tools in production without ENABLE_DEV_TOOLS', async () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    delete process.env.ENABLE_DEV_TOOLS;
+    const res = await request(app)
+      .post('/api/functions/discoverFunctions')
+      .set('Cookie', adminCookie())
+      .send({});
+    process.env.NODE_ENV = prev;
+    expect(res.status).toBe(403);
+  });
+
+  it('allows the tools when ENABLE_DEV_TOOLS=true', async () => {
+    process.env.ENABLE_DEV_TOOLS = 'true';
+    const res = await request(app)
+      .post('/api/functions/discoverFunctions')
+      .set('Cookie', adminCookie())
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
   });
 });

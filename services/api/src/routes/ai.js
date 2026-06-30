@@ -36,10 +36,75 @@ const PREMIUM_MAX_TOKENS = 8192;
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 90_000);
 
 // Image-generation model. Hardcoding 'dall-e-3' broke image generation on
-// accounts without dall-e-3 access ("the model 'dall-e-3' does not exist").
-// Make it configurable so the deployment can point at whatever image model its
-// OpenAI account actually has (e.g. 'dall-e-2', 'gpt-image-1').
-const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'dall-e-3';
+// accounts that don't have DALL-E at all (many newer projects only have the
+// `gpt-image-*` family — "the model 'dall-e-3' does not exist"). We default to
+// the broadly-available gpt-image-1, allow an explicit override, and
+// auto-resolve across the account's real models if the preferred one is
+// missing (see generateImage()).
+const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
+// Preference order tried when the configured model isn't available. gpt-image
+// first (current generation), DALL-E as legacy fallback.
+const IMAGE_MODEL_FALLBACKS = ['gpt-image-1', 'gpt-image-1-mini', 'dall-e-3', 'dall-e-2'];
+// Cache of the last model that actually worked, so we don't re-probe dead
+// models on every request.
+let _resolvedImageModel = null;
+
+export function isModelMissingError(err) {
+  const msg = String(err?.message || err?.error?.message || '');
+  return err?.status === 404 || err?.code === 'model_not_found' || /does not exist|model_not_found|unknown model|invalid model/i.test(msg);
+}
+
+// OpenAI image responses differ by model: DALL-E returns a hosted `url`,
+// gpt-image returns base64 `b64_json`. Normalize to something an <img src> can
+// render either way.
+export function imageSrcFromResponse(response) {
+  const item = response?.data?.[0] || {};
+  if (item.url) return item.url;
+  if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
+  return null;
+}
+
+// Generate an image, resolving the model robustly: try the preferred model,
+// and if it's not available to this account, discover the account's models and
+// fall through the preference list. Returns { src, model }.
+async function generateImage(openai, { prompt, size }) {
+  const preferred = process.env.OPENAI_IMAGE_MODEL || _resolvedImageModel || OPENAI_IMAGE_MODEL;
+  const tried = new Set();
+
+  const attempt = async (model) => {
+    tried.add(model);
+    const response = await withTimeout(
+      openai.images.generate({ model, prompt, n: 1, size: size || '1024x1024' }),
+      AI_TIMEOUT_MS,
+      '/ai/image',
+    );
+    _resolvedImageModel = model;
+    return { src: imageSrcFromResponse(response), model };
+  };
+
+  try {
+    return await attempt(preferred);
+  } catch (err) {
+    if (!isModelMissingError(err)) throw err;
+    // Preferred model unavailable — discover what this account actually has.
+    let available = null;
+    try {
+      const list = await openai.models.list();
+      available = new Set((list.data || []).map((m) => m.id));
+    } catch {
+      available = null; // couldn't list; fall through blindly
+    }
+    const candidates = IMAGE_MODEL_FALLBACKS.filter((m) => !tried.has(m) && (!available || available.has(m)));
+    for (const model of candidates) {
+      try {
+        return await attempt(model);
+      } catch (e) {
+        if (!isModelMissingError(e)) throw e;
+      }
+    }
+    throw err; // nothing usable
+  }
+}
 
 // Hard request-size caps so a malicious or buggy client can't ship a
 // novel-length prompt and rack up token cost (or melt the worker
@@ -538,25 +603,27 @@ router.post('/image', authenticateToken, async (req, res, next) => {
     auditBase = {
       userId: req.userId,
       feature: 'image',
-      model: OPENAI_IMAGE_MODEL,
+      model: process.env.OPENAI_IMAGE_MODEL || _resolvedImageModel || OPENAI_IMAGE_MODEL,
       prompt,
       startTime: Date.now(),
     };
     const openai = await getOpenAI();
-    const response = await withTimeout(
-      openai.images.generate({ model: OPENAI_IMAGE_MODEL, prompt, n: 1, size: size || '1024x1024' }),
-      AI_TIMEOUT_MS,
-      '/ai/image',
-    );
+    const { src, model } = await generateImage(openai, { prompt, size });
+    if (!src) {
+      throw Object.assign(new Error('Image provider returned no image data'), { status: 502 });
+    }
 
     await auditAiCall({
       ...auditBase,
-      response: response.data?.[0]?.url || 'image-generated',
+      model,
+      response: 'image-generated',
       status: 'success',
       tokenEstimate: estimateTokenCount(prompt),
     });
     audited = true;
-    res.json({ url: response.data[0].url });
+    // `url` may be a hosted URL (DALL-E) or a data: URL (gpt-image) — both work
+    // directly as an <img src>.
+    res.json({ url: src, model });
   } catch (err) {
     if (auditBase && !audited) {
       await auditAiCall({
@@ -565,13 +632,11 @@ router.post('/image', authenticateToken, async (req, res, next) => {
         failureType: classifyAiFailure(err),
       });
     }
-    // Turn the opaque "model does not exist" OpenAI error into an actionable
-    // message instead of a generic 500 — the configured image model isn't
-    // available to this account; set OPENAI_IMAGE_MODEL to one that is.
-    const msg = String(err?.message || '');
-    if (err?.status === 404 || /does not exist|model_not_found/i.test(msg)) {
+    // If we exhausted every candidate model, give an actionable message rather
+    // than a generic 500.
+    if (isModelMissingError(err)) {
       return res.status(502).json({
-        message: `Image generation is unavailable: the model '${OPENAI_IMAGE_MODEL}' is not available to this OpenAI account. An admin can set OPENAI_IMAGE_MODEL to a supported model.`,
+        message: 'Image generation is unavailable: no supported image model is enabled for this OpenAI account. An admin can set OPENAI_IMAGE_MODEL to a model the account has access to.',
       });
     }
     next(err);
@@ -690,6 +755,8 @@ export const __test = {
   estimateTokenCount,
   buildJsonSchemaInstruction,
   EMAIL_TEMPLATES,
+  isModelMissingError,
+  imageSrcFromResponse,
 };
 
 export default router;

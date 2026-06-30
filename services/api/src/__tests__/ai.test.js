@@ -84,6 +84,20 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(extractJson('').ok).toBe(false);
   });
 
+  it('isModelMissingError detects missing-model failures', () => {
+    expect(aiInternals.isModelMissingError({ status: 404 })).toBe(true);
+    expect(aiInternals.isModelMissingError({ message: "The model 'dall-e-3' does not exist" })).toBe(true);
+    expect(aiInternals.isModelMissingError({ code: 'model_not_found' })).toBe(true);
+    expect(aiInternals.isModelMissingError({ status: 500, message: 'overloaded' })).toBe(false);
+  });
+
+  it('imageSrcFromResponse normalizes url and base64 image responses', () => {
+    expect(aiInternals.imageSrcFromResponse({ data: [{ url: 'https://x/y.png' }] })).toBe('https://x/y.png');
+    expect(aiInternals.imageSrcFromResponse({ data: [{ b64_json: 'AAAA' }] })).toBe('data:image/png;base64,AAAA');
+    expect(aiInternals.imageSrcFromResponse({ data: [{}] })).toBeNull();
+    expect(aiInternals.imageSrcFromResponse({})).toBeNull();
+  });
+
   it('clamps temperature to [0, 2]', () => {
     expect(aiInternals.clampTemperature(99)).toBe(2);
     expect(aiInternals.clampTemperature(-1)).toBe(0);
