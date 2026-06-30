@@ -12,8 +12,10 @@ import entityRoutes from './routes/entities.js';
 import aiRoutes from './routes/ai.js';
 import functionRoutes from './routes/functions.js';
 import communityRoutes from './routes/community.js';
+import clientErrorRoutes from './routes/clientErrors.js';
 import { handleStripeWebhook } from './routes/functions.js';
 import { prisma } from './middleware/auth.js';
+import { reportErrorToOwner } from './services/errorReporter.js';
 
 // Validate the runtime environment FIRST so a misconfigured production
 // process exits cleanly with a descriptive error instead of failing inside
@@ -128,6 +130,7 @@ export function buildApp() {
   app.use('/api/ai', aiRoutes);
   app.use('/api/functions', functionRoutes);
   app.use('/api/community', communityRoutes);
+  app.use('/api', clientErrorRoutes);
 
   app.use((req, res) => {
     res.status(404).json({ message: 'Not found', requestId: req.id });
@@ -137,6 +140,19 @@ export function buildApp() {
     // Log without payload — err.message only.
     console.error(`[${new Date().toISOString()}] Error ${req.id || 'unknown-request'}:`, err.message);
     const status = err.status || err.statusCode || 500;
+    // Notify the owner of genuine server faults (5xx) hit by non-admin users.
+    // Fire-and-forget — never awaited, never throws into the response path.
+    if (status >= 500) {
+      reportErrorToOwner({
+        error: err,
+        source: 'backend',
+        userEmail: req.userEmail,
+        route: req.originalUrl || req.path,
+        method: req.method,
+        requestId: req.id,
+        statusCode: status,
+      });
+    }
     res.status(status).json({
       message: status === 500 ? 'Internal server error' : err.message,
       requestId: req.id,

@@ -122,7 +122,7 @@ function shouldRetry(path, options) {
   return method === 'GET' || method === 'HEAD';
 }
 
-async function apiFetch(path, options = {}, _retryCount = 0) {
+export async function apiFetch(path, options = {}, _retryCount = 0) {
   const { retry, timeoutMs, ...fetchOptions } = options;
 
   const headers = {
