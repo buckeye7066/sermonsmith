@@ -99,4 +99,42 @@ describe('grantFreePeriod (free week / free month)', () => {
     expect(res.status).toBe(200);
     expect(new Date(res.body.premium_until).getTime()).toBe(farFuture.getTime());
   });
+
+  it('revokes a single user\'s trial without touching a paid subscription', async () => {
+    prisma._store.user.find((u) => u.id === 'u1').premium_until = new Date(Date.now() + 5 * DAY);
+    prisma._store.user.find((u) => u.id === 'u1').premium = true; // paid
+    const res = await grant(app, { userId: 'u1', revoke: true });
+    expect(res.status).toBe(200);
+    expect(res.body.revoked).toBe(true);
+    const u1 = prisma._store.user.find((u) => u.id === 'u1');
+    expect(u1.premium_until).toBeNull();
+    expect(u1.premium).toBe(true); // paid flag untouched
+  });
+
+  it('global toggle: grant scope:all sets state, revoke scope:all clears it', async () => {
+    const getState = () => request(app).post('/api/functions/getGlobalFreePremium').set('x-role', 'admin').send({});
+
+    // Off by default.
+    expect((await getState()).body.active).toBe(false);
+
+    // Turn ON for all (7 days).
+    const on = await grant(app, { scope: 'all', period: 'week' });
+    expect(on.status).toBe(200);
+    expect(on.body.granted).toBe(2);
+    const stateOn = await getState();
+    expect(stateOn.body.active).toBe(true);
+    expect(stateOn.body.period).toBe('week');
+
+    // Turn OFF for all → every trial cleared, state inactive.
+    const off = await grant(app, { scope: 'all', revoke: true });
+    expect(off.status).toBe(200);
+    expect(off.body.revoked).toBe(2);
+    for (const u of prisma._store.user) expect(u.premium_until).toBeNull();
+    expect((await getState()).body.active).toBe(false);
+  });
+
+  it('getGlobalFreePremium is admin-only', async () => {
+    const res = await request(app).post('/api/functions/getGlobalFreePremium').set('x-role', 'user').send({});
+    expect(res.status).toBe(403);
+  });
 });

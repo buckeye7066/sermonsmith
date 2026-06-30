@@ -299,7 +299,7 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
       const users = await prisma.user.findMany({
         select: {
           id: true, email: true, name: true, full_name: true, avatar: true,
-          role: true, premium: true, profile: true, onboarding_completed: true,
+          role: true, premium: true, premium_until: true, profile: true, onboarding_completed: true,
           special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
           is_banned: true, banned_at: true,
         },
@@ -430,7 +430,7 @@ router.get('/:type', authenticateToken, async (req, res, next) => {
       const users = await prisma.user.findMany({
         select: {
           id: true, email: true, name: true, full_name: true, avatar: true,
-          role: true, premium: true, profile: true, onboarding_completed: true,
+          role: true, premium: true, premium_until: true, profile: true, onboarding_completed: true,
           special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
           is_banned: true, banned_at: true,
         },
