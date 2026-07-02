@@ -156,7 +156,7 @@ export default function QuizBuilder() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button onClick={handleGenerateQuiz} disabled={isLoading || !topic.trim()} className="w-full bg-purple-600 hover:bg-purple-700">
+                <Button onClick={handleGenerateQuiz} disabled={isLoading} className="w-full bg-purple-600 hover:bg-purple-700">
                   {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Brain className="w-4 h-4 mr-2" />}
                   Generate Quiz
                 </Button>

@@ -638,7 +638,7 @@ Return the full adapted sermon in the same JSON format.`;
                     variant="ghost"
                     size="sm"
                     onClick={findPassages}
-                    disabled={isLoadingPassages || !topic.trim()}
+                    disabled={isLoadingPassages}
                   >
                     {isLoadingPassages ? (
                       <>

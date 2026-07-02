@@ -46,6 +46,11 @@ export default function Forum() {
       setPosts(allPosts);
     } catch (error) {
       console.error('Error loading posts:', error);
+      toast.error("Couldn't load forum posts. Please try again.");
+    } finally {
+      // Without this the initial spinner never clears — the forum looked
+      // like an infinite load even after posts arrived.
+      setIsLoading(false);
     }
   };
 

@@ -95,7 +95,10 @@ Provide only the translated verse text in ${targetLangName}:`;
       });
       
       const text = typeof result === 'string' ? result : (result?.response || result?.text || JSON.stringify(result));
-      setTranslatedText(text);
+      // The model often wraps its answer in quotes; the UI adds its own pair,
+      // so strip any leading/trailing quote characters to avoid ""double"" quoting.
+      const unquoted = text.trim().replace(/^["'«„“”]+/, '').replace(/["'»“”]+$/, '');
+      setTranslatedText(unquoted);
       toast.success("Translation complete!");
       
     } catch (error) {

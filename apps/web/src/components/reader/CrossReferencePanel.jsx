@@ -43,7 +43,7 @@ Provide:
 3. CONTEXTUAL PASSAGES (2-3 verses): verses immediately before/after or key verses in the same chapter/book.
 4. PRACTICAL CONNECTIONS (2-3 verses): other verses applying this same truth, or character examples living it out.
 
-For each reference provide: scripture reference, a SHORT text snippet (under 15 words), why it connects (one short sentence), and the type of connection. Be concise — this must fit in a single response. Make it useful for Bible study and sermon prep!`;
+For each reference provide: scripture reference, text_snippet (the ACTUAL opening words of that verse, under 15 words — never leave it empty), why it connects (one short sentence), and the type of connection. Be concise — this must fit in a single response. Make it useful for Bible study and sermon prep!`;
 
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
@@ -132,6 +132,9 @@ For each reference provide: scripture reference, a SHORT text snippet (under 15 
     if (parsed && onNavigate) {
       onNavigate(parsed.book, parsed.chapter, parsed.verse);
       onClose();
+      // The reader jumps to a different book/chapter here — say so, or the
+      // sudden context switch reads as a glitch.
+      toast.success(`Opened ${reference}`);
     }
   };
 
@@ -140,10 +143,14 @@ For each reference provide: scripture reference, a SHORT text snippet (under 15 
     generateCrossReferences();
   };
 
-  const ReferenceCard = ({ reference, textSnippet, connection, type, theme }) => (
+  // Spread from the LLM response, whose schema field is snake_case
+  // `text_snippet` — destructuring it as camelCase left the snippet
+  // permanently undefined (rendered as an empty "" quote pair).
+  const ReferenceCard = ({ reference, text_snippet: textSnippet, connection, type, theme }) => (
     <div
       className="p-3 bg-white dark:bg-gray-800 rounded-lg border hover:border-indigo-500 transition-colors cursor-pointer"
       onClick={() => handleNavigate(reference)}
+      title={`Open ${reference} in the reader`}
     >
       <div className="flex items-start justify-between mb-2">
         <Badge variant="outline" className="font-mono text-xs">
@@ -155,9 +162,13 @@ For each reference provide: scripture reference, a SHORT text snippet (under 15 
           </Badge>
         )}
       </div>
-      <p className="text-sm italic text-gray-600 dark:text-gray-400 mb-2">
-        "{textSnippet}"
-      </p>
+      {/* The model occasionally returns an empty snippet; rendering "" as a
+          bare pair of quotes looks broken, so skip the line entirely. */}
+      {textSnippet?.trim() && (
+        <p className="text-sm italic text-gray-600 dark:text-gray-400 mb-2">
+          "{textSnippet}"
+        </p>
+      )}
       <p className="text-xs text-gray-500">
         💡 {connection}
       </p>

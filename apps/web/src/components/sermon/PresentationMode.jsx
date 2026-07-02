@@ -395,21 +395,33 @@ I've paused. Provide ONE brief suggestion in your ${assistantPersonality} style:
 
 Match the ${personalityData.description} tone!`;
 
+      // NOTE: the suggestion-kind field is deliberately NOT named `type` —
+      // a schema property named `type` collides with the JSON-Schema keyword
+      // and the model sometimes echoed the schema envelope back
+      // ({type: "object", ...}), which rendered as "Larry suggests (object):"
+      // with no content.
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
         response_json_schema: {
           type: "object",
           properties: {
-            type: { type: "string" },
-            content: { type: "string" }
-          }
+            suggestion_kind: { type: "string", description: "One of: transition, scripture, example, question" },
+            content: { type: "string", description: "The suggestion itself, ready to use from the pulpit" }
+          },
+          required: ["content"]
         }
       });
 
-      setAiSuggestion(response);
+      const content = typeof response?.content === "string" ? response.content.trim() : "";
+      if (!content) {
+        toast.error("Larry couldn't come up with a suggestion — try again");
+        return;
+      }
+      setAiSuggestion({ kind: response.suggestion_kind, content });
     } catch (error) {
       console.error("Error getting AI suggestion:", error);
+      toast.error("Larry couldn't come up with a suggestion — try again");
     } finally {
       setIsLoadingSuggestion(false);
     }
@@ -768,7 +780,7 @@ Match the ${personalityData.description} tone!`;
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <span className="font-semibold text-indigo-400">
-                      Larry suggests ({aiSuggestion.type}):
+                      Larry suggests{aiSuggestion.kind ? ` (${aiSuggestion.kind})` : ""}:
                     </span>
                     <p className="mt-2 text-lg">{aiSuggestion.content}</p>
                   </div>

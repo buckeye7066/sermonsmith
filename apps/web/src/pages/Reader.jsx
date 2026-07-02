@@ -5,6 +5,7 @@ import { logActivity } from "../components/admin/UserActivityLogger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   BookOpen,
   ChevronLeft,
@@ -706,7 +707,12 @@ export default function Reader() {
   };
 
   const saveNote = async (content) => {
-    if (!selectedVerse || !user || !content.trim()) return;
+    if (!content.trim()) return; // NoteDrawer already toasts for this
+    if (!user) {
+      toast.error("Please log in to save notes");
+      return;
+    }
+    if (!selectedVerse) return;
 
     try {
       await api.entities.Note.create({
@@ -766,8 +772,15 @@ export default function Reader() {
   const shareVerse = (verse) => {
     const text = `"${verse.text}" - ${verse.book_name} ${verse.chapter}:${verse.verse}`;
     if (navigator.share) {
-      navigator.share({ text }).catch(() => {
-        copyVerse(verse);
+      // The OS share sheet opens outside the page, so give in-app feedback
+      // too — without it the click looks like a no-op on desktop.
+      toast.info("Opening share options…");
+      navigator.share({ text }).catch((error) => {
+        // AbortError = user closed the share sheet; don't surprise them
+        // with a clipboard copy they didn't ask for.
+        if (error?.name !== "AbortError") {
+          copyVerse(verse);
+        }
       });
     } else {
       copyVerse(verse);
@@ -1212,22 +1225,32 @@ export default function Reader() {
           </CardContent>
         </Card>
 
-        {showThematicLinker && thematicVerse && (
-          <div className="mb-6">
-            <ThematicLinker
-              sourceType="verse"
-              sourceData={thematicVerse}
-              user={user}
-            />
-            <Button
-              variant="outline"
-              onClick={() => setShowThematicLinker(false)}
-              className="w-full mt-3"
-            >
-              Hide Related Content
-            </Button>
-          </div>
-        )}
+        {/* Rendered in a dialog like every other verse-toolbar feature.
+            Previously this was appended inline BELOW the whole chapter, so
+            clicking the sparkle icon mid-chapter appeared to do nothing —
+            the panel mounted far off-screen. */}
+        <Dialog
+          open={showThematicLinker && !!thematicVerse}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) setShowThematicLinker(false);
+          }}
+        >
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Discover Related Content</DialogTitle>
+              <DialogDescription>
+                AI-powered connections for {thematicVerse?.book_name} {thematicVerse?.chapter}:{thematicVerse?.verse}
+              </DialogDescription>
+            </DialogHeader>
+            {thematicVerse && (
+              <ThematicLinker
+                sourceType="verse"
+                sourceData={thematicVerse}
+                user={user}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
 
         <ReaderSettings
           open={showSettings}

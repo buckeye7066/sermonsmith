@@ -593,9 +593,9 @@ Be respectful, accurate, pastoral.`;
                 onChange={(e) => setCustomBelief(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && analyzeCustomBelief()}
               />
-              <Button 
+              <Button
                 onClick={analyzeCustomBelief}
-                disabled={isAnalyzing || !customBelief.trim()}
+                disabled={isAnalyzing}
               >
                 {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Analyze'}
               </Button>
@@ -1122,7 +1122,7 @@ Be respectful, accurate, pastoral.`;
 
                   <Button
                     onClick={compareBeliefSystems}
-                    disabled={isComparing || !compareSystemA || !compareSystemB || compareSystemA === compareSystemB}
+                    disabled={isComparing}
                     className="w-full"
                     size="lg"
                   >

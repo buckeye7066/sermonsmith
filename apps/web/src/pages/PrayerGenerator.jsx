@@ -382,7 +382,7 @@ Same structure as before.`;
 
                   <Button
                     onClick={generatePrayer}
-                    disabled={isGenerating || !prayerTheme.trim()}
+                    disabled={isGenerating}
                     className="w-full"
                     size="lg"
                   >
