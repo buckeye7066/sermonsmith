@@ -11,11 +11,16 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Save } from "lucide-react";
+import { toast } from "sonner";
 
 export default function NoteDrawer({ open, onClose, onSave, verse, existingNotes }) {
   const [noteContent, setNoteContent] = useState("");
 
   const handleSave = () => {
+    if (!noteContent.trim()) {
+      toast.error("Please write a note first");
+      return;
+    }
     onSave(noteContent);
     setNoteContent("");
   };
@@ -73,9 +78,8 @@ export default function NoteDrawer({ open, onClose, onSave, verse, existingNotes
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleSave} 
-            disabled={!noteContent.trim()}
+          <Button
+            onClick={handleSave}
             className="flex items-center gap-2"
           >
             <Save className="w-4 h-4" />

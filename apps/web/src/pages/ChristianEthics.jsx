@@ -697,7 +697,7 @@ Be fair and charitable to each tradition. Present each view from within that tra
                 </div>
                 <Button
                   onClick={() => mode === 'compare' ? compareAcrossDenominations(question) : askLarry(question)}
-                  disabled={isThinking || !question.trim()}
+                  disabled={isThinking}
                   size="lg"
                 >
                   {isThinking ? (
