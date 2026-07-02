@@ -49,6 +49,7 @@ npm run release:check
 | Rate limits | `middleware/rateLimitStore.js` (auth 20/15m, register 10/1h, reset 5/15m, ai 30/1m, public 60/1m) |
 
 ## Gotchas
+- **Deploys are fully automatic on merge to `main`:** web → Vercel (GitHub integration, builds from repo root → `apps/web/dist`); API → Railway **native GitHub integration** (verified live — a merged PR's new endpoint was serving within minutes, no manual `railway up`). Do not re-add a deploy GitHub Action: a prior no-op "Deploy API (Railway)" workflow was removed because it reported a green check while doing nothing.
 - **httpOnly cookie auth:** frontend never touches the JWT; Electron resolves API base at runtime via `window.electron.getApiUrl()`.
 - **Electron files MUST stay `.cjs`** (`main.cjs`/`preload.cjs`) while rest of desktop is ESM — renaming to `.js` breaks startup.
 - **Password reset tokens** SHA-256-hashed at rest; `tokenVersion` bump invalidates all old JWTs on password change.
