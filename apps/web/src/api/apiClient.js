@@ -346,14 +346,33 @@ const integrations = {
     // can fall back to InvokeLLM. NOT auto-retried (each call bills the user).
     StreamLLM: async (p, onDelta) => {
       const apiBase = await getApiBaseUrl();
+      // Idle-timeout guard: unlike apiFetch, a stalled stream would otherwise
+      // hang the builder forever. Abort if no chunk arrives within STREAM_IDLE_MS
+      // (reset on every chunk). On abort the fetch/read rejects and the caller
+      // falls back to InvokeLLM.
+      const STREAM_IDLE_MS = 60_000;
+      const controller = new AbortController();
+      let idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_MS);
+      const resetIdle = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_MS);
+      };
       // A network failure here rejects naturally — callers fall back to InvokeLLM.
-      const res = await fetch(`${apiBase}/api/ai/stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(p || {}),
-      });
+      let res;
+      try {
+        res = await fetch(`${apiBase}/api/ai/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(p || {}),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(idleTimer);
+        throw err;
+      }
       if (!res.ok || !res.body) {
+        clearTimeout(idleTimer);
         const body = await res.json().catch(() => ({ message: `API error ${res.status}` }));
         const error = new Error(body.message || `API error ${res.status}`);
         error.status = res.status;
@@ -367,16 +386,21 @@ const integrations = {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let full = '';
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        if (chunk) {
-          full += chunk;
-          if (typeof onDelta === 'function') {
-            try { onDelta(full, chunk); } catch { /* a render hiccup must not kill the stream */ }
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          resetIdle();
+          const chunk = decoder.decode(value, { stream: true });
+          if (chunk) {
+            full += chunk;
+            if (typeof onDelta === 'function') {
+              try { onDelta(full, chunk); } catch { /* a render hiccup must not kill the stream */ }
+            }
           }
         }
+      } finally {
+        clearTimeout(idleTimer);
       }
       return full;
     },

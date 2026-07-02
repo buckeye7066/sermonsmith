@@ -48,7 +48,7 @@
     "generate:icons": "npm run generate:icons -w @sermonsmith/web"
   },
   "engines": {
-    "node": ">=20 <23",
+    "node": ">=20",
     "npm": ">=10"
   },
   "devDependencies": {}

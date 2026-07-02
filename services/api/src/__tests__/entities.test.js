@@ -221,6 +221,28 @@ describe('entities — allowlist (regression for broken creates)', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
     expect(res.status).toBe(400);
   });
+
+  // Security: SharedLink is server-managed. It grants read access to a target
+  // resource by slug and must only be minted by createShareableLink (which
+  // verifies ownership). Forging one through the generic API let a user point
+  // it at another user's private entity, so the generic create path rejects it.
+  it('forbids creating a SharedLink through the generic entity API', async () => {
+    const res = await request(app)
+      .post('/api/entities/SharedLink')
+      .send({ slug: 'forged', resourceId: 'someone-elses-resource' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(res.status).toBe(403);
+    expect(prisma._store.entity.some((e) => e.type === 'SharedLink')).toBe(false);
+  });
+
+  it('forbids creating a SharedLink through the bulk entity API', async () => {
+    const res = await request(app)
+      .post('/api/entities/SharedLink/bulk')
+      .send({ items: [{ slug: 'forged', resourceId: 'x' }] })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(res.status).toBe(403);
+    expect(prisma._store.entity.some((e) => e.type === 'SharedLink')).toBe(false);
+  });
 });
 
 describe('entities — community forum types', () => {

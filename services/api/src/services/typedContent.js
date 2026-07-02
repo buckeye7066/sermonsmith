@@ -144,8 +144,10 @@ export async function listTypedContent(db, type, userId, options = {}) {
   const model = modelFor(db, type);
   const take = Math.min(Math.max(Number(options.limit) || 100, 1), 500);
   const skip = Math.max(Number(options.offset) || 0, 0);
+  // Pin the tenant scope LAST so a caller-supplied options.where can never
+  // override userId and read another user's rows.
   return model.findMany({
-    where: { userId, ...(options.where || {}) },
+    where: { ...(options.where || {}), userId },
     orderBy: options.orderBy || { updatedAt: 'desc' },
     take,
     skip,

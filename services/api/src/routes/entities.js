@@ -22,6 +22,14 @@ const MAX_PAGE_SIZE = 1000;
 // generic API.
 const PUBLIC_TYPES = new Set(['Verse']);
 
+// Server-managed types that must NOT be minted through the generic entity
+// create/bulk path. `SharedLink` grants read access to a target resource by
+// slug; it is only safe to create via /api/functions/createShareableLink,
+// which verifies the caller owns the resource being shared. Allowing it here
+// let any user forge a link pointing at another user's private entity. The
+// /share/:slug route now also re-checks sharer ownership (defense in depth).
+const SERVER_MANAGED_TYPES = new Set(['SharedLink']);
+
 function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
 }
@@ -358,6 +366,9 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
     if (PUBLIC_TYPES.has(req.params.type) && !isAdmin(req)) {
       return res.status(403).json({ message: `Creating '${req.params.type}' entities is not permitted.` });
     }
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' cannot be created through the generic entity API.` });
+    }
 
     const items = req.body.items || req.body;
     const arr = Array.isArray(items) ? items : [items];
@@ -402,6 +413,9 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
     // Public reference types (Verse) are read-only for non-admins — see bulk.
     if (PUBLIC_TYPES.has(req.params.type) && !isAdmin(req)) {
       return res.status(403).json({ message: `Creating '${req.params.type}' entities is not permitted.` });
+    }
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' cannot be created through the generic entity API.` });
     }
     // eslint-disable-next-line no-unused-vars
     const { user_id, userId, id, ...rawBody } = req.body || {};

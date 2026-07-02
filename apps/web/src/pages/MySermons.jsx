@@ -143,18 +143,30 @@ export default function MySermons() {
     }
   };
 
+  // Escape user-authored sermon fields before interpolating them into the
+  // print window's raw HTML. Sermons can be forked/shared from other users,
+  // so an unescaped title/point like `<img onerror=...>` would execute
+  // same-origin script in the print window (real XSS, not just self-XSS).
+  const escapeHtml = (value) =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
   const handlePrint = (sermon) => {
     logActivity('export_pdf', {
       page_name: 'MySermons',
       resource_type: 'sermon',
       resource_id: sermon.id
     });
-    
+
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <html>
         <head>
-          <title>${sermon.title}</title>
+          <title>${escapeHtml(sermon.title)}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 40px; }
             h1 { color: #333; }
@@ -164,16 +176,16 @@ export default function MySermons() {
           </style>
         </head>
         <body>
-          <h1>${sermon.title}</h1>
-          <p class="meta"><strong>Topic:</strong> ${sermon.topic || 'N/A'}</p>
-          <p class="meta"><strong>Passage:</strong> ${sermon.anchor_passage || 'N/A'}</p>
-          ${sermon.big_idea ? `<h2>Big Idea</h2><p>${sermon.big_idea}</p>` : ''}
+          <h1>${escapeHtml(sermon.title)}</h1>
+          <p class="meta"><strong>Topic:</strong> ${escapeHtml(sermon.topic || 'N/A')}</p>
+          <p class="meta"><strong>Passage:</strong> ${escapeHtml(sermon.anchor_passage || 'N/A')}</p>
+          ${sermon.big_idea ? `<h2>Big Idea</h2><p>${escapeHtml(sermon.big_idea)}</p>` : ''}
           ${sermon.points && sermon.points.length > 0 ? `
             <h2>Main Points</h2>
             ${sermon.points.map((point, i) => `
               <div class="point">
-                <h3>Point ${i + 1}: ${point.title || ''}</h3>
-                ${point.content ? `<p>${point.content}</p>` : ''}
+                <h3>Point ${i + 1}: ${escapeHtml(point.title || '')}</h3>
+                ${point.content ? `<p>${escapeHtml(point.content)}</p>` : ''}
               </div>
             `).join('')}
           ` : ''}
