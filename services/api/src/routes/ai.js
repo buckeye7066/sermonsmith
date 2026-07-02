@@ -121,6 +121,15 @@ const MAX_PROMPT_CHARS = Number(process.env.AI_MAX_PROMPT_CHARS || 24000);
 const MAX_SYSTEM_PROMPT_CHARS = Number(process.env.AI_MAX_SYSTEM_PROMPT_CHARS || 12000);
 const MAX_SCHEMA_CHARS = Number(process.env.AI_MAX_SCHEMA_CHARS || 12000);
 
+// Image requests: bound the prompt (OpenAI image models cap prompts at ~4000
+// chars anyway) and allowlist `size` so an arbitrary string never reaches the
+// provider. Covers DALL-E 2/3 and gpt-image dimensions; the client currently
+// sends no size (defaults to 1024x1024 in generateImage).
+const imageRequestSchema = z.object({
+  prompt: z.string().trim().min(1).max(4000),
+  size: z.enum(['256x256', '512x512', '1024x1024', '1024x1792', '1792x1024', '1536x1024', '1024x1536', 'auto']).optional(),
+}).passthrough();
+
 const invokeRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(MAX_PROMPT_CHARS),
   system_prompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).optional(),
@@ -734,8 +743,11 @@ router.post('/image', authenticateToken, async (req, res, next) => {
   let audited = false;
   let usageConsumed = false;
   try {
-    const { prompt, size } = req.body;
-    if (!prompt) return res.status(400).json({ message: 'prompt is required' });
+    const parsedImage = imageRequestSchema.safeParse(req.body || {});
+    if (!parsedImage.success) {
+      return res.status(400).json({ message: 'Invalid image request', issues: parsedImage.error.issues });
+    }
+    const { prompt, size } = parsedImage.data;
 
     if (!req.userPremium && req.userRole !== 'admin' && req.userRole !== 'dev') {
       return res.status(402).json({
@@ -904,6 +916,7 @@ export const __test = {
   refundUsageDb,
   resolveModel,
   invokeRequestSchema,
+  imageRequestSchema,
   hashText,
   estimateTokenCount,
   buildJsonSchemaInstruction,

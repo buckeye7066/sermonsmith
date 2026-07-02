@@ -107,9 +107,18 @@ router.get('/share/:slug', optionalAuth, async (req, res, next) => {
 
     const resource = await prisma.entity.findUnique({
       where: { id: data.resourceId },
-      select: { id: true, type: true, data: true, createdAt: true, updatedAt: true },
+      select: { id: true, type: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
     if (!resource) return res.status(404).json({ message: 'Shared resource not found' });
+
+    // IDOR guard: the sharer must own the resource they shared. Legitimate
+    // links are minted by /api/functions/createShareableLink, which verifies
+    // ownership at creation time — but a SharedLink row forged through any
+    // other write path could point `resourceId` at ANOTHER user's private
+    // entity. Never serve a resource the link's creator does not own.
+    if (resource.userId !== link.userId) {
+      return res.status(404).json({ message: 'Shared resource not found' });
+    }
 
     // Increment views opportunistically; failure must not block the read.
     prisma.entity.update({

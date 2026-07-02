@@ -154,6 +154,19 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(parsed.data.feature).toBe('sermon_builder');
   });
 
+  it('validates image requests: bounds prompt length and allowlists size', () => {
+    // Empty prompt rejected.
+    expect(aiInternals.imageRequestSchema.safeParse({ prompt: '' }).success).toBe(false);
+    // Over-long prompt (>4000 chars) rejected — cost/abuse guard.
+    expect(aiInternals.imageRequestSchema.safeParse({ prompt: 'x'.repeat(4001) }).success).toBe(false);
+    // Arbitrary size rejected; only the allowlist passes.
+    expect(aiInternals.imageRequestSchema.safeParse({ prompt: 'a lamb', size: '99999x99999' }).success).toBe(false);
+    const ok = aiInternals.imageRequestSchema.safeParse({ prompt: 'a lamb', size: '1024x1024' });
+    expect(ok.success).toBe(true);
+    // No size is fine (defaults downstream).
+    expect(aiInternals.imageRequestSchema.safeParse({ prompt: 'a lamb' }).success).toBe(true);
+  });
+
   it('summarizes AI audit logs for admin dashboards without raw content', async () => {
     prisma._store.user.push({ id: 'u-admin', role: 'admin', premium: true, email: 'admin@example.com' });
     const now = new Date();

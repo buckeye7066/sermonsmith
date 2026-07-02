@@ -239,4 +239,36 @@ describe('community routes', () => {
     expect(feed.status).toBe(200);
     expect(feed.body).toHaveLength(0);
   });
+
+  it('serves a shared resource when the link creator owns it', async () => {
+    prisma._store.entity.push({
+      id: 'res-owned', type: 'Sermon', userId: 'u-owner',
+      data: { title: 'My Sermon', big_idea: 'Grace' }, createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.entity.push({
+      id: 'link-ok', type: 'SharedLink', userId: 'u-owner',
+      data: { slug: 'slug-ok', resourceId: 'res-owned' }, createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const res = await request(app).get('/api/community/share/slug-ok');
+    expect(res.status).toBe(200);
+    expect(res.body.resource.id).toBe('res-owned');
+  });
+
+  it('does NOT serve a resource the link creator does not own (forged-link IDOR)', async () => {
+    // Victim's private sermon.
+    prisma._store.entity.push({
+      id: 'res-victim', type: 'Sermon', userId: 'u-owner',
+      data: { title: 'Private', big_idea: 'Secret' }, createdAt: new Date(), updatedAt: new Date(),
+    });
+    // Attacker (u-reader) forged a SharedLink pointing at the victim's resource.
+    prisma._store.entity.push({
+      id: 'link-forged', type: 'SharedLink', userId: 'u-reader',
+      data: { slug: 'slug-forged', resourceId: 'res-victim' }, createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const res = await request(app).get('/api/community/share/slug-forged');
+    expect(res.status).toBe(404);
+    expect(res.body.resource).toBeUndefined();
+  });
 });
