@@ -1,0 +1,69 @@
+name: Android build
+
+# Builds Android binaries on every push to main and uploads them as
+# Actions artifacts, where App Store Publisher's "From GitHub" tab can
+# list and fetch them:
+#   sermonsmith-debug-apk   — debug-signed, installable for testing
+#   sermonsmith-release-aab — upload-key-signed .aab, ready for Play Store
+# Release signing uses the ANDROID_KEYSTORE_* repo secrets (upload
+# keystore lives at ~/.android-keystores/sermonsmith-upload.jks locally).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'apps/mobile/**'
+      - 'packages/**'
+      - '.github/workflows/android-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Build APK + AAB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - run: npm ci
+      # Inside Capacitor the origin is https://localhost, so the API base
+      # must be baked in at build time (apiClient falls back to origin).
+      - run: npm run build -w @sermonsmith/web
+        env:
+          VITE_API_URL: https://sermonsmith-api-production.up.railway.app
+      - run: npx cap sync android
+        working-directory: apps/mobile
+      - run: ./gradlew assembleDebug --no-daemon
+        working-directory: apps/mobile/android
+      - name: Decode upload keystore
+        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      - name: Build signed release bundle
+        run: ./gradlew bundleRelease --no-daemon
+        working-directory: apps/mobile/android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/upload.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sermonsmith-debug-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sermonsmith-release-aab
+          path: apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

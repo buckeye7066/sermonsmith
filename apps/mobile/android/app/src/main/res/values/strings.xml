@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sermon Smith</string>
+    <string name="title_activity_main">Sermon Smith</string>
+    <string name="package_name">com.sermonsmith.app</string>
+    <string name="custom_url_scheme">com.sermonsmith.app</string>
+</resources>
