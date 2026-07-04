@@ -26,9 +26,8 @@ out
 *.AppImage
 *.exe
 
-# Capacitor (android platform is committed — it carries the release signing
-# config; Capacitor's own android/.gitignore excludes build outputs)
-ios
+# Capacitor (android + ios platforms are committed — they carry build
+# config; Capacitor's own nested .gitignores exclude build outputs)
 .capacitor
 
 # Build artifacts
