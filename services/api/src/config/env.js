@@ -156,7 +156,16 @@ export function loadEnv(opts = {}) {
 
     corsAllowList() {
       const raw = env.CORS_ORIGIN || (isProd ? '' : 'http://localhost:5173');
-      return raw.split(',').map((s) => s.trim()).filter(Boolean);
+      const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      // Capacitor mobile app (com.sermonsmith.app) origins — always allowed,
+      // in code so a CORS_ORIGIN env edit can't silently break mobile login.
+      // Prod cookies are already SameSite=None; Secure, and the webview's
+      // cookie jar is per-app, so this adds no cross-app CSRF surface. This
+      // list also feeds the origin-check middleware (the CSRF defense).
+      for (const o of ['https://localhost', 'capacitor://localhost']) {
+        if (!list.includes(o)) list.push(o);
+      }
+      return list;
     },
 
     adminEmails() {
