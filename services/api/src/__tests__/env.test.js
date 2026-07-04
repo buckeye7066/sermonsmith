@@ -95,7 +95,8 @@ describe('loadEnv', () => {
 
   it('parses CORS_ORIGIN as a list', () => {
     const env = loadEnv({ source: { NODE_ENV: 'development', CORS_ORIGIN: 'https://a, https://b' } });
-    expect(env.corsAllowList()).toEqual(['https://a', 'https://b']);
+    // Capacitor mobile origins are always appended (see corsAllowList).
+    expect(env.corsAllowList()).toEqual(['https://a', 'https://b', 'https://localhost', 'capacitor://localhost']);
   });
 
   it('warns but does not throw in dev when secrets are missing', () => {
