@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
+import { FREE_PERIOD_DAYS, grantFreePeriodToUser } from '../lib/premiumGrant.js';
 import {
   BIBLE_TRANSLATIONS,
   BIBLE_TRANSLATION_IDS,
@@ -601,8 +602,9 @@ router.post('/grantMePremium', authenticateToken, requireAdmin, async (req, res,
 // Body: { period: 'week' | 'month', ...target }
 //   target = { userId } | { email } | { scope: 'all' }   (all = every active user)
 // If the user already has a longer free window we keep the later date so a grant
-// never shortens an existing trial.
-const FREE_PERIOD_DAYS = { week: 7, month: 30 };
+// never shortens an existing trial. The single-user grant path shares this
+// MAX/extend logic with the always-on signup trial via lib/premiumGrant.js —
+// see grantFreePeriodToUser.
 // Persisted state for the GLOBAL "free premium for all users" toggle, so the
 // admin switch reflects on/off across sessions. Stored as a singleton row in
 // the entity table (admin-only reads/writes via the routes below — never the
@@ -681,13 +683,7 @@ router.post('/grantFreePeriod', authenticateToken, requireAdmin, async (req, res
     if (!target || target.deletedAt) {
       return res.status(404).json({ message: 'User not found' });
     }
-    const newUntil = target.premium_until && new Date(target.premium_until) > until
-      ? target.premium_until
-      : until;
-    const updated = await prisma.user.update({
-      where: { id: target.id },
-      data: { premium_until: newUntil },
-    });
+    const updated = await grantFreePeriodToUser(prisma, target.id, period);
     res.json({ userId: updated.id, email: updated.email, period, premium_until: updated.premium_until });
   } catch (err) {
     next(err);

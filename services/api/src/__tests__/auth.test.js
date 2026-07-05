@@ -107,6 +107,64 @@ describe('auth routes', () => {
     delete process.env.ADMIN_EMAILS;
   });
 
+  it('register grants every new signup a ~7-day free trial (premium_until, always-on by default)', async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const res = await request(app).post('/api/auth/register').send({ email: 'joiner@example.com', password: 'longenough123' });
+    expect(res.status).toBe(200);
+    const stored = prisma._store.user.find((u) => u.email === 'joiner@example.com');
+    const until = new Date(stored.premium_until).getTime();
+    expect(until).toBeGreaterThan(Date.now() + 6.9 * DAY);
+    expect(until).toBeLessThan(Date.now() + 7.1 * DAY);
+    // Only the self-expiring trial window is set — never the paid flag.
+    expect(stored.premium).not.toBe(true);
+    // Returned in the response body too, not just persisted.
+    expect(res.body.user.premium_until).toBeTruthy();
+  });
+
+  it('register grants a per-user trial window, not a shared/global one', async () => {
+    const resA = await request(app).post('/api/auth/register').send({ email: 'trial-a@example.com', password: 'longenough123' });
+    const resB = await request(app).post('/api/auth/register').send({ email: 'trial-b@example.com', password: 'longenough123' });
+    const a = prisma._store.user.find((u) => u.email === 'trial-a@example.com');
+    const b = prisma._store.user.find((u) => u.email === 'trial-b@example.com');
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    expect(a.id).not.toBe(b.id);
+    expect(a.premium_until).toBeTruthy();
+    expect(b.premium_until).toBeTruthy();
+    // Distinct per-user rows, not a single shared timestamp object.
+    expect(a.premium_until).not.toBe(b.premium_until);
+  });
+
+  it('honors SIGNUP_TRIAL_PERIOD=month for a ~30-day trial', async () => {
+    process.env.SIGNUP_TRIAL_PERIOD = 'month';
+    const DAY = 24 * 60 * 60 * 1000;
+    const res = await request(app).post('/api/auth/register').send({ email: 'monthly@example.com', password: 'longenough123' });
+    expect(res.status).toBe(200);
+    const stored = prisma._store.user.find((u) => u.email === 'monthly@example.com');
+    const until = new Date(stored.premium_until).getTime();
+    expect(until).toBeGreaterThan(Date.now() + 29.9 * DAY);
+    expect(until).toBeLessThan(Date.now() + 30.1 * DAY);
+    delete process.env.SIGNUP_TRIAL_PERIOD;
+  });
+
+  it('SIGNUP_TRIAL_ENABLED=false disables the auto-trial entirely', async () => {
+    process.env.SIGNUP_TRIAL_ENABLED = 'false';
+    const res = await request(app).post('/api/auth/register').send({ email: 'notrial@example.com', password: 'longenough123' });
+    expect(res.status).toBe(200);
+    const stored = prisma._store.user.find((u) => u.email === 'notrial@example.com');
+    expect(stored.premium_until == null).toBe(true);
+    delete process.env.SIGNUP_TRIAL_ENABLED;
+  });
+
+  it('an auto-promoted admin signup is not additionally stamped with a trial window', async () => {
+    process.env.ADMIN_EMAILS = 'ops2@example.com';
+    const res = await request(app).post('/api/auth/register').send({ email: 'ops2@example.com', password: 'longenough123' });
+    expect(res.status).toBe(200);
+    const stored = prisma._store.user.find((u) => u.email === 'ops2@example.com');
+    expect(stored.premium_until == null).toBe(true);
+    delete process.env.ADMIN_EMAILS;
+  });
+
   it('login rejects unknown email', async () => {
     const res = await request(app).post('/api/auth/login').send({ email: 'noone@x', password: 'longenough123' });
     expect(res.status).toBe(401);
