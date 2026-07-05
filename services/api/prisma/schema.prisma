@@ -47,6 +47,11 @@ model User {
   // threw "Unknown argument is_banned" and silently did nothing.
   is_banned            Boolean  @default(false)
   banned_at            DateTime?
+  // Stamped on every successful sign-in (login or registration auto-login).
+  // NULL means the user has never signed in — the transition NULL→set is what
+  // fires the one-time "new user first login" owner notification. The
+  // migration backfills existing users so they never read as "new".
+  lastLoginAt          DateTime? @map("last_login_at")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 

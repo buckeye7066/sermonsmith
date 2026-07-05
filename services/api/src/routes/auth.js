@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma, authenticateToken, signToken, requireAdmin, AUTH_COOKIE, cookieOptions } from '../middleware/auth.js';
 import { sendPasswordResetEmail } from '../services/email.js';
+import { recordSuccessfulLogin } from '../services/firstLoginNotifier.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -152,6 +153,10 @@ router.post('/register', async (req, res, next) => {
 
     const token = signToken(user);
     res.cookie(AUTH_COOKIE, token, cookieOptions());
+    // Registration issues a session immediately, so it IS the first sign-in.
+    // Fire-and-forget: stamping last_login_at / notifying the owner must never
+    // affect the response.
+    void recordSuccessfulLogin({ prisma, user, method: 'register' });
     res.json({ user: sanitizeUser(user) });
   } catch (err) {
     next(err);
@@ -201,6 +206,9 @@ router.post('/login', async (req, res, next) => {
 
     const token = signToken(currentUser);
     res.cookie(AUTH_COOKIE, token, cookieOptions());
+    // Fire-and-forget: stamp last_login_at; a NULL→set transition (first ever
+    // sign-in) emails the owner. Never affects the login response.
+    void recordSuccessfulLogin({ prisma, user: currentUser, method: 'login' });
     res.json({ user: sanitizeUser(currentUser) });
   } catch (err) {
     next(err);
