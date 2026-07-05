@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { prisma, authenticateToken, signToken, requireAdmin, AUTH_COOKIE, cookieOptions } from '../middleware/auth.js';
 import { sendPasswordResetEmail } from '../services/email.js';
 import { recordSuccessfulLogin } from '../services/firstLoginNotifier.js';
+import { signupTrialPeriod } from '../lib/signupTrial.js';
+import { grantFreePeriodToUser } from '../lib/premiumGrant.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -141,7 +143,7 @@ router.post('/register', async (req, res, next) => {
     const displayName = name || email.split('@')[0];
     const admin = isAdminEmail(email);
 
-    const user = await prisma.user.create({
+    let user = await prisma.user.create({
       data: {
         email: email.toLowerCase(),
         password: hashed,
@@ -150,6 +152,21 @@ router.post('/register', async (req, res, next) => {
         ...(admin ? { role: 'admin', premium: true } : {}),
       },
     });
+
+    // Always-on signup trial: every new (non-admin) user gets a free trial
+    // window automatically, on by default (SIGNUP_TRIAL_ENABLED/PERIOD env
+    // vars can adjust or disable it). Stamps ONLY `premium_until` via the
+    // same grant/extend helper the admin "grant free period" route uses
+    // (see lib/premiumGrant.js), so this can never double-stack if a grant
+    // already touched this user. This is independent of — and does not
+    // enable — the separate, dormant global "Free Week" promo toggle.
+    if (!admin) {
+      const trialPeriod = signupTrialPeriod(process.env);
+      if (trialPeriod) {
+        const granted = await grantFreePeriodToUser(prisma, user.id, trialPeriod);
+        if (granted) user = granted;
+      }
+    }
 
     const token = signToken(user);
     res.cookie(AUTH_COOKIE, token, cookieOptions());
