@@ -13,6 +13,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { prisma, AUTH_COOKIE } from '../middleware/auth.js';
 import { reportErrorToOwner } from '../services/errorReporter.js';
+import { classifyExternalError } from '../services/externalErrorClassifier.js';
 
 const router = Router();
 
@@ -45,6 +46,13 @@ const clientErrorSchema = z.object({
   componentStack: z.string().max(20_000).optional(),
   route: z.string().max(2000).optional(),
   statusCode: z.union([z.number(), z.string()]).optional(),
+  // Client-side classification hint (the server re-derives it from the
+  // message regardless, so stale cached bundles are still classified).
+  classification: z.string().max(40).optional(),
+  // True when the client's stack was synthesized by the reporter itself
+  // (non-Error rejection wrapped in `new Error(...)`) — the stack then points
+  // at the reporter's bundle location, NOT the real throw site.
+  syntheticStack: z.boolean().optional(),
 });
 
 router.post('/report-client-error', async (req, res) => {
@@ -54,7 +62,35 @@ router.post('/report-client-error', async (req, res) => {
     return res.status(204).end();
   }
 
-  const { message, name, stack, componentStack, route, statusCode } = parsed.data;
+  const { message, name, stack, componentStack, route, statusCode, classification, syntheticStack } = parsed.data;
+
+  const userEmail = await resolveUserEmail(req);
+  const userAgent = String(req.headers['user-agent'] || '').slice(0, 300);
+  const authState = userEmail ? `authenticated:${userEmail}` : 'anonymous';
+
+  // Errors injected by external mail-security scanners (Outlook SafeLinks
+  // crawling password-reset links to /Login) are logged for the audit trail
+  // but never emailed to the owner as fake 500s. Server-side detection wins;
+  // the client hint covers future signatures the message regex can't see.
+  const external = classifyExternalError(message)
+    || (classification === 'external-scanner' ? { classification, detail: {} } : null);
+
+  if (external) {
+    console.warn('[clientErrors] external-scanner error — logged, not emailed', JSON.stringify({
+      disposition: 'logged-not-emailed',
+      classification: external.classification,
+      // The "record" the scanner's RPC bridge claimed was missing — an
+      // internal handle of the scanner itself, not one of our rows.
+      claimedMissingObject: external.detail,
+      message: message.slice(0, 300),
+      route: route || 'unknown',
+      authState,
+      userAgent,
+      requestId: req.id,
+      syntheticStack: Boolean(syntheticStack),
+    }));
+    return res.status(204).end();
+  }
 
   const error = new Error(message);
   error.name = name || 'ClientError';
@@ -63,7 +99,14 @@ router.post('/report-client-error', async (req, res) => {
     .filter(Boolean)
     .join('\n\n') || `${error.name}: ${message}`;
 
-  const userEmail = await resolveUserEmail(req);
+  console.info('[clientErrors] client error forwarded to owner reporter', JSON.stringify({
+    disposition: 'forwarded',
+    name: error.name,
+    route: route || 'unknown',
+    authState,
+    requestId: req.id,
+    syntheticStack: Boolean(syntheticStack),
+  }));
 
   reportErrorToOwner({
     error,
@@ -72,7 +115,12 @@ router.post('/report-client-error', async (req, res) => {
     route: route || 'unknown',
     method: 'CLIENT',
     requestId: req.id,
-    statusCode: Number(statusCode) || 500,
+    // Only pass a status when the client actually observed one — client-side
+    // crashes are not HTTP 500s and used to be mislabeled as such.
+    statusCode: Number(statusCode) || undefined,
+    extra: (userAgent || syntheticStack)
+      ? { ...(userAgent && { userAgent }), ...(syntheticStack && { syntheticStack: true }) }
+      : undefined,
   });
 
   return res.status(204).end();
