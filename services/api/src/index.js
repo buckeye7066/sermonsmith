@@ -224,6 +224,15 @@ if (isMainModule) {
     console.log(`SermonSmith API running on ${env.HOST}:${PORT}`);
   });
 
+  // Keep-alive race fix: Node's default keepAliveTimeout (5s) is shorter than
+  // the Railway edge proxy's idle timeout, so Node can close an idle socket at
+  // the exact moment the proxy writes the next request into it — the proxy
+  // then surfaces a bodiless 502 ("Application failed to respond") on a
+  // perfectly healthy app. The server-side timeout must EXCEED the proxy's so
+  // the proxy always closes first; headersTimeout must exceed keepAliveTimeout.
+  server.keepAliveTimeout = Number(process.env.HTTP_KEEPALIVE_TIMEOUT_MS || 620_000);
+  server.headersTimeout = server.keepAliveTimeout + 5_000;
+
   // Prune stale cache rows on boot, then once a day. unref() so the timer never
   // keeps the process alive during shutdown.
   pruneStaleCaches();
