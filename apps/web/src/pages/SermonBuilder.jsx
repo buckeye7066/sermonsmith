@@ -222,13 +222,19 @@ Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblica
             }
           },
         );
-        rawResponse = parsePartialJson(fullText) || {};
+        // Strict parse of the FINAL text. A stream that ended mid-object
+        // previously slid through parsePartialJson(...) || {} and became a
+        // silently truncated "successful" sermon. JSON.parse throwing here
+        // lands in the catch below, so the non-streaming path (with its
+        // server-side repair pass and honest 502) takes over.
+        rawResponse = JSON.parse(fullText);
       } catch (streamErr) {
-        console.warn('[SermonBuilder] streaming unavailable, falling back to invoke:', streamErr?.message);
+        console.warn('[SermonBuilder] streaming unavailable or incomplete, falling back to invoke:', streamErr?.message);
         rawResponse = await api.integrations.Core.InvokeLLM({
           system_prompt: LARRY_SYSTEM_PROMPT,
           prompt,
           response_json_schema: sermonGenerationSchema,
+          feature: 'sermon',
         });
       }
 

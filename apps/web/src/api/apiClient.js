@@ -324,6 +324,12 @@ const auth = {
 // Integrations (LLM, image generation, email, etc.)
 // ---------------------------------------------------------------------------
 
+// ASCII Record Separator (0x1E). New /stream responses append `\n` + this
+// char + a one-line JSON `{ ok, truncated }` result trailer when the request
+// opts in via `stream_result: true`. Keep in sync with
+// STREAM_RESULT_SEPARATOR in services/api/src/routes/ai.js.
+const STREAM_RESULT_SEPARATOR = String.fromCharCode(0x1e);
+
 const integrations = {
   Core: {
     // When the caller declares a `response_json_schema`, coerce the response to
@@ -344,6 +350,16 @@ const integrations = {
     // `onDelta(fullTextSoFar, chunk)` as tokens arrive; resolves with the full
     // text. Throws on a pre-stream error (4xx/5xx) just like apiFetch so callers
     // can fall back to InvokeLLM. NOT auto-retried (each call bills the user).
+    //
+    // Validator parity with /invoke: we send `stream_result: true`, so the
+    // server appends a result trailer (RS control char + JSON `{ok,truncated}`)
+    // after the streamed text. If the server reports the final payload did not
+    // parse as the requested JSON, this THROWS — the streaming path's
+    // equivalent of /invoke's 502 — so callers fall back to InvokeLLM instead
+    // of silently keeping a partial preview as the "completed" result. Old
+    // servers that don't know the flag simply send no trailer (legacy pass-
+    // through). The trailer is stripped from both onDelta text and the
+    // resolved value.
     StreamLLM: async (p, onDelta) => {
       const apiBase = await getApiBaseUrl();
       // Idle-timeout guard: unlike apiFetch, a stalled stream would otherwise
@@ -364,7 +380,7 @@ const integrations = {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify(p || {}),
+          body: JSON.stringify({ ...(p || {}), stream_result: true }),
           signal: controller.signal,
         });
       } catch (err) {
@@ -395,14 +411,39 @@ const integrations = {
           if (chunk) {
             full += chunk;
             if (typeof onDelta === 'function') {
-              try { onDelta(full, chunk); } catch { /* a render hiccup must not kill the stream */ }
+              // Never surface the result trailer (or a partial prefix of it)
+              // in the live preview.
+              const visible = full.indexOf(STREAM_RESULT_SEPARATOR) === -1
+                ? full
+                : full.slice(0, full.indexOf(STREAM_RESULT_SEPARATOR));
+              try { onDelta(visible, chunk); } catch { /* a render hiccup must not kill the stream */ }
             }
           }
         }
       } finally {
         clearTimeout(idleTimer);
       }
-      return full;
+
+      // Split off the server's result trailer (new servers only — old servers
+      // stream the legacy raw text and we return it unchanged).
+      const sepIdx = full.indexOf(STREAM_RESULT_SEPARATOR);
+      if (sepIdx === -1) return full;
+      const text = full.slice(0, sepIdx).replace(/\n$/, '');
+      let result = null;
+      try { result = JSON.parse(full.slice(sepIdx + 1)); } catch { /* malformed trailer — treat as absent */ }
+      if (result && result.ok === false) {
+        // Same contract as /invoke's 502: fail honestly so the caller's
+        // fallback path runs instead of a partial preview being kept as the
+        // completed result.
+        const error = new Error(result.truncated
+          ? 'The AI response was too long and was cut off before it finished.'
+          : 'AI stream returned invalid JSON.');
+        error.status = 502;
+        error.streamTextPreview = text.slice(0, 500);
+        error.truncated = !!result.truncated;
+        throw error;
+      }
+      return text;
     },
     SendEmail:                  (p) => apiFetch('/api/ai/email',    { method: 'POST', body: JSON.stringify(p) }),
     SendSMS:                    (p) => apiFetch('/api/ai/sms',      { method: 'POST', body: JSON.stringify(p) }),

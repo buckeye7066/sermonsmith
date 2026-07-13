@@ -112,3 +112,59 @@ describe('apiClient base URL resolution', () => {
     ]);
   });
 });
+
+
+describe('StreamLLM result-trailer contract', () => {
+  const RS = String.fromCharCode(0x1e);
+
+  function streamResponse(text) {
+    return new Response(text, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it('opts in with stream_result, strips the trailer, and resolves the clean text', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const payload = '{"title":"Grace"}';
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse(payload + '\n' + RS + '{"ok":true,"truncated":false}'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    const deltas = [];
+    const text = await api.integrations.Core.StreamLLM({ prompt: 'p' }, (full) => deltas.push(full));
+
+    expect(text).toBe(payload);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.stream_result).toBe(true);
+    // The trailer must never leak into the live preview.
+    for (const d of deltas) expect(d.includes(RS)).toBe(false);
+  });
+
+  it('throws (status 502) when the server reports the final JSON did not parse', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse('{"cut": [' + '\n' + RS + '{"ok":false,"truncated":true}'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await expect(api.integrations.Core.StreamLLM({ prompt: 'p' })).rejects.toMatchObject({
+      status: 502,
+      truncated: true,
+    });
+  });
+
+  it('legacy servers without a trailer pass the raw text through unchanged', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse('{"legacy":true}'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    const text = await api.integrations.Core.StreamLLM({ prompt: 'p' });
+    expect(text).toBe('{"legacy":true}');
+  });
+});

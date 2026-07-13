@@ -136,13 +136,19 @@ Make it engaging, biblically sound, and appropriate for ${studyType} study. Use 
             }
           },
         );
-        response = coerceToSchema(parsePartialJson(fullText) || {}, studyGenerationSchema);
+        // Strict parse of the FINAL text — a stream that ended mid-object
+        // previously slid through parsePartialJson(...) || {} and became a
+        // silently truncated "successful" study. JSON.parse throwing here
+        // lands in the catch below, so the non-streaming path (with its
+        // server-side repair pass and honest 502) takes over.
+        response = coerceToSchema(JSON.parse(fullText), studyGenerationSchema);
       } catch (streamErr) {
-        console.warn('[BibleStudy] streaming unavailable, falling back to invoke:', streamErr?.message);
+        console.warn('[BibleStudy] streaming unavailable or incomplete, falling back to invoke:', streamErr?.message);
         response = await api.integrations.Core.InvokeLLM({
           system_prompt: LARRY_SYSTEM_PROMPT,
           prompt,
           response_json_schema: studyGenerationSchema,
+          feature: 'bible_study',
         });
       }
 
