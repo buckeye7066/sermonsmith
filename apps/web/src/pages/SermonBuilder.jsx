@@ -200,12 +200,12 @@ Create a sermon that includes:
 4. 3-4 main points, each with:
    - Point title (action-oriented)
    - Exegesis (2-3 paragraphs explaining the passage, aligned with the denominational viewpoint above)
-   - Illustration (a story, example, or analogy that brings the point to life - make it ${tone} in nature)
-   - Application (specific, practical ways to apply this truth)
-   - 3-5 supporting scriptures that reinforce this point
+   - Illustration (a story, example, or analogy that brings the point to life - make it ${tone} in nature, and clearly hypothetical unless source material was provided)
+   - Application (ONE concrete, specific step a listener in this audience could take THIS WEEK - name what to do, when, and how; never generic advice like "pray more" or "have more faith" without saying what that looks like here - plus a reflection question)
+   - 3-5 supporting scriptures that reinforce this point (vary the applications across points so they don't repeat)
 5. A powerful conclusion that calls for response
 
-Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Be biblically accurate, engaging, and practical.`;
+Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Speak in language this specific audience uses; be biblically accurate, engaging, and practical.`;
 
       const fallbackCtx = { topic, anchor_passage: passage, tone, audience, denomination };
 

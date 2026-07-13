@@ -121,8 +121,8 @@ Generate a Bible study guide that includes:
    - Section title
    - Relevant scripture passage
    - Theological insights (2-3 paragraphs, aligned with ${denomination} doctrine)
-   - 3-5 discussion questions that encourage deep thinking
-   - Practical application for daily life
+   - 3-5 discussion questions that encourage deep thinking (genuinely discussable, not rhetorical)
+   - Practical application for daily life (ONE concrete, specific step - what to do, when, and how; never generic advice like "pray more" without saying what that looks like for this group)
 5. A conclusion that ties everything together
 
 Make it engaging, biblically sound, and appropriate for ${studyType} study. Use clear, accessible language.`;
