@@ -163,9 +163,9 @@ export default function PrivacyPolicy() {
             in-app <strong>Contact Support</strong> page, or by email at{' '}
             <a
               className="text-indigo-600 dark:text-indigo-400 underline"
-              href="mailto:support@sermonsmith.app"
+              href="mailto:buckeye7066@gmail.com"
             >
-              support@sermonsmith.app
+              buckeye7066@gmail.com
             </a>
             .
           </p>
