@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download } from "lucide-react";
+import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/api/apiClient";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { apiBinaryCall } from "@/components/utils/apiCall";
@@ -34,6 +35,7 @@ export default function SermonEditor({
   const [showExegesisHelper, setShowExegesisHelper] = useState(false);
   const [exegesisPassage, setExegesisPassage] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
 
   // Update internal state when sermonData prop changes
   useEffect(() => {
@@ -400,6 +402,81 @@ export default function SermonEditor({
           </CardContent>
         </Card>
       )}
+
+      {/* Quality state — plain ministry language, one honest chip per proof
+          kind instead of a single misleading "verified" badge. */}
+      {(() => {
+        const refs = Array.isArray(currentSermon.scripture_validation) ? currentSermon.scripture_validation : [];
+        const invalid = refs.filter((r) => r.status === 'invalid_book' || r.status === 'out_of_range' || r.status === 'unparseable');
+        const deutero = refs.filter((r) => r.status === 'chapter_checked' || r.status === 'unsupported_canon');
+        const reviewed = currentSermon.pastor_reviewed === true;
+
+        const handleReview = async (acknowledged) => {
+          if (!currentSermon.id) return;
+          setIsReviewing(true);
+          try {
+            const updated = await api.entities.Sermon.review(currentSermon.id, acknowledged);
+            setCurrentSermon((prev) => ({ ...prev, ...updated }));
+            toast.success(acknowledged ? 'Marked as pastor reviewed.' : 'Review withdrawn.');
+          } catch (err) {
+            toast.error(err?.message || 'Could not update review state.');
+          } finally {
+            setIsReviewing(false);
+          }
+        };
+
+        return (
+          <Alert className={reviewed ? 'border-green-300' : invalid.length ? 'border-amber-300' : ''}>
+            <AlertDescription>
+              <div className="flex flex-wrap items-center gap-2">
+                {reviewed ? (
+                  <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                    <ShieldCheck className="w-3 h-3 mr-1" /> Pastor reviewed
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary">AI-generated draft — review before preaching</Badge>
+                )}
+                {invalid.length > 0 && (
+                  <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+                    <AlertCircle className="w-3 h-3 mr-1" />
+                    {invalid.length} reference{invalid.length > 1 ? 's need' : ' needs'} attention
+                  </Badge>
+                )}
+                {deutero.length > 0 && (
+                  <Badge variant="outline">
+                    Deuterocanon reference recognised — exact text source still needed
+                  </Badge>
+                )}
+                {refs.length > 0 && invalid.length === 0 && deutero.length === 0 && (
+                  <Badge variant="outline">{refs.length} reference{refs.length > 1 ? 's' : ''} checked</Badge>
+                )}
+                {currentSermon.id && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto"
+                    disabled={isReviewing}
+                    onClick={() => handleReview(!reviewed)}
+                  >
+                    {isReviewing ? (
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3 h-3 mr-1" />
+                    )}
+                    {reviewed ? 'Withdraw review' : "I've reviewed this sermon"}
+                  </Button>
+                )}
+              </div>
+              {invalid.length > 0 && (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                  {invalid.map((r) => `${r.ref} (${r.status === 'invalid_book' ? 'unknown book' : 'out of range'})`).join(' · ')}
+                  {' — '}open the Reader to verify each passage before preaching.
+                </p>
+              )}
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
 
       {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-3">

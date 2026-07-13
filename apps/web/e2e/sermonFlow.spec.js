@@ -105,6 +105,23 @@ test('core flow: generate → validation → save as clean draft → reopen from
   expect(captured[0].scripture_validation.length).toBeGreaterThan(0);
   expect(captured[0].scripture_validation.every((r) => r.status === 'valid')).toBe(true);
 
+  // The quality chip is honest: a draft, not a green "verified" badge.
+  await expect(page.getByText(/AI-generated draft — review before preaching/i)).toBeVisible();
+
+  // Explicit human review via the acknowledgment endpoint.
+  await page.route('**/api/entities/Sermon/*/review', (route) => {
+    const { acknowledged } = route.request().postDataJSON();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...saved[0], pastor_reviewed: acknowledged, reviewed_by: USER.id }),
+    });
+  });
+  await page.getByRole('button', { name: /I've reviewed this sermon/i }).click();
+  // Case-sensitive, unanchored: matches the chip ("Pastor reviewed"), not
+  // the lowercase toast copy ("Marked as pastor reviewed.").
+  await expect(page.getByText(/Pastor reviewed/).first()).toBeVisible({ timeout: 10_000 });
+
   // Reopen from the library.
   await page.goto('/MySermons');
   await expect(page.getByText('Amazing Grace for Every Day').first()).toBeVisible({ timeout: 15_000 });
@@ -136,4 +153,9 @@ test('warning flow: invalid Scripture → visible finding → still editable →
   // The draft remains editable after the warning (Save stays available for
   // a corrected re-save).
   await expect(page.getByRole('button', { name: /^Save Sermon$/i })).toBeEnabled();
+
+  // The finding is also surfaced as a persistent chip with the specific
+  // reference — not just a transient toast.
+  await expect(page.getByText(/1 reference needs? attention/i)).toBeVisible();
+  await expect(page.getByText(/Hezekiah 4:5/).first()).toBeVisible();
 });
