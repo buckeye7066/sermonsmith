@@ -29,6 +29,7 @@ import { execFileSync } from 'node:child_process';
 import { BENCHMARK_SCENARIOS, HIGH_RISK_SCENARIO_IDS } from '../packages/shared/benchmark/scenarios.js';
 import { SERVER_AI_INVARIANTS } from '../packages/shared/aiFeatures/index.js';
 import { denominationPromptBlock, canonForDenomination } from '../packages/shared/denominations/index.js';
+import { buildSermonPrompt, buildBibleStudyPrompt } from '../packages/shared/prompts/index.js';
 import { validateScriptureRefs, extractScriptureRefs } from '../packages/shared/scripture/index.js';
 
 const args = process.argv.slice(2);
@@ -133,6 +134,34 @@ function featureShape(s) {
 
 function scenarioPrompt(s) {
   const shape = featureShape(s);
+
+  // Sermon and Bible-study scenarios use the REAL shared UI prompt builders,
+  // so the measurement exercises exactly what production users get. (The
+  // appended JSON contract mirrors the server's buildJsonSchemaInstruction
+  // step, since the runner has no response_json_schema plumbing.)
+  if (s.feature === 'sermon') {
+    return [
+      buildSermonPrompt({
+        topic: s.topic,
+        passage: s.passages.join('; '),
+        denomination: s.tradition,
+        tone: s.tone,
+        audienceLabel: s.audience,
+      }),
+      `Respond with ONLY a JSON object. ${shape.contract}`,
+    ].join('\n\n');
+  }
+  if (s.feature === 'bible_study') {
+    return [
+      buildBibleStudyPrompt({
+        topic: s.passages.length ? `${s.topic} (anchored in ${s.passages.join('; ')})` : s.topic,
+        denomination: s.tradition,
+        studyType: 'group',
+      }),
+      `Respond with ONLY a JSON object. ${shape.contract}`,
+    ].join('\n\n');
+  }
+
   const parts = [
     `You are Larry, SermonSmith's AI ministry assistant. Create a complete ${s.feature.replace('_', ' ')} draft as JSON.`,
     fence('Topic', s.topic),
