@@ -248,6 +248,7 @@ Return sermon IDs with brief reason for recommendation.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'library',
         response_json_schema: {
           type: "object",
           properties: {
@@ -317,6 +318,7 @@ Be strategic and personalized.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'library',
         response_json_schema: {
           type: "object",
           properties: {

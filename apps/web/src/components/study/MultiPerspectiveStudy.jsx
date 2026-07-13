@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -142,8 +143,8 @@ export default function MultiPerspectiveStudy({ open, onClose, user }) {
 
 IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture.
 
-${passage ? `PASSAGE: ${passage}` : ''}
-${topic ? `TOPIC: ${topic}` : ''}
+${passage ? formatUserInputBlock('PASSAGE', passage) : ''}
+${topic ? formatUserInputBlock('TOPIC', topic) : ''}
 
 The user (${userDenom}) wants to understand how these traditions interpret this ${passage ? 'passage' : 'topic'}:
 ${allPerspectives.map((p, i) => `${i + 1}. ${p}`).join('\n')}
@@ -177,6 +178,7 @@ Be fair, accurate, and respectful to every tradition. Present each view charitab
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'study_plan',
         response_json_schema: perspectiveSchema
       });
 

@@ -41,6 +41,8 @@ export default function TranslationBrowser({
   const [isPremium, setIsPremium] = useState(false);
   const [, setIsDeveloper] = useState(false);
   const [externalEnabled, setExternalEnabled] = useState(false);
+  const [catalogDegraded, setCatalogDegraded] = useState(false);
+  const [catalogStale, setCatalogStale] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -70,6 +72,8 @@ export default function TranslationBrowser({
       setIsPremium(data.is_premium || false);
       setIsDeveloper(data.is_developer || false);
       setExternalEnabled(!!data.external_enabled);
+      setCatalogDegraded(!!data.premium_catalog_degraded);
+      setCatalogStale(!!data.premium_catalog_stale);
     } catch (error) {
       const msg = logError('Failed to load translations', error, {
         endpoint: 'listAvailableTranslations',
@@ -228,6 +232,18 @@ export default function TranslationBrowser({
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Non-blocking catalogue health notices from the API. */}
+            {catalogDegraded && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Premium translation catalogue is temporarily unavailable — showing free translations.
+              </p>
+            )}
+            {!catalogDegraded && catalogStale && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Premium catalogue may be out of date (provider temporarily unreachable).
+              </p>
             )}
 
             {/* Premium Upsell — shown only when there is actually a premium

@@ -132,6 +132,7 @@ Be scholarly yet accessible. Do not fabricate original-language claims or citati
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'reader_insight',
         response_json_schema: {
           type: "object",
           properties: {

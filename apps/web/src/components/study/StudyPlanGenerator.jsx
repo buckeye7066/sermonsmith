@@ -23,6 +23,7 @@ import { Loader2, Calendar, Sparkles, Save, Baby, User, GraduationCap, Heart, Sh
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 import SharePlanDialog from "../plans/SharePlanDialog";
 import PrintButton from "@/components/common/PrintButton";
 
@@ -135,11 +136,11 @@ export default function StudyPlanGenerator({ open, onClose, user }) {
     const ageGroupInfo = AGE_GROUPS.find(g => g.value === ageGroup);
     const baseContext = `Age Group: ${ageGroupInfo.label}
 Focus: ${ageGroupInfo.description}
-Topic: "${topic}"
-Custom Notes: ${customNotes || 'Standard approach'}
+${formatUserInputBlock('Topic', topic)}
+${formatUserInputBlock('Custom Notes', customNotes, 'Standard approach')}
 Denomination: ${user?.denomination || 'Non-Denominational'}
 
-For EACH DAY include: a progressive day TITLE; 1-3 SCRIPTURE READINGS (age-appropriate length); one KEY VERSE; a DEVOTIONAL CONTEXT (what's happening, why it matters, connection to "${topic}"); ACTIVITIES (${activitiesGuide(ageGroup)}); 2-3 DISCUSSION QUESTIONS; and PRAYER POINTS. Keep it engaging and age-appropriate.`;
+For EACH DAY include: a progressive day TITLE; 1-3 SCRIPTURE READINGS (age-appropriate length); one KEY VERSE; a DEVOTIONAL CONTEXT (what's happening, why it matters, connection to the study topic); ACTIVITIES (${activitiesGuide(ageGroup)}); 2-3 DISCUSSION QUESTIONS; and PRAYER POINTS. Keep it engaging and age-appropriate.`;
 
     // Build day-range batches so a 60/90-day plan never has to fit in one
     // completion (it used to truncate and fail entirely).
@@ -158,12 +159,13 @@ For EACH DAY include: a progressive day TITLE; 1-3 SCRIPTURE READINGS (age-appro
         const isFirst = i === 0;
         const prompt = isFirst
           ? `Larry, create days ${from}-${to} of an interactive ${duration}-day Bible study plan, plus a plan_title and a 2-3 sentence plan_overview.\n\n${baseContext}\n\nNumber the days ${from} through ${to}.`
-          : `Larry, continue the ${duration}-day study plan titled "${planMeta.plan_title}" on "${topic}". Produce ONLY days ${from} to ${to}, building progressively on the earlier days.\n\n${baseContext}\n\nNumber the days ${from} through ${to}.`;
+          : `Larry, continue the ${duration}-day study plan titled "${planMeta.plan_title}" on the fenced study topic below. Produce ONLY days ${from} to ${to}, building progressively on the earlier days.\n\n${baseContext}\n\nNumber the days ${from} through ${to}.`;
 
         try {
           const resp = await api.integrations.Core.InvokeLLM({
             system_prompt: LARRY_SYSTEM_PROMPT,
             prompt,
+            feature: 'study_plan',
             response_json_schema: isFirst ? FIRST_BATCH_SCHEMA : CONTINUE_BATCH_SCHEMA,
             max_tokens: 6000,
           });

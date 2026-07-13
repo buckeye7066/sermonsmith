@@ -3,6 +3,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
+import { denominationPromptBlock } from '@/lib/denominations';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -278,7 +280,7 @@ export default function WorldviewExplorer() {
 
 Be concise, accurate, and respectful.`;
 
-      const summary = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
+      const summary = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt, feature: 'worldview' });
       
       setSystemSummaries(prev => ({ ...prev, [systemName]: summary }));
     } catch (error) {
@@ -303,7 +305,9 @@ Be concise, accurate, and respectful.`;
     try {
       const denomination = user?.denomination || "Non-Denominational";
       
-      const prompt = `Compare ${compareSystemA} and ${compareSystemB} from a ${denomination} Christian perspective.
+      const prompt = `Compare ${compareSystemA} and ${compareSystemB} from the Christian perspective of the tradition described below.
+
+${denominationPromptBlock(denomination)}
 
 Provide analysis covering:
 
@@ -318,6 +322,7 @@ Be objective, fair, theologically sound.`;
       const comparison = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'worldview',
         response_json_schema: {
           type: "object",
           properties: {
@@ -368,14 +373,18 @@ Be objective, fair, theologically sound.`;
     try {
       const denomination = user?.denomination || "Non-Denominational";
       
-      const prompt = `Analyze ${systemName} from a Christian perspective for ministers and apologists.
+      const prompt = `Analyze the belief system named below from a Christian perspective for ministers and apologists.
+
+${formatUserInputBlock('Belief system', systemName)}
+
+${denominationPromptBlock(denomination)}
 
 Cover:
 1. Core beliefs (5-8)
 2. Why they believe (philosophical, cultural, experiential)
 3. Christian comparison (similarities, differences, common ground)
 4. Historical influence (on/from Christianity)
-5. Biblical perspective (scriptures, theological response from ${denomination})
+5. Biblical perspective (scriptures, theological response from the tradition described above)
 6. Apologetics (5-7 Q&A)
 7. Engagement tips (5-8 practical)
 
@@ -384,6 +393,7 @@ Be respectful, accurate, pastoral.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'worldview',
         response_json_schema: analysisSchema,
         // This is a deep 7-section analysis; the default 1500-token budget
         // truncates it mid-JSON (which then fails to parse and surfaces as

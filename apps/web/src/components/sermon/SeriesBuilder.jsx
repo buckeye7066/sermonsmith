@@ -169,6 +169,7 @@ Make this biblically accurate, aligned with the stated denominational/theologica
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: ARLYNN_SYSTEM_PROMPT,
         prompt,
+        feature: 'sermon_outline',
         response_json_schema: {
           type: "object",
           properties: {
@@ -306,6 +307,7 @@ Make this comprehensive but practical. Ensure each sermon clearly connects to th
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: ARLYNN_SYSTEM_PROMPT,
         prompt,
+        feature: 'sermon_series',
         response_json_schema: {
           type: "object",
           properties: {
@@ -425,6 +427,7 @@ Include:
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: ARLYNN_SYSTEM_PROMPT,
         prompt,
+        feature: 'sermon_series',
         response_json_schema: {
           type: "object",
           properties: {

@@ -62,6 +62,7 @@ Mix question types: observation, interpretation, application, and reflection.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'reader_insight',
         response_json_schema: {
           type: "object",
           properties: {
@@ -118,6 +119,7 @@ Make it detailed but accessible, about 400-500 words total.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'reader_insight',
         response_json_schema: {
           type: "object",
           properties: {
@@ -169,6 +171,7 @@ Be scholarly yet accessible. About 400 words.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'reader_insight',
         response_json_schema: {
           type: "object",
           properties: {
@@ -215,6 +218,7 @@ Make it personal, practical, and profound. About 350 words.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'reader_insight',
         response_json_schema: {
           type: "object",
           properties: {

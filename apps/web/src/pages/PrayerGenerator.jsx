@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
+import { denominationPromptBlock } from '@/lib/denominations';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,13 +124,15 @@ export default function PrayerGenerator() {
 
 You are a pastor helping create a biblically sound, heartfelt prayer.
 
-Create a ${typeInfo.label} on the theme: "${prayerTheme}"
+Create a ${typeInfo.label} on the user-provided theme below.
+
+${formatUserInputBlock('Prayer theme', prayerTheme)}
 
 Context:
-- Denomination: ${denomination}
+${denominationPromptBlock(denomination)}
 - Occasion: ${occasion}
-${scriptureRef ? `- Scripture Reference: ${scriptureRef}` : ''}
-${specificNeeds ? `- Specific Needs: ${specificNeeds}` : ''}
+${scriptureRef ? formatUserInputBlock('Scripture Reference', scriptureRef) : ''}
+${specificNeeds ? formatUserInputBlock('Specific Needs', specificNeeds) : ''}
 
 Guidelines:
 1. Be authentic, reverent, and biblically grounded
@@ -153,6 +157,7 @@ Make it heartfelt, not formulaic. Use concrete imagery. Be personal yet universa
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'prayer',
         response_json_schema: prayerSchema
       });
 
@@ -230,7 +235,9 @@ Make it heartfelt, not formulaic. Use concrete imagery. Be personal yet universa
     setIsGenerating(true);
 
     try {
-      const prompt = `Create a variation of this prayer on the same theme "${generatedPrayer.theme}" but with different wording and emphasis.
+      const prompt = `Create a variation of this prayer on the same user-provided theme below but with different wording and emphasis.
+
+${formatUserInputBlock('Prayer theme', generatedPrayer.theme)}
 
 Original prayer focus: ${generatedPrayer.body_sections.map(s => s.focus).join(', ')}
 
@@ -245,6 +252,7 @@ Same structure as before.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'prayer',
         response_json_schema: prayerSchema
       });
 

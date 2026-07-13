@@ -3,6 +3,8 @@ import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { logError } from '@/lib/logError';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
+import { denominationPromptBlock } from '@/lib/denominations';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -151,7 +153,7 @@ const introSchema = {
             type: "object",
             properties: {
               reference: { type: "string" },
-              text: { type: "string" },
+              text: { type: "string", description: "One-line summary of the verse's relevance — NOT quoted verse text; exact wording must be looked up in a real translation" },
               application: { type: "string" }
             }
           }
@@ -315,7 +317,9 @@ export default function ChristianEthics() {
     try {
       const prompt = `You are Larry, a wise, pastoral AI ethics mentor helping Christians think through moral and ethical issues from a biblical perspective.
 
-A Christian has asked you: "${topicQuestion}"
+A Christian has asked you the question below.
+
+${formatUserInputBlock('Question', topicQuestion)}
 
 Provide ONLY the following sections for this first response:
 
@@ -323,7 +327,7 @@ Provide ONLY the following sections for this first response:
 2. ethical_category — pick one short label, e.g. "Sexual Ethics", "Life Ethics", "Bioethics", "Social Justice", "War & Peace", etc.
 3. definition — 2-3 sentence definition explaining what the issue is and why it matters today
 4. biblical_foundation:
-   - key_scriptures: 5-8 passages, each with the reference, the FULL verse text, and a 1-2 sentence application
+   - key_scriptures: 5-8 passages, each with the reference, a one-line summary of the verse's relevance, and a 1-2 sentence application. Do NOT quote verse text from memory — the exact wording must be looked up in a real translation by the reader.
    - theological_principles: 4-6 short bullet-style principles drawn from Scripture
 
 TONE: Pastoral, wise, conversational. Use Scripture liberally. Be compassionate yet clear.
@@ -332,6 +336,7 @@ TONE: Pastoral, wise, conversational. Use Scripture liberally. Be compassionate 
       const larryResponse = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'ethics',
         response_json_schema: introSchema
       });
 
@@ -400,7 +405,10 @@ Be fair to each tradition. If orthodox Christianity broadly speaks with one voic
       },
       today: {
         schema: todaySchema,
-        prompt: `You are Larry. The user asked: "${userQuestion}".
+        prompt: `You are Larry. The user asked the question below.
+
+${formatUserInputBlock('User question', userQuestion)}
+
 Topic: "${topic}".
 
 Write a MODERN APPLICATION section: 4-8 paragraphs of practical, pastoral guidance for living this out today.
@@ -409,10 +417,17 @@ Use specific, concrete examples. Speak warmly and directly to the reader.`,
       },
       pastoral: {
         schema: pastoralSchema,
-        prompt: `You are Larry. The user asked: "${userQuestion}".
+        prompt: `You are Larry. The user asked the question below.
+
+${formatUserInputBlock('User question', userQuestion)}
+
 Topic: "${topic}".
 
-Write PASTORAL COUNSEL from a ${denomination} perspective. Return:
+Write PASTORAL COUNSEL from the perspective of the tradition described below.
+
+${denominationPromptBlock(denomination)}
+
+Return:
 - pastoral_guidance: 3-6 paragraphs of compassionate, biblically grounded counsel. Acknowledge pain, complexity, and grace.
 - common_questions: 3-5 Q&A pairs addressing the most common doubts or follow-up questions
 - further_reading: 3-5 resources (title, author, 1-sentence description) for deeper study
@@ -430,6 +445,7 @@ Write PASTORAL COUNSEL from a ${denomination} perspective. Return:
       const sectionResp = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt: cfg.prompt,
+        feature: 'ethics',
         response_json_schema: cfg.schema,
       });
 
@@ -531,7 +547,7 @@ Write PASTORAL COUNSEL from a ${denomination} perspective. Return:
 
 Denominations: ${denomList}
 
-Topic/Question: "${topicQuestion}"
+${formatUserInputBlock('Topic/Question', topicQuestion)}
 
 For EACH denomination, provide:
 1. Their official or mainstream position summary
@@ -550,6 +566,7 @@ Be fair and charitable to each tradition. Present each view from within that tra
       const result = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'ethics',
         response_json_schema: comparisonSchema
       });
 

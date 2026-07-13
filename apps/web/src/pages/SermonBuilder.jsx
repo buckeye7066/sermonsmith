@@ -129,6 +129,7 @@ Return as JSON array of objects with "reference" and "reason" fields.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'sermon_helper',
         response_json_schema: {
           type: "object",
           properties: {
@@ -291,7 +292,7 @@ Can you create a more engaging ${tone} illustration that:
 
 Give me just the new illustration (2-3 paragraphs).`;
 
-      const newIllustration = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
+      const newIllustration = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt, feature: 'sermon_helper' });
 
       setGeneratedSermon((prev) => {
         if (!prev) return prev;
@@ -339,6 +340,7 @@ Return as JSON array of verse references.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'sermon_helper',
         response_json_schema: {
           type: "object",
           properties: {
@@ -415,6 +417,7 @@ Return the full adapted sermon in the same JSON format.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'sermon_helper',
         response_json_schema: sermonGenerationSchema
       });
 

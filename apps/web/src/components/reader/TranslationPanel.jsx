@@ -91,7 +91,8 @@ Provide only the translated verse text in ${targetLangName}:`;
 
       const result = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
-        prompt: prompt
+        prompt: prompt,
+        feature: 'reader_insight'
       });
       
       const text = typeof result === 'string' ? result : (result?.response || result?.text || JSON.stringify(result));

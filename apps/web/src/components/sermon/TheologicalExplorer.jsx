@@ -26,6 +26,7 @@ import {
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 
 export default function TheologicalExplorer({ open, onClose, topic, passage, denomination }) {
   const [activeTab, setActiveTab] = useState("concepts");
@@ -40,8 +41,8 @@ export default function TheologicalExplorer({ open, onClose, topic, passage, den
     try {
       const prompt = `Larry, I need deep theological exploration for my sermon preparation!
 
-Topic: ${topic}
-Scripture: ${passage}
+${formatUserInputBlock('Topic', topic)}
+${formatUserInputBlock('Scripture', passage)}
 Denomination: ${denomination || 'Non-Denominational'}
 
 Please provide comprehensive theological analysis:
@@ -93,6 +94,7 @@ Make this scholarly but accessible. Include scripture references throughout.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'exegesis',
         response_json_schema: {
           type: "object",
           properties: {

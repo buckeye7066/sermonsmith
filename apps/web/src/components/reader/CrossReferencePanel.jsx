@@ -48,6 +48,7 @@ For each reference provide: scripture reference, text_snippet (the ACTUAL openin
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'reader_insight',
         // This is a multi-section structured output; without an explicit budget
         // it hit the 1500-token default and truncated ("response too long"),
         // failing with an empty modal. Give it room to finish.

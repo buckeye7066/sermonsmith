@@ -3,6 +3,7 @@ import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { SafeImg } from '@/components/ui/SafeImg';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -161,20 +162,25 @@ export default function BibleMaps() {
 2. "timeline" - queries about chronological events, sequences, prophecy timelines (e.g., "timeline of exodus", "rapture to judgment")
 3. "visual" - queries about appearance, how something looks, descriptions (e.g., "what does a cherubim look like", "show me the tabernacle")
 
-Query: "${searchQuery}"
+${formatUserInputBlock('Query', searchQuery)}
 
 Respond with just one word: location, timeline, or visual`;
 
       const classification = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
-        prompt: classificationPrompt
+        prompt: classificationPrompt,
+        feature: 'bible_maps'
       });
 
       const queryType = classification.toLowerCase().trim();
 
       if (queryType.includes('location')) {
         // Generate map data
-        const mapPrompt = `Based on the query "${searchQuery}", provide biblical and scholarly information about relevant locations. Include 3-5 locations with:
+        const mapPrompt = `Based on the user query below, provide biblical and scholarly information about relevant locations.
+
+${formatUserInputBlock('Query', searchQuery)}
+
+Include 3-5 locations with:
 1. Name of the location
 2. Approximate latitude and longitude (use scholarly consensus)
 3. Brief description and biblical significance
@@ -198,6 +204,7 @@ Format as JSON:
         const mapData = await api.integrations.Core.InvokeLLM({
           system_prompt: LARRY_SYSTEM_PROMPT,
           prompt: mapPrompt,
+          feature: 'bible_maps',
           response_json_schema: {
             type: "object",
             properties: {
@@ -227,7 +234,11 @@ Format as JSON:
 
       } else if (queryType.includes('timeline')) {
         // Generate timeline data
-        const timelinePrompt = `Based on the query "${searchQuery}", create a biblical timeline with 5-8 key events. Include:
+        const timelinePrompt = `Based on the user query below, create a biblical timeline with 5-8 key events.
+
+${formatUserInputBlock('Query', searchQuery)}
+
+Include:
 1. Event name
 2. Approximate date or time period (BC/AD or relative timing)
 3. Brief description
@@ -250,6 +261,7 @@ Format as JSON:
         const timelineData = await api.integrations.Core.InvokeLLM({
           system_prompt: LARRY_SYSTEM_PROMPT,
           prompt: timelinePrompt,
+          feature: 'bible_maps',
           response_json_schema: {
             type: "object",
             properties: {
@@ -278,7 +290,11 @@ Format as JSON:
 
       } else if (queryType.includes('visual')) {
         // Generate visual description and image
-        const descriptionPrompt = `Based on the query "${searchQuery}", provide a detailed biblical description. Include:
+        const descriptionPrompt = `Based on the user query below, provide a detailed biblical description.
+
+${formatUserInputBlock('Query', searchQuery)}
+
+Include:
 1. Physical appearance based on biblical text
 2. Symbolic meaning
 3. Scripture references
@@ -288,7 +304,8 @@ Be detailed and descriptive for creating a visual representation.`;
 
         const description = await api.integrations.Core.InvokeLLM({
           system_prompt: LARRY_SYSTEM_PROMPT,
-          prompt: descriptionPrompt
+          prompt: descriptionPrompt,
+          feature: 'bible_maps'
         });
 
         // Generate image

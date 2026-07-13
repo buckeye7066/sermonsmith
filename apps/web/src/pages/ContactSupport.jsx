@@ -3,6 +3,7 @@ import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { logError } from '@/lib/logError';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -78,7 +79,7 @@ export default function ContactSupport() {
     try {
       const prompt = `You are helping a user compose a ${messageType.replace('_', ' ')} message to the app developer (Dr. John White).
 
-Subject: ${subject}
+${formatUserInputBlock('Subject', subject)}
 
 Write a clear, professional message that:
 1. Explains the issue or request clearly
@@ -91,6 +92,7 @@ Return only the message text, nothing else.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'support',
         add_context_from_internet: false
       });
 
