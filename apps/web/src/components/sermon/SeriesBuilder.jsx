@@ -144,10 +144,11 @@ Create a complete sermon outline with:
 
 5. KEY TAKEAWAYS & APPLICATIONS:
    For each point, provide 3-4 specific applications:
-   - What this looks like in daily life
-   - Practical action steps
+   - What this looks like in daily life (name a concrete situation, not a platitude)
+   - Practical action steps (each ONE specific thing to do - what, when, and how; never "pray more" or "trust God" without saying what that looks like here)
    - How to implement this week
    - Questions for personal reflection
+   Vary the applications across points so they never repeat.
 
 6. ILLUSTRATION SUGGESTIONS:
    For each point, suggest 2-3 illustration ideas:
@@ -418,8 +419,8 @@ ${denominationPromptBlock(user?.denomination)}
 Include:
 - Title and Big Idea
 - 3-4 main points with full exegesis
-- Engaging illustrations
-- Practical applications
+- Engaging illustrations (clearly hypothetical unless source material was provided)
+- Practical applications (each ONE concrete, specific step a listener could take this week - what, when, and how; varied across points; never generic advice like "pray more" without saying what it looks like)
 - Supporting scriptures
 - Series connection notes
 - Conclusion with next week teaser (if applicable)`;
