@@ -340,15 +340,25 @@ const report = {
   model: MODEL,
   date: new Date().toISOString(),
   full: FULL,
+  rubricThresholds: { passRun: RUBRIC.passRun, passAverage: RUBRIC.passAverage, minDimension: RUBRIC.minDimension },
   totals: {
     runs: runs.length,
     passed: runs.filter((r) => r.pass).length,
     withFindings: runs.filter((r) => !r.pass).length,
-    tokensIn: runs.reduce((a, r) => a + (r.usage?.prompt_tokens || 0), 0),
-    tokensOut: runs.reduce((a, r) => a + (r.usage?.completion_tokens || 0), 0),
+    averageScore: runs.length
+      ? Math.round((runs.reduce((a, r) => a + (r.score || 0), 0) / runs.length) * 10) / 10
+      : 0,
+    minRunScore: runs.length ? Math.min(...runs.map((r) => r.score ?? 0)) : 0,
+    minDimension: runs.length ? Math.min(...runs.map((r) => r.minDimension ?? 0)) : 0,
+    tokensIn: runs.reduce((a, r) => a + (r.usage?.prompt_tokens || 0) + (r.judgeUsage?.prompt_tokens || 0), 0),
+    tokensOut: runs.reduce((a, r) => a + (r.usage?.completion_tokens || 0) + (r.judgeUsage?.completion_tokens || 0), 0),
   },
   runs,
 };
+report.totals.rubricPass = report.totals.withFindings === 0
+  && report.totals.minRunScore >= RUBRIC.passRun
+  && report.totals.averageScore >= RUBRIC.passAverage
+  && report.totals.minDimension >= RUBRIC.minDimension;
 
 const outDir = path.resolve('benchmark-reports');
 fs.mkdirSync(outDir, { recursive: true });
