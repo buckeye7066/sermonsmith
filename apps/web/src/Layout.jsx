@@ -13,6 +13,7 @@ import PWAInstallPrompt from './components/PWAInstallPrompt';
 import OnboardingWizard from './components/profile/OnboardingWizard';
 import EmbeddedBrowserDetector from './components/EmbeddedBrowserDetector';
 import WhatsNewDialog, { CURRENT_VERSION } from './components/WhatsNewDialog';
+import { isNativeApp } from './lib/platform';
 
 // The app logo is served as an SVG from /public so it works without an
 // external image host. We also keep a remote-friendly PNG fallback path in
@@ -279,7 +280,8 @@ export default function Layout({ children, currentPageName }) {
 
           <SidebarContent className="p-3">
             <SidebarMenu>
-              {!isPremium && (
+              {/* Store policy: native builds never show upgrade CTAs. */}
+              {!isPremium && !isNativeApp() && (
                 <SidebarMenuItem className="mb-4">
                   <Link to={createPageUrl('Pricing')} className="block w-full">
                     <Button className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white shadow-lg">

@@ -14,6 +14,7 @@ import { Settings as SettingsIcon, User, Crown, Bell, Loader2, Sparkles, Mail, M
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { isNativeApp } from "@/lib/platform";
 import PreferencesManager from "@/components/profile/PreferencesManager";
 import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import ProfileEditor from "@/components/profile/ProfileEditor";
@@ -231,6 +232,12 @@ export default function Settings() {
                   </div>
                   {isPremium ? (
                     <Crown className="w-12 h-12 text-purple-600" />
+                  ) : isNativeApp() ? (
+                    // Store policy: no purchase flow or upgrade steering in
+                    // the installed app.
+                    <p className="text-sm text-gray-500 dark:text-gray-400 max-w-[220px] text-right">
+                      Upgrades aren&apos;t available in this app.
+                    </p>
                   ) : (
                     <Link to={createPageUrl('Pricing')}>
                       <Button className="bg-purple-600 hover:bg-purple-700">
@@ -250,29 +257,40 @@ export default function Settings() {
                       </AlertDescription>
                     </Alert>
 
-                    <div className="flex flex-col gap-4 p-4 border rounded-lg sm:flex-row sm:items-center sm:justify-between">
-                      <div>
+                    {isNativeApp() ? (
+                      // The Stripe billing portal is an external payment
+                      // surface — store policy keeps it out of native builds.
+                      <div className="p-4 border rounded-lg">
                         <p className="font-medium">Manage Subscription</p>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Update your payment method, change your plan, or cancel.
+                          Manage your subscription where you purchased it.
                         </p>
                       </div>
-                      <Button
-                        variant="outline"
-                        onClick={handleManageSubscription}
-                        disabled={isOpeningPortal}
-                        className="w-full sm:w-auto"
-                      >
-                        {isOpeningPortal ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Opening...
-                          </>
-                        ) : (
-                          'Manage Subscription'
-                        )}
-                      </Button>
-                    </div>
+                    ) : (
+                      <div className="flex flex-col gap-4 p-4 border rounded-lg sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-medium">Manage Subscription</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            Update your payment method, change your plan, or cancel.
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          onClick={handleManageSubscription}
+                          disabled={isOpeningPortal}
+                          className="w-full sm:w-auto"
+                        >
+                          {isOpeningPortal ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Opening...
+                            </>
+                          ) : (
+                            'Manage Subscription'
+                          )}
+                        </Button>
+                      </div>
+                    )}
                   </>
                 )}
               </CardContent>

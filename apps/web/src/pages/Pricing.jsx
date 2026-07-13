@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 
 import { usePremiumAccess } from '../components/hooks/usePremiumAccess';
+import { isNativeApp } from '../lib/platform';
 
 const freeFeatures = [
     "KJV Bible Reader",
@@ -128,6 +129,35 @@ export default function Pricing() {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+            </div>
+        );
+    }
+
+    // Store policy: the installed app must not offer a purchase flow or
+    // point at an external one, so native builds get a neutral notice
+    // instead of plans, prices, or checkout.
+    if (isNativeApp()) {
+        return (
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
+                <div className="max-w-xl mx-auto pt-16">
+                    <Card>
+                        <CardHeader>
+                            <div className="flex items-center gap-2">
+                                <Crown className="w-6 h-6 text-purple-500" />
+                                <CardTitle>Subscriptions</CardTitle>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            <p className="text-gray-700 dark:text-gray-300">
+                                Subscription upgrades aren&apos;t available in this app.
+                            </p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                                If you already have a Premium subscription, simply log in with the
+                                same account — all of your Premium features work here.
+                            </p>
+                        </CardContent>
+                    </Card>
+                </div>
             </div>
         );
     }
