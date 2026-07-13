@@ -13,6 +13,7 @@ import {
   premiumProvider,
   isPremiumTranslationId,
   listPremiumTranslations,
+  listPremiumTranslationsDetailed,
   fetchPremiumChapter,
   sliceVerses,
 } from '../services/premiumTranslations.js';
@@ -398,14 +399,17 @@ router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
   // available only to premium accounts; everyone else sees them locked in the
   // picker. A flaky upstream degrades to the free catalogue, never an error.
   let externalEnabled = false;
+  let premiumCatalog = { degraded: false, stale: false };
   try {
-    const premium = await listPremiumTranslations();
-    externalEnabled = premium.length > 0;
-    for (const p of premium) {
+    const premium = await listPremiumTranslationsDetailed();
+    externalEnabled = premium.list.length > 0;
+    premiumCatalog = { degraded: premium.degraded, stale: premium.stale };
+    for (const p of premium.list) {
       translations.push({ ...p, available: isPremium, publicDomain: false });
     }
   } catch {
-    // Non-fatal — degrade to the free catalogue only.
+    // Non-fatal — degrade to the free catalogue only, but report it below.
+    premiumCatalog = { degraded: true, stale: false };
   }
 
   const byRegion = {};
@@ -432,6 +436,11 @@ router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
     // catalogue when one is actually being served.
     external_enabled: externalEnabled,
     premium_provider: premiumProvider(),
+    // Honest degradation state: when the external catalogue is unreachable
+    // the picker silently showing free-only misleads premium users. The UI
+    // can use these to show "premium catalogue temporarily unavailable".
+    premium_catalog_degraded: premiumCatalog.degraded,
+    premium_catalog_stale: premiumCatalog.stale,
   });
 });
 
@@ -1041,11 +1050,18 @@ router.post('/testAllFunctions', authenticateToken, requireAdmin, async (_req, r
 
   // Premium translation catalogue (external provider).
   try {
-    const premium = await listPremiumTranslations();
+    const premium = await listPremiumTranslationsDetailed();
+    const status = premium.degraded ? 'warn' : premium.list.length > 0 ? 'pass' : 'warn';
     checks.push({
       name: 'Premium translations',
-      status: premium.length > 0 ? 'pass' : 'warn',
-      ...(premium.length > 0 ? {} : { error: 'No external catalogue (free tier only)' }),
+      status,
+      ...(premium.degraded
+        ? { error: 'External catalogue unreachable (degraded to free-only)' }
+        : premium.stale
+          ? { error: 'Serving stale cached catalogue (upstream unreachable)' }
+          : premium.list.length > 0
+            ? {}
+            : { error: 'No external catalogue (free tier only)' }),
     });
   } catch {
     checks.push({ name: 'Premium translations', status: 'warn', error: 'Catalogue fetch failed' });
