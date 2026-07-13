@@ -369,6 +369,13 @@ const ALIAS_TO_PROFILE = {
   holiness: 'holiness', 'church of the nazarene': 'holiness', nazarene: 'holiness',
   'church of god (anderson, in)': 'holiness', 'salvation army': 'holiness', 'pilgrim holiness church': 'holiness',
   'other holiness': 'holiness',
+  // The Wesleyan-Holiness movement is its own family: without these exact
+  // aliases the substring matcher tie-broke "Wesleyan-Holiness" to the
+  // methodist profile ('wesleyan' and 'holiness' are the same length and
+  // methodist aliases are scanned first), losing the tradition's distinct
+  // sanctification emphases and cautions.
+  'wesleyan-holiness': 'holiness', 'wesleyan holiness': 'holiness',
+  'the wesleyan church': 'holiness',
 
   // Anabaptist
   anabaptist: 'anabaptist', mennonite: 'anabaptist', amish: 'anabaptist', brethren: 'anabaptist',
