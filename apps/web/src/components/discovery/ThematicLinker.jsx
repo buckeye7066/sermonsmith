@@ -86,6 +86,7 @@ Help users discover sermons and verses that deepen this study.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'thematic_linker',
         response_json_schema: {
           type: "object",
           properties: {
@@ -141,6 +142,7 @@ Return indices (1-based) of the 5 most relevant.`;
           const relevantIndices = await api.integrations.Core.InvokeLLM({
             system_prompt: LARRY_SYSTEM_PROMPT,
             prompt: filterPrompt,
+            feature: 'thematic_linker',
             response_json_schema: {
               type: "object",
               properties: { indices: { type: "array", items: { type: "number" } } }
@@ -172,6 +174,7 @@ Return indices (1-based).`;
               const planIndices = await api.integrations.Core.InvokeLLM({
                 system_prompt: LARRY_SYSTEM_PROMPT,
                 prompt: planFilterPrompt,
+                feature: 'thematic_linker',
                 response_json_schema: {
                   type: "object",
                   properties: { indices: { type: "array", items: { type: "number" } } }

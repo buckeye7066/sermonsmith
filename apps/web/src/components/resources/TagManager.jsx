@@ -97,6 +97,7 @@ Return ONLY a JSON array of tag suggestions (strings), nothing else. Example: ["
         const response = await api.integrations.Core.InvokeLLM({
           system_prompt: LARRY_SYSTEM_PROMPT,
           prompt,
+          feature: 'library',
           response_json_schema: {
             type: "object",
             properties: {

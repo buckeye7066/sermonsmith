@@ -26,6 +26,8 @@ import {
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
+import { denominationPromptBlock } from '@/lib/denominations';
 
 export default function ExegesisHelper({ open, onClose, initialPassage = "", denomination }) {
   const [passage, setPassage] = useState(initialPassage);
@@ -49,8 +51,9 @@ export default function ExegesisHelper({ open, onClose, initialPassage = "", den
     try {
       const prompt = `Larry, I need comprehensive biblical exegesis for sermon preparation!
 
-Scripture Passage: ${passage}
-Denomination: ${denomination || 'Non-Denominational'}
+${formatUserInputBlock('Scripture Passage', passage)}
+
+${denominationPromptBlock(denomination || 'Non-Denominational')}
 
 Provide deep exegetical analysis:
 
@@ -95,6 +98,7 @@ Be scholarly but accessible. Include specific examples.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'exegesis',
         response_json_schema: {
           type: "object",
           properties: {

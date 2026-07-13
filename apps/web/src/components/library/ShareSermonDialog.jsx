@@ -50,6 +50,7 @@ Return comprehensive tags for discoverability.`;
       const tagsResponse = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'library',
         response_json_schema: {
           type: "object",
           properties: {

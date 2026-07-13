@@ -101,6 +101,7 @@ Do NOT change the verse or its reference. Be warm, personal, and actionable.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'reader_insight',
         response_json_schema: {
           type: "object",
           properties: {

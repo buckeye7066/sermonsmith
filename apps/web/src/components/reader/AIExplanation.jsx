@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, Sparkles } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 import { toast } from "sonner";
 
 export default function AIExplanation({ open, onClose, verse, user }) {
@@ -26,16 +27,16 @@ export default function AIExplanation({ open, onClose, verse, user }) {
       const ministryFocus = user?.ministry_focus || [];
       const audience = user?.primary_audience || "general";
       
-      const focusContext = ministryFocus.length > 0 
-        ? ` with focus on ${ministryFocus.join(", ")}` 
+      const focusContext = ministryFocus.length > 0
+        ? `\n\n${formatUserInputBlock('Ministry focus', ministryFocus.join(', '))}`
         : "";
-      
+
       const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
 
-Provide a clear, insightful explanation of this Bible verse from a ${userDenomination} perspective, using a ${preachingStyle} teaching style${focusContext}:
+Provide a clear, insightful explanation of this Bible verse from a ${userDenomination} perspective, using a ${preachingStyle} teaching style${focusContext ? ' with focus on the fenced ministry areas below' : ''}:
 
 "${verse.text}"
-- ${verse.book_name} ${verse.chapter}:${verse.verse}
+- ${verse.book_name} ${verse.chapter}:${verse.verse}${focusContext}
 
 Tailor this explanation for: ${audience}
 
@@ -51,6 +52,7 @@ Keep it accessible, encouraging, and practical in a ${preachingStyle} tone. Abou
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'reader_insight',
         response_json_schema: {
           type: "object",
           properties: {

@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
+import { denominationPromptBlock } from '@/lib/denominations';
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,12 +69,19 @@ export default function QuizBuilder() {
     setQuizData(null);
 
     const denomination = user.denomination || 'Non-denominational';
-    const prompt = `Generate a Bible quiz on the topic "${topic}" with ${difficulty} difficulty level. The questions and correct answers should reflect the theological perspective and biblical interpretation of the "${denomination}" tradition. Create 10 multiple choice questions with 4 options each. Each question should test knowledge of Bible facts, stories, characters, or teachings related to "${topic}". Include the correct answer index (0-3), a brief explanation, and a relevant scripture reference for each question.`;
+    const prompt = `Generate a Bible quiz on the user-provided topic below with ${difficulty} difficulty level. The questions and correct answers should reflect the theological perspective and biblical interpretation of the tradition described below.
+
+${formatUserInputBlock('Quiz topic', topic)}
+
+${denominationPromptBlock(denomination)}
+
+Create 10 multiple choice questions with 4 options each. Each question should test knowledge of Bible facts, stories, characters, or teachings related to the quiz topic. Include the correct answer index (0-3), a brief explanation, and a relevant scripture reference for each question.`;
 
     try {
       const result = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt: `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.\n\n${prompt}`,
+        feature: 'quiz',
         response_json_schema: QUIZ_SCHEMA
       });
 

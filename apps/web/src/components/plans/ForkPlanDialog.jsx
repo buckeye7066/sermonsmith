@@ -126,6 +126,7 @@ Make it punchier while preserving the journey.`
           const response = await api.integrations.Core.InvokeLLM({
             system_prompt: LARRY_SYSTEM_PROMPT,
             prompt: adaptationPrompt[forkType],
+            feature: 'library',
             response_json_schema: {
               type: "object",
               properties: {

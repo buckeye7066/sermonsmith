@@ -19,6 +19,8 @@ import MultiPerspectiveStudy from "@/components/study/MultiPerspectiveStudy";
 import StreamingStudyPreview from "@/components/study/StreamingStudyPreview";
 import { parsePartialJson } from '@/lib/partialJson';
 import { coerceToSchema } from '@/lib/aiStructured';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
+import { denominationPromptBlock } from '@/lib/denominations';
 
 const STUDY_TYPES = [
   { value: "personal", label: "Personal Study" },
@@ -99,15 +101,17 @@ export default function BibleStudy() {
 
       // Personalize with user topics
       const userTopics = user?.content_preferences?.favoriteTopics || [];
-      const topicContext = userTopics.length > 0 
-        ? `\n\nUser's areas of interest: ${userTopics.join(', ')}. If these relate to "${topic}", incorporate relevant perspectives.`
+      const topicContext = userTopics.length > 0
+        ? `\n\n${formatUserInputBlock("User's areas of interest", userTopics.join(', '), 'None provided')}\nIf these relate to the study topic, incorporate relevant perspectives.`
         : '';
-      
+
       const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
 
-      You are Larry, a friendly and knowledgeable AI Bible study assistant. Create a comprehensive Bible study on the topic: "${topic}" for a ${studyType} setting.
+      You are Larry, a friendly and knowledgeable AI Bible study assistant. Create a comprehensive Bible study on the user-provided topic below for a ${studyType} setting.
 
-Denomination: ${denomination}${topicContext}
+${formatUserInputBlock('Study topic', topic)}
+
+${denominationPromptBlock(denomination)}${topicContext}
 
 Generate a Bible study guide that includes:
 1. A clear, engaging title
@@ -195,7 +199,7 @@ Key Sections: ${generatedStudy.study_sections.map(s => s.title).join(', ')}
 
 Give me a powerful summary that captures the heart of this study.`;
 
-      const summary = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
+      const summary = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt, feature: 'bible_study' });
       
       setAiSuggestions(prev => ({ ...prev, summary }));
       toast.success("Larry created a summary!");
@@ -224,6 +228,7 @@ Provide verses that complement but don't duplicate what's already included. Form
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'bible_study',
         response_json_schema: {
           type: "object",
           properties: {
@@ -266,6 +271,7 @@ Return as a JSON array of objects, each with "title" and "reason" fields explain
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'bible_study',
         response_json_schema: {
           type: "object",
           properties: {
@@ -323,6 +329,7 @@ Return as JSON array of strings.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'bible_study',
         response_json_schema: {
           type: "object",
           properties: {

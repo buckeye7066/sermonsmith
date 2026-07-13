@@ -41,6 +41,7 @@ import {
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 
 const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60);
@@ -227,6 +228,7 @@ Keep it VERY brief (2-3 sentences max) and ${assistantPersonality === 'encouragi
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'presentation',
         response_json_schema: {
           type: "object",
           properties: {
@@ -269,6 +271,7 @@ Keep it ${assistantPersonality === 'encouraging' ? 'encouraging and positive' : 
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'presentation',
         response_json_schema: {
           type: "object",
           properties: {
@@ -293,7 +296,7 @@ Keep it ${assistantPersonality === 'encouraging' ? 'encouraging and positive' : 
     try {
       const prompt = `Larry, I need a quick scripture reference while preaching!
 
-Query: "${scriptureQuery}"
+${formatUserInputBlock('Query', scriptureQuery)}
 
 Find and return 2-3 relevant Bible verses that address this. Include:
 - Verse reference
@@ -305,6 +308,7 @@ Keep each verse brief and directly applicable to preaching context.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'presentation',
         response_json_schema: {
           type: "object",
           properties: {
@@ -403,6 +407,7 @@ Match the ${personalityData.description} tone!`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'presentation',
         response_json_schema: {
           type: "object",
           properties: {

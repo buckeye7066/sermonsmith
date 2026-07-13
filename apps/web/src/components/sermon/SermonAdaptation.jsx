@@ -27,6 +27,7 @@ import {
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { denominationPromptBlock } from '@/lib/denominations';
 
 const SERMON_LENGTHS = [
   { value: "brief", label: "Brief (10-15 min)", minutes: "10-15" },
@@ -129,7 +130,7 @@ Make it TEACHING SERIES LENGTH (60+ min):
 - Q&A preparation material
 ` : `Keep it STANDARD (20-30 min) - just optimize the pacing.`}
 
-Denomination: ${sermon.denomination || 'Non-Denominational'}
+${denominationPromptBlock(sermon.denomination || 'Non-Denominational')}
 Maintain the same biblical truth and theology. Adjust ONLY the length and depth of content.
 
 Return the adapted sermon in the same JSON format with title, big_idea, points array, and conclusion.`;
@@ -137,6 +138,7 @@ Return the adapted sermon in the same JSON format with title, big_idea, points a
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'sermon_adaptation',
         response_json_schema: {
           type: "object",
           properties: {
@@ -224,7 +226,7 @@ Make it ACADEMIC/SEMINARY LEVEL:
 - Bibliography-worthy depth
 ` : `Keep it STANDARD - accessible but substantive teaching.`}
 
-Denomination: ${sermon.denomination || 'Non-Denominational'}
+${denominationPromptBlock(sermon.denomination || 'Non-Denominational')}
 Maintain the same core message and biblical truth. Adjust ONLY the theological depth and language complexity.
 
 Return the adapted sermon in the same JSON format.`;
@@ -232,6 +234,7 @@ Return the adapted sermon in the same JSON format.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'sermon_adaptation',
         response_json_schema: {
           type: "object",
           properties: {
@@ -310,6 +313,7 @@ Return the full translated sermon in the same JSON format.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'sermon_adaptation',
         response_json_schema: {
           type: "object",
           properties: {
@@ -403,6 +407,7 @@ Make it compelling and share-worthy!`;
         const response = await api.integrations.Core.InvokeLLM({
           system_prompt: LARRY_SYSTEM_PROMPT,
           prompt,
+          feature: 'sermon_adaptation',
           response_json_schema: {
             type: "object",
             properties: {
@@ -420,7 +425,7 @@ Make it compelling and share-worthy!`;
           metadata: { summaryType: summaryInfo.label }
         });
       } else {
-        const response = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
+        const response = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt, feature: 'sermon_adaptation' });
         const text = typeof response === 'string' ? response : response?.response || JSON.stringify(response);
 
         setAdaptedContent({

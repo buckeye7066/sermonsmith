@@ -50,6 +50,7 @@ Be respectful, accurate, and balanced. About 400-500 words total.`;
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
+        feature: 'reader_insight',
         response_json_schema: {
           type: "object",
           properties: {

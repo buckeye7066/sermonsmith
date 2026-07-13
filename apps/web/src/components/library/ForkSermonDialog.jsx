@@ -16,6 +16,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, GitFork, Wand2, Copy, Sparkles } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 import { toast } from "sonner";
 
 const ADAPTATION_OPTIONS = [
@@ -90,7 +91,7 @@ Adjust theological language, examples, and doctrinal emphasis while maintaining 
           adapt_audience: `Adapt this sermon for a different audience.
 
 Original: ${sermon.title}
-User's note: ${adaptationNotes || 'Modify for my specific congregation'}
+${formatUserInputBlock("User's note", adaptationNotes, 'Modify for my specific congregation')}
 
 Change illustrations, language complexity, and applications while keeping the biblical truth intact.`,
 
@@ -112,6 +113,7 @@ Keep the most crucial points, tighten illustrations, focus on core message. Make
           const response = await api.integrations.Core.InvokeLLM({
             system_prompt: LARRY_SYSTEM_PROMPT,
             prompt: adaptationPrompt[forkType],
+            feature: 'library',
             response_json_schema: {
               type: "object",
               properties: {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
+import { formatUserInputBlock } from '@/lib/aiPrompt';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,9 +120,9 @@ export default function Forum() {
     try {
       const prompt = `As a biblical assistant, provide a thoughtful, scripture-based response to this question or discussion:
 
-Title: ${selectedPost.title}
-Content: ${selectedPost.content}
-${selectedPost.scripture_reference ? `Scripture Reference: ${selectedPost.scripture_reference}` : ''}
+${formatUserInputBlock('Title', selectedPost.title)}
+${formatUserInputBlock('Content', selectedPost.content)}
+${selectedPost.scripture_reference ? formatUserInputBlock('Scripture Reference', selectedPost.scripture_reference) : ''}
 
 Provide a helpful, encouraging response that:
 1. Addresses their question or topic directly
@@ -131,7 +132,7 @@ Provide a helpful, encouraging response that:
 
 Keep response under 300 words.`;
 
-      const aiResponse = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt });
+      const aiResponse = await api.integrations.Core.InvokeLLM({ system_prompt: LARRY_SYSTEM_PROMPT, prompt, feature: 'community' });
 
       await api.community.replyToPost(selectedPost.id, {
         content: aiResponse,
