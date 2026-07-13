@@ -500,7 +500,15 @@ Return the full adapted sermon in the same JSON format.`;
       // Write the id (and status) back onto the in-memory sermon so the viewer
       // reflects the saved state and the Export button unlocks (it was gated on
       // `sermonData.id`, which never got set before).
-      setGeneratedSermon((prev) => ({ ...(prev || normalizedSermon), id: saved.id, status: payload.status }));
+      // Prefer the server's copy of trust state: the API recomputes
+      // scripture_validation and may downgrade status at the save gate.
+      setGeneratedSermon((prev) => ({
+        ...(prev || normalizedSermon),
+        id: saved.id,
+        status: saved.status ?? payload.status,
+        scripture_validation: saved.scripture_validation ?? payload.scripture_validation,
+        pastor_reviewed: saved.pastor_reviewed ?? false,
+      }));
 
       logActivity('sermon_created', {
         page_name: 'SermonBuilder',

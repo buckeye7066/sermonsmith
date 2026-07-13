@@ -252,6 +252,15 @@ function createEntityMethods(entityName) {
         method: 'POST',
         body: JSON.stringify({ items }),
       }),
+
+    // Explicit human review acknowledgment (scripture-gated types only).
+    // The generic create/update paths strip pastor_reviewed server-side;
+    // this endpoint is the one legitimate way to set or withdraw it.
+    review: (id, acknowledged) =>
+      apiFetch(`${base}/${safeId(id)}/review`, {
+        method: 'POST',
+        body: JSON.stringify({ acknowledged: !!acknowledged }),
+      }),
   };
 }
 
