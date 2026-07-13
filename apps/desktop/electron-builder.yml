@@ -1,5 +1,14 @@
 appId: com.sermonsmith.app
 productName: Sermon Smith
+# npm workspaces hoist electron to the ROOT node_modules; electron-builder's
+# module discovery walks from apps/desktop and misses it, failing with
+# "Cannot compute electron version". Pin it explicitly (keep in sync with the
+# electron devDependency).
+electronVersion: 41.1.1
+# No auto-update/publish provider is configured; without this, the build
+# crashes AFTER producing the installers while generating update-info
+# metadata ("Cannot read properties of null (reading 'provider')").
+publish: null
 directories:
   output: ../../dist-electron
 files:
