@@ -324,22 +324,37 @@ export function _resetPremiumCatalogCache() {
   _catalogCache = { provider: null, at: 0, list: [] };
 }
 
-export async function listPremiumTranslations() {
+/**
+ * Premium catalogue with honest availability state. The Reader must never
+ * break on a flaky upstream, but the degradation must not be SILENT either:
+ * `stale` means we are serving a previously cached catalogue past its TTL;
+ * `degraded` means the provider is configured but unreachable and we have
+ * nothing cached, so the premium catalogue has vanished from the picker.
+ * Consumers surface these so a premium user is told "catalogue temporarily
+ * unavailable" instead of silently seeing a free-only list.
+ */
+export async function listPremiumTranslationsDetailed() {
   const provider = premiumProvider();
-  if (!provider) return [];
+  if (!provider) return { provider: null, list: [], degraded: false, stale: false };
   const fresh = _catalogCache.provider === provider
     && _catalogCache.list.length > 0
     && (Date.now() - _catalogCache.at) < PREMIUM_CACHE_TTL_MS;
-  if (fresh) return _catalogCache.list;
+  if (fresh) return { provider, list: _catalogCache.list, degraded: false, stale: false };
   try {
     const list = provider === 'api-bible' ? await apiBibleCatalog() : await getBibleCatalog();
     _catalogCache = { provider, at: Date.now(), list };
-    return list;
+    return { provider, list, degraded: false, stale: false };
   } catch {
     // Never let a flaky upstream break the Reader: serve stale catalogue if we
-    // have one, otherwise degrade to free-only (empty premium list).
-    return _catalogCache.list.length ? _catalogCache.list : [];
+    // have one, otherwise degrade to free-only (empty premium list) — but say so.
+    return _catalogCache.list.length
+      ? { provider, list: _catalogCache.list, degraded: false, stale: true }
+      : { provider, list: [], degraded: true, stale: false };
   }
+}
+
+export async function listPremiumTranslations() {
+  return (await listPremiumTranslationsDetailed()).list;
 }
 
 export async function fetchPremiumChapter({ id, book, chapter }) {

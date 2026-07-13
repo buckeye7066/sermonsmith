@@ -5,6 +5,7 @@ import {
   isPremiumTranslationId,
   premiumProvider,
   listPremiumTranslations,
+  listPremiumTranslationsDetailed,
   fetchPremiumChapter,
   bookByName,
   canonScope,
@@ -159,5 +160,42 @@ describe('premiumTranslations — getBible provider (mocked fetch)', () => {
     vi.stubGlobal('fetch', mockFetch([])); // every request 404s
     const list = await listPremiumTranslations();
     expect(list).toEqual([]);
+  });
+
+  it('detailed state reports degraded (not silent) when upstream fails with no cache', async () => {
+    _resetPremiumCatalogCache();
+    vi.stubGlobal('fetch', mockFetch([])); // every request 404s
+    const state = await listPremiumTranslationsDetailed();
+    expect(state).toMatchObject({ provider: 'getbible', degraded: true, stale: false });
+    expect(state.list).toEqual([]);
+  });
+
+  it('detailed state reports stale when serving an expired cache past a failing upstream', async () => {
+    _resetPremiumCatalogCache();
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', mockFetch([{ match: '/translations.json', payload: GETBIBLE_TRANSLATIONS }]));
+      const first = await listPremiumTranslationsDetailed();
+      expect(first.degraded).toBe(false);
+      expect(first.stale).toBe(false);
+      expect(first.list.length).toBeGreaterThan(0);
+
+      // Expire the cache, then make the upstream unreachable.
+      vi.advanceTimersByTime(7 * 60 * 60 * 1000); // TTL default is 6h
+      vi.stubGlobal('fetch', mockFetch([]));
+      const second = await listPremiumTranslationsDetailed();
+      expect(second.stale).toBe(true);
+      expect(second.degraded).toBe(false);
+      expect(second.list.length).toBe(first.list.length);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('detailed state is clean when no provider is configured', async () => {
+    _resetPremiumCatalogCache();
+    process.env.DISABLE_PREMIUM_TRANSLATIONS = '1';
+    const state = await listPremiumTranslationsDetailed();
+    expect(state).toMatchObject({ provider: null, degraded: false, stale: false, list: [] });
   });
 });
