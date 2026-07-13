@@ -4,6 +4,7 @@ Multi-platform sermon-prep app. npm-workspaces monorepo. Auto-generated map.
 
 ## Tech stack
 React 18 + Vite 6 + TS + Tailwind + Radix + TanStack Query (web) · Express + Prisma + PostgreSQL (api) · JWT via httpOnly cookies · OpenAI (GPT-4o-mini) · Stripe · Electron (desktop) · Capacitor (mobile) · Deploy: Vercel (web) + Railway (api+PG).
+Web also uses `idb` (IndexedDB offline persistence) and `jspdf` (PDF export).
 
 ## Monorepo layout
 - `apps/web` — React/Vite, → Vercel
@@ -17,14 +18,19 @@ React 18 + Vite 6 + TS + Tailwind + Radix + TanStack Query (web) · Express + Pr
 npm run dev               # web @ :5173
 npm run dev:api           # api @ :3001 (--watch)
 npm run build             # build:web + check:api
-npm run test              # api vitest
+npm run test              # api + web vitest workspaces
+npm run lint              # web + api ESLint
+npm run typecheck         # web + api
+npm run test:e2e          # Playwright (web)
+npm run db:generate       # Prisma client generate
 npm run db:migrate        # Prisma dev migrate
 npm run db:migrate:deploy # prod
-npm run db:seed
+npm run db:seed -w @sermonsmith/api   # no root db:seed script
 npm run electron:dev
 npm run cap:sync
 npm run release:check
 ```
+Engines: node >=20, npm >=10 (root `engines`).
 
 ## Entry points
 - Web: `apps/web/src/main.jsx` → `App.jsx` (Router + pagesConfig + AuthProvider); `apps/web/src/api/apiClient.js` (fetch wrapper, resolves API base: Electron config → `VITE_API_URL` → origin)
