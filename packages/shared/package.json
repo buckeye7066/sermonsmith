@@ -8,7 +8,8 @@
     ".": "./index.js",
     "./scripture": "./scripture/index.js",
     "./denominations": "./denominations/index.js",
-    "./aiFeatures": "./aiFeatures/index.js"
+    "./aiFeatures": "./aiFeatures/index.js",
+    "./benchmark": "./benchmark/scenarios.js"
   },
   "description": "Shared configuration, types, and utilities for SermonSmith"
 }
