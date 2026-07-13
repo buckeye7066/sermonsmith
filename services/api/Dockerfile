@@ -20,6 +20,11 @@ WORKDIR /app
 # versions CI runs against.
 COPY package.json package-lock.json ./
 COPY services/api/package.json services/api/package.json
+# The API depends on the @sermonsmith/shared workspace package (canonical
+# Scripture validator + denomination engine). Its manifest must be inside
+# the build context for `npm ci` to resolve the workspace link instead of
+# trying (and failing) to fetch the private name from the registry.
+COPY packages/shared/package.json packages/shared/package.json
 
 RUN npm ci --workspace @sermonsmith/api --omit=dev
 
@@ -52,6 +57,10 @@ COPY package.json package-lock.json ./
 COPY services/api/package.json ./services/api/package.json
 COPY services/api/prisma ./services/api/prisma
 COPY services/api/src ./services/api/src
+# The @sermonsmith/shared workspace source must ride along: npm links it as
+# node_modules/@sermonsmith/shared -> ../../packages/shared, so the runtime
+# image needs the real files at that path or the API crashes on import.
+COPY packages/shared ./packages/shared
 
 WORKDIR /app/services/api
 

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { validateAiSermon } from '@sermonsmith/shared/scripture';
+import { canonForDenomination } from '@sermonsmith/shared/denominations';
 
 // Tenant-isolated entity API.
 //
@@ -275,6 +277,100 @@ const ENTITY_SCHEMAS = {
   ResourceLink: z.object({}).passthrough(),
 };
 
+// ---------------------------------------------------------------------------
+// Server-side Scripture / quality-state gate.
+//
+// Until now the server stored whatever `scripture_validation` and `status`
+// the client sent — a buggy or malicious client (or any AI feature that
+// skips client-side validation) could persist a forged all-valid validation
+// blob or mark unvalidated AI output `published`. The durable write is the
+// one choke point every save path crosses, so trust state is computed HERE,
+// with the exact same shared validator the web client uses.
+//
+// Rules for scripture-gated types (currently Sermon):
+//   - `scripture_validation` is always recomputed server-side; a client-
+//     supplied blob is ignored.
+//   - Review-only trust fields (pastor_reviewed, ready_to_present, …) are
+//     stripped: only a real human review flow may ever set them — never the
+//     generic entity API, and never the AI pipeline.
+//   - A record whose references do not all verify cannot be `published`
+//     (422 — the user can fix the references and retry), and a `draft`
+//     save is honestly relabeled `needs_review`. `archived` stays allowed.
+//   - The user's work is never rejected or rewritten beyond those trust
+//     fields: imperfect content saves fine as a private needs_review draft.
+//
+// Canon: references are validated against the canon of the record's
+// denomination (payload → stored record → user profile), so a Catholic
+// sermon citing Wisdom is honestly `chapter_checked`, not "invalid book".
+// ---------------------------------------------------------------------------
+const SCRIPTURE_GATED_TYPES = new Set(['Sermon']);
+
+// Trust-state fields that only a human review flow may set. No current UI
+// writes these; stripping them closes the forgery path before one exists.
+const REVIEW_ONLY_FIELDS = [
+  'pastor_reviewed',
+  'ready_to_present',
+  'reviewed_by',
+  'reviewed_at',
+  'verified',
+];
+
+async function denominationForRequest(req, ...candidates) {
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c;
+  }
+  const user = await prisma.user.findUnique({
+    where: { id: req.userId },
+    select: { profile: true },
+  });
+  const fromProfile = user?.profile?.denomination;
+  return typeof fromProfile === 'string' ? fromProfile : '';
+}
+
+/**
+ * Apply the Scripture/quality-state gate to an incoming create/update for a
+ * gated type. Mutates and returns a copy of `incoming` with trust fields
+ * stripped, `scripture_validation` recomputed over the full merged record,
+ * and `status` honestly downgraded. Throws 422 on an attempt to publish a
+ * record whose references do not all verify.
+ */
+async function applyScriptureGate(req, type, incoming, existingData = null) {
+  if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
+
+  const data = { ...incoming };
+  for (const field of REVIEW_ONLY_FIELDS) delete data[field];
+  // The client's validation blob is advisory UI state at best; the stored
+  // record carries only the server-computed result.
+  delete data.scripture_validation;
+
+  const merged = { ...(existingData || {}), ...data };
+  const denomination = await denominationForRequest(
+    req,
+    merged.denomination,
+  );
+  const validation = validateAiSermon(merged, {
+    canon: canonForDenomination(denomination),
+  });
+  data.scripture_validation = validation.refs;
+
+  const requestedStatus = data.status ?? existingData?.status;
+  if (!validation.allValid) {
+    if (requestedStatus === 'published') {
+      throw Object.assign(
+        new Error(
+          `Cannot publish: ${validation.summary}. Fix the flagged references (or keep the record as a draft) and try again.`,
+        ),
+        { status: 422, scripture_validation: validation.refs },
+      );
+    }
+    if (requestedStatus === 'draft' || requestedStatus == null) {
+      data.status = 'needs_review';
+    }
+  }
+
+  return data;
+}
+
 function validateEntityPayload(type, body) {
   const schema = ENTITY_SCHEMAS[type];
   if (!schema) {
@@ -381,13 +477,13 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
 
     // Validate every item BEFORE we open the transaction so a partial
     // batch never lands in the DB.
-    const validated = arr.map((rawItem) => {
+    const validated = await Promise.all(arr.map((rawItem) => {
       // Strip client-supplied user_id / userId so a caller can't claim
       // they're creating an entity on someone else's behalf.
       // eslint-disable-next-line no-unused-vars
       const { user_id, userId, id, ...item } = rawItem || {};
-      return validateEntityPayload(req.params.type, item);
-    });
+      return applyScriptureGate(req, req.params.type, validateEntityPayload(req.params.type, item));
+    }));
 
     const created = await prisma.$transaction(
       validated.map((item) =>
@@ -419,7 +515,11 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
     }
     // eslint-disable-next-line no-unused-vars
     const { user_id, userId, id, ...rawBody } = req.body || {};
-    const body = validateEntityPayload(req.params.type, rawBody);
+    const body = await applyScriptureGate(
+      req,
+      req.params.type,
+      validateEntityPayload(req.params.type, rawBody),
+    );
     const entity = await prisma.entity.create({
       data: {
         type: req.params.type,
@@ -542,6 +642,8 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       }
       patch = parsed.data;
     }
+
+    patch = await applyScriptureGate(req, req.params.type, patch, existing.data);
 
     const entity = await prisma.entity.update({
       where: { id: req.params.id },
