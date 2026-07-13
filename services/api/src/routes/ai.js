@@ -121,6 +121,14 @@ const MAX_PROMPT_CHARS = Number(process.env.AI_MAX_PROMPT_CHARS || 24000);
 const MAX_SYSTEM_PROMPT_CHARS = Number(process.env.AI_MAX_SYSTEM_PROMPT_CHARS || 12000);
 const MAX_SCHEMA_CHARS = Number(process.env.AI_MAX_SCHEMA_CHARS || 12000);
 
+// ASCII Record Separator (0x1E). When a /stream client opts in with
+// `stream_result: true`, the streamed text is followed by `\n` + this char +
+// a one-line JSON object `{ ok, truncated }` describing whether the full
+// response parsed as the requested JSON. The control character never occurs
+// in legitimate model text output, so the client can split on it safely.
+// Keep in sync with STREAM_RESULT_SEPARATOR in apps/web/src/api/apiClient.js.
+const STREAM_RESULT_SEPARATOR = '\u001E';
+
 // Image requests: bound the prompt (OpenAI image models cap prompts at ~4000
 // chars anyway) and allowlist `size` so an arbitrary string never reaches the
 // provider. Covers DALL-E 2/3 and gpt-image dimensions; the client currently
@@ -138,6 +146,12 @@ const invokeRequestSchema = z.object({
   model: z.string().max(100).optional(),
   max_tokens: z.union([z.number(), z.string()]).optional(),
   temperature: z.union([z.number(), z.string()]).optional(),
+  // Opt-in (new clients): /stream appends a machine-readable result trailer
+  // after the streamed text so the client learns whether the final payload
+  // parsed as the requested JSON — the streaming path's equivalent of
+  // /invoke's 502-on-invalid-JSON. Old clients that don't send this flag get
+  // the exact legacy byte stream.
+  stream_result: z.boolean().optional(),
 }).superRefine((value, ctx) => {
   if (value.response_json_schema !== undefined) {
     try {
@@ -654,7 +668,7 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     if (!parsed.success) {
       return res.status(400).json({ message: 'Invalid AI request', issues: parsed.error.issues });
     }
-    const { prompt, system_prompt, response_json_schema, feature, model, max_tokens, temperature } = parsed.data;
+    const { prompt, system_prompt, response_json_schema, feature, model, max_tokens, temperature, stream_result } = parsed.data;
     const resolvedModel = resolveModel(model, req.userPremium);
     const clampedTokens = clampTokens(max_tokens, req.userPremium);
     const clampedTemperature = clampTemperature(temperature);
@@ -702,19 +716,47 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     started = true;
 
     let full = '';
+    let finishReason = null;
     for await (const chunk of completion) {
       const delta = chunk?.choices?.[0]?.delta?.content || '';
       if (delta) {
         full += delta;
         res.write(delta);
       }
+      if (chunk?.choices?.[0]?.finish_reason) {
+        finishReason = chunk.choices[0].finish_reason;
+      }
+    }
+
+    // Converge on the same final JSON-integrity check /invoke applies. The
+    // bytes are already sent, so we cannot 502 — but we CAN tell the truth:
+    // audit the real outcome (a malformed/truncated stream was previously
+    // recorded as `success`), and for opted-in clients append a result
+    // trailer (RS control char + JSON) so the client knows the final payload
+    // did not parse and can fall back instead of keeping the partial preview
+    // as a "completed" sermon.
+    const truncated = finishReason === 'length';
+    let outcome = { status: 'success', failureType: null, ok: true };
+    if (response_json_schema) {
+      const finalParse = extractJson(full);
+      if (!finalParse.ok) {
+        outcome = {
+          status: 'invalid_json',
+          failureType: truncated ? 'truncated' : 'invalid_json',
+          ok: false,
+        };
+      }
+    }
+    if (stream_result) {
+      res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify({ ok: outcome.ok, truncated })}`);
     }
     res.end();
 
     await auditAiCall({
       ...auditBase,
       response: full,
-      status: 'success',
+      status: outcome.status,
+      failureType: outcome.failureType || undefined,
       tokenEstimate: estimateTokenCount(auditBase.prompt, full),
     });
   } catch (err) {
