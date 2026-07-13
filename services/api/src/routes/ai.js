@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
+import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
 
 const router = Router();
 
@@ -528,7 +529,10 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
       return res.status(429).json({ message: `Daily AI limit reached (${usage.limit}). Upgrade or try again tomorrow.` });
     }
 
-    const messages = [];
+    // The server's own invariants ALWAYS lead the conversation. The client's
+    // system prompt (persona, feature instructions) follows as a separate
+    // system message and cannot remove or outrank the server policy.
+    const messages = [{ role: 'system', content: SERVER_AI_INVARIANTS }];
     if (system_prompt) messages.push({ role: 'system', content: system_prompt });
     messages.push({ role: 'user', content: prompt });
 
@@ -541,7 +545,9 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
 
     if (response_json_schema) {
       params.response_format = { type: 'json_object' };
-      const schemaIdx = system_prompt ? 0 : messages.length - 1;
+      // Append the JSON instruction to the CLIENT layer (its system prompt
+      // when present, else the user message) - never to the server policy.
+      const schemaIdx = system_prompt ? 1 : messages.length - 1;
       messages[schemaIdx].content += `\n\n${buildJsonSchemaInstruction(response_json_schema)}`;
     }
 
@@ -680,7 +686,10 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
       return res.status(429).json({ message: `Daily AI limit reached (${usage.limit}). Upgrade or try again tomorrow.` });
     }
 
-    const messages = [];
+    // The server's own invariants ALWAYS lead the conversation. The client's
+    // system prompt (persona, feature instructions) follows as a separate
+    // system message and cannot remove or outrank the server policy.
+    const messages = [{ role: 'system', content: SERVER_AI_INVARIANTS }];
     if (system_prompt) messages.push({ role: 'system', content: system_prompt });
     messages.push({ role: 'user', content: prompt });
 
@@ -693,7 +702,9 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     };
     if (response_json_schema) {
       params.response_format = { type: 'json_object' };
-      const schemaIdx = system_prompt ? 0 : messages.length - 1;
+      // Append the JSON instruction to the CLIENT layer (its system prompt
+      // when present, else the user message) - never to the server policy.
+      const schemaIdx = system_prompt ? 1 : messages.length - 1;
       messages[schemaIdx].content += `\n\n${buildJsonSchemaInstruction(response_json_schema)}`;
     }
 
