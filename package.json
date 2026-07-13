@@ -51,5 +51,14 @@
     "node": ">=20",
     "npm": ">=10"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "allowScripts": {
+    "@prisma/client@6.19.2": true,
+    "@prisma/engines@6.19.3": true,
+    "core-js@3.48.0": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.25.12": true,
+    "prisma@6.19.3": true,
+    "sharp@0.33.5": true
+  }
 }
