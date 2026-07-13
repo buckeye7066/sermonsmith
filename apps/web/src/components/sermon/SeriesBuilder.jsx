@@ -34,7 +34,7 @@ import {
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import { ARLYNN_SYSTEM_PROMPT } from '@/ai/personas';
-import { denominationPromptBlock } from '@/lib/denominations';
+import { canonForDenomination, denominationPromptBlock } from '@/lib/denominations';
 import { asArray, normalizeOutline, normalizeSermon, normalizeSeriesOutline } from '@/lib/aiStructured';
 import { validateAiSermon } from '@/lib/scriptureRefs';
 import { getAiErrorMessage } from '@/lib/aiErrors';
@@ -512,7 +512,7 @@ Include:
           outline.conclusion?.call_to_action,
           outline.conclusion?.invitation,
         ].filter(Boolean).join('\n\n'),
-      });
+      }, { canon: canonForDenomination(user?.denomination) });
 
       await api.entities.Sermon.create({
         user_id: user.id,
@@ -542,7 +542,7 @@ Include:
     try {
       const items = generatedSermons.map((sermon) => {
         const normalized = normalizeSermon(sermon);
-        const validation = validateAiSermon(normalized);
+        const validation = validateAiSermon(normalized, { canon: canonForDenomination(user?.denomination) });
 
         return {
           title: `${seriesOutline.series_title} - Week ${normalized.week}: ${normalized.title}`,

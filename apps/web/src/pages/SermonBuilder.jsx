@@ -7,7 +7,7 @@ import { asArray, mergeUniqueStrings, normalizeSermon } from '@/lib/aiStructured
 import { parsePartialJson } from '@/lib/partialJson';
 import { getAiErrorMessage } from '@/lib/aiErrors';
 import { formatUserInputBlock } from '@/lib/aiPrompt';
-import { DENOMINATION_GROUPS, denominationPromptBlock, resolveDenominationProfile } from '@/lib/denominations';
+import { DENOMINATION_GROUPS, canonForDenomination, denominationPromptBlock, resolveDenominationProfile } from '@/lib/denominations';
 import { logError } from '@/lib/logError';
 import { Button } from "@/components/ui/button";
 import { logActivity } from "../components/admin/UserActivityLogger";
@@ -457,7 +457,9 @@ Return the full adapted sermon in the same JSON format.`;
       // are flagged as `invalid_book` and we mark the entire sermon
       // `needs_review` so the UI surfaces a warning instead of letting a
       // hallucinated citation reach the pulpit.
-      const validation = validateAiSermon(normalizedSermon);
+      const validation = validateAiSermon(normalizedSermon, {
+        canon: canonForDenomination(normalizedSermon.denomination),
+      });
       if (!validation.allValid) {
         toast.warning('Some Scripture references look invalid — please verify before publishing.');
       }

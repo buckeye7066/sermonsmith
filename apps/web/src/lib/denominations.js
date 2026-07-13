@@ -29,6 +29,10 @@ export const DENOMINATION_PROFILES = {
     id: 'catholic',
     name: 'Catholic',
     family: 'Catholic',
+    // Structured canon id consumed by the shared Scripture validator so a
+    // Catholic citation of Wisdom/Sirach is recognized instead of being
+    // flagged as a fabricated book. See @sermonsmith/shared/scripture.
+    canon: 'catholic',
     summary: 'Roman Catholic — Scripture and Sacred Tradition under the Magisterium.',
     authority:
       'Scripture and Sacred Tradition together, authoritatively interpreted by the Magisterium (Pope and bishops). Use the Catholic canon (incl. deuterocanonical books). The Catechism of the Catholic Church is a key reference.',
@@ -48,6 +52,9 @@ export const DENOMINATION_PROFILES = {
     id: 'orthodox',
     name: 'Eastern Orthodox',
     family: 'Orthodox',
+    // Orthodox canon includes the deuterocanon (plus books the validator
+    // does not yet register — see the scope note in shared/scripture).
+    canon: 'orthodox',
     summary: 'Eastern Orthodox — Holy Tradition, the Fathers, and theosis.',
     authority:
       'Holy Tradition, of which Scripture is the heart, received through the seven Ecumenical Councils and the Church Fathers. Read Scripture liturgically and patristically rather than as a private text.',
@@ -482,6 +489,16 @@ export function resolveDenominationProfile(name) {
  * named tradition. Returned as a fenced section so it reads as data, not as an
  * instruction the model can be talked out of.
  */
+/**
+ * Structured canon id for a denomination string, for the shared Scripture
+ * validator. Catholic/Orthodox traditions read the deuterocanon as Scripture;
+ * everything else (including unknown/unprofiled traditions) validates against
+ * the Protestant 66-book canon, which is the conservative default.
+ */
+export function canonForDenomination(name) {
+  return resolveDenominationProfile(name)?.canon || 'protestant';
+}
+
 export function denominationPromptBlock(name) {
   const p = resolveDenominationProfile(name);
   const label = String(name || p.name).trim() || p.name;
