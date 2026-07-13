@@ -19,8 +19,7 @@ import MultiPerspectiveStudy from "@/components/study/MultiPerspectiveStudy";
 import StreamingStudyPreview from "@/components/study/StreamingStudyPreview";
 import { parsePartialJson } from '@/lib/partialJson';
 import { coerceToSchema } from '@/lib/aiStructured';
-import { formatUserInputBlock } from '@/lib/aiPrompt';
-import { denominationPromptBlock } from '@/lib/denominations';
+import { buildBibleStudyPrompt } from '@sermonsmith/shared/prompts';
 
 const STUDY_TYPES = [
   { value: "personal", label: "Personal Study" },
@@ -99,33 +98,14 @@ export default function BibleStudy() {
     try {
       const denomination = user?.denomination || "Non-Denominational";
 
-      // Personalize with user topics
-      const userTopics = user?.content_preferences?.favoriteTopics || [];
-      const topicContext = userTopics.length > 0
-        ? `\n\n${formatUserInputBlock("User's areas of interest", userTopics.join(', '), 'None provided')}\nIf these relate to the study topic, incorporate relevant perspectives.`
-        : '';
-
-      const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
-
-      You are Larry, a friendly and knowledgeable AI Bible study assistant. Create a comprehensive Bible study on the user-provided topic below for a ${studyType} setting.
-
-${formatUserInputBlock('Study topic', topic)}
-
-${denominationPromptBlock(denomination)}${topicContext}
-
-Generate a Bible study guide that includes:
-1. A clear, engaging title
-2. An overview that sets context
-3. 3-5 key Bible verses related to the topic
-4. 4-6 study sections, each with:
-   - Section title
-   - Relevant scripture passage
-   - Theological insights (2-3 paragraphs, aligned with ${denomination} doctrine)
-   - 3-5 discussion questions that encourage deep thinking (genuinely discussable, not rhetorical)
-   - Practical application for daily life (ONE concrete, specific step - what to do, when, and how; never generic advice like "pray more" without saying what that looks like for this group)
-5. A conclusion that ties everything together
-
-Make it engaging, biblically sound, and appropriate for ${studyType} study. Use clear, accessible language.`;
+      // Canonical prompt builder shared with the benchmark runner — the
+      // quality measurement exercises the exact prompt users get.
+      const prompt = buildBibleStudyPrompt({
+        topic,
+        denomination,
+        studyType,
+        favoriteTopics: user?.content_preferences?.favoriteTopics || [],
+      });
 
       // Stream so the study appears section-by-section instead of after a long
       // blank wait; fall back to the non-streaming call if streaming fails.

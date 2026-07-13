@@ -7,7 +7,8 @@ import { asArray, mergeUniqueStrings, normalizeSermon } from '@/lib/aiStructured
 import { parsePartialJson } from '@/lib/partialJson';
 import { getAiErrorMessage } from '@/lib/aiErrors';
 import { formatUserInputBlock } from '@/lib/aiPrompt';
-import { DENOMINATION_GROUPS, canonForDenomination, denominationPromptBlock, resolveDenominationProfile } from '@/lib/denominations';
+import { DENOMINATION_GROUPS, canonForDenomination, resolveDenominationProfile } from '@/lib/denominations';
+import { AUDIENCE_CONTEXT, buildSermonPrompt } from '@sermonsmith/shared/prompts';
 import { logError } from '@/lib/logError';
 import { Button } from "@/components/ui/button";
 import { logActivity } from "../components/admin/UserActivityLogger";
@@ -167,45 +168,16 @@ Return as JSON array of objects with "reference" and "reason" fields.`;
     setStreamingSermon(null);
     setGeneratedSermon(null);
     try {
-      const audienceContext = {
-        general: "general congregation with mixed ages and backgrounds",
-        youth: "youth group (ages 13-18), using relatable examples and contemporary language",
-        young_adults: "young adults (18-30), addressing life transitions and modern challenges",
-        children: "children (ages 6-12), using simple language, stories, and concrete examples",
-        seniors: "senior adults (60+), honoring their wisdom and life experience"
-      };
-
-      // Personalize prompt with user preferences
-      const userTopics = user?.content_preferences?.favoriteTopics || [];
-      const topicContext = userTopics.length > 0 
-        ? `\n\n${formatUserInputBlock("User's areas of interest", userTopics.join(', '), 'None provided')}\nIf relevant to the sermon topic, incorporate these perspectives naturally.`
-        : '';
-
-      const prompt = `IMPORTANT: NEVER invent or fabricate Bible verses. Only reference real, valid Scripture. If unsure, instruct the user to check their Bible.
-
-You are Larry, an expert AI sermon assistant helping pastors create powerful, biblical sermons. Generate a complete sermon outline using the fenced user inputs below.
-
-${formatUserInputBlock('Sermon topic', topic)}
-${formatUserInputBlock('Anchor passage', passage)}
-
-${denominationPromptBlock(denomination)}
-
-Tone: ${tone}
-Audience: ${audienceContext[audience]}${topicContext}
-
-Create a sermon that includes:
-1. A compelling title that captures attention
-2. A clear "Big Idea" - one memorable sentence summarizing the sermon
-3. Theological notes explaining this tradition's perspective on the topic (per the denominational viewpoint above)
-4. 3-4 main points, each with:
-   - Point title (action-oriented)
-   - Exegesis (2-3 paragraphs explaining the passage, aligned with the denominational viewpoint above)
-   - Illustration (a story, example, or analogy that brings the point to life - make it ${tone} in nature, and clearly hypothetical unless source material was provided)
-   - Application (ONE concrete, specific step a listener in this audience could take THIS WEEK - name what to do, when, and how; never generic advice like "pray more" or "have more faith" without saying what that looks like here - plus a reflection question)
-   - 3-5 supporting scriptures that reinforce this point (vary the applications across points so they don't repeat)
-5. A powerful conclusion that calls for response
-
-Make it ${tone} in tone and perfect for ${audienceContext[audience]}. Speak in language this specific audience uses; be biblically accurate, engaging, and practical.`;
+      // Canonical prompt builder shared with the benchmark runner — the
+      // quality measurement exercises the exact prompt users get.
+      const prompt = buildSermonPrompt({
+        topic,
+        passage,
+        denomination,
+        tone,
+        audienceLabel: AUDIENCE_CONTEXT[audience] || AUDIENCE_CONTEXT.general,
+        favoriteTopics: user?.content_preferences?.favoriteTopics || [],
+      });
 
       const fallbackCtx = { topic, anchor_passage: passage, tone, audience, denomination };
 

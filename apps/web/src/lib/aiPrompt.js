@@ -1,7 +1,12 @@
-export const USER_INPUT_START = '<<<USER INPUT>>>';
-export const USER_INPUT_END = '<<<END USER INPUT>>>';
-
-export function formatUserInputBlock(label, value, fallback = 'Not specified') {
-  const text = String(value ?? '').trim() || fallback;
-  return `${label}:\n${USER_INPUT_START}\n${text}\n${USER_INPUT_END}`;
-}
+/**
+ * User-input fencing — thin re-export.
+ *
+ * The canonical fencing helpers (and the shared prompt builders that use
+ * them) live in `@sermonsmith/shared/prompts` so the web client and the
+ * benchmark runner assemble byte-identical prompts.
+ */
+export {
+  USER_INPUT_START,
+  USER_INPUT_END,
+  formatUserInputBlock,
+} from '@sermonsmith/shared/prompts';
