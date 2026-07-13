@@ -26,6 +26,7 @@ const ADMIN_PAGES = new Set([
 ]);
 
 const Login = lazy(() => import('./pages/Login'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 
 const PageLoader = () => (
   <div className="fixed inset-0 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -55,6 +56,18 @@ function loginRedirectFor(location) {
 export const AuthenticatedApp = () => {
   const { isAuthenticated, isLoadingAuth, authError } = useAuth();
   const location = useLocation();
+
+  // Public, unauthenticated routes. Legal/store pages (e.g. the privacy policy
+  // required by Google Play and the App Store) must render for anyone —
+  // app-store reviewers and logged-out visitors — before the auth/loading
+  // gate below, and without the authenticated app shell/navigation.
+  if (location.pathname.toLowerCase() === '/privacy') {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <PrivacyPolicy />
+      </Suspense>
+    );
+  }
 
   if (isLoadingAuth) {
     return <PageLoader />;
