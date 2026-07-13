@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ExternalLink, Copy, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import { isNativeApp } from '@/lib/platform';
 
 export default function EmbeddedBrowserDetector() {
   const [isEmbedded, setIsEmbedded] = useState(false);
@@ -15,6 +16,12 @@ export default function EmbeddedBrowserDetector() {
   }, []);
 
   const detectEmbeddedBrowser = () => {
+    // The Capacitor app IS an Android/iOS WebView by design — it is the
+    // intended way to run SermonSmith, not an in-app browser to escape.
+    // Without this check every mobile-app user got an "Open in Chrome"
+    // modal pointing at https://localhost.
+    if (isNativeApp()) return;
+
     const ua = navigator.userAgent || navigator.vendor || window.opera;
     
     // Detect various embedded browsers - comprehensive list
