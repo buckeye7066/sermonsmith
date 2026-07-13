@@ -13,7 +13,7 @@ Main store listing).
 |---|---|
 | App name | SermonSmith |
 | Default language | en-US |
-| Contact email | buckeye7066@gmail.com |
+| Contact email | dr.johnwhite@axiombiolabs.org |
 | Contact website | https://sermonsmith.vercel.app |
 | Privacy policy URL | https://sermonsmith.vercel.app/privacy |
 | Category | Books & Reference (or Lifestyle) |
