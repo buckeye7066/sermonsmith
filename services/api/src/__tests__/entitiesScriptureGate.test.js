@@ -261,4 +261,113 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     expect(res.status).toBe(200);
     expect(res.body.scripture_validation).toBeUndefined();
   });
+
+  // --- Review acknowledgment (human-only trust transition) ---
+
+  async function createSermon(userId, body) {
+    const res = await request(app)
+      .post('/api/entities/Sermon')
+      .set('Cookie', asUser(userId))
+      .send(body);
+    expect(res.status).toBe(200);
+    return res.body;
+  }
+
+  it('review acknowledgment: owner marks a sermon reviewed; validation evidence is refreshed', async () => {
+    const sermon = await createSermon('u-pastor', { title: 'Reviewed', anchor_passage: 'John 3:16', status: 'draft' });
+    const res = await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ acknowledged: true });
+    expect(res.status).toBe(200);
+    expect(res.body.pastor_reviewed).toBe(true);
+    expect(res.body.reviewed_by).toBe('u-pastor');
+    expect(res.body.reviewed_at).toBeTruthy();
+    expect(res.body.scripture_validation[0].status).toBe('valid');
+  });
+
+  it('review acknowledgment requires an explicit boolean', async () => {
+    const sermon = await createSermon('u-pastor', { title: 'X', anchor_passage: 'John 3:16' });
+    const res = await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('only the owner may acknowledge review', async () => {
+    const sermon = await createSermon('u-pastor', { title: 'Mine', anchor_passage: 'John 3:16' });
+    const res = await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-catholic'))
+      .send({ acknowledged: true });
+    expect(res.status).toBe(403);
+  });
+
+  it('review acknowledgment is rejected for non-gated types', async () => {
+    const res = await request(app)
+      .post('/api/entities/Note/some-id/review')
+      .set('Cookie', asUser('u-pastor'))
+      .send({ acknowledged: true });
+    expect(res.status).toBe(400);
+  });
+
+  it('editing content after review resets pastor_reviewed (stale-review rule)', async () => {
+    const sermon = await createSermon('u-pastor', { title: 'Will edit', anchor_passage: 'John 3:16', status: 'draft' });
+    await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ acknowledged: true });
+
+    const edited = await request(app)
+      .put(`/api/entities/Sermon/${sermon.id}`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ conclusion: 'A new ending the pastor has not read yet.' });
+    expect(edited.status).toBe(200);
+    expect(edited.body.pastor_reviewed).toBe(false);
+    expect(edited.body.reviewed_by).toBeNull();
+  });
+
+  it('a status-only change (archive) does not reset an acknowledged review', async () => {
+    const sermon = await createSermon('u-pastor', { title: 'Keep review', anchor_passage: 'John 3:16', status: 'draft' });
+    await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ acknowledged: true });
+
+    const archived = await request(app)
+      .put(`/api/entities/Sermon/${sermon.id}`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ status: 'archived' });
+    expect(archived.status).toBe(200);
+    expect(archived.body.pastor_reviewed).toBe(true);
+  });
+
+  it('review does not bypass the publish gate: reviewed content with invalid refs still cannot publish', async () => {
+    const sermon = await createSermon('u-pastor', { title: 'Reviewed but broken', anchor_passage: 'John 99:1', status: 'draft' });
+    await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ acknowledged: true });
+
+    const publish = await request(app)
+      .put(`/api/entities/Sermon/${sermon.id}`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ status: 'published' });
+    expect(publish.status).toBe(422);
+  });
+
+  it('acknowledged: false withdraws a review', async () => {
+    const sermon = await createSermon('u-pastor', { title: 'Withdraw', anchor_passage: 'John 3:16' });
+    await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ acknowledged: true });
+    const res = await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ acknowledged: false });
+    expect(res.status).toBe(200);
+    expect(res.body.pastor_reviewed).toBe(false);
+  });
 });

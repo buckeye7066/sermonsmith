@@ -368,6 +368,17 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
     }
   }
 
+  // Stale-review rule: a pastor's acknowledgment covers the content they
+  // actually read. If this write changes content fields on a record that was
+  // previously marked reviewed, the review is reset — the pastor re-reviews
+  // the edited draft via the explicit /review acknowledgment endpoint.
+  const CONTENT_FIELDS = ['title', 'topic', 'anchor_passage', 'big_idea', 'points', 'conclusion', 'theological_notes'];
+  if (existingData?.pastor_reviewed && CONTENT_FIELDS.some((f) => f in data)) {
+    data.pastor_reviewed = false;
+    data.reviewed_at = null;
+    data.reviewed_by = null;
+  }
+
   return data;
 }
 
@@ -650,6 +661,64 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       data: {
         data: { ...existing.data, ...patch, updated_date: new Date().toISOString() },
       },
+    });
+    res.json(formatEntity(entity));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Review acknowledgment (human-only trust transition) ---
+//
+// The generic create/update paths strip pastor_reviewed & friends so neither
+// the AI pipeline nor a forged payload can self-certify content. This is the
+// ONE way those fields get set: the record's owner explicitly acknowledges
+// they reviewed the draft. Scripture validation is recomputed at the moment
+// of acknowledgment so the stored evidence reflects what the pastor actually
+// reviewed. Acknowledging does NOT alter status or bypass the publish gate —
+// a reviewed draft with invalid references still cannot be published until
+// the references are fixed. `acknowledged: false` withdraws a review.
+router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
+  try {
+    if (!SCRIPTURE_GATED_TYPES.has(req.params.type)) {
+      return res.status(400).json({ message: `'${req.params.type}' does not support review acknowledgment.` });
+    }
+    const { acknowledged } = req.body || {};
+    if (typeof acknowledged !== 'boolean') {
+      return res.status(400).json({ message: 'Body must include { acknowledged: true | false } — review is an explicit human action.' });
+    }
+
+    const existing = await prisma.entity.findUnique({
+      select: { id: true, type: true, data: true, userId: true },
+      where: { id: req.params.id },
+    });
+    if (!existing || existing.type !== req.params.type) return res.status(404).json({ message: 'Not found' });
+    // Review is the OWNER's pastoral judgment — admins may read, not review
+    // on someone else's behalf.
+    if (existing.userId !== req.userId) {
+      return res.status(403).json({ message: 'Only the owner can acknowledge review of their content.' });
+    }
+
+    const denomination = await denominationForRequest(req, existing.data?.denomination);
+    const validation = validateAiSermon(existing.data, { canon: canonForDenomination(denomination) });
+
+    const reviewFields = acknowledged
+      ? {
+          pastor_reviewed: true,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: req.userId,
+          scripture_validation: validation.refs,
+        }
+      : {
+          pastor_reviewed: false,
+          reviewed_at: null,
+          reviewed_by: null,
+          scripture_validation: validation.refs,
+        };
+
+    const entity = await prisma.entity.update({
+      where: { id: req.params.id },
+      data: { data: { ...existing.data, ...reviewFields, updated_date: new Date().toISOString() } },
     });
     res.json(formatEntity(entity));
   } catch (err) {
