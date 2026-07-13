@@ -105,6 +105,78 @@ describe('validateScriptureRefs', () => {
   });
 });
 
+describe('validateScriptureRefs — verse-range end-points', () => {
+  it('accepts a well-formed range (Romans 8 has 39 verses)', () => {
+    const [r] = validateScriptureRefs(['Romans 8:28-30']);
+    expect(r.status).toBe('valid');
+    expect(r.verse).toBe(28);
+    expect(r.verseEnd).toBe(30);
+  });
+
+  it('rejects a range whose end-point overruns the chapter (John 3 has 36 verses)', () => {
+    expect(validateScriptureRefs(['John 3:16-999'])[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(['John 3:16-37'])[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(['John 3:16-36'])[0].status).toBe('valid');
+  });
+
+  it('rejects a reversed range', () => {
+    expect(validateScriptureRefs(['John 3:20-16'])[0].status).toBe('out_of_range');
+  });
+
+  it('extracts and validates en-dash ranges', () => {
+    const refs = extractScriptureRefs('Read Acts 2:1–21 aloud.');
+    expect(refs).toHaveLength(1);
+    expect(validateScriptureRefs(refs)[0].status).toBe('valid');
+  });
+});
+
+describe('validateScriptureRefs — canon awareness', () => {
+  it('defaults to the Protestant canon: deuterocanon is unsupported_canon, not invalid_book', () => {
+    const [r] = validateScriptureRefs(['Wisdom 3:1-9']);
+    expect(r.status).toBe('unsupported_canon');
+    expect(r.validBook).toBe(false);
+  });
+
+  it('recognizes deuterocanon books under the Catholic canon at chapter level', () => {
+    const [r] = validateScriptureRefs(['Wisdom 3:1-9'], { canon: 'catholic' });
+    expect(r.status).toBe('chapter_checked'); // real book, chapter valid, no verse table
+    expect(r.validBook).toBe(true);
+  });
+
+  it('resolves deuterocanon aliases (Sirach == Ecclesiasticus, Wisdom of Solomon)', () => {
+    expect(validateScriptureRefs(['Sirach 2:1'], { canon: 'catholic' })[0].status).toBe('chapter_checked');
+    expect(validateScriptureRefs(['Ecclesiasticus 2:1'], { canon: 'orthodox' })[0].status).toBe('chapter_checked');
+    expect(validateScriptureRefs(['Wisdom of Solomon 3:1'], { canon: 'catholic' })[0].status).toBe('chapter_checked');
+  });
+
+  it('still range-checks deuterocanon chapters (Wisdom has 19, 1 Maccabees 16)', () => {
+    expect(validateScriptureRefs(['Wisdom 25:1'], { canon: 'catholic' })[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(['1 Maccabees 17:1'], { canon: 'catholic' })[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(['1 Maccabees 16:1'], { canon: 'catholic' })[0].status).toBe('chapter_checked');
+  });
+
+  it('rejects reversed ranges even without a verse table', () => {
+    expect(validateScriptureRefs(['Wisdom 3:9-1'], { canon: 'catholic' })[0].status).toBe('out_of_range');
+  });
+
+  it('handles Greek Daniel (13-14) per canon', () => {
+    expect(validateScriptureRefs(['Daniel 13:1'])[0].status).toBe('out_of_range'); // protestant
+    expect(validateScriptureRefs(['Daniel 13:1'], { canon: 'catholic' })[0].status).toBe('chapter_checked');
+    expect(validateScriptureRefs(['Daniel 12:1'], { canon: 'catholic' })[0].status).toBe('valid');
+    expect(validateScriptureRefs(['Daniel 15:1'], { canon: 'catholic' })[0].status).toBe('out_of_range');
+  });
+
+  it('a truly made-up book stays invalid_book in every canon', () => {
+    expect(validateScriptureRefs(['Hezekiah 4:5'], { canon: 'catholic' })[0].status).toBe('invalid_book');
+    expect(validateScriptureRefs(['Hezekiah 4:5'], { canon: 'orthodox' })[0].status).toBe('invalid_book');
+  });
+
+  it('an unknown canon id falls back to protestant', () => {
+    expect(validateScriptureRefs(['Wisdom 3:1'], { canon: 'martian' })[0].status).toBe('unsupported_canon');
+    expect(validateScriptureRefs(['John 3:16'], { canon: 'martian' })[0].status).toBe('valid');
+  });
+});
+
 describe('validateAiSermon', () => {
   it('summarises a clean sermon as all-valid', () => {
     const out = validateAiSermon({
@@ -124,5 +196,40 @@ describe('validateAiSermon', () => {
     });
     expect(out.allValid).toBe(false);
     expect(out.summary).toMatch(/need attention/);
+  });
+
+  it('keeps a Catholic sermon with a deuterocanon anchor in review (chapter_checked, not invalid)', () => {
+    const out = validateAiSermon(
+      {
+        anchor_passage: 'Wisdom 3:1-9',
+        points: [{ supporting_scriptures: ['John 11:25'], text: '' }],
+        conclusion: '',
+      },
+      { canon: 'catholic' },
+    );
+    // Honest state: the reference is real Scripture in this canon but the
+    // verse level is not yet source-verified, so the sermon must not be
+    // reported as all-valid…
+    expect(out.allValid).toBe(false);
+    // …and it must not be smeared as a fabricated book either.
+    expect(out.refs.find((r) => r.ref === 'Wisdom 3:1-9').status).toBe('chapter_checked');
+    expect(out.counts.chapter_checked).toBe(1);
+    expect(out.counts.valid).toBe(1);
+  });
+});
+
+describe('canonForDenomination', () => {
+  it('maps Catholic and Orthodox traditions to their canons', async () => {
+    const { canonForDenomination } = await import('@/lib/denominations');
+    expect(canonForDenomination('Roman Catholic')).toBe('catholic');
+    expect(canonForDenomination('Eastern Orthodox')).toBe('orthodox');
+  });
+
+  it('defaults everything else (including unknown traditions) to protestant', async () => {
+    const { canonForDenomination } = await import('@/lib/denominations');
+    expect(canonForDenomination('Southern Baptist')).toBe('protestant');
+    expect(canonForDenomination('Church of God of Prophecy')).toBe('protestant');
+    expect(canonForDenomination('')).toBe('protestant');
+    expect(canonForDenomination('Totally Unknown Fellowship')).toBe('protestant');
   });
 });
