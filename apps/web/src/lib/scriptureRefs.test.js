@@ -573,6 +573,54 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('John 3:16 is a great verse')).toEqual(['John 3:16']);
   });
 
+  it('applies the malformed-suffix rule UNIFORMLY to Roman chapter/verse/range tokens', () => {
+    // A trailing NON-ASCII letter/mark after a Roman token is malformed, not truncated to valid.
+    for (const form of ['John 3:XЖ', 'John 3:Xé', 'John 3:IVé', 'John 3:I-Vabc']) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.length, form).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked'), form).toBe(true);
+    }
+    // A clean canonical Roman still validates; an ASCII word after a colon is prose (no match).
+    expect(validateScriptureRefs(extractScriptureRefs('John IV:2'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('John 2:live your faith')).toEqual([]);
+  });
+
+  it('binds an unsupported prefix through a separator with SURROUNDING WHITESPACE (no bare-book fallback)', () => {
+    const CANONS = ['protestant', 'catholic', 'orthodox'];
+    const caught = (t) => {
+      const refs = extractScriptureRefs(t);
+      const fabricated = refs.filter((ref) => !CANONS.some((canon) => {
+        const [r] = validateScriptureRefs([ref], { canon });
+        return r && (r.status === 'valid' || r.status === 'chapter_checked');
+      }));
+      return fabricated.some((ref) => /^\d+ John/.test(ref)) && !refs.includes('John 1:1');
+    };
+    for (const form of ['4 - John 1:1', '4- John 1:1', '4 -John 1:1', 'Fourth - John 1:1', '4 . John 1:1', 'IV – John 1:1']) {
+      expect(caught(form), form).toBe(true);
+    }
+    // Deep + joined-array.
+    expect(extractScriptureRefsDeep({ note: '4 - John 1:1' })).toContain('4 John 1:1');
+    const joined = extractScriptureRefsJoined(['4 - John', '1:1']);
+    expect(joined).toContain('4 John 1:1');
+    expect(joined.includes('John 1:1')).toBe(false);
+    // A normal-space supported ref still valid; ordinary hyphenated prose not mis-bound to a numbered book.
+    expect(validateScriptureRefs(extractScriptureRefs('2 John 1:1'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('well - John 3:16').some((r) => /^[123] /.test(r))).toBe(false);
+  });
+
+  it('folds a Unicode-Roman prefix in EVERY pass so no spurious bare valid ref is emitted', () => {
+    // "Ⅳ John 1:1" (and every separator form) produces ONLY the invalid "4 John",
+    // never a bare valid "John 1:1" in the extractor / audit output.
+    for (const form of ['Ⅳ John 1:1', 'ⅣJohn 1:1', 'Ⅳ-John 1:1', 'Ⅳ.John 1:1', 'Ⅳ - John 1:1']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs, form).toContain('4 John 1:1');
+      expect(refs.includes('John 1:1'), form).toBe(false);
+    }
+    // A supported Unicode-Roman prefix still binds to the real numbered book.
+    expect(validateScriptureRefs(extractScriptureRefs('Ⅱ John 1:1'))[0].status).toBe('valid'); // 2 John
+    expect(extractScriptureRefs('Ⅱ John 1:1')).toEqual(['2 John 1:1']);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

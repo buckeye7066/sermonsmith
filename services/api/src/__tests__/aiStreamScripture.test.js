@@ -597,6 +597,53 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(parseTrailer(err).scripture.ok).toBe(false);
   });
 
+  // --- Round-29: uniform malformed-suffix rule for ROMAN tokens, spaced-
+  // separator unsupported prefixes, and Unicode-Roman prefix (no bare-book
+  // duplicate) — over /invoke AND /stream (success + error). Split for rate limit. ---
+  it('/invoke + /stream flag Roman malformed suffixes and spaced-separator unsupported prefixes', async () => {
+    await runR25(app, [
+      ['Roman malformed John 3:XЖ', 'John 3:XЖ', true],
+      ['Roman malformed John 3:IVé', 'John 3:IVé', true],
+      ['Roman malformed range John 3:I-Vabc', 'John 3:I-Vabc', true],
+      ['spaced-sep 4 - John 1:1 (invalid)', '4 - John 1:1', true],
+      ['spaced-sep Fourth - John 1:1 (invalid)', 'Fourth - John 1:1', true],
+      ['en-dash IV – John 1:1 (invalid)', 'IV – John 1:1', true],
+      ['clean John IV:2 (valid)', 'John IV:2', false],
+      ['prose John 2:live (no ref → valid)', 'John 2:live your faith', false],
+    ]);
+  });
+
+  it('/invoke + /stream: a Unicode-Roman prefix produces only the invalid ref (no bare-book duplicate)', async () => {
+    // "Ⅳ John 1:1" must screen as fabricated (4 John) with NO valid bare "John 1:1"
+    // leaking into the validation output; "Ⅱ John 1:1" stays valid 2 John.
+    STREAM_TEXT = JSON.stringify({ note: 'Ⅳ John 1:1' });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status).toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+    // EVERY screened reference is fabricated (the invalid "4 John") — no bare
+    // valid "John 1:1" leaks in, so it is not the case that some are clean.
+    // (The extractor-level no-duplicate invariant is asserted in the web tests.)
+    expect(inv.body.scripture.fabricated).toBe(inv.body.scripture.checked);
+    expect(inv.body.scripture.fabricated).toBeGreaterThan(0);
+    STREAM_TEXT = 'Anchored on Ⅳ John 1:1.';
+    STREAM_THROW = false;
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', stream_result: true });
+    expect(parseTrailer(str).scripture.ok).toBe(false);
+    STREAM_THROW = true;
+    const err = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', stream_result: true });
+    expect(parseTrailer(err).scripture.ok).toBe(false);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

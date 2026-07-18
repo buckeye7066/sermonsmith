@@ -192,6 +192,21 @@ function decimalDigitToAscii(ch) {
   return value;
 }
 
+// Precomposed Unicode ROMAN NUMERAL code points (U+2160–U+2188: Ⅰ-Ⅻ, Ⅼ Ⅽ Ⅾ Ⅿ
+// and lowercase ⅰ-ⅿ) → their ASCII letters (Ⅳ→"IV", ⅱ→"ii"). Folded in EVERY
+// pass (incl. the normal display pass) so a Unicode-Roman PREFIX ("Ⅳ John") is
+// bound and consumed by the matcher — otherwise the normal pass, which does not
+// NFKC-fold, would emit a spurious bare "John 1:1" alongside the invalid
+// "4 John 1:1" from the folded shadow passes. Only these dedicated numeral code
+// points are folded (not general NFKC), so ordinary accents are untouched.
+const ROMAN_NUMERAL_FOLD = new Map();
+for (let cp = 0x2160; cp <= 0x2188; cp += 1) {
+  const ch = String.fromCodePoint(cp);
+  const folded = ch.normalize('NFKC');
+  if (/^[ivxlcdm]+$/i.test(folded)) ROMAN_NUMERAL_FOLD.set(ch, folded);
+}
+const ROMAN_NUMERAL_RE = /[Ⅰ-ↈ]/g;
+
 function normalizeCitationText(text) {
   return String(text)
     // NFC FIRST: recompose legit decomposed accents (e + U+0301 → é, a single
@@ -200,6 +215,10 @@ function normalizeCitationText(text) {
     // citation. An un-composable attack sequence (h + U+0300 has no precomposed
     // form) still leaves a standalone combining mark for the boundary rule below.
     .normalize('NFC')
+    // Precomposed Unicode roman numerals → ASCII letters ("Ⅳ"→"IV"), so a
+    // Unicode-Roman PREFIX is consumed by the matcher in the normal pass too (no
+    // spurious bare-book duplicate). Targeted — does not touch ordinary accents.
+    .replace(ROMAN_NUMERAL_RE, (c) => ROMAN_NUMERAL_FOLD.get(c) || c)
     // Control characters (C0 + C1 + DEL, i.e. Unicode Cc) → space, EXCEPT real
     // whitespace tab/newline/CR. \p{Cc} also covers C1 (incl. NEL U+0085) and
     // DEL (U+007F). GLOBAL → space keeps a numeral-prefix↔book seam ("II​John")
@@ -346,13 +365,19 @@ const ORDINAL_WORDS = 'first|second|third|fourth|fifth|sixth|seventh|eighth|nint
 // is a fabricated numbered book — parseCitation keeps the number so validation
 // flags it, and NEVER lets the matcher fall back to the bare (valid) book.
 const COMPACT_PREFIX_ALT = `\\d+|[ivxlcdm]+|${ORDINAL_WORDS}`;
-// A numeric / Roman / worded prefix joined to a numbered-book stem by nothing, a
-// hyphen, or a dot → rewritten to the spaced form ("$1 $2"), so "2John",
-// "IIJohn", "Second-John", "Third.John" all bind to the numbered book. The
+// ONE shared prefix↔book separator: nothing, or a hyphen / dot (en-dash already
+// normalized to '-' upstream), with OPTIONAL SURROUNDING WHITESPACE. So every
+// spacing of every separator binds uniformly — "2John", "2-John", "2 - John",
+// "2 . John", "Fourth - John" — closing the bare-book fallback that spaced
+// separators reopened.
+const COMPACT_SEP = '\\s*[.\\-]?\\s*';
+// A numeric / Roman / worded prefix joined to a numbered-book stem by that
+// separator → rewritten to the spaced form ("$1 $2"), so "2John", "IIJohn",
+// "Second-John", "Third.John", "4 - John" all bind to the numbered book. The
 // trailing \b keeps "2content"/"IIJohnny"/"secondary" from matching a stem
 // inside a word.
 const COMPACT_NUMBERED_RE = new RegExp(
-  `\\b(${COMPACT_PREFIX_ALT})[.\\-]?(${COMPACT_STEMS.join('|')})\\b`,
+  `\\b(${COMPACT_PREFIX_ALT})${COMPACT_SEP}(${COMPACT_STEMS.join('|')})\\b`,
   'giu',
 );
 
@@ -393,14 +418,22 @@ const NON_BOOK_WORDS = new Set([
 // A chapter / verse / range-end NUMBER token: the FULL contiguous run of ASCII
 // digits (with any TRAILING letters/marks captured so a malformed "16I"/"5abc"
 // reaches the validator instead of being truncated to "16"/"5"), OR a Roman
-// run. NEVER length-capped, so an overlong token ("1000", a 16-I Roman) is
-// captured and handed to VALIDATION to classify (out_of_range / invalid /
-// unparseable) rather than dropped. The digit branch's trailing `[\p{L}\p{M}]*`
-// only bites when letters DIRECTLY follow the digits (no separator) — a real
-// space ends the token cleanly ("John 3:16 is" is unaffected). The Roman branch
-// keeps `(?![a-z])` so it is not the head of a longer word ("Luke 2:live"). Roman
-// Unicode code points (Ⅰ-Ⅻ) are folded to ASCII by the NFKC passes first.
-const NUM_TOKEN = '(\\d+[\\p{L}\\p{M}]*|[ivxlcdm]+(?![a-z]))';
+// run WITH its own trailing capture. ONE shared token-end rule for numeric AND
+// Roman: capture the full contiguous run plus ANY trailing letters/marks, so a
+// malformed suffix ("16I", "Xé", "XЖ", "IVé") is handed to VALIDATION to
+// classify rather than truncated to the valid prefix. NEVER length-capped, so an
+// overlong token ("1000", a 16-I Roman) is captured too. A real separator (space
+// / ASCII punctuation / EOL) ends a token cleanly, so "John 3:16 is" is fine.
+// CHAPTER/VERSE Roman keeps `(?![a-z])` so it is not the head of an ASCII WORD
+// ("Luke 2:live" is prose, not a citation) — a NON-ASCII trailing char is still
+// captured as malformed. Unicode roman/digit code points are folded to ASCII
+// first (ROMAN_NUMERAL_FOLD / decimalDigitToAscii).
+const TOK_TRAIL = '[\\p{L}\\p{M}]*';
+const NUM_TOKEN = `(\\d+${TOK_TRAIL}|[ivxlcdm]+(?![a-z])${TOK_TRAIL})`;
+// RANGE-END token: after a range dash the context is unambiguously numeric, so
+// the Roman branch drops the ASCII-word guard and ANY trailing run is captured
+// (and flagged), catching "3:1-Vabc" / "3:1-5abc" that would otherwise truncate.
+const RANGE_TOKEN = `(\\d+${TOK_TRAIL}|[ivxlcdm]+${TOK_TRAIL})`;
 // Permissive citation matcher (run on normalized text). Groups:
 //   1 prefix (optional): 1-3 / I-III / first-third
 //   2 book (with optional trailing '.', optional "of X")
@@ -421,7 +454,7 @@ const NUM_TOKEN = '(\\d+[\\p{L}\\p{M}]*|[ivxlcdm]+(?![a-z]))';
 const CITATION_RE = new RegExp(
   `(?<![\\p{L}\\p{M}'’])\\b(?:(${COMPACT_PREFIX_ALT})\\.?\\s+)?`
   + `([a-z]{2,}\\.?(?:\\s+of\\s+[a-z]+)?)\\s+`
-  + `${NUM_TOKEN}\\s*:\\s*${NUM_TOKEN}(?:\\s*[-]\\s*${NUM_TOKEN})?`,
+  + `${NUM_TOKEN}\\s*:\\s*${NUM_TOKEN}(?:\\s*[-]\\s*${RANGE_TOKEN})?`,
   'giu',
 );
 
@@ -564,7 +597,7 @@ const COMPACT_BOOK_CHAPTER_RE = new RegExp(`\\b(${BOOK_SHAPED_SRC})(?=${CV_LOOKA
 // binds ONLY when the fused word is not itself a real book, so "Isaiah" is never
 // split into "I saiah".
 const COMPACT_PREFIX_BOOKSHAPED_RE = new RegExp(
-  `\\b(${COMPACT_PREFIX_ALT})([.\\-]?)(${BOOK_SHAPED_SRC})(?=\\s+${CV_LOOKAHEAD})`,
+  `\\b(${COMPACT_PREFIX_ALT})(${COMPACT_SEP})(${BOOK_SHAPED_SRC})(?=\\s+${CV_LOOKAHEAD})`,
   'giu',
 );
 function spaceCompactPrefix(full, prefix, sep, book) {
