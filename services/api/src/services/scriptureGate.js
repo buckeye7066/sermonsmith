@@ -32,7 +32,19 @@ export const SCRIPTURE_GATED_TYPES = new Set([
   'EthicsAnalysis',
   'StudyNote',
   'SharedContent',
+  // Community "share" COPIES of AI content. SharedSermon copies a sermon's
+  // anchor_passage + points; SharedSeries copies series metadata. They exist to
+  // be shown to other users, so they are inherently public (see below) — an
+  // invalid reference must block them even without an explicit visibility flag.
+  'SharedSermon',
+  'SharedSeries',
 ]);
+
+// Gated types that are public by their very existence — a shared COPY is made
+// to be shown to the community, so there is no "private draft" state. For these
+// an unverified reference blocks the write outright, without waiting for a
+// status:'published' / visibility:'public' flag.
+export const INHERENTLY_PUBLIC_TYPES = new Set(['SharedSermon', 'SharedSeries']);
 
 // Gated types whose UI models a draft → published status lifecycle. Only these
 // get the `draft → needs_review` honest relabel; others just carry the honest
@@ -115,7 +127,7 @@ export function gateEntityWrite({ type, incoming, existingData = null, denominat
   const resultRecord = { ...(existingData || {}), ...data };
   const requestedStatus = data.status ?? existingData?.status;
   if (!validation.allValid) {
-    if (isPublicOrPublished(resultRecord)) {
+    if (isPublicOrPublished(resultRecord) || INHERENTLY_PUBLIC_TYPES.has(type)) {
       throw Object.assign(
         new Error(
           `Cannot publish or share: ${validation.summary}. Fix the flagged references (or keep the record private) and try again.`,

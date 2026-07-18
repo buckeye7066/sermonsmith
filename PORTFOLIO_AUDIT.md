@@ -172,3 +172,35 @@ Codex confirmed share-link create/serve + entity writes are gated, but two commu
 | like / report / save routes | mutate interaction counters; do not broadcast gated content |
 
 **Confirmed:** AI replies route through the centralized gate at create + serve; both public feeds (and the reply thread) re-validate at serve and fail closed. No other public community/feed route serves AI-generated Scripture-bearing content without a gate. Export routes are client-side stubs; `createShareableLink` is gated (round 3).
+
+---
+
+## Round-5 pass — SharedSermon gated + interaction routes fail closed; full coverage audit (all FIXED)
+
+### R5-1 — [HIGH] SharedSermon copy was outside the gate — FIXED
+The web share flow (`ShareSermonDialog.jsx:73`) copies a sermon's `anchor_passage` + `points` + `denomination` into `SharedSermon`, which the share-link path serves — but `SharedSermon` was not gated, so `assertGatedResourceExposable` no-op'd and an invalid sermon could be exposed as a `SharedSermon` copy. Fix: `SharedSermon` (and `SharedSeries`) added to `SCRIPTURE_GATED_TYPES` and to a new `INHERENTLY_PUBLIC_TYPES` set — a shared copy exists to be shown to the community, so `gateEntityWrite` blocks an invalid reference outright, with no explicit `visibility`/`published` flag needed. Once gated, `createShareableLink` + `/share/:slug` validate it automatically. **Tests:** SharedSermon create with `Hezekiah 4:5` → 422; valid → 200; forged trust fields stripped; share-link create + serve of an invalid SharedSermon → 422.
+
+### R5-2 — [MEDIUM] SharedContent interaction routes returned ungated rows — FIXED
+`like`/`report`/`save` (`community.js:333-465`) echoed `formatEntity(row)` after only `isPublicCommunityData` checks, so a row the feed now OMITS for invalid Scripture was still served by id through the interaction response (including the duplicate/refetch paths). Fix: a new `interactionResult` helper resolves the owner denomination and, when the row's Scripture no longer verifies, **fails closed** — returning the interaction status (counters/flags) with `content_withheld: true` and **no content body** (audit-logged); valid content is returned unchanged. Applied to every return point in like/report/save. **Tests:** like/report on an invalid public SharedContent record the interaction but withhold the content; like on a valid row still returns the full body.
+
+### Final coverage — every gated TYPE and every content-returning ROUTE
+
+**Gated types** (all AI-generated Scripture-bearing content): `Sermon`, `BibleStudy`, `Quiz`, `ReadingPlan`, `EthicsAnalysis`, `StudyNote`, `SharedContent`, `SharedSermon`, `SharedSeries` — all in the centralized `SCRIPTURE_GATED_TYPES`; `SharedSermon`/`SharedSeries` also `INHERENTLY_PUBLIC_TYPES`. Plus `CommunityReply` when `is_ai_response` (gated at its route). Audited every entity schema type; the rest are user-authored (Comment/SermonComment/CommunityPost/GroupMessage/ratings/Note/Highlight/Bookmark), non-Scripture metadata (Collection/ResourceTag/StudyGroup/Series containers/collaboration/activity), or reference data (Verse) — out of scope with reason. Worldview and Prayer AI outputs are **not persisted** to a served entity (client state / localStorage), so no exposure.
+
+| Content-returning route | Coverage |
+|---|---|
+| `POST/PUT /api/entities/:type` (+`/bulk`) | ✅ `gateEntityWrite` (all gated types incl. SharedSermon/SharedSeries) |
+| `GET /api/entities/:type` + `/:type/:id` | ✅ owner-scoped (only `Verse` is public reference data) |
+| `POST /api/functions/createShareableLink` | ✅ `assertGatedResourceExposable` + `resourceType` match |
+| `GET /api/community/share/:slug` | ✅ `assertGatedResourceExposable` at serve |
+| `GET /api/community/shared-content` | ✅ `serveExposableRows` (fail-closed omit) |
+| `GET /api/community/reading-plans` | ✅ `serveExposableRows` (fail-closed omit) |
+| `GET /api/community/posts/:id/replies` | ✅ `serveExposableRows` (is_ai_response) |
+| `POST /api/community/posts/:id/reply` | ✅ `assertAiReplyExposable` (is_ai_response) |
+| `POST /api/community/shared-content/:id/{like,report,save}` | ✅ `interactionResult` (fail-closed, content withheld) |
+| `PATCH /api/community/moderation/:type/:id` | ✅ `assertGatedResourceExposable` on the public transition |
+| `GET /api/community/posts` (CommunityPost) | out of scope — user-authored discussion |
+| `GET /api/community/study-groups` (StudyGroup) | out of scope — group metadata, no Scripture |
+| `GET /api/community/moderation/queue` | out of scope — admin review surface (must show unverified to moderate) |
+
+Every gated type and every content-returning route routes through the centralized `scriptureGate.js`, or is out of scope with a stated reason.

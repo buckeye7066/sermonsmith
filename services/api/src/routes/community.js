@@ -82,6 +82,37 @@ async function serveExposableRows(type, rows) {
   return kept.filter(Boolean);
 }
 
+// Interaction routes (like / report / save) echo the SharedContent row back so
+// the UI can refresh its card. If that row's Scripture no longer verifies, fail
+// closed: return the interaction STATUS (counters/flags) WITHOUT the content
+// body, so a public row the feed now OMITS can't be re-fetched by id through an
+// interaction response. Valid content is returned unchanged.
+async function interactionResult(row, extra = {}) {
+  const data = row.data || {};
+  const denomination = data.denomination
+    || (row.userId
+      ? ((await prisma.user.findUnique({ where: { id: row.userId }, select: { profile: true } }).catch(() => null))?.profile?.denomination || '')
+      : '');
+  if (isPublicContentServable({ type: 'SharedContent', data, denomination })) {
+    return { ...formatEntity(row), ...extra };
+  }
+  recordCommunityAudit('community.omitted_unverified_scripture', row.userId, 'SharedContent', row.id, {}).catch(() => {});
+  return {
+    id: row.id,
+    content_type: data.content_type,
+    visibility: data.visibility,
+    status: data.status,
+    likes_count: data.likes_count,
+    saves_count: data.saves_count,
+    reported_count: data.reported_count ?? data.reportedCount,
+    reportedCount: data.reportedCount ?? data.reported_count,
+    reported_by: data.reported_by,
+    last_report: data.last_report,
+    content_withheld: true,
+    ...extra,
+  };
+}
+
 async function recordCommunityAudit(action, userId, targetType, targetId, metadata = {}) {
   if (!prisma.auditLog?.create) return;
   try {
@@ -346,7 +377,7 @@ router.post('/shared-content/:id/like', authenticateToken, async (req, res, next
       where: { userId_contentId_contentType: key },
     });
     if (previous) {
-      return res.json({ ...formatEntity(existing), liked: true, alreadyLiked: true });
+      return res.json(await interactionResult(existing, { liked: true, alreadyLiked: true }));
     }
 
     await prisma.communityLike.create({ data: key });
@@ -356,15 +387,13 @@ router.post('/shared-content/:id/like', authenticateToken, async (req, res, next
       data: { data: { ...data, likes_count: Number(data.likes_count || 0) + 1 } },
     });
 
-    res.json({ ...formatEntity(updated), liked: true, alreadyLiked: false });
+    res.json(await interactionResult(updated, { liked: true, alreadyLiked: false }));
   } catch (err) {
     if (err.code === 'P2002') {
       const current = await prisma.entity.findUnique({ where: { id: req.params.id } }).catch(() => null);
-      return res.json({
-        ...(current ? formatEntity(current) : { id: req.params.id }),
-        liked: true,
-        alreadyLiked: true,
-      });
+      return res.json(current
+        ? await interactionResult(current, { liked: true, alreadyLiked: true })
+        : { id: req.params.id, liked: true, alreadyLiked: true });
     }
     next(err);
   }
@@ -418,7 +447,7 @@ router.post('/shared-content/:id/report', authenticateToken, async (req, res, ne
       category: parsed.data.category,
       reportedCount: nextCount,
     });
-    res.json(formatEntity(updated));
+    res.json(await interactionResult(updated));
   } catch (err) {
     next(err);
   }
@@ -440,7 +469,7 @@ router.post('/shared-content/:id/save', authenticateToken, async (req, res, next
       where: { userId_contentId_contentType: key },
     });
     if (previous) {
-      return res.json({ ...formatEntity(existing), saved: true, alreadySaved: true });
+      return res.json(await interactionResult(existing, { saved: true, alreadySaved: true }));
     }
 
     await prisma.savedContent.create({ data: key });
@@ -450,15 +479,13 @@ router.post('/shared-content/:id/save', authenticateToken, async (req, res, next
       data: { data: { ...data, saves_count: Number(data.saves_count || 0) + 1 } },
     });
 
-    res.json({ ...formatEntity(updated), saved: true, alreadySaved: false });
+    res.json(await interactionResult(updated, { saved: true, alreadySaved: false }));
   } catch (err) {
     if (err.code === 'P2002') {
       const current = await prisma.entity.findUnique({ where: { id: req.params.id } }).catch(() => null);
-      return res.json({
-        ...(current ? formatEntity(current) : { id: req.params.id }),
-        saved: true,
-        alreadySaved: true,
-      });
+      return res.json(current
+        ? await interactionResult(current, { saved: true, alreadySaved: true })
+        : { id: req.params.id, saved: true, alreadySaved: true });
     }
     next(err);
   }

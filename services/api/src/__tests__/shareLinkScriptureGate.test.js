@@ -121,6 +121,22 @@ describe('share-link Scripture gate (createShareableLink + /share/:slug)', () =>
     expect(res.body.resource.id).toBe('res-live');
   });
 
+  it('refuses to mint / serve a share link for an invalid SharedSermon copy', async () => {
+    // A legacy/forged SharedSermon carrying a fabricated reference.
+    seedResource('ss-bad', 'SharedSermon', 'u-owner', { title: 'Copy', anchor_passage: 'Hezekiah 4:5' });
+    const create = await request(app)
+      .post('/api/functions/createShareableLink')
+      .set('Cookie', asUser('u-owner'))
+      .send({ resourceType: 'SharedSermon', resourceId: 'ss-bad' });
+    expect(create.status).toBe(422);
+
+    // And an already-minted link to it is not served.
+    seedLink('link-ss', 'u-owner', { slug: 'slug-ss', resourceId: 'ss-bad' });
+    const serve = await request(app).get('/api/community/share/slug-ss');
+    expect(serve.status).toBe(422);
+    expect(serve.body).not.toHaveProperty('resource');
+  });
+
   it('moderation cannot flip an invalid SharedContent public, but can still hide it', async () => {
     seedResource('sc-mod', 'SharedContent', 'u-owner', {
       title: 'Bad', content: 'On Hezekiah 4:5', content_type: 'study', visibility: 'private',

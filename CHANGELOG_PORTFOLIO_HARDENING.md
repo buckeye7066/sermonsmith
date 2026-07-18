@@ -42,6 +42,11 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 - **AI-generated forum replies are now Scripture-checked.** An AI reply posted to a discussion thread with a reference that can't be verified is rejected, and any such reply is hidden from the thread. Replies written by people are unaffected.
 - **Public community feeds re-check content when serving it.** The shared-content feed, the public reading-plans feed, and discussion threads now re-validate each item as it's served and quietly drop anything that was edited into an invalid state after it went public (fail-closed). No change for valid content.
 
+## Round-5 pass — shared-sermon copies gated + interaction responses fail closed (2026-07-18)
+- **Shared sermon/series copies are now Scripture-checked.** When a sermon is shared to the community as a copy, an unverified reference in it is blocked at creation and at share time — a shared copy can no longer surface fabricated Scripture that the original kept private.
+- **Community like/report/save no longer leak withheld content.** If a public post was pulled from the feed for an unverified reference, liking/reporting/saving it now returns only the interaction result (counts) — never the flagged content body.
+- Full coverage confirmed: every AI-generated Scripture-bearing content type and every route that returns such content now runs through one shared gate.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

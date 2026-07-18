@@ -331,6 +331,42 @@ describe('community routes', () => {
     expect(ids).not.toContain('sc-bad');
   });
 
+  it('like on an invalid public SharedContent records the like but withholds the content', async () => {
+    prisma._store.entity.push(sharedContent('sc-int-bad', { content: 'Grounded in Hezekiah 4:5.' }));
+    const res = await request(app)
+      .post('/api/community/shared-content/sc-int-bad/like')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(res.status).toBe(200);
+    // Interaction recorded...
+    expect(res.body.liked).toBe(true);
+    expect(res.body.likes_count).toBe(1);
+    // ...but the fabricated content body is NOT returned.
+    expect(res.body.content).toBeUndefined();
+    expect(res.body.content_withheld).toBe(true);
+  });
+
+  it('report on an invalid public SharedContent withholds the content body', async () => {
+    prisma._store.entity.push(sharedContent('sc-int-rep', { content: 'See Hezekiah 4:5.' }));
+    const res = await request(app)
+      .post('/api/community/shared-content/sc-int-rep/report')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ category: 'theology' });
+    expect(res.status).toBe(200);
+    expect(res.body.reported_count).toBe(1);
+    expect(res.body.content).toBeUndefined();
+    expect(res.body.content_withheld).toBe(true);
+  });
+
+  it('like on a VALID public SharedContent still returns the full row', async () => {
+    prisma._store.entity.push(sharedContent('sc-int-ok', { content: 'Grounded in John 3:16.' }));
+    const res = await request(app)
+      .post('/api/community/shared-content/sc-int-ok/like')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(res.status).toBe(200);
+    expect(res.body.content).toBe('Grounded in John 3:16.');
+    expect(res.body.likes_count).toBe(1);
+  });
+
   it('omits an invalid public ReadingPlan row from the reading-plans feed', async () => {
     prisma._store.entity.push({ id: 'rp-good', type: 'ReadingPlan', userId: 'u-owner', data: { name: 'Good', is_public: true, daily_readings: [{ day: 1, passages: ['Luke 2:1-20'] }] }, createdAt: new Date(), updatedAt: new Date() });
     prisma._store.entity.push({ id: 'rp-bad', type: 'ReadingPlan', userId: 'u-owner', data: { name: 'Bad', is_public: true, daily_readings: [{ day: 1, passages: ['Hezekiah 4:5'] }] }, createdAt: new Date(), updatedAt: new Date() });

@@ -341,6 +341,36 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.body.scripture_validation.every((r) => r.status === 'valid')).toBe(true);
   });
 
+  // --- Round-5: SharedSermon is an inherently-public gated copy ---
+  it('SharedSermon with an invalid reference is blocked even without a visibility flag', async () => {
+    const res = await post(app, 'SharedSermon', 'u-pastor', {
+      title: 'Shared bad',
+      anchor_passage: 'Hezekiah 4:5',
+      points: [{ supporting_scriptures: ['John 3:16'] }],
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.message).toMatch(/Cannot publish or share/);
+  });
+
+  it('SharedSermon with only valid references is allowed', async () => {
+    const res = await post(app, 'SharedSermon', 'u-pastor', {
+      title: 'Shared good',
+      anchor_passage: 'Ephesians 2:8',
+      points: [{ supporting_scriptures: ['Romans 8:28-30'] }],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.scripture_validation.every((r) => r.status === 'valid')).toBe(true);
+  });
+
+  it('SharedSermon strips forged trust fields', async () => {
+    const res = await post(app, 'SharedSermon', 'u-pastor', {
+      title: 'Shared', anchor_passage: 'John 3:16', verified: true, pastor_reviewed: true,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.verified).toBeFalsy();
+    expect(res.body.pastor_reviewed).toBeFalsy();
+  });
+
   // --- Bypass #3: stale trust markers must be neutralized on revalidation ---
   it('a stale verified:true is stripped when a gated row is updated to an invalid state', async () => {
     // Seed a row that already carries forged trust markers (legacy/migrated).
