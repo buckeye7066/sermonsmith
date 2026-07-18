@@ -134,7 +134,7 @@ describe('StreamLLM result-trailer contract', () => {
     const payload = '{"title":"Grace"}';
     // A real success trailer always carries the scripture screen; the client now
     // requires ok && !truncated && scripture.ok to resolve.
-    const fetchMock = vi.fn().mockResolvedValue(streamResponse(payload + '\n' + RS + '{"ok":true,"truncated":false,"scripture":{"ok":true}}'));
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse(payload + '\n' + RS + '{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1,"fabricated":0}}'));
     vi.stubGlobal('fetch', fetchMock);
 
     const { api } = await loadClient();
@@ -165,13 +165,15 @@ describe('StreamLLM result-trailer contract', () => {
     const { api } = await loadClient();
 
     // Each of these is NOT a fully-valid success trailer → must throw (502).
+    const clean = { ok: true, checked: 1, fabricated: 0 };
     const badTrailers = [
       {},                                        // no fields
       { ok: true },                              // missing truncated + scripture
       { ok: true, truncated: false },            // missing scripture
-      { ok: true, truncated: true, scripture: { ok: true } },  // truncated
-      { ok: true, truncated: false, scripture: { ok: false } }, // scripture failed
-      { ok: 'yes', truncated: false, scripture: { ok: true } }, // non-boolean ok
+      { ok: true, truncated: true, scripture: clean },  // truncated
+      { ok: true, truncated: false, scripture: { ok: false, checked: 1, fabricated: 1 } }, // scripture failed
+      { ok: 'yes', truncated: false, scripture: clean }, // non-boolean ok
+      { ok: true, truncated: false, scripture: { ok: true } }, // evidence stripped (no counts)
     ];
     for (const t of badTrailers) {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse(`draft text${RS}${JSON.stringify(t)}`)));
@@ -181,9 +183,9 @@ describe('StreamLLM result-trailer contract', () => {
       ).rejects.toMatchObject({ status: 502 });
     }
 
-    // The one fully-valid trailer resolves with the text.
+    // The one fully-valid trailer (with consistent counts) resolves with the text.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      streamResponse(`Grace — John 3:16${RS}${JSON.stringify({ ok: true, truncated: false, scripture: { ok: true } })}`),
+      streamResponse(`Grace — John 3:16${RS}${JSON.stringify({ ok: true, truncated: false, scripture: clean })}`),
     ));
     const text = await api.integrations.Core.StreamLLM({ prompt: 'p' });
     expect(text).toBe('Grace — John 3:16');
@@ -220,6 +222,53 @@ describe('StreamLLM result-trailer contract', () => {
     // A fully-valid, consistent trailer WITH counts resolves.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       streamResponse(`John 3:16${RS}{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1,"fabricated":0}}`),
+    ));
+    expect(await api.integrations.Core.StreamLLM({ prompt: 'p' })).toBe('John 3:16');
+  });
+
+  it('rejects UNICODE-ESCAPED duplicate keys (dup-detector normalizes exactly like JSON.parse)', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const { api } = await loadClient();
+    const BS = String.fromCharCode(92); // backslash, built at runtime so tooling can't normalize it
+    const escOk = `${BS}u006fk`;        // raw "ok" → decodes to "ok"
+
+    // Sanity: the raw text carries the escape and JSON.parse would last-wins to ok:true.
+    const topDup = `{"ok":false,"${escOk}":true,"truncated":false,"scripture":{"ok":true,"checked":1,"fabricated":0}}`;
+    expect(topDup.includes(`${BS}u006fk`)).toBe(true);
+    expect(JSON.parse(topDup).ok).toBe(true); // last-wins would flip failure → success
+
+    const scriptureDup = `{"ok":true,"truncated":false,"scripture":{"ok":false,"${escOk}":true,"checked":1,"fabricated":0}}`;
+    for (const raw of [topDup, scriptureDup]) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse(`draft${RS}${raw}`)));
+      await expect(
+        api.integrations.Core.StreamLLM({ prompt: 'p' }),
+        `escaped-duplicate must be rejected: ${raw}`,
+      ).rejects.toMatchObject({ status: 502 });
+    }
+  });
+
+  it('REQUIRES consistent numeric scripture counts on a success trailer (no evidence-strip downgrade)', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const { api } = await loadClient();
+    const bad = [
+      '{"ok":true,"truncated":false,"scripture":{"ok":true}}',                          // no counts
+      '{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1}}',              // missing fabricated
+      '{"ok":true,"truncated":false,"scripture":{"ok":true,"fabricated":0}}',           // missing checked
+      '{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":-1,"fabricated":0}}', // negative checked
+      '{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1.5,"fabricated":0}}', // non-integer
+      '{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1,"fabricated":2}}', // fabricated>0
+      '{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1,"fabricated":"0"}}', // non-numeric
+    ];
+    for (const raw of bad) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse(`draft${RS}${raw}`)));
+      await expect(
+        api.integrations.Core.StreamLLM({ prompt: 'p' }),
+        `must throw: ${raw}`,
+      ).rejects.toMatchObject({ status: 502 });
+    }
+    // Full consistent trailer resolves.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      streamResponse(`John 3:16${RS}{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":3,"fabricated":0}}`),
     ));
     expect(await api.integrations.Core.StreamLLM({ prompt: 'p' })).toBe('John 3:16');
   });

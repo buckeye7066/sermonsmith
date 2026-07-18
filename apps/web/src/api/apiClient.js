@@ -340,10 +340,13 @@ const auth = {
 const STREAM_RESULT_SEPARATOR = String.fromCharCode(0x1e);
 
 // Duplicate-key detector for a small JSON trailer. JSON.parse silently keeps the
-// LAST value for a repeated key, so a tampered `{"ok":false,"ok":true}` would
-// otherwise parse to ok:true. We scan the raw text, tracking one key-set per
-// open object (arrays have no keys), and report a repeat AT A GIVEN LEVEL. Only
-// used on the tiny result trailer.
+// LAST value for a repeated key, so a tampered `{"ok":false,"ok":true}` (or its
+// unicode-escaped spelling `{"ok":false,"ok":true}`) would otherwise parse
+// to ok:true. We scan the raw text, tracking one key-set per open object (arrays
+// have no keys), and report a repeat AT A GIVEN LEVEL. Each key token is DECODED
+// with JSON.parse before the Set lookup so the detector normalizes escapes
+// EXACTLY as the value parser does — an escaped duplicate collides and can never
+// slip past while last-wins keeps its later value.
 function trailerHasDuplicateKeys(text) {
   const stack = [];
   const n = text.length;
@@ -355,20 +358,25 @@ function trailerHasDuplicateKeys(text) {
     if (ch === '[') { stack.push(null); i++; continue; } // array level: no keys
     if (ch === ']') { stack.pop(); i++; continue; }
     if (ch === '"') {
+      // Find the end of the quoted string, respecting \\ and \" escapes.
       let j = i + 1;
-      let s = '';
       while (j < n) {
-        if (text[j] === '\\') { s += text[j + 1]; j += 2; continue; }
+        if (text[j] === '\\') { j += 2; continue; }
         if (text[j] === '"') break;
-        s += text[j]; j += 1;
+        j += 1;
       }
       let k = j + 1;
       while (k < n && /\s/.test(text[k])) k += 1;
       if (text[k] === ':') { // this string is an object KEY
         const top = stack[stack.length - 1];
         if (top instanceof Set) {
-          if (top.has(s)) return true;
-          top.add(s);
+          // Decode via JSON.parse so escaped spellings normalize like the value
+          // parser (e.g. "ok" -> "ok"); on a malformed token treat the raw
+          // slice as the key (the overall JSON.parse fails anyway → rejected).
+          let key;
+          try { key = JSON.parse(text.slice(i, j + 1)); } catch { key = text.slice(i, j + 1); }
+          if (top.has(key)) return true;
+          top.add(key);
         }
         i = k + 1; continue;
       }
@@ -396,9 +404,13 @@ function isFullyValidSuccessTrailer(result, rawText) {
   if (!s || typeof s !== 'object' || Array.isArray(s)) return false;
   if (Object.keys(s).some((key) => !TRAILER_SCRIPTURE_KEYS.has(key))) return false;
   if (s.ok !== true) return false;
-  // Evidence must not contradict the verdict when present.
-  if ('fabricated' in s && (typeof s.fabricated !== 'number' || s.fabricated !== 0)) return false;
-  if ('checked' in s && (typeof s.checked !== 'number' || !(s.checked >= 0))) return false;
+  // The server's screen ALWAYS emits {ok, checked, fabricated}, so a success
+  // trailer MUST carry consistent numeric evidence — no evidence-stripping
+  // downgrade (a bare {ok:true} that skips the fabricated===0 check is rejected).
+  if (!Object.prototype.hasOwnProperty.call(s, 'checked')
+      || !Object.prototype.hasOwnProperty.call(s, 'fabricated')) return false;
+  if (!Number.isSafeInteger(s.checked) || s.checked < 0) return false;
+  if (!Number.isSafeInteger(s.fabricated) || s.fabricated !== 0) return false;
   return true;
 }
 

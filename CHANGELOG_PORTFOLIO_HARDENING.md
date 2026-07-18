@@ -77,6 +77,10 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 ## Round-13 pass — the app only trusts a clean, well-formed "all clear" (2026-07-18)
 - **The app now verifies the streaming validation result is exact and self-consistent before trusting it.** A result that claims success but includes contradictory evidence (e.g. says it's clean yet reports a fabricated reference), carries unexpected extra fields, or has duplicated/tampered fields is now rejected and retried, rather than accepted. No change for genuine successful responses.
 
+## Round-14 pass — closes two ways a tampered "all clear" could sneak through (2026-07-18)
+- **A validation result that repeats a field using disguised (unicode-escaped) spellings is now caught and rejected** — previously such a trick could flip a failure into a fake success.
+- **A success result must now include its supporting evidence (how many references were checked, and zero fabricated)** — a result that omits the evidence is no longer trusted. No change for genuine successful responses.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.
