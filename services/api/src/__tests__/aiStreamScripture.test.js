@@ -600,14 +600,14 @@ describe('/stream fabricated-Scripture screen', () => {
   // --- Round-29: uniform malformed-suffix rule for ROMAN tokens, spaced-
   // separator unsupported prefixes, and Unicode-Roman prefix (no bare-book
   // duplicate) — over /invoke AND /stream (success + error). Split for rate limit. ---
-  it('/invoke + /stream flag Roman malformed suffixes and spaced-separator unsupported prefixes', async () => {
+  it('/invoke + /stream flag Roman malformed suffixes; a SPACED-separator outline reads as bare valid book', async () => {
     await runR25(app, [
       ['Roman malformed John 3:XЖ', 'John 3:XЖ', true],
+      ['Roman malformed John 3:Xabc (ASCII suffix)', 'John 3:Xabc', true],
       ['Roman malformed John 3:IVé', 'John 3:IVé', true],
       ['Roman malformed range John 3:I-Vabc', 'John 3:I-Vabc', true],
-      ['spaced-sep 4 - John 1:1 (invalid)', '4 - John 1:1', true],
-      ['spaced-sep Fourth - John 1:1 (invalid)', 'Fourth - John 1:1', true],
-      ['en-dash IV – John 1:1 (invalid)', 'IV – John 1:1', true],
+      ['archaic Roman ↁ John 1:1 (invalid)', 'ↁ John 1:1', true],
+      ['outline 2 - John 3:16 → valid Gospel (NOT rejected)', '2 - John 3:16', false],
       ['clean John IV:2 (valid)', 'John IV:2', false],
       ['prose John 2:live (no ref → valid)', 'John 2:live your faith', false],
     ]);

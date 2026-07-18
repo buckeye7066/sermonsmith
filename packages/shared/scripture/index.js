@@ -192,19 +192,27 @@ function decimalDigitToAscii(ch) {
   return value;
 }
 
-// Precomposed Unicode ROMAN NUMERAL code points (U+2160–U+2188: Ⅰ-Ⅻ, Ⅼ Ⅽ Ⅾ Ⅿ
-// and lowercase ⅰ-ⅿ) → their ASCII letters (Ⅳ→"IV", ⅱ→"ii"). Folded in EVERY
-// pass (incl. the normal display pass) so a Unicode-Roman PREFIX ("Ⅳ John") is
-// bound and consumed by the matcher — otherwise the normal pass, which does not
-// NFKC-fold, would emit a spurious bare "John 1:1" alongside the invalid
-// "4 John 1:1" from the folded shadow passes. Only these dedicated numeral code
-// points are folded (not general NFKC), so ordinary accents are untouched.
+// EVERY Unicode ROMAN NUMERAL code point (U+2160–U+2188) → ASCII the matcher can
+// consume, folded in EVERY pass (incl. the normal display pass) so a Unicode-
+// Roman PREFIX ("Ⅳ John") is bound and consumed — otherwise the normal pass,
+// which does not NFKC-fold, would emit a spurious bare "John 1:1". Only these
+// dedicated numeral code points are folded (not general NFKC), so ordinary
+// accents are untouched. U+2160–U+217F fold to ASCII roman via NFKC (Ⅳ→"IV",
+// ⅱ→"ii"); the ARCHAIC / apostrophus forms U+2180–U+2188 (ↀ ↁ ↂ Ↄ ↄ ↅ ↆ ↇ ↈ)
+// do NOT NFKC-fold to ASCII, so they are mapped EXPLICITLY to their decimal
+// value — none is 1/2/3, so a numbered-book prefix built from them is a
+// fabricated numbered book (invalid_book), and a chapter/verse is out_of_range.
 const ROMAN_NUMERAL_FOLD = new Map();
-for (let cp = 0x2160; cp <= 0x2188; cp += 1) {
+for (let cp = 0x2160; cp <= 0x217F; cp += 1) {
   const ch = String.fromCodePoint(cp);
   const folded = ch.normalize('NFKC');
   if (/^[ivxlcdm]+$/i.test(folded)) ROMAN_NUMERAL_FOLD.set(ch, folded);
 }
+const ARCHAIC_ROMAN = {
+  'ↀ': '1000', 'ↁ': '5000', 'ↂ': '10000', 'Ↄ': '100',
+  'ↄ': '100', 'ↅ': '6', 'ↆ': '50', 'ↇ': '50000', 'ↈ': '100000',
+};
+for (const [ch, val] of Object.entries(ARCHAIC_ROMAN)) ROMAN_NUMERAL_FOLD.set(ch, val);
 const ROMAN_NUMERAL_RE = /[Ⅰ-ↈ]/g;
 
 function normalizeCitationText(text) {
@@ -365,12 +373,14 @@ const ORDINAL_WORDS = 'first|second|third|fourth|fifth|sixth|seventh|eighth|nint
 // is a fabricated numbered book — parseCitation keeps the number so validation
 // flags it, and NEVER lets the matcher fall back to the bare (valid) book.
 const COMPACT_PREFIX_ALT = `\\d+|[ivxlcdm]+|${ORDINAL_WORDS}`;
-// ONE shared prefix↔book separator: nothing, or a hyphen / dot (en-dash already
-// normalized to '-' upstream), with OPTIONAL SURROUNDING WHITESPACE. So every
-// spacing of every separator binds uniformly — "2John", "2-John", "2 - John",
-// "2 . John", "Fourth - John" — closing the bare-book fallback that spaced
-// separators reopened.
-const COMPACT_SEP = '\\s*[.\\-]?\\s*';
+// ONE shared prefix↔book separator: nothing (glued), or a hyphen / dot with NO
+// surrounding whitespace. Only these UNAMBIGUOUS compact forms ("2John",
+// "2-John", "2.John") bind as a numbered-book prefix. A separator with
+// SURROUNDING SPACES ("2 - John", "2 . John") is an OUTLINE / LIST marker, NOT a
+// prefix — see the DOCUMENTED TRADE-OFF at CITATION_RE. (Reverts the r29
+// `\s*[.\-]?\s*`, which wrongly rejected a valid Gospel-John ref written as a
+// numbered outline item, e.g. "2 - John 3:16".)
+const COMPACT_SEP = '[.\\-]?';
 // A numeric / Roman / worded prefix joined to a numbered-book stem by that
 // separator → rewritten to the spaced form ("$1 $2"), so "2John", "IIJohn",
 // "Second-John", "Third.John", "4 - John" all bind to the numbered book. The
@@ -428,12 +438,16 @@ const NON_BOOK_WORDS = new Set([
 // ("Luke 2:live" is prose, not a citation) — a NON-ASCII trailing char is still
 // captured as malformed. Unicode roman/digit code points are folded to ASCII
 // first (ROMAN_NUMERAL_FOLD / decimalDigitToAscii).
+// ONE shared token for chapter, verse, AND range-end: a digit-run OR a Roman-run,
+// each capturing ANY trailing letters/marks. No ASCII-word guard in the regex —
+// the trailing run is captured for numeric AND Roman alike ("16I", "Xabc", "IVé",
+// "XЖ", "3:1-Vabc"), then classifyNumberToken (case-SENSITIVE, plain JS) decides:
+// clean digits / canonical Roman → number; a lowercase-ASCII word that is not a
+// canonical Roman ("live", "ivy") → PROSE (the match is dropped, so "John 2:live"
+// stays clean); anything else (digits+letters, UPPERCASE Roman + junk, non-ASCII
+// trailing) → MALFORMED (kept and flagged by the validator).
 const TOK_TRAIL = '[\\p{L}\\p{M}]*';
-const NUM_TOKEN = `(\\d+${TOK_TRAIL}|[ivxlcdm]+(?![a-z])${TOK_TRAIL})`;
-// RANGE-END token: after a range dash the context is unambiguously numeric, so
-// the Roman branch drops the ASCII-word guard and ANY trailing run is captured
-// (and flagged), catching "3:1-Vabc" / "3:1-5abc" that would otherwise truncate.
-const RANGE_TOKEN = `(\\d+${TOK_TRAIL}|[ivxlcdm]+${TOK_TRAIL})`;
+const NUM_TOKEN = `(\\d+${TOK_TRAIL}|[ivxlcdm]+${TOK_TRAIL})`;
 // Permissive citation matcher (run on normalized text). Groups:
 //   1 prefix (optional): 1-3 / I-III / first-third
 //   2 book (with optional trailing '.', optional "of X")
@@ -450,11 +464,19 @@ const RANGE_TOKEN = `(\\d+${TOK_TRAIL}|[ivxlcdm]+${TOK_TRAIL})`;
 // "Fourth John") is CONSUMED by the match and bound (parseCitation classifies it
 // invalid for a numbered stem, or drops a spurious number for a non-numbered
 // book), instead of the matcher restarting at the bare book and reinterpreting
-// it as a valid Gospel.
+// it as a valid Gospel. The prefix is followed by whitespace ONLY (`\s+`, no
+// `\.?`): a dot/hyphen after the number with a following space ("2. John 3:16",
+// "2 - John 3:16") is an OUTLINE / LIST marker and reads as the BARE book, so a
+// valid Gospel-John reference in a numbered list is NOT wrongly rejected.
+// DOCUMENTED TRADE-OFF: consequently a FABRICATED numbered book written with a
+// spaced separator ("4 - John 1:1") reads as the valid bare "John 1:1" — an
+// accepted low-risk residual (exotic input), because a rejected VALID citation
+// is a worse harm than an exotic fabrication slipping. The no-space / single-
+// space unsupported-prefix trapping ("4John", "4-John", "Fourth John") is kept.
 const CITATION_RE = new RegExp(
-  `(?<![\\p{L}\\p{M}'’])\\b(?:(${COMPACT_PREFIX_ALT})\\.?\\s+)?`
+  `(?<![\\p{L}\\p{M}'’])\\b(?:(${COMPACT_PREFIX_ALT})\\s+)?`
   + `([a-z]{2,}\\.?(?:\\s+of\\s+[a-z]+)?)\\s+`
-  + `${NUM_TOKEN}\\s*:\\s*${NUM_TOKEN}(?:\\s*[-]\\s*${RANGE_TOKEN})?`,
+  + `${NUM_TOKEN}\\s*:\\s*${NUM_TOKEN}(?:\\s*[-]\\s*${NUM_TOKEN})?`,
   'giu',
 );
 
@@ -490,6 +512,28 @@ function numberTokenToDecimal(tok) {
   return ROMAN_CANONICAL_RE.test(tok) ? String(romanToInt(tok)) : tok;
 }
 
+// Classify a captured chapter/verse/range token (CASE-SENSITIVE — the plain JS
+// regexes below carry no `i` flag, unlike CITATION_RE's `giu`):
+//   'number'   — clean digits or a canonical Roman numeral (any case) → a real
+//                chapter/verse; the citation is kept and range-checked.
+//   'prose'    — an all-lowercase-ASCII word that is NOT a canonical Roman
+//                ("live", "ivy", "vabc"): a Roman-looking prose word, NOT a
+//                citation. The match is DROPPED (so "John 2:live" stays clean).
+//   'malformed'— anything else: digits with a trailing letter ("16I", "5abc"),
+//                an UPPERCASE Roman + junk ("Xabc", "IVabc"), a non-canonical
+//                Roman ("IIV"), or a non-ASCII trailing char ("Xé", "XЖ"). Kept,
+//                and the validator classifies it out_of_range / unparseable.
+// Case is the practical signal that separates a deliberate numeral ("Xabc") from
+// ordinary lowercase prose ("live").
+function classifyNumberToken(tok) {
+  if (tok == null) return 'number';
+  if (/^\d+$/.test(tok)) return 'number';
+  if (/^\d/.test(tok)) return 'malformed';            // digits + trailing junk
+  if (ROMAN_CANONICAL_RE.test(tok)) return 'number';  // clean canonical Roman (any case)
+  if (/^[a-z]+$/.test(tok)) return 'prose';           // lowercase-ASCII word, not a numeral
+  return 'malformed';                                 // uppercase-Roman+junk / non-ASCII / non-canonical
+}
+
 // Ordinal WORD → number (first..tenth). Only 1-3 are supported numbered books.
 const ORDINAL_NUM = {
   first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
@@ -519,10 +563,16 @@ function parseCitation(m) {
   const bind = num != null && ((num >= 1 && num <= 3) || isNumberedStem);
   const prefixNum = bind ? String(num) : '';
   const canonicalKey = prefixNum ? `${prefixNum} ${base}` : base;
+  // If ANY number position is a Roman-looking prose WORD (lowercase, non-numeral),
+  // this is not a citation ("John 2:live") — flag it so collect() drops the match.
+  const prose = classifyNumberToken(m[3]) === 'prose'
+    || classifyNumberToken(m[4]) === 'prose'
+    || (m[5] != null && classifyNumberToken(m[5]) === 'prose');
   return {
     prefixNum,
     base,
     canonicalKey,
+    prose,
     chapter: numberTokenToDecimal(m[3]),
     verse: numberTokenToDecimal(m[4]),
     verseEnd: numberTokenToDecimal(m[5]),
@@ -651,6 +701,7 @@ export function extractScriptureRefs(text) {
   const collect = (source, gate) => {
     for (const m of source.matchAll(CITATION_RE)) {
       const parsed = parseCitation(m);
+      if (parsed.prose) continue; // Roman-looking prose word in a number slot → not a citation
       if (!gate(parsed)) continue;
       const canonical = buildCanonical(parsed);
       if (!seen.has(canonical)) { seen.add(canonical); out.push(canonical); }

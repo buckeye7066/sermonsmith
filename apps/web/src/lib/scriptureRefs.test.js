@@ -585,39 +585,70 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('John 2:live your faith')).toEqual([]);
   });
 
-  it('binds an unsupported prefix through a separator with SURROUNDING WHITESPACE (no bare-book fallback)', () => {
-    const CANONS = ['protestant', 'catholic', 'orthodox'];
-    const caught = (t) => {
-      const refs = extractScriptureRefs(t);
-      const fabricated = refs.filter((ref) => !CANONS.some((canon) => {
-        const [r] = validateScriptureRefs([ref], { canon });
-        return r && (r.status === 'valid' || r.status === 'chapter_checked');
-      }));
-      return fabricated.some((ref) => /^\d+ John/.test(ref)) && !refs.includes('John 1:1');
-    };
-    for (const form of ['4 - John 1:1', '4- John 1:1', '4 -John 1:1', 'Fourth - John 1:1', '4 . John 1:1', 'IV – John 1:1']) {
-      expect(caught(form), form).toBe(true);
+  it('reads a SPACED-separator prefix as an OUTLINE marker → bare book (documented trade-off, no list false-positive)', () => {
+    // A numbered-list / outline item ("2 - John 3:16", "1 - John 3:16", "2. John 3:16")
+    // must read as the VALID bare Gospel John — NOT be rejected as a numbered book,
+    // and NOT emit a spurious numbered ref. (This is the r30 reversal of the r29
+    // spaced-separator over-binding, which wrongly rejected valid outline refs.)
+    for (const form of ['2 - John 3:16', '1 - John 3:16', '2. John 3:16', '2 . John 3:16']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs, form).toEqual(['John 3:16']);
+      expect(validateScriptureRefs(refs)[0].status, form).toBe('valid');
     }
-    // Deep + joined-array.
-    expect(extractScriptureRefsDeep({ note: '4 - John 1:1' })).toContain('4 John 1:1');
-    const joined = extractScriptureRefsJoined(['4 - John', '1:1']);
-    expect(joined).toContain('4 John 1:1');
-    expect(joined.includes('John 1:1')).toBe(false);
-    // A normal-space supported ref still valid; ordinary hyphenated prose not mis-bound to a numbered book.
+    expect(extractScriptureRefs('3 - John 1:1')).toEqual(['John 1:1']);
+    // DOCUMENTED TRADE-OFF: a fabricated numbered book with a SPACED separator
+    // ("4 - John 1:1") reads as the valid bare "John 1:1" — accepted residual.
+    expect(extractScriptureRefs('4 - John 1:1')).toEqual(['John 1:1']);
+    // The UNAMBIGUOUS compact forms (no space / single space) still trap unsupported prefixes.
+    expect(validateScriptureRefs(extractScriptureRefs('4John 1:1'))[0].status).toBe('invalid_book');
+    expect(validateScriptureRefs(extractScriptureRefs('4-John 1:1'))[0].status).toBe('invalid_book');
+    expect(validateScriptureRefs(extractScriptureRefs('Fourth John 1:1'))[0].status).toBe('invalid_book');
+    // Supported ref still valid; hyphenated prose not mis-bound.
     expect(validateScriptureRefs(extractScriptureRefs('2 John 1:1'))[0].status).toBe('valid');
     expect(extractScriptureRefs('well - John 3:16').some((r) => /^[123] /.test(r))).toBe(false);
   });
 
   it('folds a Unicode-Roman prefix in EVERY pass so no spurious bare valid ref is emitted', () => {
-    // "Ⅳ John 1:1" (and every separator form) produces ONLY the invalid "4 John",
-    // never a bare valid "John 1:1" in the extractor / audit output.
-    for (const form of ['Ⅳ John 1:1', 'ⅣJohn 1:1', 'Ⅳ-John 1:1', 'Ⅳ.John 1:1', 'Ⅳ - John 1:1']) {
+    // "Ⅳ John 1:1" and the UNAMBIGUOUS compact forms produce ONLY the invalid
+    // "4 John", never a bare valid "John 1:1" in the extractor / audit output.
+    for (const form of ['Ⅳ John 1:1', 'ⅣJohn 1:1', 'Ⅳ-John 1:1', 'Ⅳ.John 1:1']) {
       const refs = extractScriptureRefs(form);
       expect(refs, form).toContain('4 John 1:1');
       expect(refs.includes('John 1:1'), form).toBe(false);
     }
     // A supported Unicode-Roman prefix still binds to the real numbered book.
     expect(validateScriptureRefs(extractScriptureRefs('Ⅱ John 1:1'))[0].status).toBe('valid'); // 2 John
+    expect(extractScriptureRefs('Ⅱ John 1:1')).toEqual(['2 John 1:1']);
+  });
+
+  it('flags a Roman chapter/verse with an ASCII suffix (malformed) while keeping Roman-looking prose clean', () => {
+    // Roman token + ASCII letters is a deliberate malformed numeral → caught.
+    for (const form of ['John 3:Xabc', 'John IVabc:2', 'John 3:IVabc']) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.length, form).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked'), form).toBe(true);
+    }
+    // A lowercase Roman-looking WORD is prose, not a citation (dropped, not flagged).
+    expect(extractScriptureRefs('John 2:live your faith')).toEqual([]);
+    expect(extractScriptureRefs('John 3:ivy grows')).toEqual([]);
+    // Clean Roman (any case) still validates.
+    expect(validateScriptureRefs(extractScriptureRefs('John iv:2'))[0].status).toBe('valid'); // John 4:2
+    expect(extractScriptureRefs('John III:37')).toContain('John 3:37');
+  });
+
+  it('folds EVERY Unicode Roman numeral (U+2160–U+2188, incl. archaic) — no bare-book leak', () => {
+    // Sweep the whole block in the PREFIX position: 1/2/3 → valid numbered book,
+    // everything else → fabricated numbered book — NONE leaks a spurious bare "John 1:1".
+    for (let cp = 0x2160; cp <= 0x2188; cp += 1) {
+      const refs = extractScriptureRefs(`${String.fromCodePoint(cp)} John 1:1`);
+      expect(refs.includes('John 1:1'), `U+${cp.toString(16)} prefix must not leak bare John`).toBe(false);
+      expect(refs.length, `U+${cp.toString(16)} must bind a numbered ref`).toBeGreaterThan(0);
+    }
+    // Archaic apostrophus forms that do NOT NFKC-fold are handled explicitly.
+    expect(validateScriptureRefs(extractScriptureRefs('ↁ John 1:1'))[0].status).toBe('invalid_book'); // 5000 John
+    expect(validateScriptureRefs(extractScriptureRefs('John ↁ:1'))[0].status).toBe('out_of_range');    // chapter 5000
+    expect(validateScriptureRefs(extractScriptureRefs('John ↅ:1'))[0].status).toBe('valid');           // ↅ = 6 → John 6:1
+    // Supported forms still valid.
     expect(extractScriptureRefs('Ⅱ John 1:1')).toEqual(['2 John 1:1']);
   });
 
