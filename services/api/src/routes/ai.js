@@ -616,6 +616,27 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
       }
 
       if (parsed.ok) {
+        // Scripture parity with /stream: screen the response for references
+        // that are fabricated in EVERY canon and fail closed (422) so the
+        // client cannot render/save the draft as a clean, completed result
+        // before the durable entity save gate ever runs.
+        const scripture = screenStreamedScripture(content);
+        if (!scripture.ok) {
+          await auditAiCall({
+            ...auditBase,
+            response: content,
+            status: 'unverified_scripture',
+            failureType: 'unverified_scripture',
+            tokenEstimate: estimateTokenCount(auditBase.prompt, content),
+          });
+          audited = true;
+          return res.status(422).json({
+            message: 'The AI draft contained Scripture references that could not be verified. Please retry.',
+            scripture_unverified: true,
+            scripture,
+            responsePreview: content.slice(0, 500),
+          });
+        }
         await auditAiCall({
           ...auditBase,
           response: content,
@@ -645,6 +666,24 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
           ? 'The AI response was too long and was cut off before it finished. Please try a narrower or more specific request.'
           : 'AI returned invalid JSON. Please retry.',
         truncated: finishReason === 'length',
+        responsePreview: content.slice(0, 500),
+      });
+    }
+    // Same fabricated-Scripture screen for plain-text (non-schema) completions.
+    const scripture = screenStreamedScripture(content);
+    if (!scripture.ok) {
+      await auditAiCall({
+        ...auditBase,
+        response: content,
+        status: 'unverified_scripture',
+        failureType: 'unverified_scripture',
+        tokenEstimate: estimateTokenCount(auditBase.prompt, content),
+      });
+      audited = true;
+      return res.status(422).json({
+        message: 'The AI draft contained Scripture references that could not be verified. Please retry.',
+        scripture_unverified: true,
+        scripture,
         responsePreview: content.slice(0, 500),
       });
     }

@@ -47,6 +47,11 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 - **Community like/report/save no longer leak withheld content.** If a public post was pulled from the feed for an unverified reference, liking/reporting/saving it now returns only the interaction result (counts) — never the flagged content body.
 - Full coverage confirmed: every AI-generated Scripture-bearing content type and every route that returns such content now runs through one shared gate.
 
+## Round-6 pass — sermon validator now checks every prose field; /invoke parity (2026-07-18)
+- **The sermon Scripture check now covers the whole sermon.** Previously it only checked the anchor passage, supporting scriptures, and conclusion; a fabricated reference tucked into the big idea, theological notes, or a point's exegesis/application/illustration slipped through. It now scans the entire sermon, so those are caught on publish and on shared links.
+- **AI replies posted through the raw data API are checked too** (not just the forum reply button).
+- **The non-streaming AI endpoint now screens for fabricated Scripture** just like the streaming one — a draft with an unverifiable reference is rejected instead of returned as finished. No change for valid content.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

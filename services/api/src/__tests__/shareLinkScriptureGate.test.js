@@ -121,6 +121,23 @@ describe('share-link Scripture gate (createShareableLink + /share/:slug)', () =>
     expect(res.body.resource.id).toBe('res-live');
   });
 
+  it('refuses to share/serve a Sermon whose fabricated ref hides in a deep prose field', async () => {
+    // The reference is valid in anchor_passage but fabricated in a point's
+    // exegesis — the old field-limited validator missed this.
+    seedResource('res-deep', 'Sermon', 'u-owner', {
+      title: 'Deep', anchor_passage: 'John 3:16', points: [{ exegesis: 'Grounded in Hezekiah 4:5.' }],
+    });
+    const create = await request(app)
+      .post('/api/functions/createShareableLink')
+      .set('Cookie', asUser('u-owner'))
+      .send({ resourceType: 'Sermon', resourceId: 'res-deep' });
+    expect(create.status).toBe(422);
+
+    seedLink('link-deep', 'u-owner', { slug: 'slug-deep', resourceId: 'res-deep' });
+    const serve = await request(app).get('/api/community/share/slug-deep');
+    expect(serve.status).toBe(422);
+  });
+
   it('refuses to mint / serve a share link for an invalid SharedSermon copy', async () => {
     // A legacy/forged SharedSermon carrying a fabricated reference.
     seedResource('ss-bad', 'SharedSermon', 'u-owner', { title: 'Copy', anchor_passage: 'Hezekiah 4:5' });

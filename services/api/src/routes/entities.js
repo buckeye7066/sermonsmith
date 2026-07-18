@@ -7,6 +7,7 @@ import {
   SCRIPTURE_GATED_TYPES,
   REVIEWABLE_TYPES,
   gateEntityWrite,
+  assertAiReplyExposable,
 } from '../services/scriptureGate.js';
 
 // Tenant-isolated entity API.
@@ -346,6 +347,22 @@ async function denominationForRequest(req, ...candidates) {
  * references do not all verify.
  */
 async function applyScriptureGate(req, type, incoming, existingData = null) {
+  // AI-generated community replies are gated even though CommunityReply is not a
+  // first-class gated entity type. The dedicated /community/posts/:id/reply route
+  // gates is_ai_response replies, but the generic entity API would otherwise
+  // persist one straight from client content — so re-run the same reply gate
+  // here (fabricated Scripture rejected, validated refs stored). User-authored
+  // replies pass through untouched.
+  if (type === 'CommunityReply' && (incoming?.is_ai_response === true || existingData?.is_ai_response === true)) {
+    const denomination = await denominationForRequest(
+      req,
+      incoming?.denomination,
+      existingData?.denomination,
+    );
+    const merged = { ...(existingData || {}), ...incoming };
+    const refs = assertAiReplyExposable({ content: merged.content, denomination });
+    return { ...incoming, scripture_validation: refs };
+  }
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
   const denomination = await denominationForRequest(
     req,

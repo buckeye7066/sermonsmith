@@ -285,17 +285,17 @@ export function validateAiContent(content, options = {}) {
  * than silently passing as verified.
  */
 export function validateAiSermon(sermon, options = {}) {
-  const refs = [
-    ...extractScriptureRefs(sermon?.anchor_passage),
-    ...(sermon?.points || []).flatMap((p) => [
-      ...(Array.isArray(p?.supporting_scriptures)
-        ? p.supporting_scriptures
-        : extractScriptureRefs(p?.supporting_scriptures)),
-      ...extractScriptureRefs(p?.text),
-    ]),
-    ...extractScriptureRefs(sermon?.conclusion),
-  ];
-  const checked = validateScriptureRefs(refs, options);
+  // Deep-scan the WHOLE sermon object, not a hand-picked field list. Sermons
+  // persist references across many prose fields — big_idea, theological_notes,
+  // and each point's exegesis/application/illustration/text/supporting_scriptures
+  // — and BOTH the entity publish gate and the share-link exposure gate validate
+  // sermons through this function. A hand-picked list (previously only
+  // anchor_passage, points[].supporting_scriptures, points[].text, conclusion)
+  // let a fabricated reference in big_idea / theological_notes / a point's
+  // exegesis pass as all-valid and be published + share-served. The shape-
+  // agnostic deep sweep closes that blind spot and stays correct as the sermon
+  // shape evolves.
+  const checked = validateScriptureRefs(extractScriptureRefsDeep(sermon), options);
   const allValid = checked.every((r) => r.status === 'valid');
   const problems = checked.filter((r) => r.status !== 'valid').length;
   const counts = checked.reduce((acc, r) => {

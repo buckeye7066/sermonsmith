@@ -200,6 +200,20 @@ describe('validateAiSermon', () => {
     expect(out.summary).toMatch(/need attention/);
   });
 
+  it('catches a fabricated reference in big_idea / theological_notes / a point field', () => {
+    for (const sermon of [
+      { anchor_passage: 'John 3:16', big_idea: 'As Hezekiah 4:5 shows...' },
+      { anchor_passage: 'John 3:16', theological_notes: 'See Hezekiah 4:5.' },
+      { anchor_passage: 'John 3:16', points: [{ exegesis: 'Rooted in Hezekiah 4:5.' }] },
+      { anchor_passage: 'John 3:16', points: [{ application: 'Live out Hezekiah 4:5.' }] },
+      { anchor_passage: 'John 3:16', points: [{ illustration: 'Like Hezekiah 4:5 teaches.' }] },
+    ]) {
+      const out = validateAiSermon(sermon);
+      expect(out.allValid).toBe(false);
+      expect(out.refs.some((r) => r.ref === 'Hezekiah 4:5' && r.status === 'invalid_book')).toBe(true);
+    }
+  });
+
   it('keeps a Catholic sermon with a deuterocanon anchor in review (chapter_checked, not invalid)', () => {
     const out = validateAiSermon(
       {

@@ -204,3 +204,18 @@ The web share flow (`ShareSermonDialog.jsx:73`) copies a sermon's `anchor_passag
 | `GET /api/community/moderation/queue` | out of scope — admin review surface (must show unverified to moderate) |
 
 Every gated type and every content-returning route routes through the centralized `scriptureGate.js`, or is out of scope with a stated reason.
+
+---
+
+## Round-6 pass — Sermon validator blind spot + 2 gate-parity gaps (all FIXED)
+
+### R6-1 — [HIGH] Sermon validator missed most sermon prose fields — FIXED
+`validateAiSermon` (`packages/shared/scripture/index.js`) scanned only `anchor_passage`, `points[].supporting_scriptures`, `points[].text`, `conclusion` — but sermons also persist references in `big_idea`, `theological_notes`, and each point's `exegesis` / `application` / `illustration`. A fabricated `Hezekiah 4:5` in any of those passed as all-valid, and since the entity publish gate AND the share-link exposure gate both validate sermons through this function, the fabricated reference was persisted `published` and share-served. **Fix:** `validateAiSermon` now **deep-scans the whole sermon object** (`extractScriptureRefsDeep`), a strict superset that catches every prose field and stays correct as the sermon shape evolves — fixing the blind spot everywhere the function is used (entity gate, `/review` evidence, share-link exposure, and the web review chips). Human-review acknowledgment + stale-review behavior unchanged. **Tests:** invalid ref in `big_idea` / `theological_notes` / `points[].exegesis|application|illustration` → validator flags it; entity publish → 422; draft → `needs_review`; share-link create + serve of a sermon with the ref hidden in a point's `exegesis` → 422.
+
+### R6-2 — [MEDIUM] Generic entity create bypassed the AI-reply gate — FIXED
+The dedicated `/community/posts/:id/reply` gates `is_ai_response`, but the generic `POST /api/entities/CommunityReply` ran `applyScriptureGate`, which no-op'd (CommunityReply not a gated type) — a direct/legacy client could persist an AI-marked reply with fabricated Scripture. **Fix:** `applyScriptureGate` now routes `is_ai_response` CommunityReply writes (create/bulk/update) through `assertAiReplyExposable` (fabricated refs rejected 422, validated refs stored); user-authored replies pass through. **Tests:** generic-API CommunityReply with `is_ai_response:true` + invalid ref → 422 (nothing persisted); valid → 200; `is_ai_response:false` with the same text → 200 (ungated).
+
+### R6-3 — [MEDIUM] `/api/ai/invoke` had no Scripture screen (fallback gap) — FIXED
+`/stream` screens fabricated Scripture in its trailer, but clients fall back to `/api/ai/invoke`, which returned parsed JSON as soon as it was syntactically valid — no Scripture screen — so the fallback rendered a completed draft with fabricated refs before any save gate. **Fix:** `/invoke` now runs the same canon-independent `screenStreamedScripture` over the completion (both structured and plain-text paths) and **fails closed with 422** + `{ scripture_unverified, scripture }` metadata — parity with `/stream`, so the client cannot render/save it as trusted. Audit row records `unverified_scripture`. **Tests:** `/invoke` returning a fabricated ref (JSON and plain-text) → 422 `scripture_unverified`; clean refs → 200 with the value.
+
+**Confirmed (round-6):** the Sermon validator deep-scans ALL prose fields (invalid `big_idea`/`theological_notes`/`exegesis` blocked on publish AND share-link serve); generic-API `is_ai_response` CommunityReply writes are gated; `/invoke` has fabricated-Scripture parity with `/stream`.

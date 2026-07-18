@@ -341,6 +341,52 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.body.scripture_validation.every((r) => r.status === 'valid')).toBe(true);
   });
 
+  // --- Round-6 R6-1: Sermon validator deep-scans ALL prose fields ---
+  it('blocks publishing a Sermon with a fabricated ref in big_idea / theological_notes / a point field', async () => {
+    for (const body of [
+      { title: 'A', anchor_passage: 'John 3:16', big_idea: 'As Hezekiah 4:5 shows', status: 'published' },
+      { title: 'B', anchor_passage: 'John 3:16', theological_notes: 'See Hezekiah 4:5.', status: 'published' },
+      { title: 'C', anchor_passage: 'John 3:16', points: [{ exegesis: 'From Hezekiah 4:5.' }], status: 'published' },
+    ]) {
+      const res = await post(app, 'Sermon', 'u-pastor', body);
+      expect(res.status).toBe(422);
+      expect(res.body.message).toMatch(/Cannot publish/);
+    }
+  });
+
+  it('a Sermon draft with a fabricated ref in a point exegesis is honestly needs_review', async () => {
+    const res = await post(app, 'Sermon', 'u-pastor', {
+      title: 'Draft', anchor_passage: 'John 3:16', points: [{ exegesis: 'From Hezekiah 4:5.' }], status: 'draft',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('needs_review');
+    expect(res.body.scripture_validation.some((r) => r.status === 'invalid_book')).toBe(true);
+  });
+
+  // --- Round-6 R6-2: generic-API CommunityReply is_ai_response is gated ---
+  it('rejects a generic-API CommunityReply with is_ai_response + a fabricated ref', async () => {
+    const res = await post(app, 'CommunityReply', 'u-pastor', {
+      post_id: 'p1', content: 'Per Hezekiah 4:5, be encouraged.', is_ai_response: true,
+    });
+    expect(res.status).toBe(422);
+    expect(prisma._store.entity.some((e) => e.type === 'CommunityReply')).toBe(false);
+  });
+
+  it('allows a generic-API CommunityReply with is_ai_response and valid refs', async () => {
+    const res = await post(app, 'CommunityReply', 'u-pastor', {
+      post_id: 'p1', content: 'See John 3:16.', is_ai_response: true,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.is_ai_response).toBe(true);
+  });
+
+  it('does NOT gate a user-authored (is_ai_response:false) CommunityReply via generic API', async () => {
+    const res = await post(app, 'CommunityReply', 'u-pastor', {
+      post_id: 'p1', content: 'I like Hezekiah 4:5 (my opinion).', is_ai_response: false,
+    });
+    expect(res.status).toBe(200);
+  });
+
   // --- Round-5: SharedSermon is an inherently-public gated copy ---
   it('SharedSermon with an invalid reference is blocked even without a visibility flag', async () => {
     const res = await post(app, 'SharedSermon', 'u-pastor', {

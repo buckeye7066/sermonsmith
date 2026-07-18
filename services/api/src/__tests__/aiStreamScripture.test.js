@@ -131,6 +131,37 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(trailer.scripture.ok).toBe(true);
   });
 
+  it('/invoke fails closed (422) when the completion contains a fabricated reference', async () => {
+    STREAM_TEXT = '{"points":["Point about Hezekiah 4:5"]}';
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(res.status).toBe(422);
+    expect(res.body.scripture_unverified).toBe(true);
+    expect(res.body.scripture.ok).toBe(false);
+  });
+
+  it('/invoke returns clean JSON when references verify', async () => {
+    STREAM_TEXT = '{"verse":"John 3:16"}';
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(res.status).toBe(200);
+    expect(res.body.verse).toBe('John 3:16');
+  });
+
+  it('/invoke plain-text also screens fabricated Scripture', async () => {
+    STREAM_TEXT = 'A short reflection citing Hezekiah 4:5.';
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p' });
+    expect(res.status).toBe(422);
+    expect(res.body.scripture_unverified).toBe(true);
+  });
+
   it('the fabricated reference is recorded honestly in the audit row', async () => {
     STREAM_TEXT = 'Hezekiah 4:5 is my anchor.';
     await request(app)
