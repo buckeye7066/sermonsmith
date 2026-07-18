@@ -393,6 +393,24 @@ describe('/stream fabricated-Scripture screen', () => {
     }
   });
 
+  it('does NOT falsely flag decomposed accented prose (café/résumé 4:5) on /invoke or /stream', async () => {
+    const acute = String.fromCodePoint(0x0301);
+    for (const text of [`cafe${acute} 4:5`, `re${acute}sume${acute} 4:5`]) {
+      STREAM_TEXT = JSON.stringify({ note: text });
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      expect(inv.status, `/invoke ${JSON.stringify([...text])}`).toBe(200);
+
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+      expect(parseTrailer(str).scripture.ok, `/stream ${JSON.stringify([...text])}`).toBe(true);
+    }
+  });
+
   it('normalizes a JSON-ESCAPED control-split citation before screening (server /stream + /invoke)', async () => {
     const RSesc = `Hezekiah${RS}4:5`; // decoded control-split; screen must recombine → invalid_book
     STREAM_TEXT = JSON.stringify({ note: RSesc });

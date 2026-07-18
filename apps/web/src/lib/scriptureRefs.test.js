@@ -229,30 +229,47 @@ describe('validateAiSermon', () => {
     expect(canon('II Tim 1:7')).toEqual(['2 Timothy 1:7']);
   });
 
-  it('normalizes the full INVISIBLE separator set (C0/C1/DEL controls + Cf format) before extraction', () => {
-    const codes = [
-      0x01, 0x1c, 0x1d, 0x1e, 0x1f, // C0 controls (incl. FS/GS/RS/US)
-      0x7f, 0x80, 0x85, 0x9f,       // DEL + C1 controls (incl. NEL)
-      0x200b, 0x200c, 0x200d,       // zero-width space / non-joiner / joiner
-      0x2060, 0xfeff, 0x00ad,       // word joiner, BOM/ZWNBSP, soft hyphen
-      0x034f, 0xfe00, 0xfe0f,       // CGJ, variation selectors 1/16
-      0x180b, 0x3164, 0xe0100,      // Mongolian FVS, Hangul filler, VS supplement
-      0x0300, 0x0301, 0x20dd, 0x20e3, // combining marks (grave/acute/enclosing circle/keycap) — \p{M}, non-DI
+  it('normalizes the full INVISIBLE separator set (controls / format / default-ignorable / combining marks)', () => {
+    // Truly-invisible chars (Cc/Cf/DI) are replaced globally, so they also bind a
+    // numeric prefix through the separator.
+    const invisibleSeps = [
+      0x01, 0x1c, 0x1d, 0x1e, 0x1f,
+      0x7f, 0x80, 0x85, 0x9f,
+      0x200b, 0x200c, 0x200d,
+      0x2060, 0xfeff, 0x00ad,
+      0x034f, 0xfe00, 0xfe0f,
+      0x180b, 0x3164, 0xe0100,
     ];
-    for (const code of codes) {
+    for (const code of invisibleSeps) {
       const sep = String.fromCodePoint(code);
-      // An invisible separator between book and chapter:verse recombines to a real ref.
       expect(extractScriptureRefs(`Hezekiah${sep}4:5`), `U+${code.toString(16)}`).toContain('Hezekiah 4:5');
       expect(validateScriptureRefs(extractScriptureRefs(`John${sep}3:16`))[0].status).toBe('valid');
-      // Prefix stays bound to the book through an invisible separator.
       expect(extractScriptureRefs(`II${sep}John 1:1`)).toEqual(['2 John 1:1']);
     }
-    // Ordinary valid refs still validate; ordinary text isn't corrupted.
+    // Combining marks (M, non-DI) are boundary-aware: a mark at the book-chapter
+    // (letter-digit) boundary that has no precomposed form (h + these marks does
+    // not compose) is caught as a hidden separator → fabricated book flagged.
+    for (const code of [0x0300, 0x0301, 0x20dd, 0x20e3]) {
+      const sep = String.fromCodePoint(code);
+      expect(extractScriptureRefs(`Hezekiah${sep}4:5`), `U+${code.toString(16)}`).toContain('Hezekiah 4:5');
+      expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${sep}4:5`))[0].status).toBe('invalid_book');
+    }
     expect(extractScriptureRefs('See John 3:16')).toContain('John 3:16');
     expect(extractScriptureRefs('an ordinary sentence with no reference')).toEqual([]);
-    // Accented prose (even decomposed combining accents) without a
-    // book-name+chapter:verse pattern does NOT create a false citation.
-    expect(extractScriptureRefs('café and résumé are lovely words')).toEqual([]);
+  });
+
+  it('does NOT turn decomposed accented prose into a fabricated citation (NFC + boundary-aware marks)', () => {
+    const acute = String.fromCodePoint(0x0301);
+    for (const text of [
+      `cafe${acute} 4:5`,
+      `re${acute}sume${acute} 4:5`,
+      `a decomposed accent cafe${acute} sits at 2:1 in prose`,
+    ]) {
+      expect(extractScriptureRefs(text), JSON.stringify([...text])).toEqual([]);
+    }
+    // The un-composable attack (h + combining grave has no precomposed form)
+    // still recombines at the boundary and is caught.
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${String.fromCodePoint(0x0300)}4:5`))[0].status).toBe('invalid_book');
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {

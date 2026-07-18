@@ -97,6 +97,9 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 ## Round-19 pass — completes invisible-character coverage in reference detection (2026-07-18)
 - **References split by combining marks (accents and enclosing marks placed between characters) are now caught too**, completing the invisible/zero-width character coverage on both the streaming and non-streaming AI paths. Safe by design: it only affects what the checker sees, never stored or displayed text, and can only make a hidden reference easier to catch. No change for genuine references or ordinary (including accented) text.
 
+## Round-20 pass — fixes a false alarm on accented text from the previous round (2026-07-18)
+- **Ordinary accented words (like "café" or "résumé") followed by a number are no longer mistaken for a fabricated reference.** The previous round's invisible-character handling was too aggressive and could turn accented prose into a false citation; the text is now standardized first (so real accents stay part of the word) and the hidden-character handling only applies right where a book name would meet a chapter number. Genuinely hidden separators are still caught. No change for real references.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

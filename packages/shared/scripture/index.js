@@ -146,28 +146,32 @@ const MAX_VERSE = 176;
 
 function normalizeCitationText(text) {
   return String(text)
+    // NFC FIRST: recompose legit decomposed accents (e + U+0301 → é, a single
+    // Letter), so ordinary accented prose ("café 4:5", "résumé 4:5") is NOT
+    // treated as a hidden-mark split and wrongly turned into a fabricated
+    // citation. An un-composable attack sequence (h + U+0300 has no precomposed
+    // form) still leaves a standalone combining mark for the boundary rule below.
+    .normalize('NFC')
     // Control characters (C0 + C1 + DEL, i.e. Unicode Cc) → space, EXCEPT real
     // whitespace tab/newline/CR. A model can split a citation with an invisible
     // control byte that is JSON-escaped on the wire and decodes to a real
-    // separator the reference regex does not treat as whitespace; mapping it to
-    // a space recombines the split. \p{Cc} also covers C1 (U+0080–U+009F, incl.
-    // NEL U+0085) and DEL (U+007F).
+    // separator the reference regex does not treat as whitespace. \p{Cc} also
+    // covers C1 (U+0080–U+009F, incl. NEL U+0085) and DEL (U+007F).
     .replace(/\p{Cc}/gu, (c) => (c === '\t' || c === '\n' || c === '\r' ? c : ' '))
-    // INVISIBLE / zero-advance characters → space, so a citation can't be split
-    // by any invisible or zero-width code point between book and number:
-    //   \p{Cf}                          — format chars (zero-width space/joiner/
-    //                                     non-joiner, word joiner, BOM, soft hyphen)
-    //   \p{Default_Ignorable_Code_Point}— + variation selectors (U+FE00–FE0F,
-    //                                     U+E0100–E01EF), CGJ (U+034F), Mongolian
-    //                                     FVS (U+180B–180D), Hangul fillers, …
-    //   \p{M}                           — ALL combining marks (Mn/Mc/Me), incl.
-    //                                     non-default-ignorable ones like combining
-    //                                     accents (U+0300/U+0301) and enclosing
-    //                                     marks (U+20DD), which are zero-advance.
-    // Safe: scripture book names are ASCII, so legit citations are unaffected;
-    // mapping a mark to a space can only ADD whitespace, erring toward FLAGGING a
-    // hidden citation, never toward missing one. Affects only the extraction copy.
-    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\p{M}]/gu, ' ')
+    // Truly-invisible zero-width / format / default-ignorable characters → space
+    // (GLOBAL — these never occur inside a legit word): \p{Cf} (zero-width
+    // space/joiner/non-joiner, word joiner, BOM, soft hyphen) and
+    // \p{Default_Ignorable_Code_Point} (+ variation selectors U+FE00–FE0F /
+    // U+E0100–E01EF, CGJ U+034F, Mongolian FVS U+180B–180D, Hangul fillers, …).
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, ' ')
+    // Combining marks (\p{M}) are BOUNDARY-AWARE: after NFC a residual mark that
+    // sits at a book↔chapter boundary — between a letter and a digit — is a
+    // hidden separator and becomes a space (so "Hezekiah<U+0300>4:5" recombines
+    // to "Hezekiah 4:5" and is caught). A mark that stays WORD-INTERNAL
+    // (letter↔letter) is left alone, so decomposed accented prose is never split
+    // into a false citation. Both directions of the boundary are covered.
+    .replace(/(?<=\p{L})\p{M}+(?=\p{Nd})/gu, ' ')
+    .replace(/(?<=\p{Nd})\p{M}+(?=\p{L})/gu, ' ')
     // Unicode spaces → ASCII space.
     .replace(/[   -   　]/g, ' ')
     // Fullwidth digits → ASCII digits.

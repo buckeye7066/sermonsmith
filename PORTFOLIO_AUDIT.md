@@ -404,3 +404,20 @@ Round-18 mapped `\p{Cc}` + `\p{Cf}` + `\p{Default_Ignorable_Code_Point}`, but ze
 **Tests:** `Hezekiah<U+0300/U+0301/U+20DD/U+20E3>4:5` (plus the full prior DI/Cf/control/zero-width set) and `II<invisible>John 1:1` and a split-array variant → all caught (`scripture.ok:false`) on `/invoke` AND `/stream` (success + started-error); a normal-space citation still validates; ordinary accented prose (even decomposed combining accents) without a book-name+chapter:verse pattern is NOT mis-flagged as a citation.
 
 **Confirmed (round-19):** `\p{Cc}` + `\p{Cf}` + `\p{Default_Ignorable_Code_Point}` + `\p{M}` normalization catches combining-mark splits on `/invoke` and `/stream` — the invisible / zero-width / zero-advance separator class is now fully covered.
+
+---
+
+## Round-20 pass — r19's global `\p{M}` introduced a false positive (NFC + boundary-aware) — FIXED
+
+### R20-1 — [MEDIUM] Global `\p{M}`→space turned decomposed accented prose into fabricated citations — FIXED
+Round-19's global `\p{M}`→space didn't only operate at the book↔chapter boundary — it split ordinary **decomposed** accented words before the permissive citation regex: `"café 4:5"` (decomposed `cafe` + `U+0301`) extracted `"Cafe 4:5"` (→ `invalid_book` → `scripture.ok:false`), and `"résumé 4:5"` extracted `"Sume 4:5"`. Legit AI output with decomposed accented prose followed by a ratio-like `N:N` was WRONGLY rejected.
+
+**Fix** (`packages/shared/scripture/index.js`), two parts:
+1. **NFC first** — `text.normalize('NFC')` recomposes legitimate decomposed accents into single Letter code points (`café` → `café`, `é` = `U+00E9`, category `\p{L}`), so they are NOT treated as combining marks — killing the café/résumé false positives. An un-composable attack sequence (`h` + `U+0300` grave has no precomposed form) still leaves a standalone `\p{M}`.
+2. **Boundary-aware `\p{M}`** — the truly-invisible zero-width/format/control chars (`\p{Cc}`+`\p{Cf}`+`\p{Default_Ignorable_Code_Point}`) stay GLOBAL (they never occur inside a legit word). Combining marks (`\p{M}`) are now normalized to a space ONLY where they sit at a book↔chapter boundary — between a letter and a digit (both directions) — so a residual mark hiding a `book↔chapter` boundary is caught (`Hezekiah<U+0300>4:5` → `Hezekiah 4:5` → `invalid_book`), while a mark that stays **word-internal** (letter↔letter) is left alone (no false split).
+
+Runs inside `extractScriptureRefs`, so every consumer benefits. The r16–r18 invisible-char coverage (control/format/default-ignorable, incl. zero-width prefix binding `II<ZWSP>John` → `2 John`) is preserved via the global replacement.
+
+**Tests:** `café 4:5`, `résumé 4:5`, NFC-composed `café 4:5`, and a decomposed accent + ratio in prose → NOT rejected (200 / `scripture.ok:true`) on `/invoke` AND `/stream`; `Hezekiah<U+0300/U+0301/U+20DD/U+20E3>4:5` and the r16–r19 zero-width/DI set → caught (`scripture.ok:false`) on `/invoke` AND `/stream` (success + started-error); `John 3:16` validates.
+
+**Confirmed (round-20):** NFC + boundary-aware combining-mark handling catches the hidden-separator attack WITHOUT falsely rejecting decomposed accented prose (café/résumé), preserving the full invisible-separator coverage.
