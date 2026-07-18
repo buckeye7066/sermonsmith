@@ -249,3 +249,14 @@ The extractor recognized only ASCII full-word book names + tight whitespace + a 
 **Tests (through Sermon publish, share-link create+serve, generic AI-reply create, `/invoke`, AND `/stream`):** `hezekiah 4 : 5`, `Hez. 4:5`, `II Hezekiah 4:5`, `II John 1:20` (fails — 2 John has no v20), fullwidth-digit/colon variants → ALL caught; legit `Gen. 1:1`, `1 Cor 13:4`, `II Tim 1:7`, `First John 3:16` validate correctly (prefix bound to the right book); times/ratios/scores don't false-positive.
 
 **Confirmed (round-8):** the extractor parses abbreviations, roman/worded numeral prefixes bound to the correct book, and flexible/unicode whitespace — so formatting-variant fabricated refs are caught everywhere (publish, share serve, AI-reply create, `/invoke`, `/stream`) while legitimate citations still validate and prose does not false-positive.
+
+---
+
+## Round-9 pass — the AI screen ran on the wrong representation — FIXED
+
+### R9-1 — [HIGH] JSON-escaped citations bypassed the /invoke + /stream screen — FIXED
+`screenStreamedScripture` ran the extractor on the RAW completion text only. For a structured JSON response the model can emit a citation via escapes — `{"note":"Hezekiah 4:5"}` — so the raw text contains ` ` (not a literal space), the regex doesn't match, and the screen reported OK; `/invoke` then returned the **parsed** JSON to the client where the string decodes to `"Hezekiah 4:5"` (a real fabricated reference), and the `/stream` trailer marked it OK too. The screen was checking a different representation than the one the client receives.
+
+**Fix:** the screen now uses the shared **deep extractor** (`extractScriptureRefsDeep`, the same one the persist gates use) and accepts multiple inputs; `/invoke` and `/stream` screen **BOTH** the raw completion text **AND** the decoded parsed JSON value (recursively, incl. nested/array-valued strings) before returning/trailering success — so the escaped form is caught in the object the client reconstructs and the plain form is caught in the raw text. Fail closed (422 on `/invoke`, `scripture.ok:false` in the `/stream` trailer). **Tests:** `{"note":"Hezekiah 4:5"}`, `{"x":"Hez. 4:5"}`, `{"y":"II John 1:20"}` (fails — no v20), and a nested/array escaped citation → ALL flagged on `/invoke` AND `/stream` (each test asserts the raw body contains no literal space, proving the escaped form would evade a raw-only screen); a JSON-escaped but VALID `John 3:16` passes; a genuinely clean response still 200.
+
+**Confirmed (round-9):** `/invoke` and `/stream` screen the DECODED parsed JSON value recursively (plus the raw text), so JSON-escaped fabricated citations are caught — matching the deep-scan the persist gates use.

@@ -207,6 +207,61 @@ describe('/stream fabricated-Scripture screen', () => {
     }
   });
 
+  // Build raw JSON where spaces/periods INSIDE the string values are \uXXXX
+  // escapes — so the raw completion text does NOT contain a literal space (the
+  // regex can't match) but JSON.parse decodes it to a real citation. The escape
+  // sequences are assembled from String.fromCharCode(92) so no literal "\u"
+  // appears in the source (which tooling would normalize to a real space).
+  const BS = String.fromCharCode(92);
+  const escapeJson = (obj) => JSON.stringify(obj)
+    .split(' ').join(`${BS}u0020`)
+    .split('.').join(`${BS}u002e`);
+
+  it('/invoke and /stream catch JSON-ESCAPED fabricated citations (decoded parsed value)', async () => {
+    const cases = [
+      escapeJson({ note: 'Hezekiah 4:5' }),         // escaped space
+      escapeJson({ x: 'Hez. 4:5' }),                // escaped period + space
+      escapeJson({ y: 'II John 1:20' }),            // roman-bound, no v20 in 2 John
+      escapeJson({ points: [{ s: ['II Hezekiah 4:5'] }] }), // nested/array
+    ];
+    for (const body of cases) {
+      // Sanity: the raw text must NOT contain a literal space (proves the
+      // escaped form would evade a raw-text-only screen).
+      expect(body.includes(' ')).toBe(false);
+      STREAM_TEXT = body;
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      expect(inv.status, `/invoke should reject escaped ${body}`).toBe(422);
+      expect(inv.body.scripture_unverified).toBe(true);
+
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+      expect(parseTrailer(str.text).scripture.ok, `/stream should flag escaped ${body}`).toBe(false);
+    }
+  });
+
+  it('/invoke passes a JSON-escaped but VALID reference, and a genuinely clean response', async () => {
+    STREAM_TEXT = escapeJson({ v: 'John 3:16' }); // raw is escaped, decodes to valid
+    expect(STREAM_TEXT.includes(' ')).toBe(false);
+    const esc = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(esc.status).toBe(200);
+    expect(esc.body.v).toBe('John 3:16');
+
+    STREAM_TEXT = '{"ok":1}';
+    const clean = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(clean.status).toBe(200);
+  });
+
   it('/invoke rejects a LOWERCASE fabricated ref', async () => {
     STREAM_TEXT = '{"note":"as hezekiah 4:5 reminds us"}';
     const res = await request(app)

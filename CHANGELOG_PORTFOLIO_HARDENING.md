@@ -59,6 +59,9 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 ## Round-8 pass — reference detection now understands citation formatting (2026-07-18)
 - **Scripture detection now handles the many ways a reference can be written.** Abbreviations ("Gen. 1:1", "1 Cor 13:4"), spaces around the colon ("hezekiah 4 : 5"), roman-numeral and worded prefixes ("II John", "First John"), and unicode/fullwidth characters are all recognized and normalized. Previously these variants were invisible to the checks, letting a fabricated reference through. A key correctness win: "II John 1:20" is now correctly checked against 2 John (which has no verse 20) instead of being misread as the Gospel of John. Ordinary prose like times and ratios still isn't mistaken for a reference.
 
+## Round-9 pass — the AI Scripture screen now checks the decoded response (2026-07-18)
+- **The live-AI Scripture screen now inspects the actual decoded content.** Previously it scanned only the raw response text, so a reference hidden with JSON escape codes (which decode to a real reference on the user's screen) slipped past. Both the non-streaming and streaming AI paths now check the decoded, fully-parsed response (including nested fields), matching the depth of the save-time checks. No change for valid content.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
 import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
-import { extractScriptureRefs, validateScriptureRefs, CANONS } from '@sermonsmith/shared/scripture';
+import { extractScriptureRefsDeep, validateScriptureRefs, CANONS } from '@sermonsmith/shared/scripture';
 
 // Canon-agnostic Scripture screen for AI output (both the streamed trailer and
 // the /invoke response). A completion is shown to the user BEFORE any entity
@@ -17,13 +17,18 @@ import { extractScriptureRefs, validateScriptureRefs, CANONS } from '@sermonsmit
 //   - passes a real Protestant ref (valid in the base canon),
 //   - passes a real deuterocanonical ref (chapter_checked under Catholic/Orthodox),
 //   - REJECTS a fabricated book (invalid in all canons),
-//   - REJECTS an out-of-range deuterocanonical ref like "Wisdom 99:1"
-//     (chapter-checked only through ch.19 under Catholic — ch.99 is out_of_range
-//     in every canon, no longer masked as a bare 'unsupported_canon' pass).
-// Any hit marks the result NOT ok, so the client falls back / does not keep the
-// preview as a validated, completed draft.
-export function screenStreamedScripture(text) {
-  const refs = extractScriptureRefs(text);
+//   - REJECTS an out-of-range deuterocanonical ref like "Wisdom 99:1".
+//
+// Screens EVERY passed input with the shared DEEP extractor (the same one the
+// persist gates use). Callers pass BOTH the raw completion text AND, for
+// structured responses, the PARSED/DECODED JSON value — because the model can
+// JSON-escape a citation ({"note":"Hezekiah 4:5"}) so the raw text has no
+// literal space and the regex misses it, yet the decoded string the client
+// receives is a real fabricated reference. Deep-scanning the parsed object
+// (recursively, incl. nested/array values) catches the escaped form; scanning
+// the raw text catches the plain form. Any hit → not ok.
+export function screenStreamedScripture(...values) {
+  const refs = values.flatMap((v) => extractScriptureRefsDeep(v));
   const fabricated = refs.filter((ref) => {
     // "Placeable" in a canon = fully verse-verified OR a real book+chapter
     // (chapter_checked). Anything else in ALL canons is a fabrication.
@@ -633,8 +638,11 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
         // Scripture parity with /stream: screen the response for references
         // that are fabricated in EVERY canon and fail closed (422) so the
         // client cannot render/save the draft as a clean, completed result
-        // before the durable entity save gate ever runs.
-        const scripture = screenStreamedScripture(content);
+        // before the durable entity save gate ever runs. Screen BOTH the raw
+        // text AND the decoded parsed value, so a JSON-escaped citation
+        // (e.g. "Hezekiah 4:5") that the raw regex misses is still caught
+        // in the object the client actually receives.
+        const scripture = screenStreamedScripture(content, parsed.value);
         if (!scripture.ok) {
           await auditAiCall({
             ...auditBase,
@@ -819,6 +827,7 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     // as a "completed" sermon.
     const truncated = finishReason === 'length';
     let outcome = { status: 'success', failureType: null, ok: true };
+    let parsedValue;
     if (response_json_schema) {
       const finalParse = extractJson(full);
       if (!finalParse.ok) {
@@ -827,14 +836,20 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
           failureType: truncated ? 'truncated' : 'invalid_json',
           ok: false,
         };
+      } else {
+        parsedValue = finalParse.value;
       }
     }
-    // Screen the streamed text for fabricated Scripture regardless of schema —
-    // the tokens are already on the wire, so the trailer is how the client
-    // learns the preview must not be kept/marked as a validated result. A
-    // fabricated reference fails the whole result (client falls back to
-    // /invoke, whose save then re-runs the durable Scripture gate).
-    const scripture = screenStreamedScripture(full);
+    // Screen for fabricated Scripture regardless of schema — the tokens are
+    // already on the wire, so the trailer is how the client learns the preview
+    // must not be kept/marked as validated. Screen BOTH the raw streamed text
+    // AND (for structured responses) the decoded parsed value, so a JSON-escaped
+    // citation the raw regex misses is still caught in the object the client
+    // reconstructs. A fabricated reference fails the whole result (client falls
+    // back to /invoke, whose save then re-runs the durable Scripture gate).
+    const scripture = parsedValue !== undefined
+      ? screenStreamedScripture(full, parsedValue)
+      : screenStreamedScripture(full);
     if (!scripture.ok && outcome.ok) {
       outcome = { status: 'unverified_scripture', failureType: 'unverified_scripture', ok: false };
     }
