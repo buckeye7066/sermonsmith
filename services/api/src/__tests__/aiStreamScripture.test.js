@@ -18,6 +18,7 @@ const prisma = createPrismaMock();
 
 // Configurable streamed content per test.
 let STREAM_TEXT = '{"ok":1}';
+let STREAM_THROW = false;
 
 vi.mock('../middleware/auth.js', () => ({
   prisma,
@@ -51,8 +52,11 @@ vi.mock('openai', () => ({
             if (params.stream) {
               return {
                 async *[Symbol.asyncIterator]() {
-                  // Emit the whole text as one delta, then a stop finish.
-                  yield { choices: [{ delta: { content: STREAM_TEXT }, finish_reason: 'stop' }] };
+                  // Emit the text as a delta; optionally throw AFTER (simulating a
+                  // mid-stream upstream error), else finish normally.
+                  yield { choices: [{ delta: { content: STREAM_TEXT } }] };
+                  if (STREAM_THROW) throw new Error('upstream stream exploded mid-flight');
+                  yield { choices: [{ delta: { content: '' }, finish_reason: 'stop' }] };
                 },
               };
             }
@@ -92,6 +96,7 @@ describe('/stream fabricated-Scripture screen', () => {
     process.env.OPENAI_API_KEY = 'test-key';
     delete process.env.DISABLE_AI;
     STREAM_TEXT = '{"ok":1}';
+    STREAM_THROW = false;
     app = buildApp();
     prisma._store.user.push({ id: 'u-s', email: 's@x', role: 'user', premium: false });
   });
@@ -270,6 +275,31 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' } });
     expect(res.status).toBe(422);
     expect(res.body.scripture_unverified).toBe(true);
+  });
+
+  // --- Round-11: mandatory trailer on the ERROR path ---
+  it('a mid-stream upstream error still emits a FAILURE trailer (not a silent trailer-less 200)', async () => {
+    STREAM_TEXT = 'Anchored on Hezekiah 4:5.'; // already on the wire when it throws
+    STREAM_THROW = true;
+    const res = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', stream_result: true });
+    // Exactly one trailer, and it reports failure with the fabricated ref flagged.
+    expect((res.text.match(new RegExp(RS, 'g')) || []).length).toBe(1);
+    const trailer = parseTrailer(res.text);
+    expect(trailer.ok).toBe(false);
+    expect(trailer.scripture.ok).toBe(false);
+  });
+
+  it('writes the trailer EXACTLY ONCE on the normal success path (no double-write)', async () => {
+    STREAM_TEXT = 'Grace abounds — John 3:16.';
+    const res = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', stream_result: true });
+    expect((res.text.match(new RegExp(RS, 'g')) || []).length).toBe(1);
+    expect(parseTrailer(res.text).ok).toBe(true);
   });
 
   // --- Round-10 R10-1: streaming without stream_result is rejected (fail closed) ---

@@ -276,3 +276,18 @@ The server screened the raw text + parsed JSON, but the web client's `coerceToSc
 **Tests:** `{"cross_references":["Hezekiah","4:5"]}` and `{"x":["II John","1:20"]}` (fails — no v20) flagged on `/invoke` AND `/stream`; a legit array of separate valid refs still passes; an array supplied for a string-typed field is rejected (`schema_type_violation`).
 
 **Confirmed (round-10):** the `/stream` outcome is mandatory (no opt-in bypass — a stream can't reach a client as success without its validation trailer); and split/coerced citations across array/object values are caught at the server screen via the flattened-representation scan plus string-field schema-type enforcement.
+
+---
+
+## Round-11 pass — the mandatory trailer's ERROR-PATH hole (server + client) — FIXED
+
+### R11-1 — [HIGH] Started-stream errors dropped the mandatory validation trailer — FIXED
+After `/stream` writes model deltas, any exception from the upstream async iterator jumped to the catch; because `started` was true the handler only called `res.end()` and returned — it **never ran the final Scripture screen or wrote the result trailer**. A realistic upstream that yields `"Anchored on Hezekiah 4:5."` then throws reached the client as HTTP 200 body with **no** `scripture.ok:false`, and the web client treated a missing separator as legacy success — so a fabricated citation rendered unscreened.
+
+**Fix — fail closed on BOTH ends:**
+- **Server** (`services/api/src/routes/ai.js`): `full` (accumulated text) and a `trailerWritten` flag are hoisted outside the delta loop, with a `writeTrailerOnce` helper. The success path writes the trailer through it; the `started` catch path, **before** `res.end()`, writes a FAILURE trailer computed from the accumulated text — `{ok:false, truncated:true, scripture: screenStreamedScripture(full)}` — so a citation already emitted is still flagged. `trailerWritten` guards against a success+error double-write, so **every** started exit (normal end, upstream throw, abort where still writable) emits **exactly one** trailer.
+- **Client** (`apps/web/src/api/apiClient.js`): since `StreamLLM` always requests `stream_result:true`, a MISSING separator/trailer (or a malformed one) is now a **protocol failure** — `StreamLLM` throws (`status:502`, `streamIncomplete`) instead of resolving the accumulated text as a valid answer, so an unscreened/partial preview is never kept.
+
+**Tests:** (a) upstream yields a fabricated ref then throws after started → the response carries a `scripture.ok:false` failure trailer (exactly one), not a silent trailer-less 200; (b) the trailer is written exactly once on the normal success path (no double-write); (c) client with `stream_result:true` and a missing (or malformed) trailer → `StreamLLM` throws (protocol failure); (d) a clean stream still succeeds with `ok:true`.
+
+**Confirmed (round-11):** every `/stream` exit emits exactly one validation trailer — including mid-stream upstream errors — and the client treats a missing/malformed trailer as failure when `stream_result` was requested.

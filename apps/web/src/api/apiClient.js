@@ -433,31 +433,46 @@ const integrations = {
         clearTimeout(idleTimer);
       }
 
-      // Split off the server's result trailer (new servers only — old servers
-      // stream the legacy raw text and we return it unchanged).
+      // We ALWAYS request stream_result:true, so the server MUST append a
+      // validation trailer (RS char + JSON). A MISSING trailer means the stream
+      // ended before it could be validated — e.g. a mid-stream upstream error
+      // that dropped the mandatory trailer, or an out-of-date server. Treat it
+      // as a PROTOCOL FAILURE, never as a completed answer: an unscreened /
+      // partial preview (which may already contain fabricated Scripture) must
+      // not be kept as the result.
       const sepIdx = full.indexOf(STREAM_RESULT_SEPARATOR);
-      if (sepIdx === -1) return full;
+      if (sepIdx === -1) {
+        const error = new Error('The AI stream ended before it could be validated. Please retry.');
+        error.status = 502;
+        error.streamTextPreview = full.replace(/\n$/, '').slice(0, 500);
+        error.streamIncomplete = true;
+        throw error;
+      }
       const text = full.slice(0, sepIdx).replace(/\n$/, '');
       let result = null;
-      try { result = JSON.parse(full.slice(sepIdx + 1)); } catch { /* malformed trailer — treat as absent */ }
-      if (result && result.ok === false) {
-        // Same contract as /invoke's 502: fail honestly so the caller's
-        // fallback path runs instead of a partial preview being kept as the
-        // completed (and, worse, trusted) result. A streamed preview can carry
-        // fabricated Scripture the server only detects after the last token, so
-        // this is the point where the UI must NOT mark it validated/complete.
-        const scriptureFailed = result.scripture && result.scripture.ok === false;
+      try { result = JSON.parse(full.slice(sepIdx + 1)); } catch { /* malformed trailer */ }
+      if (!result || result.ok === false) {
+        // Same contract as /invoke's 502: fail honestly so the caller's fallback
+        // path runs instead of a partial preview being kept as the completed
+        // (and, worse, trusted) result. A missing/malformed outcome is itself a
+        // failure — the client cannot confirm the stream validated. A streamed
+        // preview can carry fabricated Scripture the server only detects after
+        // the last token, so this is the point where the UI must NOT mark it
+        // validated/complete.
+        const scriptureFailed = !!(result && result.scripture && result.scripture.ok === false);
         const error = new Error(
-          result.truncated
-            ? 'The AI response was too long and was cut off before it finished.'
-            : scriptureFailed
-              ? 'The AI draft contained Scripture references that could not be verified. Regenerating.'
-              : 'AI stream returned invalid JSON.',
+          !result
+            ? 'The AI stream result could not be validated. Please retry.'
+            : result.truncated
+              ? 'The AI response was too long and was cut off before it finished.'
+              : scriptureFailed
+                ? 'The AI draft contained Scripture references that could not be verified. Regenerating.'
+                : 'AI stream returned invalid JSON.',
         );
         error.status = 502;
         error.streamTextPreview = text.slice(0, 500);
-        error.truncated = !!result.truncated;
-        error.scriptureUnverified = !!scriptureFailed;
+        error.truncated = !!(result && result.truncated);
+        error.scriptureUnverified = scriptureFailed;
         throw error;
       }
       return text;

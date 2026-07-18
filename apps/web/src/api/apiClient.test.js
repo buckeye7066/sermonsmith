@@ -171,13 +171,26 @@ describe('StreamLLM result-trailer contract', () => {
     });
   });
 
-  it('legacy servers without a trailer pass the raw text through unchanged', async () => {
+  it('treats a MISSING trailer as a protocol failure (we requested stream_result:true)', async () => {
+    // A trailer-less stream (mid-stream error that dropped the mandatory trailer,
+    // or an out-of-date server) must NOT be kept as a completed answer.
     vi.stubEnv('VITE_API_URL', 'https://api.example');
-    const fetchMock = vi.fn().mockResolvedValue(streamResponse('{"legacy":true}'));
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse('Anchored on Hezekiah 4:5.'));
     vi.stubGlobal('fetch', fetchMock);
 
     const { api } = await loadClient();
-    const text = await api.integrations.Core.StreamLLM({ prompt: 'p' });
-    expect(text).toBe('{"legacy":true}');
+    await expect(api.integrations.Core.StreamLLM({ prompt: 'p' })).rejects.toMatchObject({
+      status: 502,
+      streamIncomplete: true,
+    });
+  });
+
+  it('treats a malformed trailer as a protocol failure', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse(`text${RS}not-json`));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await expect(api.integrations.Core.StreamLLM({ prompt: 'p' })).rejects.toMatchObject({ status: 502 });
   });
 });

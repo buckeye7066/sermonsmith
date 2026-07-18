@@ -782,6 +782,17 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
   let usageConsumed = false;
   let started = false;
   let auditBase = null;
+  // Hoisted so the catch path can screen the already-emitted text and still
+  // write the MANDATORY validation trailer. `writeTrailerOnce` guards against a
+  // success + error double-write, so EVERY started exit emits exactly one
+  // trailer.
+  let full = '';
+  let trailerWritten = false;
+  const writeTrailerOnce = (payload) => {
+    if (trailerWritten) return;
+    trailerWritten = true;
+    try { res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify(payload)}`); } catch { /* socket closed */ }
+  };
   try {
     const parsed = invokeRequestSchema.safeParse(req.body || {});
     if (!parsed.success) {
@@ -855,7 +866,6 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     res.setHeader('X-Accel-Buffering', 'no'); // ask proxies not to buffer the stream
     started = true;
 
-    let full = '';
     let finishReason = null;
     for await (const chunk of completion) {
       const delta = chunk?.choices?.[0]?.delta?.content || '';
@@ -911,9 +921,9 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     }
     // The trailer is MANDATORY (stream_result was required above), so a streamed
     // response can never reach a client as success without its validation
-    // outcome. `scripture_ok` is broken out so the client can distinguish a
-    // Scripture failure from a JSON/type failure.
-    res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify({ ok: outcome.ok, truncated, scripture })}`);
+    // outcome. Written exactly once (writeTrailerOnce) so the error path can't
+    // double-write.
+    writeTrailerOnce({ ok: outcome.ok, truncated, scripture });
     res.end();
 
     await auditAiCall({
@@ -931,7 +941,13 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
       await auditAiCall({ ...auditBase, status: 'failure', failureType: classifyAiFailure(err) });
     }
     if (started) {
-      // Headers already sent — just end the partial stream.
+      // Headers already sent, so we can't change the status — but the trailer is
+      // MANDATORY. A mid-stream upstream error must NOT reach the client as a
+      // trailer-less body (which the client would treat as legacy success). Emit
+      // a FAILURE trailer, screening the already-emitted text so a citation
+      // already on the wire is still flagged. writeTrailerOnce means this is a
+      // no-op if the success path already wrote one.
+      writeTrailerOnce({ ok: false, truncated: true, scripture: screenStreamedScripture(full) });
       try { res.end(); } catch { /* already closed */ }
       return;
     }
