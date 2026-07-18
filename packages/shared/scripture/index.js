@@ -288,6 +288,10 @@ const NON_BOOK_WORDS = new Set([
   'first', 'second', 'third', 'saw', 'see', 'seen', 'do', 'did', 'does', 'go', 'went', 'get', 'got',
   'had', 'has', 'have', 'will', 'would', 'could', 'should', 'can', 'may', 'said', 'says', 'know', 'knew',
   'make', 'made', 'take', 'took', 'come', 'came', 'meet', 'met', 'want', 'need', 'call', 'called',
+  // Common accented words whose mark-stripped ASCII base could look like a book
+  // token; kept out of the candidate set so "café 4:5" / "résumé 4:5" (and their
+  // ASCII forms) are never a false citation.
+  'cafe', 'café', 'resume', 'résumé', 'fiance', 'fiancé', 'cliche', 'cliché', 'naive', 'naïve',
 ]);
 
 // Permissive citation matcher (run on normalized text). Groups:
@@ -332,15 +336,61 @@ function buildCanonical({ canonicalKey, base, prefixNum, chapter, verse, verseEn
   return `${display} ${chapter}:${verse}${range}`;
 }
 
+// Suffixes shared by real and fabricated Bible BOOK / proper-noun names
+// (Hezekiah, Zephaniah, Ezekiel, Samuel, Nathanael, Jonah, Judith, …). Ordinary
+// English words — including accented common words reconstructed from their marks
+// (cafe/resume) — do not end this way. `[aeiou]el` keeps Daniel/Samuel/Joel but
+// excludes hotel/novel/model/level (consonant before "el").
+const BIBLICAL_SUFFIX_RE = /(?:iah|jah|iel|uel|ael|oel|[aeiou]el|ah|oth|ith|iath)$/i;
+
+// Is a citation candidate BOOK-SHAPED? Used to gate the mark-stripped detection
+// pass so a legit accented word + a ratio ("café 4:5" → stripped "cafe 4:5") is
+// NOT treated as a hidden citation, while a fabricated biblical-book-shaped name
+// hidden by a mark ("Hezekiaḣ 4:5" → "Hezekiah 4:5") still is. A known book /
+// abbreviation / numbered book always qualifies; otherwise the base must look
+// like a biblical proper noun and not be a common non-book word.
+function isBookShaped(parsed) {
+  const { base, canonicalKey } = parsed;
+  if (BOOK_LOOKUP.has(canonicalKey) || DEUTERO_CHAPTER_COUNTS[canonicalKey] != null) return true;
+  if (BOOK_LOOKUP.has(base) || DEUTERO_CHAPTER_COUNTS[base] != null) return true;
+  if (BOOK_ABBREV[base] != null) return true;
+  const lastWord = base.split(/\s+/).pop() || '';
+  if (NON_BOOK_WORDS.has(lastWord)) return false;
+  return lastWord.length >= 4 && BIBLICAL_SUFFIX_RE.test(lastWord);
+}
+
+// Mark-INSENSITIVE view of the text: NFD-decompose, drop every combining mark,
+// then run the standard normalization. This reconstructs the ASCII base of a
+// book token whose boundary a combining mark hid — regardless of the mark's
+// position (letter↔space, letter↔digit) or whether NFC had composed it into a
+// precomposed non-ASCII letter (e.g. "Hezekiaḣ" → "Hezekiah"). Paired with the
+// book-shaped gate so it does not resurrect the café/résumé false positive.
+function markStrippedText(text) {
+  // Replace marks with a SPACE (not delete) so a mark sitting directly between
+  // the book and the digits ("Hezekiaḣ4:5" → NFD "Hezekiah" + mark + "4:5")
+  // yields a real "Hezekiah 4:5" the whitespace-requiring regex can match.
+  return normalizeCitationText(String(text).normalize('NFD').replace(/\p{M}/gu, ' '));
+}
+
 export function extractScriptureRefs(text) {
   if (!text) return [];
-  const normalized = normalizeCitationText(text);
   const out = [];
-  for (const m of normalized.matchAll(CITATION_RE)) {
-    const parsed = parseCitation(m);
-    if (!looksLikeReference(parsed)) continue;
-    out.push(buildCanonical(parsed));
-  }
+  const seen = new Set();
+  const collect = (source, gate) => {
+    for (const m of source.matchAll(CITATION_RE)) {
+      const parsed = parseCitation(m);
+      if (!gate(parsed)) continue;
+      const canonical = buildCanonical(parsed);
+      if (!seen.has(canonical)) { seen.add(canonical); out.push(canonical); }
+    }
+  };
+  // Pass 1: normal normalization (NFC + invisible/zero-width + boundary-aware
+  // marks). Any non-stopword "Word N:N" is a candidate (unknown book → flagged).
+  collect(normalizeCitationText(text), looksLikeReference);
+  // Pass 2: mark-STRIPPED, gated to BOOK-SHAPED tokens — catches a book name a
+  // combining mark hid anywhere (incl. NFC-composed) WITHOUT re-flagging an
+  // accented common word (café/résumé → cafe/resume are not book-shaped).
+  collect(markStrippedText(text), isBookShaped);
   return out;
 }
 

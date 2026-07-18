@@ -100,6 +100,9 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 ## Round-20 pass — fixes a false alarm on accented text from the previous round (2026-07-18)
 - **Ordinary accented words (like "café" or "résumé") followed by a number are no longer mistaken for a fabricated reference.** The previous round's invisible-character handling was too aggressive and could turn accented prose into a false citation; the text is now standardized first (so real accents stay part of the word) and the hidden-character handling only applies right where a book name would meet a chapter number. Genuinely hidden separators are still caught. No change for real references.
 
+## Round-21 pass — reliably tells a hidden fake reference from an ordinary accented word (2026-07-18)
+- **A fabricated Bible reference hidden with a combining mark is now caught wherever the mark is placed**, including cases where the mark merges into an accented letter. At the same time, ordinary accented words like "café" or "résumé" followed by a number are correctly left alone. The checker now recognizes when a hidden word actually looks like a Bible book name (versus a common word), which is what separates a real attack from a harmless coincidence. No change for genuine references.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

@@ -395,7 +395,7 @@ describe('/stream fabricated-Scripture screen', () => {
 
   it('does NOT falsely flag decomposed accented prose (café/résumé 4:5) on /invoke or /stream', async () => {
     const acute = String.fromCodePoint(0x0301);
-    for (const text of [`cafe${acute} 4:5`, `re${acute}sume${acute} 4:5`]) {
+    for (const text of [`cafe${acute} 4:5`, `re${acute}sume${acute} 4:5`, 'café 4:5', 'cafe 4:5']) {
       STREAM_TEXT = JSON.stringify({ note: text });
       const inv = await request(app)
         .post('/api/ai/invoke')
@@ -408,6 +408,26 @@ describe('/stream fabricated-Scripture screen', () => {
         .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
         .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
       expect(parseTrailer(str).scripture.ok, `/stream ${JSON.stringify([...text])}`).toBe(true);
+    }
+  });
+
+  it('catches a mark-HIDDEN fabricated book (mark before space, NFC-composed, or before digit) on /invoke and /stream', async () => {
+    const grave = String.fromCodePoint(0x0300); // no precomposed form
+    const dot = String.fromCodePoint(0x0307);   // NFC composes h+dot -> ḣ
+    for (const attack of [`Hezekiah${grave} 4:5`, `Hezekiah${dot} 4:5`, `Hezekiah${dot}4:5`]) {
+      STREAM_TEXT = JSON.stringify({ note: attack });
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      expect(inv.status, `/invoke ${JSON.stringify([...attack])}`).toBe(422);
+      expect(inv.body.scripture_unverified).toBe(true);
+
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+      expect(parseTrailer(str).scripture.ok, `/stream ${JSON.stringify([...attack])}`).toBe(false);
     }
   });
 

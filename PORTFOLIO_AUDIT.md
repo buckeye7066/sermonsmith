@@ -421,3 +421,23 @@ Runs inside `extractScriptureRefs`, so every consumer benefits. The r16–r18 in
 **Tests:** `café 4:5`, `résumé 4:5`, NFC-composed `café 4:5`, and a decomposed accent + ratio in prose → NOT rejected (200 / `scripture.ok:true`) on `/invoke` AND `/stream`; `Hezekiah<U+0300/U+0301/U+20DD/U+20E3>4:5` and the r16–r19 zero-width/DI set → caught (`scripture.ok:false`) on `/invoke` AND `/stream` (success + started-error); `John 3:16` validates.
 
 **Confirmed (round-20):** NFC + boundary-aware combining-mark handling catches the hidden-separator attack WITHOUT falsely rejecting decomposed accented prose (café/résumé), preserving the full invisible-separator coverage.
+
+---
+
+## Round-21 pass — the hard core: combining marks still hid citations in two cases — FIXED
+
+### R21-1 — [HIGH] Combining marks still bypassed screening (mark-before-space; NFC-composed mark) — FIXED
+The r20 boundary rule replaced `\p{M}` only immediately between a **letter and a digit**, missing: (a) `"Hezekiah̀ 4:5"` — the mark is followed by a real SPACE (letter↔space), so the book token `"Hezekiah̀"` didn't match → zero refs → treated clean; (b) `"Hezekiaḣ 4:5"` / `"Hezekiaḣ4:5"` — NFC **composes** `h`+`U+0307` into a precomposed non-ASCII letter (`ḣ`) BEFORE the mark rule, so the book token is non-ASCII and isn't extracted.
+
+**The tension:** the attack (`Hezekiah`+mark+`N:N`, a fabricated book hidden by a mark) and the false positive (`café 4:5`, a legit accented word + ratio) both look like "ASCII-base + combining mark + N:N"; they separate only on whether the mark-stripped base is a plausible SCRIPTURE BOOK.
+
+**Fix** (`packages/shared/scripture/index.js`) — mark-insensitive detection + book-shaped flagging:
+1. **Two-pass extraction.** `extractScriptureRefs` now runs the existing normalized pass (unchanged for normal text) AND a second **mark-stripped** pass: `markStrippedText` = NFD-decompose → replace every `\p{M}` with a space → normalize. This reconstructs the ASCII base of a book token whose boundary a mark hid — regardless of the mark's position (letter↔space, letter↔digit) or whether NFC composed it (`Hezekiaḣ` → `Hezekiah`).
+2. **Book-shaped gate on the mark-stripped pass.** A mark-stripped `Word N:N` flags ONLY when the base is book-shaped: a known canonical book / abbreviation / numbered book, OR a fabricated **biblical-proper-noun shape** (a biblical name suffix — `iah/jah/iel/uel/ael/oel/[aeiou]el/ah/oth/ith` — and not a common non-book word). So `Hezekiah` (→ `-iah`) is flagged even when a mark hid it, while `café`/`résumé` (mark-stripped `cafe`/`resume`) are NOT — they aren't book-shaped and are also listed as non-book words. The normal pass is unchanged (a fabricated book with a normal space is still caught by the existing non-stopword rule).
+3. The r16–r20 invisible/zero-width coverage and NFC handling of legit accents are preserved; everything runs inside `extractScriptureRefs`, so `/invoke` + `/stream` (success + started-error) all inherit it.
+
+**Tests (acceptance):** `Hezekiah̀ 4:5`, `Hezekiaḣ 4:5`, `Hezekiaḣ4:5`, and normal `Hezekiah 4:5` → all CAUGHT (`scripture.ok:false`) on `/invoke` AND `/stream`; `café 4:5`, `résumé 4:5`, NFC-composed `café 4:5`, plain `cafe 4:5`, and decomposed-accent + ratio prose → NOT flagged (200 / `scripture.ok:true`); `John 3:16` and `II John 1:1` (roman-numeral book) valid; the r16–r19 zero-width/DI set still caught (incl. zero-width prefix binding).
+
+**Known limitation (documented):** a mark-hidden fabricated book that is NOT biblical-name-shaped (e.g. a city name like a mark-hidden "Babylon 4:5") is caught by the normal pass only when written with a normal space; the mark-stripped pass gates on book-shape to avoid the café/résumé class of false positive. This is the correct side of the attack-vs-false-positive tradeoff for book-shaped fabrications (the realistic fabricated-scripture case), which the tests cover.
+
+**Confirmed (round-21):** mark-stripped detection catches a mark-hidden book name at any mark position (NFC-composed or not), while the book-shaped-token gate keeps café/résumé from false-flagging.

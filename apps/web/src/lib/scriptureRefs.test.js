@@ -258,18 +258,36 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('an ordinary sentence with no reference')).toEqual([]);
   });
 
-  it('does NOT turn decomposed accented prose into a fabricated citation (NFC + boundary-aware marks)', () => {
+  it('mark-hidden book name is caught regardless of mark position / NFC composition; accented prose is not', () => {
+    const grave = String.fromCodePoint(0x0300); // h+grave: no precomposed form
+    const dot = String.fromCodePoint(0x0307);   // h+dot: NFC COMPOSES to ḣ (U+1E23)
+    // The fabricated biblical-book-shaped name is caught however the mark hides it:
+    // before a space, before a digit, and whether or not NFC composed the mark.
+    for (const attack of [
+      `Hezekiah${grave} 4:5`,   // mark then space (letter↔space)
+      `Hezekiah${dot} 4:5`,     // NFC-composed (ḣ), then space
+      `Hezekiah${dot}4:5`,      // NFC-composed (ḣ), then digit (no space)
+      'Hezekiah 4:5',           // plain (normal-space fabricated book)
+    ]) {
+      expect(validateScriptureRefs(extractScriptureRefs(attack))[0]?.status, JSON.stringify([...attack]))
+        .toBe('invalid_book');
+    }
+    // ...but a legit accented common word + a ratio-like N:N is NOT a citation:
+    // NFC keeps the accent as a letter, and the mark-stripped base (cafe/resume)
+    // is not book-shaped, so it is never flagged.
     const acute = String.fromCodePoint(0x0301);
     for (const text of [
-      `cafe${acute} 4:5`,
-      `re${acute}sume${acute} 4:5`,
+      `cafe${acute} 4:5`,       // café 4:5 (decomposed)
+      'café 4:5',               // café 4:5 (NFC-composed)
+      `re${acute}sume${acute} 4:5`, // résumé 4:5 (decomposed)
+      'cafe 4:5',               // plain ASCII common word + ratio
       `a decomposed accent cafe${acute} sits at 2:1 in prose`,
     ]) {
       expect(extractScriptureRefs(text), JSON.stringify([...text])).toEqual([]);
     }
-    // The un-composable attack (h + combining grave has no precomposed form)
-    // still recombines at the boundary and is caught.
-    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${String.fromCodePoint(0x0300)}4:5`))[0].status).toBe('invalid_book');
+    // Real refs and roman-numeral books still validate.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('II John 1:1')).toEqual(['2 John 1:1']);
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
