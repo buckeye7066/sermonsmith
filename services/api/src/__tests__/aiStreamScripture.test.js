@@ -272,6 +272,67 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(res.body.scripture_unverified).toBe(true);
   });
 
+  // --- Round-10 R10-1: streaming without stream_result is rejected (fail closed) ---
+  it('a fabricated reference streamed WITHOUT stream_result is NOT accepted silently', async () => {
+    STREAM_TEXT = 'Anchored on Hezekiah 4:5.';
+    const res = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p' }); // no stream_result
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/stream_result/);
+  });
+
+  // --- Round-10 R10-2: split/coerced citations across array/object values ---
+  it('/invoke and /stream catch a citation SPLIT across array elements', async () => {
+    for (const obj of [{ cross_references: ['Hezekiah', '4:5'] }, { x: ['II John', '1:20'] }]) {
+      STREAM_TEXT = JSON.stringify(obj);
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      expect(inv.status, `/invoke should flag split ${STREAM_TEXT}`).toBe(422);
+
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+      expect(parseTrailer(str.text).scripture.ok, `/stream should flag split ${STREAM_TEXT}`).toBe(false);
+    }
+  });
+
+  it('a legit array of SEPARATE valid references still passes', async () => {
+    STREAM_TEXT = JSON.stringify({ cross_references: ['Romans 8:28', 'John 3:16'] });
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects an array/object supplied where the schema requires a string field', async () => {
+    STREAM_TEXT = JSON.stringify({ note: ['Hezekiah', '4:5'] });
+    const schema = { type: 'object', properties: { note: { type: 'string' } } };
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: schema });
+    expect(inv.status).toBe(422);
+    expect(inv.body.schema_type_violation).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: schema, stream_result: true });
+    expect(parseTrailer(str.text).ok).toBe(false);
+  });
+
+  it('violatesStringSchema: string field with array/object → true; matching types → false', () => {
+    const schema = { type: 'object', properties: { note: { type: 'string' }, refs: { type: 'array', items: { type: 'string' } } } };
+    expect(__test.violatesStringSchema(schema, { note: ['a', 'b'] })).toBe(true);
+    expect(__test.violatesStringSchema(schema, { note: 'ok', refs: ['a', 'b'] })).toBe(false);
+  });
+
   it('the fabricated reference is recorded honestly in the audit row', async () => {
     STREAM_TEXT = 'Hezekiah 4:5 is my anchor.';
     await request(app)

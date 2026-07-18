@@ -153,17 +153,17 @@ describe('/api/ai/stream — final validator parity', () => {
     expect(audit.failureType).toBe('invalid_json');
   });
 
-  it('legacy clients (no stream_result) get the raw bytes with NO trailer — but the audit is still honest', async () => {
+  it('rejects a stream request that OMITS stream_result (fail closed — no unvalidated 200)', async () => {
+    // Previously such a request got 200 + raw bytes with no validation trailer,
+    // so a stale/old/direct client could receive an unvalidated stream (incl.
+    // fabricated Scripture) as success. The route now requires stream_result.
     nextStreamChunks = textChunks('{"broken": [', 'length');
     const res = await request(app)
       .post('/api/ai/stream')
       .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
       .send({ prompt: 'p', response_json_schema: { type: 'object' } });
-    expect(res.status).toBe(200);
-    expect(res.text).toBe('{"broken": [');
-    expect(res.text.includes(RS)).toBe(false);
-    const audit = auditRows().at(-1);
-    expect(audit.status).toBe('invalid_json');
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/stream_result/);
   });
 
   it('plain-text streams (no schema) stay success and are never flagged', async () => {

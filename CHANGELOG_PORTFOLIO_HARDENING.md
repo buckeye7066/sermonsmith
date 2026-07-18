@@ -62,6 +62,10 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 ## Round-9 pass — the AI Scripture screen now checks the decoded response (2026-07-18)
 - **The live-AI Scripture screen now inspects the actual decoded content.** Previously it scanned only the raw response text, so a reference hidden with JSON escape codes (which decode to a real reference on the user's screen) slipped past. Both the non-streaming and streaming AI paths now check the decoded, fully-parsed response (including nested fields), matching the depth of the save-time checks. No change for valid content.
 
+## Round-10 pass — streaming always reports its validation; split citations caught (2026-07-18)
+- **The streaming AI endpoint now always reports whether its output validated.** Previously the pass/fail signal was optional, so an older or misbehaving client could receive a streamed draft — including a fabricated reference — with no indication it hadn't been checked. Streaming now requires clients to opt into (and honor) the validation result; anything else is directed to the non-streaming, fully-checked endpoint.
+- **References split across list items are now caught.** A citation broken into pieces (e.g. "Hezekiah" and "4:5" as separate list entries) that the app would rejoin for display is now recombined and checked on the server, and responses that put a list where plain text was expected are rejected. No change for valid content.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

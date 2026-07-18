@@ -318,6 +318,39 @@ export function extractScriptureRefs(text) {
   return out;
 }
 
+/**
+ * Collect references that are SPLIT across the string elements of an array, as
+ * client schema-coercion would join them for display. A model can emit
+ * `{"cross_references":["Hezekiah","4:5"]}` — no single element is an
+ * extractable reference, so the per-string deep sweep finds nothing, yet the
+ * client joins the array into "Hezekiah\n4:5", a visible citation. This scans
+ * the JOIN of each array's string elements (with the space and newline
+ * separators coercion uses) so the recombined citation is caught. Used by the
+ * AI response screen; kept separate from `extractScriptureRefsDeep` so the
+ * persist-gate sweep (which validates already-typed fields) is unchanged.
+ */
+export function extractScriptureRefsJoined(value, _depth = 0, _seen = new Set()) {
+  if (value == null || _depth > 12 || typeof value !== 'object') return [];
+  if (_seen.has(value)) return [];
+  _seen.add(value);
+
+  const out = [];
+  if (Array.isArray(value)) {
+    const strings = value.filter((v) => typeof v === 'string');
+    if (strings.length > 1) {
+      out.push(...extractScriptureRefs(strings.join(' ')));
+      out.push(...extractScriptureRefs(strings.join('\n')));
+    }
+    for (const item of value) out.push(...extractScriptureRefsJoined(item, _depth + 1, _seen));
+  } else {
+    for (const [key, item] of Object.entries(value)) {
+      if (NON_CONTENT_KEYS.has(key)) continue;
+      out.push(...extractScriptureRefsJoined(item, _depth + 1, _seen));
+    }
+  }
+  return out;
+}
+
 function normalizeCanon(canon) {
   return CANONS.includes(canon) ? canon : 'protestant';
 }

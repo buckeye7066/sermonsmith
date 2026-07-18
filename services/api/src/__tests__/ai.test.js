@@ -74,7 +74,7 @@ describe('ai routes — authentication & abuse limits', () => {
   it('/stream returns a pre-stream JSON error (503) when AI is disabled', async () => {
     prisma._store.user.push({ id: 'u-s', role: 'user', premium: false });
     process.env.DISABLE_AI = '1';
-    const res = await request(app).post('/api/ai/stream').send({ prompt: 'hi' }).set('Cookie', [`ss_token=${tokenFor('u-s')}`]);
+    const res = await request(app).post('/api/ai/stream').send({ prompt: 'hi', stream_result: true }).set('Cookie', [`ss_token=${tokenFor('u-s')}`]);
     expect(res.status).toBe(503);
   });
 

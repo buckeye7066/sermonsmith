@@ -3,7 +3,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
 import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
-import { extractScriptureRefsDeep, validateScriptureRefs, CANONS } from '@sermonsmith/shared/scripture';
+import { extractScriptureRefsDeep, extractScriptureRefsJoined, validateScriptureRefs, CANONS } from '@sermonsmith/shared/scripture';
 
 // Canon-agnostic Scripture screen for AI output (both the streamed trailer and
 // the /invoke response). A completion is shown to the user BEFORE any entity
@@ -28,7 +28,10 @@ import { extractScriptureRefsDeep, validateScriptureRefs, CANONS } from '@sermon
 // (recursively, incl. nested/array values) catches the escaped form; scanning
 // the raw text catches the plain form. Any hit → not ok.
 export function screenStreamedScripture(...values) {
-  const refs = values.flatMap((v) => extractScriptureRefsDeep(v));
+  // Deep sweep of every string, PLUS the join of each array's string elements
+  // (so a citation split across array items — "Hezekiah","4:5" — that the
+  // client would recombine for display is caught here first).
+  const refs = values.flatMap((v) => [...extractScriptureRefsDeep(v), ...extractScriptureRefsJoined(v)]);
   const fabricated = refs.filter((ref) => {
     // "Placeable" in a canon = fully verse-verified OR a real book+chapter
     // (chapter_checked). Anything else in ALL canons is a fabrication.
@@ -39,6 +42,31 @@ export function screenStreamedScripture(...values) {
     return !placeable;
   });
   return { ok: fabricated.length === 0, checked: refs.length, fabricated: fabricated.length };
+}
+
+// Schema-type enforcement: a client should NEVER have to coerce a wrong-typed
+// value into display text (which is how a split citation like
+// ["Hezekiah","4:5"] becomes a visible reference the screen/persist gate may
+// not see). If the response_json_schema declares a field as a STRING and the
+// model returned an array/object there, the response is malformed at the type
+// level — reject it. Recurses into object `properties` and array `items`.
+export function violatesStringSchema(schema, value) {
+  if (!schema || typeof schema !== 'object') return false;
+  const types = Array.isArray(schema.type) ? schema.type : (schema.type ? [schema.type] : []);
+  const isArr = Array.isArray(value);
+  const isObj = value !== null && typeof value === 'object' && !isArr;
+  if (types.includes('string') && !types.includes('array') && !types.includes('object') && (isArr || isObj)) {
+    return true;
+  }
+  if (isObj && schema.properties) {
+    for (const [key, sub] of Object.entries(schema.properties)) {
+      if (key in value && violatesStringSchema(sub, value[key])) return true;
+    }
+  }
+  if (isArr && schema.items) {
+    for (const item of value) if (violatesStringSchema(schema.items, item)) return true;
+  }
+  return false;
 }
 
 const router = Router();
@@ -643,18 +671,24 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
         // (e.g. "Hezekiah 4:5") that the raw regex misses is still caught
         // in the object the client actually receives.
         const scripture = screenStreamedScripture(content, parsed.value);
-        if (!scripture.ok) {
+        const typeViolation = response_json_schema
+          ? violatesStringSchema(response_json_schema, parsed.value)
+          : false;
+        if (!scripture.ok || typeViolation) {
           await auditAiCall({
             ...auditBase,
             response: content,
             status: 'unverified_scripture',
-            failureType: 'unverified_scripture',
+            failureType: typeViolation ? 'schema_type' : 'unverified_scripture',
             tokenEstimate: estimateTokenCount(auditBase.prompt, content),
           });
           audited = true;
           return res.status(422).json({
-            message: 'The AI draft contained Scripture references that could not be verified. Please retry.',
-            scripture_unverified: true,
+            message: typeViolation
+              ? 'The AI response returned an array/object where a text field was required. Please retry.'
+              : 'The AI draft contained Scripture references that could not be verified. Please retry.',
+            scripture_unverified: !scripture.ok,
+            schema_type_violation: typeViolation,
             scripture,
             responsePreview: content.slice(0, 500),
           });
@@ -754,6 +788,22 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ message: 'Invalid AI request', issues: parsed.error.issues });
     }
     const { prompt, system_prompt, response_json_schema, feature, model, max_tokens, temperature, stream_result } = parsed.data;
+
+    // Fail closed: the streaming path writes raw model tokens to the client
+    // BEFORE Scripture/JSON validation, so the ONLY signal that the final
+    // payload was unverified is the result trailer — which is opt-in. A client
+    // that omits `stream_result` would receive HTTP 200 and unvalidated bytes
+    // with no failure signal even for a fabricated reference. Require the flag
+    // so a caller can never receive an unvalidated stream as success; the flag
+    // is the client's acknowledgment that it will honor the trailer (and fall
+    // back to the fully-validated /invoke on `ok:false`). Non-opting callers
+    // must use /invoke, which validates before returning.
+    if (stream_result !== true) {
+      return res.status(400).json({
+        message: 'Streaming requires "stream_result": true so the client receives and honors the Scripture/JSON validation trailer. Use /api/ai/invoke for a non-streaming, fully-validated response.',
+      });
+    }
+
     const resolvedModel = resolveModel(model, req.userPremium);
     const clampedTokens = clampTokens(max_tokens, req.userPremium);
     const clampedTemperature = clampTemperature(temperature);
@@ -853,9 +903,17 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     if (!scripture.ok && outcome.ok) {
       outcome = { status: 'unverified_scripture', failureType: 'unverified_scripture', ok: false };
     }
-    if (stream_result) {
-      res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify({ ok: outcome.ok, truncated, scripture })}`);
+    // Reject an array/object returned where the schema required a string, so a
+    // client can't coerce a split citation into visible text past the screen.
+    if (outcome.ok && parsedValue !== undefined && response_json_schema
+        && violatesStringSchema(response_json_schema, parsedValue)) {
+      outcome = { status: 'schema_type', failureType: 'schema_type', ok: false };
     }
+    // The trailer is MANDATORY (stream_result was required above), so a streamed
+    // response can never reach a client as success without its validation
+    // outcome. `scripture_ok` is broken out so the client can distinguish a
+    // Scripture failure from a JSON/type failure.
+    res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify({ ok: outcome.ok, truncated, scripture })}`);
     res.end();
 
     await auditAiCall({
@@ -1072,6 +1130,7 @@ export const __test = {
   isModelMissingError,
   imageSrcFromResponse,
   screenStreamedScripture,
+  violatesStringSchema,
 };
 
 export default router;
