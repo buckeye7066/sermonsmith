@@ -142,4 +142,33 @@ The gated-type set, trust-field list, `isPublicOrPublished`, the canon-aware val
 | `GET /api/community/shared-content` (`visibility:'public'`) | community feed | write-gated at entity create/update (SharedContent now gated) |
 | `PATCH /api/community/moderation/:type/:id` | admin `visibility:'public'` flip | `assertGatedResourceExposable` on the public transition |
 
-**Out of scope (noted):** `GET /api/community/posts` + replies (ForumPost/CommunityPost are user-authored discussion, never presented as AI-verified documents) — not AI-drafted document content, so outside this contract. **Legacy-data caveat:** the write/serve gates block *new* invalid public exposure and catch edited-to-invalid at serve for share links; any pre-existing public SharedContent rows written before this change would need a one-time revalidation sweep (not run here — no prod DB access in this mandate).
+**Legacy-data caveat:** the write/serve gates block *new* invalid public exposure and catch edited-to-invalid at serve; any pre-existing public rows written before these changes would need a one-time revalidation sweep (not run here — no prod DB access in this mandate).
+
+---
+
+## Round-4 pass — 2 more community exposure paths + all feeds re-validate (all FIXED)
+
+Codex confirmed share-link create/serve + entity writes are gated, but two community paths still bypassed the centralized gate. Both fixed; every public feed now re-validates at serve, fail-closed. api 269 + web 194 green.
+
+### R4-1 — [HIGH] AI forum replies saved + served with no gate — FIXED
+`POST /api/community/posts/:id/reply` (`community.js:203`) created a public `CommunityReply` straight from request content — including `is_ai_response:true` (the web AI-reply flow posts `InvokeLLM` output here) — with no gate, then `/posts/:id/replies` served it. Fabricated Scripture in an AI reply bypassed the gate entirely.
+**Fix:** new `assertAiReplyExposable` (centralized in `scriptureGate.js`) runs the shape-agnostic validator over an `is_ai_response` reply's content at **create** and rejects unverified references (422); the validated refs are stored. The reply-list serve path re-validates and omits any `is_ai_response` reply that no longer verifies. **User-authored replies remain out of scope** — they are never gated. **Tests** (`community.test.js`): AI reply with `Hezekiah 4:5` → 422 (nothing persisted); clean AI reply → 200; user reply with the same text → 200 (ungated); a stored fabricated AI reply is omitted from the thread while the human reply is served.
+
+### R4-2 — [MEDIUM] Public feeds returned gated rows without serve-time re-validation — FIXED
+`GET /api/community/shared-content` and `GET /api/community/reading-plans` (`community.js:70,262`) returned public `SharedContent` / `ReadingPlan` rows after only visibility/status filtering — never re-validating CURRENT stored data, so a row edited to an invalid state after publishing still surfaced.
+**Fix:** new non-throwing `isPublicContentServable` + a `serveExposableRows` filter recompute canon-aware validation (owner-denomination resolved + memoized per request) over each row and **fail closed — omitting** invalid rows, with an audit event (`community.omitted_unverified_scripture`). Applied to both feeds and the reply thread. **Tests:** an invalid public `SharedContent` and an invalid public `ReadingPlan` are each omitted from their feed while the clean row remains.
+
+### Every community/feed route re-checked (round-4)
+| Route | Gated at serve? |
+|---|---|
+| `GET /community/shared-content` | ✅ `serveExposableRows` (fail-closed omit) |
+| `GET /community/reading-plans` | ✅ `serveExposableRows` (fail-closed omit) |
+| `GET /community/posts/:id/replies` | ✅ `serveExposableRows` (is_ai_response replies) |
+| `POST /community/posts/:id/reply` | ✅ `assertAiReplyExposable` on is_ai_response |
+| `GET /community/share/:slug` | ✅ `assertGatedResourceExposable` (round 3) |
+| `GET /community/posts` (CommunityPost) | user-authored discussion — not AI content, out of scope |
+| `GET /community/study-groups` (StudyGroup) | group metadata, no Scripture content — out of scope |
+| `GET /community/moderation/queue` | admin-only review surface — must show unverified content to moderate it |
+| like / report / save routes | mutate interaction counters; do not broadcast gated content |
+
+**Confirmed:** AI replies route through the centralized gate at create + serve; both public feeds (and the reply thread) re-validate at serve and fail closed. No other public community/feed route serves AI-generated Scripture-bearing content without a gate. Export routes are client-side stubs; `createShareableLink` is gated (round 3).

@@ -142,23 +142,38 @@ export function gateEntityWrite({ type, incoming, existingData = null, denominat
   return data;
 }
 
-/**
- * Exposure gate for routes that make an EXISTING stored resource publicly
- * readable without going through the entity save gate (share-link creation and
- * serving). Re-runs canon-aware validation over the resource's CURRENT stored
- * data and throws 422 if a gated resource type does not fully verify — so a
- * record shared while valid and later edited to an invalid private state is
- * caught at share time / serve time, and an invalid record can never be shared.
- *
- * Non-gated resource types are passed through unchanged.
- */
-export function assertGatedResourceExposable({ type, resourceData, denomination }) {
-  if (!SCRIPTURE_GATED_TYPES.has(type)) return;
-  const record = { ...(resourceData || {}) };
+// Shared evaluator: does a stored record's CURRENT content fully verify?
+// Returns { gated, validation }. Non-gated types are never gated (validation
+// null). AI-generated community replies (is_ai_response) are treated as gated
+// AI content even though CommunityReply is not a first-class gated entity type;
+// user-authored replies are NOT gated.
+function evaluateExposure(type, resourceData, denomination) {
+  const data = resourceData || {};
+  const isAiReply = type === 'CommunityReply' && data.is_ai_response === true;
+  if (!SCRIPTURE_GATED_TYPES.has(type) && !isAiReply) {
+    return { gated: false, validation: null };
+  }
+  const record = { ...data };
   delete record.scripture_validation;
   const canon = canonForDenomination(denomination || record.denomination);
-  const validation = recomputeScriptureValidation(type, record, canon);
-  if (!validation.allValid) {
+  // Entity gated types keep their type-specific validator; AI replies (free
+  // text) use the shape-agnostic deep validator.
+  const validation = isAiReply
+    ? validateAiContent(record, { canon })
+    : recomputeScriptureValidation(type, record, canon);
+  return { gated: true, validation };
+}
+
+/**
+ * Exposure gate (throwing) for routes that make an EXISTING stored resource
+ * publicly readable without going through the entity save gate — share-link
+ * creation + serving, the moderation publish transition. Re-runs canon-aware
+ * validation over the resource's CURRENT stored data and throws 422 if a gated
+ * resource does not fully verify. Non-gated types pass through.
+ */
+export function assertGatedResourceExposable({ type, resourceData, denomination }) {
+  const { gated, validation } = evaluateExposure(type, resourceData, denomination);
+  if (gated && !validation.allValid) {
     throw Object.assign(
       new Error(
         `This ${type} has Scripture references that could not be verified (${validation.summary}). It cannot be shared until they are corrected.`,
@@ -166,4 +181,38 @@ export function assertGatedResourceExposable({ type, resourceData, denomination 
       { status: 422, scripture_validation: validation.refs },
     );
   }
+}
+
+/**
+ * Non-throwing companion for FEED / list routes that serve many public rows:
+ * returns true when a row is safe to surface. A gated row (or an is_ai_response
+ * reply) whose CURRENT stored content does not fully verify returns false, so
+ * the caller can FAIL CLOSED and omit it — catching a record edited to an
+ * invalid state after it was published/shared. Non-gated rows always return
+ * true.
+ */
+export function isPublicContentServable({ type, data, denomination }) {
+  const { gated, validation } = evaluateExposure(type, data, denomination);
+  return !gated || validation.allValid;
+}
+
+/**
+ * Create-time gate for AI-generated community content that is persisted + served
+ * publicly but is not a first-class gated entity type (an is_ai_response
+ * CommunityReply). Recomputes canon-aware validation over the content and throws
+ * 422 if any reference does not verify; returns the validated refs to store.
+ */
+export function assertAiReplyExposable({ content, denomination }) {
+  const record = { content };
+  const canon = canonForDenomination(denomination);
+  const validation = validateAiContent(record, { canon });
+  if (!validation.allValid) {
+    throw Object.assign(
+      new Error(
+        `This AI reply has Scripture references that could not be verified (${validation.summary}). It cannot be posted until they are corrected.`,
+      ),
+      { status: 422, scripture_validation: validation.refs },
+    );
+  }
+  return validation.refs;
 }

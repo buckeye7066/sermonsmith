@@ -271,4 +271,74 @@ describe('community routes', () => {
     expect(res.status).toBe(404);
     expect(res.body.resource).toBeUndefined();
   });
+
+  // --- Round-4: AI forum replies routed through the Scripture gate ---
+
+  it('rejects an AI (is_ai_response) reply containing fabricated Scripture', async () => {
+    prisma._store.entity.push({ id: 'p-ai', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Q', status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
+    const res = await request(app)
+      .post('/api/community/posts/p-ai/reply')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ content: 'As Hezekiah 4:5 teaches us, hope endures.', is_ai_response: true });
+    expect(res.status).toBe(422);
+    expect(res.body.message).toMatch(/could not be verified/i);
+    // No reply was persisted, and the post count was not bumped.
+    expect(prisma._store.entity.some((e) => e.type === 'CommunityReply')).toBe(false);
+  });
+
+  it('accepts an AI reply whose references all verify', async () => {
+    prisma._store.entity.push({ id: 'p-ai2', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Q', status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
+    const res = await request(app)
+      .post('/api/community/posts/p-ai2/reply')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ content: 'See John 3:16 and Romans 8:28.', is_ai_response: true });
+    expect(res.status).toBe(200);
+    expect(res.body.is_ai_response).toBe(true);
+  });
+
+  it('a user-authored reply with a fabricated-looking ref is NOT gated (out of scope)', async () => {
+    prisma._store.entity.push({ id: 'p-user', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Q', status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
+    const res = await request(app)
+      .post('/api/community/posts/p-user/reply')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ content: 'I think Hezekiah 4:5 is my favorite (user opinion).' });
+    expect(res.status).toBe(200);
+  });
+
+  it('omits an is_ai_response reply that was stored/edited into an invalid state from the thread', async () => {
+    prisma._store.entity.push({ id: 'p-thread', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Q', status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
+    // A clean human reply and a fabricated AI reply persisted directly.
+    prisma._store.entity.push({ id: 'r-user', type: 'CommunityReply', userId: 'u-reader', data: { post_id: 'p-thread', content: 'Amen.', is_ai_response: false }, createdAt: new Date(), updatedAt: new Date() });
+    prisma._store.entity.push({ id: 'r-ai-bad', type: 'CommunityReply', userId: 'u-reader', data: { post_id: 'p-thread', content: 'Per Hezekiah 4:5 ...', is_ai_response: true }, createdAt: new Date(), updatedAt: new Date() });
+
+    const res = await request(app).get('/api/community/posts/p-thread/replies');
+    expect(res.status).toBe(200);
+    const ids = res.body.map((r) => r.id);
+    expect(ids).toContain('r-user');
+    expect(ids).not.toContain('r-ai-bad');
+  });
+
+  // --- Round-4: public feeds re-validate at serve, failing closed ---
+
+  it('omits an invalid public SharedContent row from the community feed', async () => {
+    prisma._store.entity.push(sharedContent('sc-good', { content: 'Rooted in John 3:16.' }));
+    prisma._store.entity.push(sharedContent('sc-bad', { content: 'Rooted in Hezekiah 4:5.' }));
+
+    const res = await request(app).get('/api/community/shared-content');
+    expect(res.status).toBe(200);
+    const ids = res.body.map((r) => r.id);
+    expect(ids).toContain('sc-good');
+    expect(ids).not.toContain('sc-bad');
+  });
+
+  it('omits an invalid public ReadingPlan row from the reading-plans feed', async () => {
+    prisma._store.entity.push({ id: 'rp-good', type: 'ReadingPlan', userId: 'u-owner', data: { name: 'Good', is_public: true, daily_readings: [{ day: 1, passages: ['Luke 2:1-20'] }] }, createdAt: new Date(), updatedAt: new Date() });
+    prisma._store.entity.push({ id: 'rp-bad', type: 'ReadingPlan', userId: 'u-owner', data: { name: 'Bad', is_public: true, daily_readings: [{ day: 1, passages: ['Hezekiah 4:5'] }] }, createdAt: new Date(), updatedAt: new Date() });
+
+    const res = await request(app).get('/api/community/reading-plans');
+    expect(res.status).toBe(200);
+    const ids = res.body.map((r) => r.id);
+    expect(ids).toContain('rp-good');
+    expect(ids).not.toContain('rp-bad');
+  });
 });

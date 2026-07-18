@@ -38,6 +38,10 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 - **Community "shared" content is gated like everything else.** Public community posts (SharedContent) now have their Scripture re-checked and any forged "verified" marker stripped before they can go public; the same applies when a moderator makes something public.
 - **Durable fix:** the Scripture/trust gate now lives in one shared module that the entity save path, the share-link routes, and the community routes all call — so these surfaces can't drift apart in the future. No API break; no user-facing behavior change for valid content.
 
+## Round-4 pass — AI forum replies gated + public feeds re-validate at serve (2026-07-18)
+- **AI-generated forum replies are now Scripture-checked.** An AI reply posted to a discussion thread with a reference that can't be verified is rejected, and any such reply is hidden from the thread. Replies written by people are unaffected.
+- **Public community feeds re-check content when serving it.** The shared-content feed, the public reading-plans feed, and discussion threads now re-validate each item as it's served and quietly drop anything that was edited into an invalid state after it went public (fail-closed). No change for valid content.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
-import { assertGatedResourceExposable, SCRIPTURE_GATED_TYPES } from '../services/scriptureGate.js';
+import {
+  assertGatedResourceExposable,
+  isPublicContentServable,
+  assertAiReplyExposable,
+  SCRIPTURE_GATED_TYPES,
+} from '../services/scriptureGate.js';
 
 // ---------------------------------------------------------------------------
 // Community / share routes.
@@ -43,6 +48,40 @@ function sharedContentInteractionKey(userId, contentId) {
   return { userId, contentId, contentType: 'SharedContent' };
 }
 
+// Resolve a row owner's denomination (row.data.denomination → owner profile),
+// memoized per feed request so a 50-row feed does at most one lookup per owner.
+function makeDenominationResolver() {
+  const cache = new Map();
+  return async (row) => {
+    if (row.data?.denomination) return row.data.denomination;
+    const uid = row.userId;
+    if (!uid) return '';
+    if (cache.has(uid)) return cache.get(uid);
+    const user = await prisma.user
+      .findUnique({ where: { id: uid }, select: { profile: true } })
+      .catch(() => null);
+    const denom = (user?.profile?.denomination) || '';
+    cache.set(uid, denom);
+    return denom;
+  };
+}
+
+// Fail-closed serve filter for public feeds: keep only rows whose CURRENT stored
+// content still fully verifies. A gated row (or an is_ai_response reply) edited
+// into an invalid state AFTER it went public is OMITTED (and audit-logged), so a
+// public feed can never surface unverified/fabricated Scripture. Non-gated rows
+// pass through untouched.
+async function serveExposableRows(type, rows) {
+  const resolveDenom = makeDenominationResolver();
+  const kept = await Promise.all(rows.map(async (row) => {
+    const denomination = await resolveDenom(row);
+    if (isPublicContentServable({ type, data: row.data || {}, denomination })) return row;
+    recordCommunityAudit('community.omitted_unverified_scripture', row.userId, type, row.id, {}).catch(() => {});
+    return null;
+  }));
+  return kept.filter(Boolean);
+}
+
 async function recordCommunityAudit(action, userId, targetType, targetId, metadata = {}) {
   if (!prisma.auditLog?.create) return;
   try {
@@ -82,10 +121,14 @@ router.get('/shared-content', optionalAuth, async (req, res, next) => {
       where,
       orderBy: { createdAt: 'desc' },
       take: 50,
-      select: { id: true, data: true, createdAt: true, updatedAt: true },
+      select: { id: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
 
-    res.json(rows.filter((row) => isPublicCommunityData(row.data || {})).map(formatEntity));
+    const visible = rows.filter((row) => isPublicCommunityData(row.data || {}));
+    // Fail closed: re-validate Scripture over each row's CURRENT stored content
+    // and omit any that no longer verifies (edited-to-invalid after publish).
+    const servable = await serveExposableRows('SharedContent', visible);
+    res.json(servable.map(formatEntity));
   } catch (err) {
     next(err);
   }
@@ -178,13 +221,13 @@ router.get('/posts/:id/replies', optionalAuth, async (req, res, next) => {
       where: { type: 'CommunityReply', data: { path: ['post_id'], equals: req.params.id } },
       orderBy: { createdAt: 'asc' },
       take: 300,
-      select: { id: true, data: true, createdAt: true, updatedAt: true },
+      select: { id: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
-    res.json(
-      rows
-        .filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})))
-        .map(formatEntity),
-    );
+    const visible = rows.filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})));
+    // Fail closed: an is_ai_response reply whose Scripture no longer verifies is
+    // omitted (user-authored replies pass through untouched).
+    const servable = await serveExposableRows('CommunityReply', visible);
+    res.json(servable.map(formatEntity));
   } catch (err) {
     next(err);
   }
@@ -215,6 +258,17 @@ router.post('/posts/:id/reply', authenticateToken, async (req, res, next) => {
     }
 
     const isAi = parsed.data.is_ai_response === true;
+    // AI-generated replies are AI content posted straight to a public thread —
+    // route them through the centralized Scripture gate (user-authored replies
+    // are out of scope and pass through). Fabricated/unverified references are
+    // rejected at creation; the validated refs are stored for transparency.
+    let scriptureValidation;
+    if (isAi) {
+      const denomination = (await prisma.user
+        .findUnique({ where: { id: req.userId }, select: { profile: true } })
+        .catch(() => null))?.profile?.denomination || '';
+      scriptureValidation = assertAiReplyExposable({ content: parsed.data.content, denomination });
+    }
     const reply = await prisma.entity.create({
       data: {
         type: 'CommunityReply',
@@ -225,6 +279,7 @@ router.post('/posts/:id/reply', authenticateToken, async (req, res, next) => {
           user_name: isAi ? 'AI Assistant' : (parsed.data.user_name || 'Member'),
           content: parsed.data.content,
           is_ai_response: isAi,
+          ...(scriptureValidation ? { scripture_validation: scriptureValidation } : {}),
           created_date: new Date().toISOString(),
         },
       },
@@ -265,9 +320,11 @@ router.get('/reading-plans', optionalAuth, async (_req, res, next) => {
       where: { type: 'ReadingPlan', data: { path: ['is_public'], equals: true } },
       orderBy: { createdAt: 'desc' },
       take: 50,
-      select: { id: true, data: true, createdAt: true, updatedAt: true },
+      select: { id: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
-    res.json(rows.map(formatEntity));
+    // Fail closed: omit any public plan whose CURRENT references no longer verify.
+    const servable = await serveExposableRows('ReadingPlan', rows);
+    res.json(servable.map(formatEntity));
   } catch (err) {
     next(err);
   }
