@@ -3,6 +3,24 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
 import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
+import { extractScriptureRefs, validateScriptureRefs } from '@sermonsmith/shared/scripture';
+
+// Canon-independent Scripture screen for streamed output. A streamed completion
+// is written to the client token-by-token BEFORE any validation can run, so the
+// UI would otherwise render fabricated references (e.g. "Hezekiah 4:5") as a
+// finished, trusted preview. We screen the accumulated text for references that
+// are wrong in EVERY canon — a fabricated book, an impossible chapter/verse, or
+// an unparseable citation — and never for canon-dependent states
+// (`unsupported_canon` / `chapter_checked`) since the AI request does not carry
+// the reader's denomination. Any hit marks the stream result NOT ok, so the
+// client (StreamLLM) throws and falls back to /invoke instead of keeping the
+// streamed preview as a completed, validated result.
+const FABRICATED_REF_STATUSES = new Set(['invalid_book', 'out_of_range', 'unparseable']);
+export function screenStreamedScripture(text) {
+  const refs = validateScriptureRefs(extractScriptureRefs(text));
+  const fabricated = refs.filter((r) => FABRICATED_REF_STATUSES.has(r.status));
+  return { ok: fabricated.length === 0, checked: refs.length, fabricated: fabricated.length };
+}
 
 const router = Router();
 
@@ -758,8 +776,17 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
         };
       }
     }
+    // Screen the streamed text for fabricated Scripture regardless of schema —
+    // the tokens are already on the wire, so the trailer is how the client
+    // learns the preview must not be kept/marked as a validated result. A
+    // fabricated reference fails the whole result (client falls back to
+    // /invoke, whose save then re-runs the durable Scripture gate).
+    const scripture = screenStreamedScripture(full);
+    if (!scripture.ok && outcome.ok) {
+      outcome = { status: 'unverified_scripture', failureType: 'unverified_scripture', ok: false };
+    }
     if (stream_result) {
-      res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify({ ok: outcome.ok, truncated })}`);
+      res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify({ ok: outcome.ok, truncated, scripture })}`);
     }
     res.end();
 
@@ -976,6 +1003,7 @@ export const __test = {
   EMAIL_TEMPLATES,
   isModelMissingError,
   imageSrcFromResponse,
+  screenStreamedScripture,
 };
 
 export default router;

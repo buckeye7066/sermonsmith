@@ -158,6 +158,19 @@ describe('StreamLLM result-trailer contract', () => {
     });
   });
 
+  it('throws (scriptureUnverified) when the streamed draft contained fabricated Scripture', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const body = '{"points":["Hezekiah 4:5"]}' + '\n' + RS + '{"ok":false,"truncated":false,"scripture":{"ok":false,"checked":1,"fabricated":1}}';
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse(body));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await expect(api.integrations.Core.StreamLLM({ prompt: 'p' })).rejects.toMatchObject({
+      status: 502,
+      scriptureUnverified: true,
+    });
+  });
+
   it('legacy servers without a trailer pass the raw text through unchanged', async () => {
     vi.stubEnv('VITE_API_URL', 'https://api.example');
     const fetchMock = vi.fn().mockResolvedValue(streamResponse('{"legacy":true}'));

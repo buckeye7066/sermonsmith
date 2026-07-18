@@ -232,4 +232,93 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     // Exactly the two current refs — no stale duplication from the prior blob.
     expect(statuses).toEqual(['invalid_book', 'valid']);
   });
+
+  // --- Bypass #1: public/share transition must be gated, not just `published` ---
+  it('a public ReadingPlan with an invalid reference is rejected (is_public transition)', async () => {
+    const res = await post(app, 'ReadingPlan', 'u-pastor', {
+      name: 'Public plan',
+      is_public: true,
+      daily_readings: [{ day: 1, passages: ['Hezekiah 4:5'], reflection: '' }],
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.message).toMatch(/Cannot publish or share/);
+  });
+
+  it('turning an existing ReadingPlan public via update is also gated', async () => {
+    const created = await post(app, 'ReadingPlan', 'u-pastor', {
+      name: 'Private plan',
+      daily_readings: [{ day: 1, passages: ['Ezekiel 4:5'], reflection: '' }], // Ezekiel = fabricated? no — valid book, ch4 exists
+    });
+    expect(created.status).toBe(200);
+    // Introduce an invalid ref AND flip public in one update.
+    const updated = await request(app)
+      .put(`/api/entities/ReadingPlan/${created.body.id}`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ is_public: true, daily_readings: [{ day: 1, passages: ['Hezekiah 4:5'], reflection: '' }] });
+    expect(updated.status).toBe(422);
+  });
+
+  it('a private ReadingPlan with an invalid reference still saves (only public is blocked)', async () => {
+    const res = await post(app, 'ReadingPlan', 'u-pastor', {
+      name: 'Private draft',
+      daily_readings: [{ day: 1, passages: ['Hezekiah 4:5'], reflection: '' }],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.scripture_validation[0].status).toBe('invalid_book');
+  });
+
+  it('visibility:public also triggers the share gate', async () => {
+    const res = await post(app, 'StudyNote', 'u-pastor', {
+      title: 'Note',
+      content: 'A note about Hezekiah 4:5.',
+      visibility: 'public',
+    });
+    expect(res.status).toBe(422);
+  });
+
+  // --- Bypass #2: update via type/id mismatch must be rejected ---
+  it('PUT to a gated row through a WRONG (non-gated) type path is rejected', async () => {
+    const study = await post(app, 'BibleStudy', 'u-pastor', { title: 'Real study', key_verses: ['John 3:16'] });
+    expect(study.status).toBe(200);
+    // Attempt to smuggle invalid Scripture + published in via the permissive
+    // Collection schema, addressing the BibleStudy row by id.
+    const attack = await request(app)
+      .put(`/api/entities/Collection/${study.body.id}`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ overview: 'Now citing Hezekiah 4:5.', status: 'published' });
+    expect(attack.status).toBe(404);
+    // The row is untouched: still valid, still no forged published status.
+    const after = await request(app)
+      .get(`/api/entities/BibleStudy/${study.body.id}`)
+      .set('Cookie', asUser('u-pastor'));
+    expect(after.body.status).not.toBe('published');
+    expect(after.body.scripture_validation.every((r) => r.status === 'valid')).toBe(true);
+  });
+
+  it('PUT with the correct stored type still gates using that stored type', async () => {
+    const study = await post(app, 'BibleStudy', 'u-pastor', { title: 'S', key_verses: ['John 3:16'] });
+    const res = await request(app)
+      .put(`/api/entities/BibleStudy/${study.body.id}`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ is_public: true, overview: 'See Hezekiah 4:5.' });
+    expect(res.status).toBe(422); // gated as BibleStudy (stored type), public+invalid
+  });
+
+  // --- Bypass #3: stale trust markers must be neutralized on revalidation ---
+  it('a stale verified:true is stripped when a gated row is updated to an invalid state', async () => {
+    // Seed a row that already carries forged trust markers (legacy/migrated).
+    const created = await post(app, 'BibleStudy', 'u-pastor', { title: 'Legacy', key_verses: ['John 3:16'] });
+    prisma._store.entity.find((e) => e.id === created.body.id).data.verified = true;
+    prisma._store.entity.find((e) => e.id === created.body.id).data.ready_to_present = true;
+
+    const updated = await request(app)
+      .put(`/api/entities/BibleStudy/${created.body.id}`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ overview: 'Now referencing Hezekiah 4:5.' });
+    expect(updated.status).toBe(200);
+    // Trust markers neutralized even though the update did not mention them.
+    expect(updated.body.verified).toBeFalsy();
+    expect(updated.body.ready_to_present).toBeFalsy();
+    expect(updated.body.scripture_validation.some((r) => r.status === 'invalid_book')).toBe(true);
+  });
 });

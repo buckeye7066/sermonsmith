@@ -359,12 +359,31 @@ async function denominationForRequest(req, ...candidates) {
   return typeof fromProfile === 'string' ? fromProfile : '';
 }
 
+// A record crosses a PUBLIC / SHARED surface when any of these signals is set.
+// Every one of them is a "publish" transition for gate purposes: a gated record
+// whose references do not all verify must never become publicly visible or
+// shared. `status:'published'` is the sermon lifecycle; ReadingPlan goes public
+// via `is_public:true` (surfaced by GET /api/community/reading-plans);
+// SharedContent-style rows via `visibility:'public'`; the remaining flags are
+// defense-in-depth against any other public/share surface a UI might add.
+export function isPublicOrPublished(rec) {
+  if (!rec || typeof rec !== 'object') return false;
+  return (
+    rec.status === 'published' ||
+    rec.is_public === true ||
+    rec.public === true ||
+    rec.is_shared === true ||
+    rec.shared === true ||
+    rec.visibility === 'public'
+  );
+}
+
 /**
  * Apply the Scripture/quality-state gate to an incoming create/update for a
  * gated type. Mutates and returns a copy of `incoming` with trust fields
  * stripped, `scripture_validation` recomputed over the full merged record,
- * and `status` honestly downgraded. Throws 422 on an attempt to publish a
- * record whose references do not all verify.
+ * and `status` honestly downgraded. Throws 422 on an attempt to publish OR
+ * publicly share a record whose references do not all verify.
  */
 async function applyScriptureGate(req, type, incoming, existingData = null) {
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
@@ -393,14 +412,34 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
     : validateAiContent(merged, { canon });
   data.scripture_validation = validation.refs;
 
+  // Neutralize stale / forged trust markers on the MERGED stored record. The
+  // gate strips these from the incoming patch, but the caller's write merges
+  // `{...existing.data, ...patch}` — so a marker already on disk (a legacy row,
+  // a migrated blob, or one set before this gate existed) would otherwise
+  // survive a normal edit even as `scripture_validation` recomputes to invalid.
+  // `verified` and `ready_to_present` are set by NO endpoint ever, so they are
+  // always stale; the review markers are legitimate ONLY on a type with the
+  // human-review endpoint (Sermon), where the /review flow and the stale-review
+  // rule below own their lifecycle. Everywhere else, clear them.
+  const STALE_TRUST_FIELDS = REVIEWABLE_TYPES.has(type)
+    ? ['verified', 'ready_to_present']
+    : REVIEW_ONLY_FIELDS;
+  for (const field of STALE_TRUST_FIELDS) {
+    if (field in merged) data[field] = null;
+  }
+
+  // The full record as it WILL be stored (existing ∪ patch). Public/share
+  // transitions are detected here so a flag already on disk (or newly set)
+  // both count.
+  const resultRecord = { ...(existingData || {}), ...data };
   const requestedStatus = data.status ?? existingData?.status;
   if (!validation.allValid) {
-    // Publishing unverified references is never allowed for any gated type
-    // that supports a `published` status.
-    if (requestedStatus === 'published') {
+    // Publishing OR publicly sharing unverified references is never allowed
+    // for any gated type, regardless of which flag carries it public.
+    if (isPublicOrPublished(resultRecord)) {
       throw Object.assign(
         new Error(
-          `Cannot publish: ${validation.summary}. Fix the flagged references (or keep the record as a draft) and try again.`,
+          `Cannot publish or share: ${validation.summary}. Fix the flagged references (or keep the record private) and try again.`,
         ),
         { status: 422, scripture_validation: validation.refs },
       );
@@ -677,6 +716,18 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
     });
     if (!existing) return res.status(404).json({ message: 'Not found' });
 
+    // Reject a type/id mismatch BEFORE any validation. Previously the handler
+    // fetched by id and then validated + gated using the URL's `:type`. A caller
+    // could PUT /api/entities/<non-gated-type>/<gatedRowId> so the gated row was
+    // validated with a permissive schema and skipped the Scripture gate
+    // entirely, then merged the patch into the gated record. The stored type is
+    // authoritative: the URL type must match it, and ALL downstream validation
+    // and gating is driven from `existing.type`, never `req.params.type`.
+    if (existing.type !== req.params.type) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+    const storedType = existing.type;
+
     if (existing.userId !== req.userId && !isAdmin(req)) {
       return res.status(403).json({ message: 'You can only update your own items' });
     }
@@ -688,21 +739,21 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
     // updates by validating ONLY the keys the caller is sending against a
     // `.partial()` version of the schema. The full record on disk remains
     // valid because we already validated it on create.
-    const schema = ENTITY_SCHEMAS[req.params.type];
+    const schema = ENTITY_SCHEMAS[storedType];
     let patch = rawPatch;
     if (schema) {
       const partial = schema.partial();
       const parsed = partial.safeParse(rawPatch);
       if (!parsed.success) {
         return res.status(400).json({
-          message: `Invalid ${req.params.type} update: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          message: `Invalid ${storedType} update: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
           issues: parsed.error.issues,
         });
       }
       patch = parsed.data;
     }
 
-    patch = await applyScriptureGate(req, req.params.type, patch, existing.data);
+    patch = await applyScriptureGate(req, storedType, patch, existing.data);
 
     const entity = await prisma.entity.update({
       where: { id: req.params.id },

@@ -443,13 +443,21 @@ const integrations = {
       if (result && result.ok === false) {
         // Same contract as /invoke's 502: fail honestly so the caller's
         // fallback path runs instead of a partial preview being kept as the
-        // completed result.
-        const error = new Error(result.truncated
-          ? 'The AI response was too long and was cut off before it finished.'
-          : 'AI stream returned invalid JSON.');
+        // completed (and, worse, trusted) result. A streamed preview can carry
+        // fabricated Scripture the server only detects after the last token, so
+        // this is the point where the UI must NOT mark it validated/complete.
+        const scriptureFailed = result.scripture && result.scripture.ok === false;
+        const error = new Error(
+          result.truncated
+            ? 'The AI response was too long and was cut off before it finished.'
+            : scriptureFailed
+              ? 'The AI draft contained Scripture references that could not be verified. Regenerating.'
+              : 'AI stream returned invalid JSON.',
+        );
         error.status = 502;
         error.streamTextPreview = text.slice(0, 500);
         error.truncated = !!result.truncated;
+        error.scriptureUnverified = !!scriptureFailed;
         throw error;
       }
       return text;
