@@ -332,6 +332,38 @@ describe('validateAiSermon', () => {
     expect(validateScriptureRefs(extractScriptureRefs(`Hezekia${zwsp}h 4:5`))[0].status).toBe('invalid_book');
   });
 
+  it('a compatibility numeral prefix fused to a book by an invisible seam is bound to the numbered book', () => {
+    const zwsp = '​';
+    // "Ⅱ" + zero-width-space + "John 1:20": NFKC folds Ⅱ (U+2161) to "II", and
+    // the NFKC+global pass keeps the prefix a separate token → 2 John 1:20
+    // (2 John has 13 verses in ch.1 → verse 20 is out of range).
+    expect(extractScriptureRefs(`Ⅱ${zwsp}John 1:20`)).toContain('2 John 1:20');
+    expect(validateScriptureRefs([...extractScriptureRefs(`Ⅱ${zwsp}John 1:20`)])
+      .some((r) => r.ref === '2 John 1:20' && r.status === 'out_of_range')).toBe(true);
+    expect(extractScriptureRefs(`Ⅲ${zwsp}John 1:20`)).toContain('3 John 1:20');
+    // A genuine numbered reference is unaffected.
+    expect(extractScriptureRefs('II John 1:1')).toEqual(['2 John 1:1']);
+  });
+
+  it('normalizes non-ASCII decimal digits (Arabic-Indic, Devanagari) so out-of-range refs are caught', () => {
+    const ai = (v) => String.fromCodePoint(0x0660 + v);   // Arabic-Indic 0-9
+    const dv = (v) => String.fromCodePoint(0x0966 + v);   // Devanagari 0-9
+    // "John 3:٣٧" renders John 3:37 (John 3 has 36 verses) → out of range.
+    expect(extractScriptureRefs(`John 3:${ai(3)}${ai(7)}`)).toContain('John 3:37');
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${ai(3)}${ai(7)}`))[0].status).toBe('out_of_range');
+    // "John ٩٩:١" renders John 99:1 → out of range (no chapter 99).
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${ai(9)}${ai(9)}:${ai(1)}`))[0].status).toBe('out_of_range');
+    // Devanagari digits fold too.
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${dv(3)}:${dv(3)}${dv(7)}`))[0].status).toBe('out_of_range');
+    // A non-ASCII-digit numbered-book prefix binds correctly.
+    expect(extractScriptureRefs(`${ai(2)} John 1:20`)).toContain('2 John 1:20');
+    // A VALID reference written with non-ASCII digits still validates (no false positive).
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${dv(3)}:${dv(1)}${dv(6)}`))[0].status).toBe('valid');
+    // ASCII digits and accented prose are untouched.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('café 4:5')).toEqual([]);
+  });
+
   it('a citation cannot START mid-word after a Unicode letter / apostrophe (accented-prose false positive)', () => {
     // The ASCII book regex must not begin inside a non-ASCII word: "naïve 4:5" once
     // yielded "ve 4:5" and "L'Oréal 4:5" yielded "al 4:5", both screened as fabricated.

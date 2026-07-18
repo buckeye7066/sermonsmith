@@ -364,6 +364,54 @@ describe('/stream fabricated-Scripture screen', () => {
     }
   });
 
+  // --- Round-24: compatibility numeral-prefix + invisible seam, and non-ASCII
+  // decimal digits (Arabic-Indic / Devanagari) — over /invoke AND /stream
+  // (success + error). ---
+  it('/invoke + /stream catch a folded prefix + invisible seam and non-ASCII decimal digits', async () => {
+    const zwsp = '​';
+    const ai = (v) => String.fromCodePoint(0x0660 + v); // Arabic-Indic 0-9
+    const dv = (v) => String.fromCodePoint(0x0966 + v); // Devanagari 0-9
+    const attacks = [
+      ['roman Ⅱ + ZWSP seam → 2 John 1:20 (oor)', `Ⅱ${zwsp}John 1:20`, true],
+      ['roman Ⅲ + ZWSP seam → 3 John 1:20 (oor)', `Ⅲ${zwsp}John 1:20`, true],
+      ['Arabic-Indic John 3:٣٧ (oor)', `John 3:${ai(3)}${ai(7)}`, true],
+      ['Arabic-Indic John ٩٩:١ (oor)', `John ${ai(9)}${ai(9)}:${ai(1)}`, true],
+      ['Devanagari John ३:३७ (oor)', `John ${dv(3)}:${dv(3)}${dv(7)}`, true],
+      ['Arabic-Indic prefix ٢ John 1:20 (oor)', `${ai(2)} John 1:20`, true],
+      ['Devanagari John ३:१६ (valid)', `John ${dv(3)}:${dv(1)}${dv(6)}`, false],
+      ['plain II John 1:1 (valid)', 'II John 1:1', false],
+    ];
+    for (const [label, ref, expectFab] of attacks) {
+      STREAM_TEXT = JSON.stringify({ note: `anchored on ${ref}` });
+      STREAM_THROW = false;
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      if (expectFab) {
+        expect(inv.status, `/invoke should reject: ${label}`).toBe(422);
+        expect(inv.body.scripture_unverified, `/invoke unverified: ${label}`).toBe(true);
+      } else {
+        expect(inv.status, `/invoke should pass: ${label}`).toBe(200);
+        expect(inv.body.scripture_unverified, `/invoke clean: ${label}`).toBeFalsy();
+      }
+      STREAM_TEXT = `anchored on ${ref}`;
+      STREAM_THROW = false;
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', stream_result: true });
+      expect(parseTrailer(str).scripture.ok, `/stream success: ${label}`).toBe(!expectFab);
+      STREAM_TEXT = `anchored on ${ref}`;
+      STREAM_THROW = true;
+      const err = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', stream_result: true });
+      expect(parseTrailer(err).scripture.ok, `/stream error: ${label}`).toBe(!expectFab);
+    }
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

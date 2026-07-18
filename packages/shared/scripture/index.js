@@ -164,6 +164,29 @@ const SHADOW_AT_BOOK_CHAPTER = new RegExp(`(?<=\\p{L})${SHADOW_HIDDEN}+(?=\\p{Nd
 const SHADOW_AT_CHAPTER_BOOK = new RegExp(`(?<=\\p{Nd})${SHADOW_HIDDEN}+(?=\\p{L})`, 'gu');
 const SHADOW_HIDDEN_ANY = new RegExp(`${SHADOW_HIDDEN}+`, 'gu');
 
+// Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
+// NOT match the matcher's ASCII `\d`, and NFKC does not fold most of them
+// (Arabic-Indic, Devanagari, …) to ASCII. A model can therefore write a visibly
+// out-of-range chapter/verse ("John 3:٣٧", "John ٩٩:١") that extracts NO ref.
+// We map every decimal-digit code point to its ASCII value before matching, by
+// enumerating each script's DIGIT-ZERO base (value 0) and its next nine code
+// points (Nd runs are always 10 contiguous, 0–9). Covers the BMP scripts plus
+// the SMP sets (incl. the mathematical / fullwidth digits NFKC already folds).
+const DIGIT_ZERO_BASES = [
+  0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6,
+  0x0C66, 0x0CE6, 0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20, 0x1040, 0x1090,
+  0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90, 0x1B50, 0x1BB0, 0x1C40,
+  0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0, 0xA9F0, 0xAA50, 0xABF0, 0xFF10,
+  0x104A0, 0x10D30, 0x11066, 0x110F0, 0x11136, 0x111D0, 0x112F0, 0x11450,
+  0x114D0, 0x11650, 0x116C0, 0x11730, 0x118E0, 0x11950, 0x11C50, 0x11D50,
+  0x11DA0, 0x16A60, 0x16B50, 0x1D7CE, 0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6,
+  0x1E140, 0x1E2F0, 0x1E950, 0x1FBF0,
+];
+const NON_ASCII_DIGIT_VALUE = new Map();
+for (const base of DIGIT_ZERO_BASES) {
+  for (let d = 0; d < 10; d += 1) NON_ASCII_DIGIT_VALUE.set(base + d, String(d));
+}
+
 function normalizeCitationText(text) {
   return String(text)
     // NFC FIRST: recompose legit decomposed accents (e + U+0301 → é, a single
@@ -192,8 +215,16 @@ function normalizeCitationText(text) {
     .replace(/(?<=\p{Nd})\p{M}+(?=\p{L})/gu, ' ')
     // Unicode spaces → ASCII space.
     .replace(/[   -   　]/g, ' ')
-    // Fullwidth digits → ASCII digits.
-    .replace(/[０-９]/g, (d) => String(d.charCodeAt(0) - 0xFF10))
+    // ALL Unicode decimal digits (fullwidth, Arabic-Indic, Devanagari, math,
+    // …) → ASCII, so a visibly out-of-range "John 3:٣٧" / "John ٩٩:١" is matched
+    // by the ASCII `\d` matcher and range-checked. Detection-only (see
+    // NON_ASCII_DIGIT_VALUE); a code point outside the enumerated sets is left.
+    .replace(/\p{Nd}/gu, (d) => {
+      const cp = d.codePointAt(0);
+      if (cp >= 0x30 && cp <= 0x39) return d;
+      const v = NON_ASCII_DIGIT_VALUE.get(cp);
+      return v != null ? v : d;
+    })
     // Fullwidth Latin letters (U+FF21–FF3A / U+FF41–FF5A) → ASCII letters.
     .replace(/[Ａ-Ｚａ-ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
     // Colon variants (fullwidth colon, ratio, modifier letter colon) → ':'.
@@ -433,7 +464,16 @@ export function extractScriptureRefs(text) {
   // Pass 1: normal normalization (NFC + invisible/zero-width + boundary-aware
   // marks). Any non-stopword "Word N:N" is a candidate (unknown book → flagged).
   collect(normalizeCitationText(text), looksLikeReference);
-  // Pass 2: mark-STRIPPED, gated to BOOK-SHAPED tokens — catches a book name a
+  // Pass 2: NFKC-fold THEN the SAME global (non-deleting) normalization. This
+  // catches a COMPATIBILITY prefix fused to a book by an invisible seam that the
+  // shadow's aggressive delete would merge into a non-book: "Ⅱ​John 1:20" →
+  // NFKC "II​John 1:20" → global hidden→space → "II John 1:20" → 2 John 1:20
+  // (out_of_range). The global→space (not delete) keeps the numeral prefix bound
+  // as its own token; the book-shape gate is NOT used here (looksLikeReference,
+  // as in pass 1) so a folded numbered book still binds. NFKC keeps precomposed
+  // accents non-ASCII (café→café), so it does not reintroduce a café false pos.
+  collect(normalizeCitationText(String(text).normalize('NFKC')), looksLikeReference);
+  // Pass 3: mark-STRIPPED, gated to BOOK-SHAPED tokens — catches a book name a
   // combining mark hid anywhere (incl. NFC-composed) WITHOUT re-flagging an
   // accented common word (café/résumé → cafe/resume are not book-shaped).
   collect(markStrippedText(text), isBookShaped);
