@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   extractScriptureRefs,
   extractScriptureRefsDeep,
+  extractScriptureRefsJoined,
   validateScriptureRefs,
   validateAiSermon,
   validateAiContent,
@@ -475,6 +476,46 @@ describe('validateAiSermon', () => {
     // Direct validator: a malformed range is out_of_range, a good one is valid.
     expect(validateScriptureRefs(['John 3:1-IIV'])[0].status).toBe('out_of_range');
     expect(validateScriptureRefs(['John 3:1-5'])[0].status).toBe('valid');
+  });
+
+  it('never DROPS an overlong numeric / Roman token — validation classifies the failure', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t)).map((r) => r.status);
+    // A 4+-digit chapter/verse is captured in full and range-checked (not truncated / dropped).
+    expect(extractScriptureRefs('John 1000:1')).toContain('John 1000:1');
+    expect(stat('John 1000:1')).toContain('out_of_range');
+    expect(stat('John 99999:1')).toContain('out_of_range');
+    expect(stat('John 3:99999')).toContain('out_of_range');
+    // An overlong (16-I) Roman range end is preserved and flagged, not silently trimmed to a valid "3:1".
+    const longI = 'I'.repeat(16);
+    const rng = validateScriptureRefs(extractScriptureRefs(`John 3:1-${longI}`));
+    expect(rng.length).toBeGreaterThan(0);
+    expect(rng.every((r) => r.status !== 'valid')).toBe(true);
+    // An overlong Roman chapter is likewise captured and flagged.
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${longI}:1`)).every((r) => r.status !== 'valid')).toBe(true);
+    // Legit references are unaffected.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:1-5'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(['Psalms 119:176'])[0].status).toBe('valid'); // 3-digit chapter+verse still valid
+  });
+
+  it('binds WORDED (first/second/third) compact / hyphen / dot numbered-book prefixes', () => {
+    // Worded prefix + no-space / hyphen / dot → numbered book, out of range (2 John ch.1 has 13 verses).
+    for (const form of ['Second-John 1:20', 'Third.John 1:20', 'SecondJohn 1:20', 'ThirdJohn 1:20']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.some((r) => /^[23] John 1:20$/.test(r)), form).toBe(true);
+      expect(refs.includes('John 1:20'), `${form} must not extract bare John`).toBe(false);
+    }
+    expect(validateScriptureRefs(extractScriptureRefs('First-John 5:22'))[0].status).toBe('out_of_range'); // 1 John has 5 ch
+    // Deep + joined-array paths (schema-coercion recombination) catch it too.
+    expect(extractScriptureRefsDeep({ note: 'Second-John 1:20' })).toContain('2 John 1:20');
+    const joined = extractScriptureRefsJoined(['Second-John', '1:20']);
+    expect(joined).toContain('2 John 1:20');
+    expect(joined.includes('John 1:20')).toBe(false);
+    // Spaced worded forms still validate correctly (2/1 John 1:1 exist).
+    expect(validateScriptureRefs(extractScriptureRefs('Second John 1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('First John 1:1'))[0].status).toBe('valid');
+    // A real book that starts with a prefix-like word fragment is never split.
+    expect(extractScriptureRefs('Isaiah 5:1')).toEqual(['Isaiah 5:1']);
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {

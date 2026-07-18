@@ -500,6 +500,49 @@ describe('/stream fabricated-Scripture screen', () => {
     ]);
   });
 
+  // --- Round-27: overlong numeric/Roman tokens (never dropped) and WORDED
+  // hyphen/dot numbered-book prefixes — over /invoke AND /stream (success +
+  // error), incl. a joined-array (schema-coercion) case. Split for rate limit. ---
+  it('/invoke + /stream never drop an overlong number and bind worded hyphen/dot prefixes', async () => {
+    const longI = 'I'.repeat(16);
+    await runR25(app, [
+      ['overlong chapter John 1000:1 (oor)', 'John 1000:1', true],
+      ['overlong verse John 3:99999 (oor)', 'John 3:99999', true],
+      [`overlong Roman range John 3:1-${longI} (not valid)`, `John 3:1-${longI}`, true],
+      ['worded Second-John 1:20 (2 John oor)', 'Second-John 1:20', true],
+      ['worded Third.John 1:20 (3 John oor)', 'Third.John 1:20', true],
+      ['worded First-John 5:22 (1 John oor)', 'First-John 5:22', true],
+      ['valid John 3:16', 'John 3:16', false],
+      ['valid Second John 1:1 (spaced)', 'Second John 1:1', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a worded hyphen prefix split across a JOINED array', async () => {
+    // Schema coercion joins ["Second-John","1:20"] → "Second-John 1:20" for display;
+    // the joined-array screen must recombine and flag it (2 John 1:20 out_of_range).
+    STREAM_TEXT = JSON.stringify({ cross_references: ['Second-John', '1:20'] });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status).toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+    STREAM_TEXT = JSON.stringify({ cross_references: ['Second-John', '1:20'] });
+    STREAM_THROW = false;
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok).toBe(false);
+    STREAM_THROW = true;
+    const err = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(err).scripture.ok).toBe(false);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

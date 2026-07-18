@@ -342,11 +342,18 @@ const NUMBERED_ABBREV_STEMS = Object.keys(BOOK_ABBREV)
   .filter((a) => a.length >= 3 && NUMBERED_FULL_BASES.has(BOOK_ABBREV[a]));
 const COMPACT_STEMS = [...NUMBERED_FULL_BASES, ...NUMBERED_ABBREV_STEMS]
   .sort((a, b) => b.length - a.length);
-// A numeric (1-3) or roman (I-III) prefix joined to a numbered-book stem by
-// nothing, a hyphen, or a dot → rewritten to the spaced form ("$1 $2"). The
-// trailing \b keeps "2content"/"IIJohnny" from matching a stem inside a word.
+// All numbered-book prefix forms: numeric (1-3), Roman (I-III), and WORDED
+// (first/second/third). Shared by the compact rewrites so every form binds in
+// the compact / hyphen / dot cases, not just the whitespace case CITATION_RE
+// already handles.
+const COMPACT_PREFIX_ALT = '[1-3]|i{1,3}|first|second|third';
+// A numeric / Roman / worded prefix joined to a numbered-book stem by nothing, a
+// hyphen, or a dot → rewritten to the spaced form ("$1 $2"), so "2John",
+// "IIJohn", "Second-John", "Third.John" all bind to the numbered book. The
+// trailing \b keeps "2content"/"IIJohnny"/"secondary" from matching a stem
+// inside a word.
 const COMPACT_NUMBERED_RE = new RegExp(
-  `\\b([1-3]|i{1,3})[.\\-]?(${COMPACT_STEMS.join('|')})\\b`,
+  `\\b(${COMPACT_PREFIX_ALT})[.\\-]?(${COMPACT_STEMS.join('|')})\\b`,
   'giu',
 );
 
@@ -384,12 +391,15 @@ const NON_BOOK_WORDS = new Set([
   'cafe', 'café', 'resume', 'résumé', 'fiance', 'fiancé', 'cliche', 'cliché', 'naive', 'naïve',
 ]);
 
-// A chapter / verse / range-end NUMBER token: ASCII digits OR a Roman numeral.
-// The Roman alternative requires a trailing non-letter (`(?![a-z])`, case-
-// insensitive) so it cannot be the head of a longer word ("Luke 2:live" does not
-// become verse "liv"). Roman Unicode code points (Ⅰ-Ⅻ etc.) are handled by the
-// NFKC detection passes, which fold them to ASCII before this matcher runs.
-const NUM_TOKEN = '(\\d{1,3}|[ivxlcdm]{1,15}(?![a-z]))';
+// A chapter / verse / range-end NUMBER token: the FULL contiguous run of ASCII
+// digits OR Roman letters — NEVER length-capped, so an overlong token (e.g. a
+// 4+-digit chapter "1000", or a 16-I Roman range end) is captured and handed to
+// VALIDATION to classify (out_of_range / invalid / unparseable) rather than
+// being silently dropped, which would hide the reference. The Roman alternative
+// requires a trailing non-letter (`(?![a-z])`, case-insensitive) so it cannot be
+// the head of a longer word ("Luke 2:live" does not become verse "liv"). Roman
+// Unicode code points (Ⅰ-Ⅻ etc.) are folded to ASCII by the NFKC passes first.
+const NUM_TOKEN = '(\\d+|[ivxlcdm]+(?![a-z]))';
 // Permissive citation matcher (run on normalized text). Groups:
 //   1 prefix (optional): 1-3 / I-III / first-third
 //   2 book (with optional trailing '.', optional "of X")
@@ -511,8 +521,8 @@ const KNOWN_BOOK_ALT = [...SINGLE_BOOK_TOKENS].sort((a, b) => b.length - a.lengt
 // touching digits ("cafe4:5") are never bound, only book-shaped ones.
 const BIBLICAL_WORD_SRC = '[a-z]{2,}(?:iah|jah|iel|uel|ael|oel|[aeiou]el|ah|oth|ith|iath)';
 const BOOK_SHAPED_SRC = `(?:${KNOWN_BOOK_ALT}|${BIBLICAL_WORD_SRC})`;
-// Lookahead for a chapter:verse (ASCII digits OR Roman) immediately following.
-const CV_LOOKAHEAD = '(?:\\d{1,3}|[ivxlcdm]{1,15})\\s*:\\s*(?:\\d{1,3}|[ivxlcdm]{1,15})';
+// Lookahead for a chapter:verse (ASCII digits OR Roman, any length) following.
+const CV_LOOKAHEAD = '(?:\\d+|[ivxlcdm]+)\\s*:\\s*(?:\\d+|[ivxlcdm]+)';
 // GAP 1 — a book-shaped/known token GLUED to chapter:verse (no space) → insert a
 // space so the matcher binds it ("John3:37"→"John 3:37", "Hezekiah4:5"→spaced).
 const COMPACT_BOOK_CHAPTER_RE = new RegExp(`\\b(${BOOK_SHAPED_SRC})(?=${CV_LOOKAHEAD})`, 'giu');
@@ -524,13 +534,14 @@ const COMPACT_BOOK_CHAPTER_RE = new RegExp(`\\b(${BOOK_SHAPED_SRC})(?=${CV_LOOKA
 // binds ONLY when the fused word is not itself a real book, so "Isaiah" is never
 // split into "I saiah".
 const COMPACT_PREFIX_BOOKSHAPED_RE = new RegExp(
-  `\\b([1-3]|i{1,3})([.\\-]?)(${BOOK_SHAPED_SRC})(?=\\s+${CV_LOOKAHEAD})`,
+  `\\b(${COMPACT_PREFIX_ALT})([.\\-]?)(${BOOK_SHAPED_SRC})(?=\\s+${CV_LOOKAHEAD})`,
   'giu',
 );
 function spaceCompactPrefix(full, prefix, sep, book) {
   const isDigit = /^[1-3]$/.test(prefix);
   if (isDigit || sep) return `${prefix} ${book}`; // digit, or explicit separator
-  // Roman prefix, no separator: don't split a word that is itself a real book.
+  // Roman / worded prefix, no separator: don't split a word that is itself a
+  // real book (so "Isaiah" is never split into "I saiah").
   const whole = (prefix + book).toLowerCase();
   if (SINGLE_BOOK_TOKENS.has(whole) || BOOK_LOOKUP.has(whole)) return full;
   return `${prefix} ${book}`;
@@ -648,7 +659,7 @@ export function validateScriptureRefs(refs, options = {}) {
   const list = Array.isArray(refs) ? refs : [];
   return list.filter(Boolean).map((ref) => {
     const str = String(ref);
-    const bookPart = str.replace(/\s+\d{1,3}:.+$/, '').trim();
+    const bookPart = str.replace(/\s+\d+\s*:.+$/, '').trim();
     const bookKey = bookPart.toLowerCase();
     const isCore = BOOK_LOOKUP.has(bookKey);
     const deuteroChapters = DEUTERO_CHAPTER_COUNTS[bookKey];
@@ -658,15 +669,18 @@ export function validateScriptureRefs(refs, options = {}) {
     // real book in another canon — reported as such, never as fabricated.
     const validBook = isCore || (isDeutero && canon !== 'protestant');
 
-    const cv = str.match(/(\d{1,3}):(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?/);
+    // Full-length numeric chapter/verse/range (no digit cap), so an overlong
+    // "1000:1" is read as chapter 1000 and range-checked (→ out_of_range),
+    // not truncated to "100" or dropped.
+    const cv = str.match(/(\d+):(\d+)(?:\s*[-–]\s*(\d+))?/);
     const chapter = cv ? Number(cv[1]) : null;
     const verse = cv ? Number(cv[2]) : null;
     const verseEnd = cv && cv[3] != null ? Number(cv[3]) : null;
-    // A range dash whose END is present but NON-numeric (e.g. a non-canonical
-    // Roman token "3:1-IIV") is malformed — the optional numeric range group
-    // above silently ignores it, so detect and flag it here rather than
-    // validating the truncated "3:1" as a clean reference.
-    const malformedRange = /:\s*\d{1,3}\s*[-–]\s*[^\d\s]/.test(str);
+    // A range dash whose END is present but NON-numeric (e.g. a non-canonical or
+    // overlong Roman token "3:1-IIV" / "3:1-IIIIIIIIIIIIIIII") is malformed — the
+    // optional numeric range group above silently ignores it, so detect and flag
+    // it here rather than validating the truncated "3:1" as a clean reference.
+    const malformedRange = /:\s*\d+\s*[-–]\s*[^\d\s]/.test(str);
 
     let status;
     if (!isCore && !isDeutero) {

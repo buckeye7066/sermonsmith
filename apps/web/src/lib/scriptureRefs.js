@@ -12,6 +12,7 @@ export {
   CANONS,
   extractScriptureRefs,
   extractScriptureRefsDeep,
+  extractScriptureRefsJoined,
   validateScriptureRefs,
   validateAiSermon,
   validateAiContent,
