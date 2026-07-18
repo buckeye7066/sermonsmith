@@ -121,6 +121,19 @@ describe('share-link Scripture gate (createShareableLink + /share/:slug)', () =>
     expect(res.body.resource.id).toBe('res-live');
   });
 
+  it('refuses to share/serve a Sermon whose fabricated ref is LOWERCASE (case-insensitive extraction)', async () => {
+    seedResource('res-lc', 'Sermon', 'u-owner', {
+      title: 'lc', anchor_passage: 'John 3:16', theological_notes: 'as hezekiah 4:5 shows',
+    });
+    const create = await request(app)
+      .post('/api/functions/createShareableLink')
+      .set('Cookie', asUser('u-owner'))
+      .send({ resourceType: 'Sermon', resourceId: 'res-lc' });
+    expect(create.status).toBe(422);
+    seedLink('link-lc', 'u-owner', { slug: 'slug-lc', resourceId: 'res-lc' });
+    expect((await request(app).get('/api/community/share/slug-lc')).status).toBe(422);
+  });
+
   it('refuses to share/serve a Sermon whose fabricated ref hides in a deep prose field', async () => {
     // The reference is valid in anchor_passage but fabricated in a point's
     // exegesis — the old field-limited validator missed this.

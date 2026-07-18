@@ -341,6 +341,21 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.body.scripture_validation.every((r) => r.status === 'valid')).toBe(true);
   });
 
+  // --- Round-7 R7-1: case-insensitive extraction (lowercase bypass) ---
+  it('blocks publishing a Sermon with a LOWERCASE fabricated ref in big_idea', async () => {
+    const res = await post(app, 'Sermon', 'u-pastor', {
+      title: 'lc', anchor_passage: 'John 3:16', big_idea: 'as hezekiah 4:5 reminds us', status: 'published',
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it('rejects a generic-API AI reply with a LOWERCASE fabricated ref', async () => {
+    const res = await post(app, 'CommunityReply', 'u-pastor', {
+      post_id: 'p1', content: 'per hezekiah 4:5, take heart', is_ai_response: true,
+    });
+    expect(res.status).toBe(422);
+  });
+
   // --- Round-6 R6-1: Sermon validator deep-scans ALL prose fields ---
   it('blocks publishing a Sermon with a fabricated ref in big_idea / theological_notes / a point field', async () => {
     for (const body of [

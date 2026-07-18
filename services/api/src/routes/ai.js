@@ -3,22 +3,36 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
 import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
-import { extractScriptureRefs, validateScriptureRefs } from '@sermonsmith/shared/scripture';
+import { extractScriptureRefs, validateScriptureRefs, CANONS } from '@sermonsmith/shared/scripture';
 
-// Canon-independent Scripture screen for streamed output. A streamed completion
-// is written to the client token-by-token BEFORE any validation can run, so the
-// UI would otherwise render fabricated references (e.g. "Hezekiah 4:5") as a
-// finished, trusted preview. We screen the accumulated text for references that
-// are wrong in EVERY canon — a fabricated book, an impossible chapter/verse, or
-// an unparseable citation — and never for canon-dependent states
-// (`unsupported_canon` / `chapter_checked`) since the AI request does not carry
-// the reader's denomination. Any hit marks the stream result NOT ok, so the
-// client (StreamLLM) throws and falls back to /invoke instead of keeping the
-// streamed preview as a completed, validated result.
-const FABRICATED_REF_STATUSES = new Set(['invalid_book', 'out_of_range', 'unparseable']);
+// Canon-agnostic Scripture screen for AI output (both the streamed trailer and
+// the /invoke response). A completion is shown to the user BEFORE any entity
+// save gate runs, so the UI would otherwise render fabricated references (e.g.
+// "Hezekiah 4:5", or an out-of-range deuterocanonical "Wisdom 99:1") as a
+// finished, trusted result. Because the AI request does not carry the reader's
+// denomination, we validate each extracted reference against EVERY supported
+// canon and treat it as fabricated only when NO canon can place it — i.e. it is
+// never 'valid' and never 'chapter_checked' in Protestant, Catholic, OR
+// Orthodox. This correctly:
+//   - passes a real Protestant ref (valid in the base canon),
+//   - passes a real deuterocanonical ref (chapter_checked under Catholic/Orthodox),
+//   - REJECTS a fabricated book (invalid in all canons),
+//   - REJECTS an out-of-range deuterocanonical ref like "Wisdom 99:1"
+//     (chapter-checked only through ch.19 under Catholic — ch.99 is out_of_range
+//     in every canon, no longer masked as a bare 'unsupported_canon' pass).
+// Any hit marks the result NOT ok, so the client falls back / does not keep the
+// preview as a validated, completed draft.
 export function screenStreamedScripture(text) {
-  const refs = validateScriptureRefs(extractScriptureRefs(text));
-  const fabricated = refs.filter((r) => FABRICATED_REF_STATUSES.has(r.status));
+  const refs = extractScriptureRefs(text);
+  const fabricated = refs.filter((ref) => {
+    // "Placeable" in a canon = fully verse-verified OR a real book+chapter
+    // (chapter_checked). Anything else in ALL canons is a fabrication.
+    const placeable = CANONS.some((canon) => {
+      const [checked] = validateScriptureRefs([ref], { canon });
+      return checked && (checked.status === 'valid' || checked.status === 'chapter_checked');
+    });
+    return !placeable;
+  });
   return { ok: fabricated.length === 0, checked: refs.length, fabricated: fabricated.length };
 }
 

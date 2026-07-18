@@ -101,8 +101,18 @@ describe('/stream fabricated-Scripture screen', () => {
     const bad = __test.screenStreamedScripture('As Hezekiah 4:5 reminds us...');
     expect(bad.ok).toBe(false);
     expect(bad.fabricated).toBe(1);
-    // Canon-dependent states must NOT be flagged (no denomination on a stream).
+    // A real deuterocanonical book (chapter-checked in Catholic/Orthodox) passes.
     expect(__test.screenStreamedScripture('Wisdom 3:1 is a comfort.').ok).toBe(true);
+  });
+
+  it('screenStreamedScripture catches a LOWERCASE fabricated ref and an out-of-range deuterocanon ref', () => {
+    // Case-insensitive: lowercase fabrication is no longer invisible.
+    expect(__test.screenStreamedScripture('as hezekiah 4:5 shows').ok).toBe(false);
+    // All-canon: Wisdom has 19 chapters in every canon, so ch.99 is out_of_range
+    // everywhere — no longer masked as a bare unsupported_canon pass.
+    expect(__test.screenStreamedScripture('Wisdom 99:1 teaches').ok).toBe(false);
+    // ...while an in-range deuterocanon ref still passes.
+    expect(__test.screenStreamedScripture('Sirach 3:1 counsels').ok).toBe(true);
   });
 
   it('a stream containing a fabricated reference is marked NOT ok in the trailer', async () => {
@@ -158,6 +168,33 @@ describe('/stream fabricated-Scripture screen', () => {
       .post('/api/ai/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
       .send({ prompt: 'p' });
+    expect(res.status).toBe(422);
+    expect(res.body.scripture_unverified).toBe(true);
+  });
+
+  it('/invoke and /stream reject an out-of-range deuterocanonical ref (all-canon screen)', async () => {
+    STREAM_TEXT = '{"note":"Wisdom 99:1 is our anchor"}';
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status).toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    STREAM_TEXT = 'Wisdom 99:1 is our anchor';
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', stream_result: true });
+    expect(parseTrailer(str.text).scripture.ok).toBe(false);
+  });
+
+  it('/invoke rejects a LOWERCASE fabricated ref', async () => {
+    STREAM_TEXT = '{"note":"as hezekiah 4:5 reminds us"}';
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
     expect(res.status).toBe(422);
     expect(res.body.scripture_unverified).toBe(true);
   });

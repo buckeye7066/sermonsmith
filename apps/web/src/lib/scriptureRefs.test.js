@@ -200,6 +200,23 @@ describe('validateAiSermon', () => {
     expect(out.summary).toMatch(/need attention/);
   });
 
+  it('extracts references case-insensitively (lowercase/UPPER/mixed) — the foundational bypass', () => {
+    for (const text of ['hezekiah 4:5', 'HEZEKIAH 4:5', 'Hezekiah 4:5', 'as hezekiah 4:5 shows us']) {
+      expect(extractScriptureRefs(text).some((r) => /hezekiah\s+4:5/i.test(r))).toBe(true);
+    }
+    // A lowercase fabricated ref is now flagged, not silently dropped.
+    expect(validateAiSermon({ big_idea: 'as hezekiah 4:5 reminds us' }).allValid).toBe(false);
+    // Lowercase REAL refs validate correctly too.
+    expect(validateScriptureRefs(extractScriptureRefs('see john 3:16'))[0].status).toBe('valid');
+  });
+
+  it('does not false-positive on ordinary prose that is not a reference pattern', () => {
+    expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
+    expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);
+    expect(extractScriptureRefs('the score 24:10 at halftime')).toEqual([]);
+    expect(validateAiSermon({ theological_notes: 'the meeting at 10:45 went long' }).allValid).toBe(true);
+  });
+
   it('catches a fabricated reference in big_idea / theological_notes / a point field', () => {
     for (const sermon of [
       { anchor_passage: 'John 3:16', big_idea: 'As Hezekiah 4:5 shows...' },

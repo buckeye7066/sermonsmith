@@ -125,15 +125,54 @@ const MAX_VERSE = 176;
 // Match e.g. "John 3:16", "1 John 4:8", "Romans 8:28-30", "Song of Solomon 2:1",
 // "Wisdom of Solomon 3:1". We deliberately allow some loose punctuation/spacing
 // so casual citations in conclusion paragraphs are caught too. The book name is
-// the numbered prefix + one capitalized word, plus an optional "of X" clause
-// (Song of Solomon / Song of Songs / Wisdom of Solomon). We do NOT allow an
-// extra trailing capitalized word — that made the regex swallow the preceding
-// sentence word, e.g. "As John 3:16" instead of "John 3:16".
-const REF_RE = /\b(?:[1-3]\s*)?[A-Z][a-z]+(?:\s+of\s+[A-Z][a-z]+)?\s+\d{1,3}:\d{1,3}(?:[-–]\d{1,3})?\b/g;
+// the numbered prefix + one word, plus an optional "of X" clause.
+//
+// CASE-INSENSITIVE: the pattern must match `hezekiah 4:5` / `HEZEKIAH 4:5` as
+// readily as `Hezekiah 4:5`. The old `[A-Z][a-z]+` (no /i flag) extracted NOTHING
+// for a lowercase book word, so a lowercase fabricated reference slipped through
+// EVERY consumer (validateAiSermon, validateAiContent, assertAiReplyExposable,
+// screenStreamedScripture) as "zero references → all valid". Since
+// `validateScriptureRefs` already lower-cases the book for canon lookup, matching
+// case-insensitively here is all that is needed to validate correctly. The
+// `looksLikeReference` filter below then drops ordinary prose like times/ratios
+// ("at 3:30", "the ratio 2:1") so case-insensitivity doesn't over-match.
+const REF_RE = /\b(?:[1-3]\s*)?[A-Za-z]+(?:\s+of\s+[A-Za-z]+)?\s+\d{1,3}:\d{1,3}(?:[-–]\d{1,3})?\b/gi;
+
+// Common English words that legitimately precede "N:N" in ordinary prose (times,
+// ratios, scores, counts) and must NOT be mistaken for a (fabricated) book name.
+// Real book names — including deuterocanon aliases like "wisdom"/"song"/"job" —
+// are NEVER added here, and a known book always wins over this list (see
+// looksLikeReference), so genuine citations are never dropped. Anything else
+// shaped like "<Word> N:N" is kept as a possible fabrication, so a lowercase
+// evasion like "hezekiah 4:5" is still caught and flagged invalid_book.
+const NON_BOOK_WORDS = new Set([
+  'at', 'by', 'to', 'of', 'in', 'on', 'up', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being',
+  'the', 'a', 'an', 'and', 'or', 'but', 'for', 'from', 'with', 'without', 'within', 'into', 'onto',
+  'this', 'that', 'these', 'those', 'our', 'your', 'their', 'his', 'her', 'its', 'my', 'we', 'you',
+  'they', 'it', 'he', 'she', 'i', 'me', 'us', 'them', 'him', 'about', 'around', 'approximately',
+  'approx', 'roughly', 'over', 'under', 'near', 'between', 'than', 'then', 'ratio', 'ratios', 'score',
+  'scored', 'scores', 'time', 'times', 'hour', 'hours', 'minute', 'minutes', 'page', 'pages', 'line',
+  'lines', 'room', 'number', 'no', 'version', 'level', 'round', 'size', 'part', 'parts', 'step',
+  'steps', 'figure', 'table', 'item', 'day', 'days', 'week', 'weeks', 'year', 'years', 'vs', 'versus',
+  'meeting', 'meetings', 'session', 'sessions', 'appointment', 'grade', 'model', 'chapter', 'verse',
+]);
+
+function looksLikeReference(match) {
+  const str = String(match);
+  const bookPart = str.replace(/\s+\d{1,3}:.+$/, '').trim().toLowerCase();
+  const firstWord = bookPart.replace(/^[1-3]\s*/, '').split(/\s+/)[0] || '';
+  // A known book (core or deuterocanon, any alias) is always a reference — this
+  // guard also protects deuterocanon words that resemble common nouns (Wisdom).
+  if (BOOK_LOOKUP.has(bookPart) || DEUTERO_CHAPTER_COUNTS[bookPart] != null) return true;
+  if (BOOK_LOOKUP.has(firstWord) || DEUTERO_CHAPTER_COUNTS[firstWord] != null) return true;
+  // Otherwise keep it as a possible fabrication unless the leading word is a
+  // common non-book word (filters times/ratios/scores out of ordinary prose).
+  return !NON_BOOK_WORDS.has(firstWord);
+}
 
 export function extractScriptureRefs(text) {
   if (!text) return [];
-  return String(text).match(REF_RE) || [];
+  return (String(text).match(REF_RE) || []).filter(looksLikeReference);
 }
 
 function normalizeCanon(canon) {
