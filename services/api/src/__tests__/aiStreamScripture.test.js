@@ -315,6 +315,55 @@ describe('/stream fabricated-Scripture screen', () => {
     }
   });
 
+  // --- Round-23: NFKC compatibility folding, position-aware invisibles inside a
+  // digit run, and a Unicode-aware citation-start boundary — over /invoke AND
+  // /stream (success + error). ---
+  it('/invoke + /stream catch NFKC/invisible-hidden fabricated refs and DO NOT flag accented prose', async () => {
+    const zwsp = '​';
+    // Each: [label, JSON body for /invoke, plain text for /stream, expectFabricated]
+    const attacks = [
+      ['roman-numeral II John (out of range)', 'Ⅱ John 1:20', true],
+      ['math-bold John 99:1', 'John \u{1D7D7}\u{1D7D7}:\u{1D7CF}', true],
+      [`ZWSP inside book "Joh${zwsp}n" 99:1`, `Joh${zwsp}n 99:1`, true],
+      [`ZWSP inside book "Hezekia${zwsp}h" 4:5`, `Hezekia${zwsp}h 4:5`, true],
+      [`ZWSP inside verse "3:9${zwsp}9" (renders 3:99)`, `John 3:9${zwsp}9`, true],
+      ['accented prose naïve 4:5', 'naïve 4:5', false],
+      ["accented prose L'Oréal 4:5", "L'Oréal 4:5", false],
+    ];
+    for (const [label, ref, expectFab] of attacks) {
+      // /invoke (JSON body)
+      STREAM_TEXT = JSON.stringify({ note: `anchored on ${ref}` });
+      STREAM_THROW = false;
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      if (expectFab) {
+        expect(inv.status, `/invoke should reject: ${label}`).toBe(422);
+        expect(inv.body.scripture_unverified, `/invoke unverified: ${label}`).toBe(true);
+      } else {
+        expect(inv.status, `/invoke should pass: ${label}`).toBe(200);
+        expect(inv.body.scripture_unverified, `/invoke clean: ${label}`).toBeFalsy();
+      }
+      // /stream success path (plain text)
+      STREAM_TEXT = `anchored on ${ref}`;
+      STREAM_THROW = false;
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', stream_result: true });
+      expect(parseTrailer(str).scripture.ok, `/stream success: ${label}`).toBe(!expectFab);
+      // /stream ERROR path (throws mid-flight after emitting the same text)
+      STREAM_TEXT = `anchored on ${ref}`;
+      STREAM_THROW = true;
+      const err = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', stream_result: true });
+      expect(parseTrailer(err).scripture.ok, `/stream error: ${label}`).toBe(!expectFab);
+    }
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

@@ -144,6 +144,26 @@ const MAX_VERSE = 176;
 // so the tolerant matcher does not over-match.
 // ---------------------------------------------------------------------------
 
+// Invisible / zero-width / format / control code points a model can splice INTO
+// a citation to break the reference regex, EXCLUDING real whitespace
+// (tab/newline/CR, which must survive as separators). Covers \p{Cc} (C0/C1/DEL),
+// \p{Cf} (ZWSP/ZWNJ/ZWJ/word-joiner/BOM/soft-hyphen) and
+// \p{Default_Ignorable_Code_Point} (variation selectors, CGJ, Mongolian FVS,
+// Hangul fillers, …). In the NORMAL pass these are replaced GLOBALLY with a
+// space (below) so a numeral-prefix↔book seam like "II​John" still reads as two
+// tokens ("II John" → 2 John) and no accented word is mangled. The aggressive
+// POSITION-AWARE handling that DELETES an invisible inside a letter run
+// ("Joh​n" → "John") or a digit run ("3:9​9" → "3:99") lives only in the
+// book-shape-gated detection shadow (markStrippedText), where a fused non-book
+// like "IIJohn" is simply dropped rather than turned into a false positive.
+const ZERO_WIDTH = '(?:(?![\\t\\n\\r])[\\p{Cc}\\p{Cf}\\p{Default_Ignorable_Code_Point}])';
+// Combined invisible-or-combining-mark class for the detection shadow's
+// position-aware pass (boundary → space; inside a letter/digit run → delete).
+const SHADOW_HIDDEN = `(?:${ZERO_WIDTH}|\\p{M})`;
+const SHADOW_AT_BOOK_CHAPTER = new RegExp(`(?<=\\p{L})${SHADOW_HIDDEN}+(?=\\p{Nd})`, 'gu');
+const SHADOW_AT_CHAPTER_BOOK = new RegExp(`(?<=\\p{Nd})${SHADOW_HIDDEN}+(?=\\p{L})`, 'gu');
+const SHADOW_HIDDEN_ANY = new RegExp(`${SHADOW_HIDDEN}+`, 'gu');
+
 function normalizeCitationText(text) {
   return String(text)
     // NFC FIRST: recompose legit decomposed accents (e + U+0301 → é, a single
@@ -153,16 +173,14 @@ function normalizeCitationText(text) {
     // form) still leaves a standalone combining mark for the boundary rule below.
     .normalize('NFC')
     // Control characters (C0 + C1 + DEL, i.e. Unicode Cc) → space, EXCEPT real
-    // whitespace tab/newline/CR. A model can split a citation with an invisible
-    // control byte that is JSON-escaped on the wire and decodes to a real
-    // separator the reference regex does not treat as whitespace. \p{Cc} also
-    // covers C1 (U+0080–U+009F, incl. NEL U+0085) and DEL (U+007F).
+    // whitespace tab/newline/CR. \p{Cc} also covers C1 (incl. NEL U+0085) and
+    // DEL (U+007F). GLOBAL → space keeps a numeral-prefix↔book seam ("II​John")
+    // as two tokens; the shadow pass handles the delete-and-rejoin cases.
     .replace(/\p{Cc}/gu, (c) => (c === '\t' || c === '\n' || c === '\r' ? c : ' '))
     // Truly-invisible zero-width / format / default-ignorable characters → space
-    // (GLOBAL — these never occur inside a legit word): \p{Cf} (zero-width
-    // space/joiner/non-joiner, word joiner, BOM, soft hyphen) and
-    // \p{Default_Ignorable_Code_Point} (+ variation selectors U+FE00–FE0F /
-    // U+E0100–E01EF, CGJ U+034F, Mongolian FVS U+180B–180D, Hangul fillers, …).
+    // (GLOBAL): \p{Cf} (zero-width space/joiner/non-joiner, word joiner, BOM,
+    // soft hyphen) and \p{Default_Ignorable_Code_Point} (variation selectors,
+    // CGJ U+034F, Mongolian FVS, Hangul fillers, …).
     .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, ' ')
     // Combining marks (\p{M}) are BOUNDARY-AWARE: after NFC a residual mark that
     // sits at a book↔chapter boundary — between a letter and a digit — is a
@@ -298,7 +316,14 @@ const NON_BOOK_WORDS = new Set([
 //   1 prefix (optional): 1-3 / I-III / first-third
 //   2 book (with optional trailing '.', optional "of X")
 //   3 chapter   4 verse   5 verseEnd (optional)
-const CITATION_RE = /\b(?:([1-3]|i{1,3}|first|second|third)\.?\s+)?([a-z]{2,}\.?(?:\s+of\s+[a-z]+)?)\s+(\d{1,3})\s*:\s*(\d{1,3})(?:\s*[-]\s*(\d{1,3}))?/gi;
+// A leading Unicode-aware negative lookbehind stops the ASCII book token from
+// starting in the MIDDLE of a non-ASCII word: the ASCII `\b` treats the seam
+// between an accented letter and an ASCII letter as a boundary, so "naïve 4:5"
+// used to yield "ve 4:5" and "L'Oréal 4:5" yielded "al 4:5" (both then screened
+// as fabricated). Requiring the match not be preceded by a Unicode letter,
+// combining mark, or apostrophe forces a real word start (BoS / whitespace /
+// non-letter punctuation). The `u` flag is needed for the \p{…} classes.
+const CITATION_RE = /(?<![\p{L}\p{M}'’])\b(?:([1-3]|i{1,3}|first|second|third)\.?\s+)?([a-z]{2,}\.?(?:\s+of\s+[a-z]+)?)\s+(\d{1,3})\s*:\s*(\d{1,3})(?:\s*[-]\s*(\d{1,3}))?/giu;
 
 const titleCase = (s) => s.split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
 
@@ -359,12 +384,18 @@ function isBookShaped(parsed) {
   return lastWord.length >= 4 && BIBLICAL_SUFFIX_RE.test(lastWord);
 }
 
-// Mark-INSENSITIVE view of the text: NFD-decompose, drop every combining mark,
-// then run the standard normalization. This reconstructs the ASCII base of a
-// book token whose boundary a combining mark hid — regardless of the mark's
-// position (letter↔space, letter↔digit) or whether NFC had composed it into a
-// precomposed non-ASCII letter (e.g. "Hezekiaḣ" → "Hezekiah"). Paired with the
-// book-shaped gate so it does not resurrect the café/résumé false positive.
+// Mark-INSENSITIVE detection shadow: NFKC-compatibility-fold, NFD-decompose,
+// drop every combining mark, then run the standard normalization. This
+// reconstructs the ASCII base of a book token whose boundary a combining mark
+// hid — regardless of the mark's position (letter↔space, letter↔digit) or
+// whether NFC had composed it into a precomposed non-ASCII letter (e.g.
+// "Hezekiaḣ" → "Hezekiah"). The leading NFKC pass additionally folds
+// COMPATIBILITY characters used only for detection (never for displayed text):
+// Roman-numeral code points ("Ⅱ John" → "II John" → 2 John, range-checked),
+// and mathematical / fullwidth / superscript digits ("John 𝟗𝟗:𝟏" → "John
+// 99:1", out_of_range) that the ASCII `\d` in the matcher would otherwise miss.
+// Paired with the book-shaped gate so it does not resurrect the café/résumé
+// false positive.
 function markStrippedText(text) {
   // POSITION-AWARE mark handling on the NFD-decomposed text:
   //   • a mark at a book↔chapter boundary (letter↔digit, either direction) hides
@@ -373,10 +404,17 @@ function markStrippedText(text) {
   //     so the ASCII token rejoins ("Joh́n 99:1" → "John 99:1"; "café 4:5" →
   //     "cafe 4:5"). Deleting internal marks lets a known book hidden by an
   //     internal mark (John 99:1 → out_of_range) still be extracted and caught.
-  const decomposed = String(text).normalize('NFD')
-    .replace(/(?<=\p{L})\p{M}+(?=\p{Nd})/gu, ' ')
-    .replace(/(?<=\p{Nd})\p{M}+(?=\p{L})/gu, ' ')
-    .replace(/\p{M}+/gu, '');
+  // Position-aware handling of BOTH combining marks AND invisible/zero-width
+  // code points on the NFKC+NFD text: at a book↔chapter boundary (letter↔digit)
+  // a hidden char is a separator → SPACE; anywhere else — inside a letter run
+  // ("Joh​n"/"Joh́n" → "John") or a digit run ("3:9​9" → "3:99") — it is
+  // gratuitous → DELETE so the full token rejoins and is range-checked. A seam
+  // that fuses a non-book ("II​John" → "IIJohn") is harmlessly dropped by the
+  // book-shaped gate rather than becoming a false positive.
+  const decomposed = String(text).normalize('NFKC').normalize('NFD')
+    .replace(SHADOW_AT_BOOK_CHAPTER, ' ')
+    .replace(SHADOW_AT_CHAPTER_BOOK, ' ')
+    .replace(SHADOW_HIDDEN_ANY, '');
   return normalizeCitationText(decomposed);
 }
 

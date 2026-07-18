@@ -106,6 +106,11 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 ## Round-22 pass — catches a hidden mark placed inside a book name (2026-07-18)
 - **A hidden character placed in the middle of a Bible book name (not just at the end) is now handled correctly.** Previously such a character could break the book name apart so a real reference with an impossible chapter/verse (e.g. "John 99:1") slipped through unchecked; the name is now rejoined and the invalid reference is flagged. Ordinary accented words are still left alone, and normal references are unaffected.
 
+## Round-23 pass — closes three remaining lookalike/hidden-character gaps (2026-07-18)
+- **Look-alike characters that render as normal text are now folded before checking.** A fabricated reference disguised with a Roman-numeral character ("Ⅱ John 1:20" → 2 John, which has no verse 20) or with mathematical / full-width digit look-alikes ("John 𝟗𝟗:𝟏" → John 99:1) is now normalized to plain text in the checker and flagged. This folding is used only for detection, never for stored or displayed text.
+- **A hidden character placed inside a chapter or verse number is now handled.** Previously an invisible character between two digits ("John 3:9<hidden>9", which renders as the impossible "John 3:99") let a truncated in-range number ("3:9") pass while the real out-of-range number went unseen; the digits are now rejoined so the invalid reference is caught.
+- **Ordinary accented words are no longer mistaken for a reference.** The book-name matcher could previously begin in the middle of a non-ASCII word ("naïve 4:5", "L'Oréal 4:5"), producing a phantom reference ("ve 4:5"/"al 4:5") that was then flagged as fabricated; it now requires a genuine word start, so accented prose is left alone. Genuine references and every earlier round's protections are unchanged.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

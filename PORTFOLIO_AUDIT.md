@@ -458,3 +458,26 @@ So a mark hidden ANYWHERE in a known or biblical-shaped book name is caught: `"J
 **Tests:** `"Joh́n 99:1"`, `"Joḣn 99:1"`, `"II Joḣn 99:1"` (known books out of range, internal mark) → CAUGHT (`scripture.ok:false`) on `/invoke` AND `/stream`; the r21 set (`Hezekiah̀`/`Hezekiaḣ` caught; café/résumé/`John 3:16`/`II John 1:1`/zero-width clean) still behaves; a normal `"John 3:16"` still valid (not mangled by mark deletion when no mark is present).
 
 **Confirmed (round-22):** word-internal marks are deleted (rejoining the token) while letter↔digit-boundary marks become a space — so a mark hidden anywhere in a known or biblical-shaped book name is caught, with no café-class false positive.
+
+---
+
+## Round-23 pass — three residual Unicode gaps: compatibility look-alikes, digit-internal invisibles, mid-word match start — FIXED
+
+### R23-1 — [HIGH] Compatibility look-alikes (Roman numerals, math/fullwidth digits) bypassed screening — FIXED
+The extractor normalized canonical forms (NFC/NFD) but not **compatibility** look-alikes. `"Ⅱ John 1:20"` (U+2161 ROMAN NUMERAL TWO, category `Nl`) is not `[a-z]`/`[1-3]`, so the numeral prefix never bound — the pass saw a bare `"John 1:20"` (valid) and missed that this is **2 John 1:20** (2 John has 13 verses → out_of_range). `"John 𝟗𝟗:𝟏"` (mathematical bold digits U+1D7D7/U+1D7CF) never matched the ASCII `\d` in the matcher, so it extracted **nothing** → `allValid:true`.
+
+**Fix** (`packages/shared/scripture/index.js`): the detection shadow (`markStrippedText`) now runs `.normalize('NFKC')` before NFD. NFKC folds Roman-numeral code points to ASCII (`Ⅱ`→`II`→2 John, range-checked → out_of_range) and folds mathematical / fullwidth / superscript digit look-alikes to ASCII (`𝟗𝟗`→`99` → `John 99:1` out_of_range). NFKC is used **only for detection** — never for stored or displayed text — and the book-shape gate keeps it from over-flagging (a folded token still has to look like a book).
+
+### R23-2 — [HIGH] Invisible characters inside a digit run truncated the number past the gate — FIXED
+The normal pass mapped every invisible/zero-width char to a **space** (correct for a prefix↔book seam like `II​John`→`II John`), but that split a number placed with an invisible **between digits**: `"John 3:9​9"` (renders `John 3:99`, and John 3 has only 36 verses) became `"John 3:9 9"`, from which the pass extracted the truncated **in-range** `"John 3:9"` (valid) and never saw the real out-of-range `3:99`.
+
+**Fix** (`packages/shared/scripture/index.js`): the detection shadow now applies the same **position-aware** rule to the combined invisible-or-mark class that r22 applied to marks — at a letter↔digit boundary → SPACE, but **inside a letter run OR a digit run → DELETE** (rejoin). So `"3:9​9"`→`"3:99"` (out_of_range) and `"Joh​n 99:1"`→`"John 99:1"` are reconstructed and caught, while the normal pass keeps its safe global→space so `II​John`→`2 John` and accented prose are unaffected. A seam that fuses a non-book (`II​John`→`IIJohn`→`iijohn`) is harmlessly dropped by the book-shape gate rather than becoming a false positive.
+
+### R23-3 — [MEDIUM] The ASCII matcher could start mid-word after an accented letter (false positive) — FIXED
+`CITATION_RE` began with an ASCII `\b`, which treats the seam between a non-ASCII letter and an ASCII letter as a word boundary. So `"naïve 4:5"` matched `"ve 4:5"` and `"L'Oréal 4:5"` matched `"al 4:5"` — phantom "books" then screened as fabricated (a café-class false positive on ordinary accented prose).
+
+**Fix** (`packages/shared/scripture/index.js`): `CITATION_RE` gains a Unicode-aware negative lookbehind `(?<![\p{L}\p{M}'’])` (and the `u` flag) so a book token cannot start immediately after a Unicode letter, combining mark, or apostrophe — it must begin at a real word start (BoS / whitespace / non-letter punctuation). `"naïve 4:5"`/`"L'Oréal 4:5"`/`"résumé 4:5"` now yield no reference; genuine references are unchanged.
+
+**Tests:** `apps/web/src/lib/scriptureRefs.test.js` (three new `it` blocks: NFKC folding, digit-internal invisible, mid-word start) and `services/api/src/__tests__/aiStreamScripture.test.js` (one new block asserting each string over `/invoke` + `/stream` success + error). CAUGHT (`scripture.ok:false` / 422): `"Ⅱ John 1:20"`, `"John 𝟗𝟗:𝟏"`, `"Joh​n 99:1"`, `"Hezekia​h 4:5"`, `"John 3:9​9"`. NOT flagged: `"naïve 4:5"`, `"L'Oréal 4:5"`. Still valid: `"II John 1:1"`, `"John 3:16"`. The r16–r22 attack set and the `II<invisible>John`→`2 John` prefix binding all still behave.
+
+**Confirmed (round-23):** compatibility look-alikes are folded (detection-only), invisibles inside a digit run are rejoined so the true number is range-checked, and the matcher can no longer start mid-word after an accented letter — with no new false positives and every prior round preserved.

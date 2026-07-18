@@ -305,6 +305,43 @@ describe('validateAiSermon', () => {
     expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
   });
 
+  it('folds NFKC compatibility characters (roman numerals, math/fullwidth digits) in the detection shadow', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t))
+      .map((r) => r.status);
+    // U+2161 ROMAN NUMERAL TWO folds to "II" → bound to 2 John (13 verses) → v20 out of range.
+    expect(extractScriptureRefs('Ⅱ John 1:20')).toContain('2 John 1:20');
+    expect(stat('Ⅱ John 1:20')).toContain('out_of_range');
+    // Mathematical bold digits (U+1D7D7 = 9, U+1D7CF = 1) fold to ASCII → "John 99:1" out of range.
+    expect(extractScriptureRefs('John \u{1D7D7}\u{1D7D7}:\u{1D7CF}')).toContain('John 99:1');
+    expect(stat('John \u{1D7D7}\u{1D7D7}:\u{1D7CF}')[0]).toBe('out_of_range');
+    // NFKC is detection-only: legit refs are unaffected.
+    expect(validateScriptureRefs(extractScriptureRefs('II John 1:1'))[0].status).toBe('valid');
+  });
+
+  it('deletes a zero-width char INSIDE a digit run so the true (out-of-range) verse is seen', () => {
+    const zwsp = '​';
+    // ZWSP between the two verse digits: rendered "John 3:99" (John 3 has 36 verses),
+    // not the truncated in-range "John 3:9". The full number must be reconstructed
+    // by the shadow so the union contains an out-of-range ref (→ content fails the
+    // all-valid screen), even though the normal pass also sees the truncated "3:9".
+    expect(extractScriptureRefs(`John 3:9${zwsp}9`)).toContain('John 3:99');
+    const digitSplit = validateScriptureRefs(extractScriptureRefs(`John 3:9${zwsp}9`));
+    expect(digitSplit.some((r) => r.ref === 'John 3:99' && r.status === 'out_of_range')).toBe(true);
+    // ZWSP inside the BOOK token: rejoins to the known book, out-of-range chapter caught.
+    expect(validateScriptureRefs(extractScriptureRefs(`Joh${zwsp}n 99:1`))[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekia${zwsp}h 4:5`))[0].status).toBe('invalid_book');
+  });
+
+  it('a citation cannot START mid-word after a Unicode letter / apostrophe (accented-prose false positive)', () => {
+    // The ASCII book regex must not begin inside a non-ASCII word: "naïve 4:5" once
+    // yielded "ve 4:5" and "L'Oréal 4:5" yielded "al 4:5", both screened as fabricated.
+    expect(extractScriptureRefs('naïve 4:5')).toEqual([]);
+    expect(extractScriptureRefs("L'Oréal 4:5")).toEqual([]);
+    expect(extractScriptureRefs('résumé 4:5')).toEqual([]);
+    // Genuine refs immediately after an apostrophe boundary still parse.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);
