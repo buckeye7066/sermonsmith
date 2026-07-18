@@ -785,10 +785,10 @@ describe('validateAiSermon', () => {
     const four = extractScriptureRefs(`4${Th} John 1:1`);
     expect(four.includes('John 1:1')).toBe(false);
     expect(validateScriptureRefs(four).some((r) => r.status === 'invalid_book')).toBe(true);
-    // A TRAILING superscript FOOTNOTE marker (after a complete number) is deleted,
-    // so "John 3:16¹" stays valid John 3:16 (NOT the minted 3:161).
-    expect(validateScriptureRefs(extractScriptureRefs(`John 3:16${SUP1}`))[0].status).toBe('valid');
-    expect(extractScriptureRefs(`John 3:16${SUP1}`)).toEqual(['John 3:16']);
+    // A TRAILING superscript after a complete ASCII number is AMBIGUOUS (footnote
+    // vs number data give different values) → FAIL CLOSED (r36): flagged, never a
+    // silently-valid ref that differs from the visible text.
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:16${SUP1}`)).every((r) => r.status !== 'valid' && r.status !== 'chapter_checked')).toBe(true);
     // A superscript filling an EMPTY chapter slot (no ASCII digit) is NUMBER DATA
     // → folded as the user sees it (r35 principled rule): "John²:1" → John 2:1.
     expect(extractScriptureRefs(`John${SUP2}:1`)).toEqual(['John 2:1']);
@@ -823,18 +823,38 @@ describe('validateAiSermon', () => {
     expect(validateScriptureRefs(extractScriptureRefs(`John ${cp(0xFF13)}:${cp(0xFF11)}${cp(0xFF16)}`))[0].status).toBe('valid'); // fullwidth John 3:16
   });
 
-  it('folds a superscript digit that FORMS a chapter/verse number (not dropped); still deletes trailing footnotes', () => {
+  it('folds an EMPTY-slot superscript number (unambiguous data) but FAILS CLOSED on an ASCII-adjacent superscript', () => {
     const cp = (x) => String.fromCodePoint(x);
-    const SUP1 = cp(0xB9), SUP5 = cp(0x2075), SUP6 = cp(0x2076);
-    // Empty verse slot filled by superscript → folded to the real verse (NOT dropped).
+    const SUP1 = cp(0xB9), SUP5 = cp(0x2075), SUP6 = cp(0x2076), SUP7 = cp(0x2077);
+    // Empty verse slot filled ENTIRELY by superscript → folded to the real verse (unambiguous data).
     expect(validateScriptureRefs(extractScriptureRefs(`John 3:${SUP1}${SUP6}`))[0].status).toBe('valid'); // John 3:16
-    // A real but out-of-range/invalid ref written with a superscript verse is CAUGHT, not silently dropped.
+    // A real but invalid ref written with an all-superscript verse is CAUGHT, not silently dropped.
     expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah 4:${SUP5}`))[0].status).toBe('invalid_book');
-    // A between-digits superscript is number data → the ref is flagged (not silently rewritten to 3:15).
-    const between = validateScriptureRefs(extractScriptureRefs(`John 3:1${SUP6}5`));
-    expect(between.some((r) => r.status !== 'valid' && r.status !== 'chapter_checked')).toBe(true);
-    // A trailing footnote is still deleted.
-    expect(extractScriptureRefs(`John 3:16${SUP1}`)).toEqual(['John 3:16']);
+    // A superscript ADJACENT to ASCII digits (trailing/between) is AMBIGUOUS → FAIL CLOSED:
+    // the ref is flagged, never silently emitted as a valid number differing from the visible text.
+    const failClosed = (t) => {
+      const v = validateScriptureRefs(extractScriptureRefs(t));
+      return v.length > 0 && v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked')
+        && !v.some((r) => /^John 3:(3|1|16)$/.test(r.ref) && r.status === 'valid');
+    };
+    expect(failClosed(`John 3:3${SUP7}`), 'John 3:3⁷').toBe(true);  // not silently John 3:3
+    expect(failClosed(`John 3:1${SUP6}`), 'John 3:1⁶').toBe(true);  // not silently John 3:1
+    expect(failClosed(`John 3:16${SUP1}`), 'John 3:16¹').toBe(true); // documented fail-closed
+    expect(failClosed(`John 3:1${SUP6}5`), 'John 3:1⁶5').toBe(true); // between digits
+  });
+
+  it('folds an ordinal across a CONTROL-CHARACTER (Cc) seam — one shared hidden class, no bare-John leak', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const NUL = cp(0x00), SOH = cp(0x01), C1 = cp(0x9D); // C0 (non-whitespace) + C1 controls
+    // A C0/C1 control wedged in the ordinal is deleted (same shared hidden class as
+    // the rest of the extractor) → the ordinal binds numbered, never bare John.
+    expect(extractScriptureRefs(`2${C1}nd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`${cp(0x1D7DA)}${NUL}nd John 1:1`)).toEqual(['2 John 1:1']); // math digit + control seam
+    for (const form of [`4${NUL}th John 1:1`, `11${SOH}th John 1:1`]) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${JSON.stringify([...form])} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book' || r.status === 'out_of_range')).toBe(true);
+    }
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {

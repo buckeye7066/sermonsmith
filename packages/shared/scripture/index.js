@@ -443,7 +443,14 @@ const ORDINAL_NUMBERED_RE = new RegExp(
 // bounds the fold so a lone superscript footnote marker is never touched.
 const SUP_DIGITS = Object.keys(SUPERSCRIPT_FOLD).filter((c) => /[0-9]/.test(SUPERSCRIPT_FOLD[c])).join('');
 const SUP_LETTERS = Object.keys(SUPERSCRIPT_FOLD).filter((c) => /[a-z]/.test(SUPERSCRIPT_FOLD[c])).join('');
-const ORD_HIDDEN = '[\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}]';
+// The SINGLE shared hidden-seam class, reused by the ordinal-prefix fold AND the
+// detection shadow (SHADOW_HIDDEN): non-whitespace \p{Cc} (C0/C1 controls) +
+// \p{Cf} + \p{Default_Ignorable_Code_Point} + \p{M}. Using the same constant
+// means the ordinal fold can never drift from the rest of the extractor's
+// hidden-char handling (the previous ORD_HIDDEN dropped \p{Cc}, so a C0/C1
+// control seam inside an ordinal — "4<C0>th" — was NOT deleted before
+// normalizeCitationText turned it into a space, splitting the ordinal → bare John).
+const ORD_HIDDEN = SHADOW_HIDDEN;
 // Ordinal DIGIT: any Unicode decimal digit (\p{Nd} — ASCII, fullwidth,
 // Arabic-Indic, mathematical, …) PLUS superscript digits (\p{No}, not Nd). The
 // leading digits fold to ASCII in foldOrdinalPrefix regardless of script.
@@ -466,14 +473,20 @@ function foldOrdinalPrefix(_m, digits, suffix) {
   const s = [...suffix].map((c) => SUPERSCRIPT_FOLD[c] || c).filter((c) => /[a-z]/i.test(c)).join('');
   return d + s;
 }
-// A superscript digit run that TRAILS a complete number (preceded by a decimal
-// digit, not followed by more number/colon/superscript) is a FOOTNOTE marker →
-// delete ("John 3:16¹" → "John 3:16"). A superscript digit in an EMPTY chapter/
-// verse slot (no ASCII digit there — after a colon, before a colon, or between
-// digits) is NUMBER DATA and is LEFT for NFKC (pass 2) to fold as the user sees
-// it ("John 3:¹⁶" → John 3:16; "John²:1" → John 2:1), so a real ref is never
-// silently dropped — the strict validator then classifies it.
-const FOOTNOTE_SUPERSCRIPT_RE = new RegExp(`(?<=\\p{Nd})[${SUP_DIGITS}]+(?![\\p{Nd}:${SUP_DIGITS}])`, 'gu');
+// A superscript digit run that is ADJACENT TO (immediately after) an ASCII/
+// decimal digit is an AMBIGUOUS mixed number: the two readings — footnote
+// (delete → the shorter ASCII value) vs number data (fold → a longer value) —
+// yield DIFFERENT numbers, and there is no sound, non-gameable way to tell them
+// apart (an adversary can always write an evasion as "N<superscript>"). FAIL
+// CLOSED: replace the superscript run with a malformed-token MARKER (a letter),
+// so the number becomes malformed and the strict validator flags the reference —
+// NEVER silently emitting a valid ref that DIFFERS from the visible text.
+// Applies to trailing ("3:16¹"→"3:16z", "3:3⁷"→"3:3z") and between-digit
+// ("3:1⁶5"→"3:1z5") superscripts. A superscript filling an EMPTY chapter/verse
+// slot (NOT preceded by a digit — "John 3:¹⁶", "John²:1") is UNAMBIGUOUS number
+// data → LEFT for NFKC to fold as the user sees it (r35 rule, unchanged).
+const SUP_AMBIG_MARK = 'z'; // a letter → NUM_TOKEN captures it as a trailing char → malformedToken flags
+const AMBIGUOUS_SUPERSCRIPT_RE = new RegExp(`(?<=\\p{Nd})[${SUP_DIGITS}]+`, 'gu');
 // A superscript ORDINAL LETTER not consumed by the ordinal-prefix fold is never
 // number data → delete.
 const STRAY_SUP_LETTER_RE = new RegExp(`[${SUP_LETTERS}]`, 'gu');
@@ -481,12 +494,13 @@ const STRAY_SUP_LETTER_RE = new RegExp(`[${SUP_LETTERS}]`, 'gu');
 // FIRST in every pass — ahead of NFKC (pass 2) and the shadow's hidden→space
 // handling (pass 3). (1) Fold an ordinal prefix before a numbered stem (any
 // Unicode digit + hidden/combining seams + superscript suffix) to the bare ASCII
-// ordinal; (2) delete only TRAILING footnote superscript digits, LEAVING
-// number-data superscripts for NFKC to fold; (3) delete stray superscript letters.
+// ordinal; (2) FAIL-CLOSED mark a superscript-after-a-digit (ambiguous mixed
+// number) so it is flagged, never silently shortened, while LEAVING an
+// empty-slot superscript for NFKC to fold; (3) delete stray superscript letters.
 function scrubSuperscripts(text) {
   return String(text)
     .replace(ORDINAL_PREFIX_RE, foldOrdinalPrefix)
-    .replace(FOOTNOTE_SUPERSCRIPT_RE, '')
+    .replace(AMBIGUOUS_SUPERSCRIPT_RE, SUP_AMBIG_MARK)
     .replace(STRAY_SUP_LETTER_RE, '');
 }
 

@@ -747,7 +747,7 @@ describe('/stream fabricated-Scripture screen', () => {
       [`4${ZWSP}th John 1:1 → invalid_book`, `4${ZWSP}th John 1:1`, true],
       [`superscript 2${Nd} John 1:1 → 2 John (valid)`, `2${Nd} John 1:1`, false],
       [`superscript 4${Th} John 1:1 → invalid_book`, `4${Th} John 1:1`, true],
-      [`trailing footnote John 3:16${SUP1} → valid John 3:16`, `John 3:16${SUP1}`, false],
+      [`ambiguous trailing John 3:16${SUP1} → FAIL CLOSED (flagged)`, `John 3:16${SUP1}`, true],
       [`empty-slot superscript John${SUP2}:1 → folds to valid John 2:1`, `John${SUP2}:1`, false],
       ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
       ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
@@ -780,7 +780,25 @@ describe('/stream fabricated-Scripture screen', () => {
       [`math digits John ${MATH3}:${MATH1}${MATH6} → John 3:16 (valid, no phantom)`, `John ${MATH3}:${MATH1}${MATH6}`, false],
       [`superscript verse John 3:${SUP1}${SUP6} → John 3:16 (valid, folded)`, `John 3:${SUP1}${SUP6}`, false],
       [`superscript verse Hezekiah 4:${SUP5} → invalid_book (not dropped)`, `Hezekiah 4:${SUP5}`, true],
-      [`trailing footnote John 3:16${SUP1} → valid John 3:16`, `John 3:16${SUP1}`, false],
+      [`ambiguous trailing John 3:16${SUP1} → FAIL CLOSED (flagged)`, `John 3:16${SUP1}`, true],
+      ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
+      ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
+    ]);
+  });
+
+  // --- Round-36: control-char (Cc) ordinal seams (shared hidden class), and
+  // fail-closed on ambiguous ASCII-adjacent superscript numbers. ---
+  it('/invoke + /stream: control-seam ordinals bind, and ambiguous superscript numbers fail closed', async () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const NUL = cp(0x00), C1 = cp(0x9D);
+    const SUP1 = cp(0xB9), SUP6 = cp(0x2076), SUP7 = cp(0x2077);
+    await runR25(app, [
+      [`control-seam 2${C1}nd John 1:1 → 2 John (valid)`, `2${C1}nd John 1:1`, false],
+      [`control-seam 4${NUL}th John 1:1 → invalid_book (no bare John)`, `4${NUL}th John 1:1`, true],
+      [`empty-slot John 3:${SUP1}${SUP6} → John 3:16 (valid, folded)`, `John 3:${SUP1}${SUP6}`, false],
+      [`ambiguous John 3:3${SUP7} → FAIL CLOSED (flagged, not John 3:3)`, `John 3:3${SUP7}`, true],
+      [`ambiguous John 3:1${SUP6} → FAIL CLOSED (flagged, not John 3:1)`, `John 3:1${SUP6}`, true],
+      [`ambiguous John 3:16${SUP1} → FAIL CLOSED (flagged)`, `John 3:16${SUP1}`, true],
       ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
       ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
     ]);
