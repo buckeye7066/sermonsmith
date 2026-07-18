@@ -703,6 +703,36 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(inv.body.scripture.fabricated).toBeGreaterThan(0);
   });
 
+  // --- Round-33: superscript/NFKC ordinal prefixes and ordinal + spaced
+  // punctuation — over /invoke AND /stream (success + error). Split for rate limit. ---
+  it('/invoke + /stream bind superscript & spaced-punctuation ordinal prefixes (no bare-John leak)', async () => {
+    const sup2nd = `2ⁿᵈ`; // 2ⁿᵈ
+    const sup4th = `4ᵗʰ`; // 4ᵗʰ
+    await runR25(app, [
+      ['superscript 2ⁿᵈ John 1:1 → 2 John (valid)', `${sup2nd} John 1:1`, false],
+      ['superscript 4ᵗʰ John 1:1 → invalid_book', `${sup4th} John 1:1`, true],
+      ['1st. John 1:1 → 1 John (valid)', '1st. John 1:1', false],
+      ['2nd - John 1:1 → 2 John (valid)', '2nd - John 1:1', false],
+      ['4th. John 1:1 → invalid_book', '4th. John 1:1', true],
+      ['4th- John 1:1 → invalid_book', '4th- John 1:1', true],
+      ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
+      ['prose "the 1st chapter" (no ref)', 'the 1st chapter of the book', false],
+    ]);
+  });
+
+  it('/invoke: an unsupported superscript ordinal is flagged and never rebinds to a bare valid John', async () => {
+    STREAM_TEXT = JSON.stringify({ note: `4ᵗʰ John 1:1` }); // 4ᵗʰ John 1:1
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status).toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+    expect(inv.body.scripture.fabricated).toBe(inv.body.scripture.checked);
+    expect(inv.body.scripture.fabricated).toBeGreaterThan(0);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

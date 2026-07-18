@@ -714,6 +714,47 @@ describe('validateAiSermon', () => {
     expect(validateScriptureRefs(extractScriptureRefs('2John1:1'))[0].status).toBe('valid');
   });
 
+  it('binds SUPERSCRIPT / NFKC ordinal-suffix prefixes with NO bare-John leak (folded in pass 1)', () => {
+    const sup = { s: 'ˢ', t: 'ᵗ', n: 'ⁿ', d: 'ᵈ', r: 'ʳ', h: 'ʰ' };
+    const forms = {
+      '1st': `1${sup.s}${sup.t}`, '2nd': `2${sup.n}${sup.d}`,
+      '3rd': `3${sup.r}${sup.d}`, '4th': `4${sup.t}${sup.h}`,
+    };
+    // Supported superscript ordinals → the numbered book; NO bare John in the output.
+    expect(extractScriptureRefs(`${forms['1st']} John 1:1`)).toEqual(['1 John 1:1']);
+    expect(extractScriptureRefs(`${forms['2nd']} John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`${forms['3rd']} John 1:1`)).toEqual(['3 John 1:1']);
+    // Unsupported superscript ordinal → invalid_book, NO bare John.
+    const four = extractScriptureRefs(`${forms['4th']} John 1:1`);
+    expect(four.includes('John 1:1')).toBe(false);
+    expect(validateScriptureRefs(four).some((r) => r.status === 'invalid_book')).toBe(true);
+    // Superscript DIGIT + suffix folds too ("²ⁿᵈ").
+    expect(extractScriptureRefs('²ⁿᵈ John 1:1')).toEqual(['2 John 1:1']);
+    // (B) span-suppression must NOT drop a genuinely un-prefixed bare citation that co-occurs.
+    const mixed = extractScriptureRefs(`John 1:1 and ${forms['2nd']} John 1:1`);
+    expect(mixed).toContain('John 1:1');
+    expect(mixed).toContain('2 John 1:1');
+  });
+
+  it('binds an ordinal-suffix prefix across a SPACED punctuation separator (never bare John); bare-numeric outline preserved', () => {
+    // Ordinal suffix is NEVER an outline marker → binds across spaced dot/hyphen.
+    expect(extractScriptureRefs('1st. John 1:1')).toEqual(['1 John 1:1']);
+    expect(extractScriptureRefs('2nd- John 1:1')).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs('2nd - John 1:1')).toEqual(['2 John 1:1']);
+    for (const form of ['4th. John 1:1', '4th- John 1:1', '4th . John 1:1']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${form} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book'), form).toBe(true);
+    }
+    // r30 BARE-NUMERIC outline behavior intact: a spaced separator without an
+    // ordinal suffix is still an outline marker → valid bare John.
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+    expect(extractScriptureRefs('2. John 3:16')).toEqual(['John 3:16']);
+    // Ordinal prose not followed by a book stays clean.
+    expect(extractScriptureRefs('the 1st chapter of this book')).toEqual([]);
+    expect(extractScriptureRefs('won the 3rd race yesterday')).toEqual([]);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

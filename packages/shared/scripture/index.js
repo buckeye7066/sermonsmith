@@ -215,6 +215,20 @@ const ARCHAIC_ROMAN = {
 for (const [ch, val] of Object.entries(ARCHAIC_ROMAN)) ROMAN_NUMERAL_FOLD.set(ch, val);
 const ROMAN_NUMERAL_RE = /[Ⅰ-ↈ]/g;
 
+// Superscript / compatibility ORDINAL characters → their ASCII form, folded in
+// the shared normalization (ahead of pass 1) so a look-alike ordinal prefix
+// ("2ⁿᵈ", "4ᵗʰ", "1ˢᵗ", "3ʳᵈ", incl. superscript digits "²ⁿᵈ") is recognized as
+// "2nd"/"4th"/"1st"/"3rd" in the SAME pass that would otherwise emit a bare
+// "John". Covers the superscript digits (No, not Nd — decimalDigitToAscii does
+// NOT catch these) and the modifier/superscript letters used in ordinal
+// suffixes (s t n d r h). NFKC would fold these, but pass 1 does not NFKC-fold,
+// so we fold them explicitly here.
+const SUPERSCRIPT_FOLD = {
+  '¹': '1', '²': '2', '³': '3', '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
+  'ˢ': 's', 'ᵗ': 't', 'ⁿ': 'n', 'ᵈ': 'd', 'ʳ': 'r', 'ʰ': 'h',
+};
+const SUPERSCRIPT_RE = new RegExp(`[${Object.keys(SUPERSCRIPT_FOLD).join('')}]`, 'g');
+
 function normalizeCitationText(text) {
   return String(text)
     // NFC FIRST: recompose legit decomposed accents (e + U+0301 → é, a single
@@ -227,6 +241,9 @@ function normalizeCitationText(text) {
     // Unicode-Roman PREFIX is consumed by the matcher in the normal pass too (no
     // spurious bare-book duplicate). Targeted — does not touch ordinary accents.
     .replace(ROMAN_NUMERAL_RE, (c) => ROMAN_NUMERAL_FOLD.get(c) || c)
+    // Superscript / compatibility ordinal characters → ASCII ("2ⁿᵈ"→"2nd"), so a
+    // look-alike ordinal-suffix PREFIX is bound in pass 1 (no bare-book leak).
+    .replace(SUPERSCRIPT_RE, (c) => SUPERSCRIPT_FOLD[c] || c)
     // Control characters (C0 + C1 + DEL, i.e. Unicode Cc) → space, EXCEPT real
     // whitespace tab/newline/CR. \p{Cc} also covers C1 (incl. NEL U+0085) and
     // DEL (U+007F). GLOBAL → space keeps a numeral-prefix↔book seam ("II​John")
@@ -264,6 +281,9 @@ function normalizeCitationText(text) {
     // "Isaiah", never "1 Saiah") and prose is never mis-bound. This also stops
     // "2-John" from extracting as a bare, valid "John" (it becomes "2 John").
     .replace(COMPACT_NUMBERED_RE, '$1 $2')
+    // ORDINAL-SUFFIX prefix (1st/2nd/…) binds the numbered book across a
+    // SPACED separator too ("4th. John" → "4th John"); never an outline marker.
+    .replace(ORDINAL_NUMBERED_RE, '$1 $2')
     // COMPACT numeric/Roman prefix fused to a book-SHAPED (possibly fabricated)
     // token → spaced numbered form ("2Hezekiah 4:5"/"2-Hezekiah 4:5" → invalid
     // "2 Hezekiah 4:5"), gated so "Isaiah" is never split (see spaceCompactPrefix).
@@ -399,6 +419,17 @@ const CV_LOOKAHEAD = '(?:\\d+|[ivxlcdm]+)\\s*:\\s*(?:\\d+|[ivxlcdm]+)';
 // the "John 1:1" space). A glued chapter never occurs in prose.
 const COMPACT_NUMBERED_RE = new RegExp(
   `\\b(${COMPACT_PREFIX_ALT})${COMPACT_SEP}(${COMPACT_STEMS.join('|')})(?:\\b|(?=${CV_LOOKAHEAD}))`,
+  'giu',
+);
+// An ORDINAL-SUFFIX prefix (1st/2nd/3rd/4th/…) is NEVER an outline marker, so it
+// binds the numbered book across a separator WITH surrounding whitespace too
+// ("4th. John", "4th- John", "2nd - John") — unlike a bare numeric, where a
+// spaced separator stays an outline marker (r30). The st/nd/rd/th suffix is the
+// discriminator. Rewritten to the spaced form so CITATION_RE binds it (supported
+// → valid numbered book, unsupported → invalid_book, never bare John).
+const ORDINAL_SUFFIX_PREFIX = '\\d+(?:st|nd|rd|th)';
+const ORDINAL_NUMBERED_RE = new RegExp(
+  `\\b(${ORDINAL_SUFFIX_PREFIX})\\s*[.\\-]?\\s*(${COMPACT_STEMS.join('|')})(?:\\b|(?=${CV_LOOKAHEAD}))`,
   'giu',
 );
 
@@ -711,35 +742,59 @@ function markStrippedText(text) {
   return normalizeCitationText(decomposed);
 }
 
+const REGEX_META_RE = /[.*+?^${}()|[\]\\]/g;
+const escapeRegex = (s) => s.replace(REGEX_META_RE, '\\$&');
+
+function collectRefs(source, gate) {
+  const refs = [];
+  const seen = new Set();
+  for (const m of source.matchAll(CITATION_RE)) {
+    const parsed = parseCitation(m);
+    if (parsed.prose) continue; // Roman-looking prose word in a number slot → not a citation
+    if (!gate(parsed)) continue;
+    const canonical = buildCanonical(parsed);
+    if (!seen.has(canonical)) { seen.add(canonical); refs.push(canonical); }
+  }
+  return refs;
+}
+
 export function extractScriptureRefs(text) {
   if (!text) return [];
+  // Pass 1: normal normalization (NFC + prefix folds + invisible/zero-width +
+  // boundary-aware marks). Any non-stopword "Word N:N" is a candidate.
+  const pass1 = collectRefs(normalizeCitationText(text), looksLikeReference);
+  // Pass 2: NFKC-fold THEN the SAME global normalization — catches a COMPATIBILITY
+  // prefix (unicode roman/digit/superscript, invisible seam) that pass 1's
+  // targeted folds might miss. NFKC keeps precomposed accents non-ASCII.
+  const pass2 = collectRefs(normalizeCitationText(String(text).normalize('NFKC')), looksLikeReference);
+  // Pass 3: mark-STRIPPED, gated to BOOK-SHAPED tokens — catches a book name a
+  // combining mark hid anywhere WITHOUT re-flagging an accented common word.
+  const pass3 = collectRefs(markStrippedText(text), isBookShaped);
+
+  // (B) SPAN-AWARE CROSS-PASS BARE-BOOK SUPPRESSION. A folded pass (2 or 3) may
+  // recognize a look-alike PREFIX that pass 1 did not — turning a spurious bare
+  // "John 1:1" into the specific "k John 1:1" for the SAME source location. Drop
+  // a bare-book ref iff a folded pass produced a NUMBERED version of it AND
+  // produced NO genuine bare version. Folding only ADDS prefix recognition (it
+  // never removes a real bare), so a legitimately un-prefixed citation elsewhere
+  // in the text is preserved (the folded pass would still emit the bare form).
+  // This closes any future look-alike prefix that only a later pass captures.
+  const foldedRefs = new Set([...pass2, ...pass3]);
+  const suppressedBare = (ref) => {
+    if (/^\d/.test(ref)) return false; // already a numbered ref
+    if (foldedRefs.has(ref)) return false; // a genuine bare exists in a folded pass → keep
+    const numberedRe = new RegExp(`^\\d+ ${escapeRegex(ref)}$`);
+    return [...foldedRefs].some((r) => numberedRe.test(r)); // numbered twin present → spurious bare
+  };
+
   const out = [];
   const seen = new Set();
-  const collect = (source, gate) => {
-    for (const m of source.matchAll(CITATION_RE)) {
-      const parsed = parseCitation(m);
-      if (parsed.prose) continue; // Roman-looking prose word in a number slot → not a citation
-      if (!gate(parsed)) continue;
-      const canonical = buildCanonical(parsed);
-      if (!seen.has(canonical)) { seen.add(canonical); out.push(canonical); }
-    }
-  };
-  // Pass 1: normal normalization (NFC + invisible/zero-width + boundary-aware
-  // marks). Any non-stopword "Word N:N" is a candidate (unknown book → flagged).
-  collect(normalizeCitationText(text), looksLikeReference);
-  // Pass 2: NFKC-fold THEN the SAME global (non-deleting) normalization. This
-  // catches a COMPATIBILITY prefix fused to a book by an invisible seam that the
-  // shadow's aggressive delete would merge into a non-book: "Ⅱ​John 1:20" →
-  // NFKC "II​John 1:20" → global hidden→space → "II John 1:20" → 2 John 1:20
-  // (out_of_range). The global→space (not delete) keeps the numeral prefix bound
-  // as its own token; the book-shape gate is NOT used here (looksLikeReference,
-  // as in pass 1) so a folded numbered book still binds. NFKC keeps precomposed
-  // accents non-ASCII (café→café), so it does not reintroduce a café false pos.
-  collect(normalizeCitationText(String(text).normalize('NFKC')), looksLikeReference);
-  // Pass 3: mark-STRIPPED, gated to BOOK-SHAPED tokens — catches a book name a
-  // combining mark hid anywhere (incl. NFC-composed) WITHOUT re-flagging an
-  // accented common word (café/résumé → cafe/resume are not book-shaped).
-  collect(markStrippedText(text), isBookShaped);
+  for (const ref of [...pass1, ...pass2, ...pass3]) {
+    if (seen.has(ref)) continue;
+    if (suppressedBare(ref)) continue;
+    seen.add(ref);
+    out.push(ref);
+  }
   return out;
 }
 
