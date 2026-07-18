@@ -103,6 +103,9 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 ## Round-21 pass — reliably tells a hidden fake reference from an ordinary accented word (2026-07-18)
 - **A fabricated Bible reference hidden with a combining mark is now caught wherever the mark is placed**, including cases where the mark merges into an accented letter. At the same time, ordinary accented words like "café" or "résumé" followed by a number are correctly left alone. The checker now recognizes when a hidden word actually looks like a Bible book name (versus a common word), which is what separates a real attack from a harmless coincidence. No change for genuine references.
 
+## Round-22 pass — catches a hidden mark placed inside a book name (2026-07-18)
+- **A hidden character placed in the middle of a Bible book name (not just at the end) is now handled correctly.** Previously such a character could break the book name apart so a real reference with an impossible chapter/verse (e.g. "John 99:1") slipped through unchecked; the name is now rejoined and the invalid reference is flagged. Ordinary accented words are still left alone, and normal references are unaffected.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

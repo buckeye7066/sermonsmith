@@ -366,10 +366,18 @@ function isBookShaped(parsed) {
 // precomposed non-ASCII letter (e.g. "Hezekiaḣ" → "Hezekiah"). Paired with the
 // book-shaped gate so it does not resurrect the café/résumé false positive.
 function markStrippedText(text) {
-  // Replace marks with a SPACE (not delete) so a mark sitting directly between
-  // the book and the digits ("Hezekiaḣ4:5" → NFD "Hezekiah" + mark + "4:5")
-  // yields a real "Hezekiah 4:5" the whitespace-requiring regex can match.
-  return normalizeCitationText(String(text).normalize('NFD').replace(/\p{M}/gu, ' '));
+  // POSITION-AWARE mark handling on the NFD-decomposed text:
+  //   • a mark at a book↔chapter boundary (letter↔digit, either direction) hides
+  //     the separator → replace with a SPACE ("Hezekiaḣ4:5" → "Hezekiah 4:5");
+  //   • every OTHER mark (word-internal letter↔letter, or letter↔space) → DELETE,
+  //     so the ASCII token rejoins ("Joh́n 99:1" → "John 99:1"; "café 4:5" →
+  //     "cafe 4:5"). Deleting internal marks lets a known book hidden by an
+  //     internal mark (John 99:1 → out_of_range) still be extracted and caught.
+  const decomposed = String(text).normalize('NFD')
+    .replace(/(?<=\p{L})\p{M}+(?=\p{Nd})/gu, ' ')
+    .replace(/(?<=\p{Nd})\p{M}+(?=\p{L})/gu, ' ')
+    .replace(/\p{M}+/gu, '');
+  return normalizeCitationText(decomposed);
 }
 
 export function extractScriptureRefs(text) {

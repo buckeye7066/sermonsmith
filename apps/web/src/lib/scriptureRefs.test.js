@@ -290,6 +290,21 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('II John 1:1')).toEqual(['2 John 1:1']);
   });
 
+  it('a WORD-INTERNAL mark is deleted (token rejoins) so a mark-hidden KNOWN book out of range is caught', () => {
+    const acute = String.fromCodePoint(0x0301);
+    const dot = String.fromCodePoint(0x0307); // composes h+dot -> ḣ
+    // Internal mark inside a known book, out-of-range chapter → caught.
+    expect(validateScriptureRefs(extractScriptureRefs(`Joh${acute}n 99:1`))[0]?.status).toBe('out_of_range');
+    expect(validateScriptureRefs(extractScriptureRefs(`Joh${dot}n 99:1`))[0]?.status).toBe('out_of_range');
+    // Numbered book, internal mark, out of range → bound to 2 John and caught.
+    expect(extractScriptureRefs(`II Joh${dot}n 99:1`)).toEqual(['2 John 99:1']);
+    expect(validateScriptureRefs(extractScriptureRefs(`II Joh${dot}n 99:1`))[0].status).toBe('out_of_range');
+    // A boundary mark (letter↔digit) still becomes a space, not deleted.
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${dot}4:5`))[0].status).toBe('invalid_book');
+    // No mark present → the token is never mangled by deletion.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

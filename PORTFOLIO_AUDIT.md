@@ -441,3 +441,20 @@ The r20 boundary rule replaced `\p{M}` only immediately between a **letter and a
 **Known limitation (documented):** a mark-hidden fabricated book that is NOT biblical-name-shaped (e.g. a city name like a mark-hidden "Babylon 4:5") is caught by the normal pass only when written with a normal space; the mark-stripped pass gates on book-shape to avoid the café/résumé class of false positive. This is the correct side of the attack-vs-false-positive tradeoff for book-shaped fabrications (the realistic fabricated-scripture case), which the tests cover.
 
 **Confirmed (round-21):** mark-stripped detection catches a mark-hidden book name at any mark position (NFC-composed or not), while the book-shaped-token gate keeps café/résumé from false-flagging.
+
+---
+
+## Round-22 pass — word-internal marks still bypassed known-book screening — FIXED
+
+### R22-1 — [HIGH] Internal combining marks split the token instead of reconstructing it — FIXED
+The r21 `markStrippedText` replaced EVERY combining mark with a space, so a **word-internal** mark split the token instead of rejoining it: `"Joh́n 99:1"` / `"Joḣn 99:1"` → `"Joh n 99:1"` → the regex extracted nothing → `refs:[] allValid:true`. So even a KNOWN book out of range (`John 99:1` — John has no ch.99) was treated as clean, and likewise for numbered books (`"II Joḣn 99:1"`). `/invoke` + `/stream` inherited it via `extractScriptureRefsDeep`.
+
+**Fix** (`packages/shared/scripture/index.js`): the mark-stripped pass is now **position-aware** on the NFD-decomposed text:
+- a mark at a book↔chapter **boundary** (letter↔digit, either direction) hides the separator → replaced with a **SPACE** (`"Hezekiaḣ4:5"` → `"Hezekiah 4:5"`);
+- every OTHER mark (word-internal letter↔letter, or letter↔space) is **DELETED**, so the ASCII token rejoins (`"Joh́n 99:1"` → `"John 99:1"`; `"café 4:5"` → `"cafe 4:5"`).
+
+So a mark hidden ANYWHERE in a known or biblical-shaped book name is caught: `"Joh́n 99:1"` → `John 99:1` (out_of_range), `"II Joḣn 99:1"` → `2 John 99:1` (out_of_range), `"Hezekiaḣ4:5"` → `Hezekiah 4:5` (invalid_book). Deleting internal marks does NOT create a café false positive — the book-shape gate (r21) still rejects `cafe`/`resume`; and a token with no mark is never altered (`"John 3:16"` unchanged). The r16–r21 coverage is preserved; runs inside `extractScriptureRefs` so `/invoke` + `/stream` (success + started-error) inherit it.
+
+**Tests:** `"Joh́n 99:1"`, `"Joḣn 99:1"`, `"II Joḣn 99:1"` (known books out of range, internal mark) → CAUGHT (`scripture.ok:false`) on `/invoke` AND `/stream`; the r21 set (`Hezekiah̀`/`Hezekiaḣ` caught; café/résumé/`John 3:16`/`II John 1:1`/zero-width clean) still behaves; a normal `"John 3:16"` still valid (not mangled by mark deletion when no mark is present).
+
+**Confirmed (round-22):** word-internal marks are deleted (rejoining the token) while letter↔digit-boundary marks become a space — so a mark hidden anywhere in a known or biblical-shaped book name is caught, with no café-class false positive.

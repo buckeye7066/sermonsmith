@@ -411,6 +411,25 @@ describe('/stream fabricated-Scripture screen', () => {
     }
   });
 
+  it('catches a WORD-INTERNAL mark hiding a KNOWN book out of range on /invoke and /stream', async () => {
+    const acute = String.fromCodePoint(0x0301);
+    const dot = String.fromCodePoint(0x0307);
+    for (const attack of [`Joh${acute}n 99:1`, `Joh${dot}n 99:1`, `II Joh${dot}n 99:1`]) {
+      STREAM_TEXT = JSON.stringify({ note: attack });
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      expect(inv.status, `/invoke ${JSON.stringify([...attack])}`).toBe(422);
+
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+      expect(parseTrailer(str).scripture.ok, `/stream ${JSON.stringify([...attack])}`).toBe(false);
+    }
+  });
+
   it('catches a mark-HIDDEN fabricated book (mark before space, NFC-composed, or before digit) on /invoke and /stream', async () => {
     const grave = String.fromCodePoint(0x0300); // no precomposed form
     const dot = String.fromCodePoint(0x0307);   // NFC composes h+dot -> ḣ
