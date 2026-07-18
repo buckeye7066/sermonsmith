@@ -235,9 +235,11 @@ describe('validateAiSermon', () => {
       0x7f, 0x80, 0x85, 0x9f,       // DEL + C1 controls (incl. NEL)
       0x200b, 0x200c, 0x200d,       // zero-width space / non-joiner / joiner
       0x2060, 0xfeff, 0x00ad,       // word joiner, BOM/ZWNBSP, soft hyphen
+      0x034f, 0xfe00, 0xfe0f,       // CGJ, variation selectors 1/16
+      0x180b, 0x3164, 0xe0100,      // Mongolian FVS, Hangul filler, VS supplement
     ];
     for (const code of codes) {
-      const sep = String.fromCharCode(code);
+      const sep = String.fromCodePoint(code);
       // An invisible separator between book and chapter:verse recombines to a real ref.
       expect(extractScriptureRefs(`Hezekiah${sep}4:5`), `U+${code.toString(16)}`).toContain('Hezekiah 4:5');
       expect(validateScriptureRefs(extractScriptureRefs(`John${sep}3:16`))[0].status).toBe('valid');

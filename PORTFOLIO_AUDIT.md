@@ -378,3 +378,16 @@ This replaces (and subsumes) round-16's dynamic C0 regex. It runs inside `extrac
 **Tests:** `Hezekiah<ZWSP>4:5`, `<DEL>`, `<WJ>`, `<BOM>`, `<SHY>`, C1 (`U+0080`/`U+009F`) and C0 splits, plus `II<ZWSP>John 1:1` and a split-array variant → all caught (`scripture.ok:false`) on `/invoke` AND `/stream` (success + started-error); a normal-space citation still validates; ordinary text isn't corrupted.
 
 **Confirmed (round-17):** the full invisible-separator set (C0/C1/DEL controls via `\p{Cc}`, all format chars via `\p{Cf}`) is normalized to spaces before extraction and covered on `/invoke` and `/stream` — an invisible-char-split citation can no longer bypass the screen.
+
+---
+
+## Round-18 pass — default-ignorable non-Cf characters still split citations — FIXED
+
+### R18-1 — [HIGH] Default-ignorable non-Cf characters split citations past the gate — FIXED
+Round-17 mapped `\p{Cc}` + `\p{Cf}`, but **variation selectors** (`U+FE00–FE0F`, `U+E0100–E01EF`), the **combining grapheme joiner** (`U+034F`), **Mongolian free variation selectors** (`U+180B–180D`), and **Hangul fillers** are category `\p{Mn}`/other — NOT `Cf`, NOT JS whitespace. So `"Hezekiah<VS>4:5"` / `"Hezekiah<CGJ>4:5"` / `"Hezekiah<U+E0100>4:5"` extracted ZERO refs → the shared screen returned `{ok:true,checked:0,fabricated:0}`, and `/invoke` + `/stream` shipped the fabricated reference clean.
+
+**Fix** (`packages/shared/scripture/index.js`): `normalizeCitationText` now maps `\p{Cc}` (all controls, except real whitespace `\t\n\r`) **plus** `[\p{Cf} \p{Default_Ignorable_Code_Point}]` to a space before extraction. `\p{Default_Ignorable_Code_Point}` (aka `\p{DI}`) subsumes the format chars AND adds the variation selectors / CGJ / Mongolian FVS / Hangul fillers (verified: each is DI); `\p{Cf}` is retained alongside to also cover any Cf-not-DI code point. Runs inside `extractScriptureRefs`, so every consumer benefits (persist validators + flattened-join + `/invoke` + `/stream` success AND started-error). A prefix stays bound through such a separator (`II<CGJ>John 1:1` → `2 John 1:1`); real whitespace is preserved (no wrong merges); ordinary prose (incl. a legit emoji with a variation selector) isn't corrupted for detection.
+
+**Tests:** `Hezekiah<VS1/VS16/VS-supp/CGJ/MongFVS/HangulFiller>4:5` (plus the r16/r17 control/zero-width set) and `II<invisible>John 1:1` and a split-array variant → all caught (`scripture.ok:false`) on `/invoke` AND `/stream` (success + started-error); a normal-space citation still validates; ordinary text isn't corrupted.
+
+**Confirmed (round-18):** `\p{Cc}` + `\p{Default_Ignorable_Code_Point}` (+`\p{Cf}`) normalization catches variation-selector / CGJ / Mongolian-FVS / Hangul-filler splits on `/invoke` and `/stream`, closing the invisible-separator class.

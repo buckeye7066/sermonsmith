@@ -374,9 +374,9 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(na).not.toBe(nb);
   });
 
-  it('catches an INVISIBLE (zero-width / C1 / DEL) separator split citation on /invoke and /stream', async () => {
-    for (const cp of [0x200b, 0x2060, 0xfeff, 0x00ad, 0x7f, 0x9f]) {
-      const sep = String.fromCharCode(cp);
+  it('catches INVISIBLE separators (zero-width / C1 / DEL / variation-selector / CGJ / Mongolian-FVS) on /invoke and /stream', async () => {
+    for (const cp of [0x200b, 0x2060, 0xfeff, 0x00ad, 0x7f, 0x9f, 0x034f, 0xfe0f, 0x180b, 0xe0100]) {
+      const sep = String.fromCodePoint(cp);
       STREAM_TEXT = JSON.stringify({ cross_references: [`Hezekiah${sep}4:5`] });
       const inv = await request(app)
         .post('/api/ai/invoke')
