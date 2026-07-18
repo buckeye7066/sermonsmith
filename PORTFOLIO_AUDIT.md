@@ -231,3 +231,21 @@ The dedicated `/community/posts/:id/reply` gates `is_ai_response`, but the gener
 `screenStreamedScripture` validated with the default Protestant canon and passed anything not `invalid_book`/`out_of_range`/`unparseable` — so a deuterocanonical book resolved to `unsupported_canon` and was treated as OK, letting an out-of-range deuterocanonical ref like `Wisdom 99:1` pass on `/invoke` (structured + plain-text) and in the `/stream` trailer. **Fix:** the screen now validates each extracted reference against **every supported canon** (Protestant, Catholic, Orthodox) and flags it as fabricated only when NO canon can place it (never `valid` and never `chapter_checked` anywhere). So a real Protestant ref passes, a real deuterocanonical ref passes (chapter_checked under Catholic/Orthodox), a fabricated book fails, and `Wisdom 99:1` fails (out_of_range in every canon — Wisdom has 19 chapters). **Tests:** `Wisdom 99:1` blocked on `/invoke` and flagged in the `/stream` trailer; in-range `Sirach 3:1` / `Wisdom 3:1` pass; lowercase fabrication caught by the screen too.
 
 **Confirmed (round-7):** the extractor is case-insensitive — lowercase fabricated refs are caught everywhere (publish, share serve, AI-reply create, `/invoke`, `/stream`) without false-positiving on non-reference prose; and the AI screen validates against all supported canons, so out-of-range deuterocanonical refs are rejected while genuine deuterocanon passes.
+
+---
+
+## Round-8 pass — citation-FORMATTING variants (the last extractor layer) — FIXED
+
+### R8-1 — [HIGH] Obfuscated/variant citation syntax bypassed every gate — FIXED
+The extractor recognized only ASCII full-word book names + tight whitespace + a `N:N` token, so common formatting variants an AI naturally produces slipped through as *zero references*: `hezekiah 4 : 5` (spaces around the colon) extracted nothing; `Hez. 4:5` (abbreviation + period) extracted nothing; and `II John 1:20` had its roman-numeral prefix **dropped** and was validated as `John 1:20` (valid) instead of `2 John 1:20` (which has no verse 20) — a fabricated/misattributed ref passing as clean. Every gate depends on this one extractor.
+
+**Fix — `extractScriptureRefs` now normalizes and canonicalizes before validation** (`packages/shared/scripture/index.js`):
+- **Unicode → ASCII**: non-breaking/en/em/ideographic spaces, fullwidth digits (`４`), fullwidth Latin letters (`Ｈｅｚ`), colon variants (`：` `∶` `ː`), and dash/minus variants are normalized, so a unicode-digit/space/colon evasion can't slip past the matcher.
+- **Flexible whitespace** around the colon (and book↔chapter), so `hezekiah 4 : 5` is caught.
+- **Abbreviations** (with/without trailing period) via a `BOOK_ABBREV` map covering the standard set (Gen/Gn, Ps/Psa, Matt/Mt, Rom/Rm, 1 Cor/Co, Rev/Rv, Sir/Ecclus, Wis, …); ambiguous forms that collide with common words (`is`, `am`) are deliberately omitted so prose never false-positives.
+- **Roman-numeral & worded prefixes** (`I/II/III`, `First/Second/Third`) mapped to `1/2/3` and **bound to the following book**, so `II John 1:20` canonicalizes to `2 John 1:20` (range-checked → out_of_range) and `II Hezekiah 4:5` extracts as `2 Hezekiah` (invalid_book) — the prefix is never silently dropped onto the wrong book.
+- Each match is emitted as a clean canonical `Book C:V[-V]` string that `validateScriptureRefs` already handles; the `looksLikeReference` / `NON_BOOK_WORDS` guard still drops times/ratios/scores/pronoun-verb prose so tolerance doesn't over-match.
+
+**Tests (through Sermon publish, share-link create+serve, generic AI-reply create, `/invoke`, AND `/stream`):** `hezekiah 4 : 5`, `Hez. 4:5`, `II Hezekiah 4:5`, `II John 1:20` (fails — 2 John has no v20), fullwidth-digit/colon variants → ALL caught; legit `Gen. 1:1`, `1 Cor 13:4`, `II Tim 1:7`, `First John 3:16` validate correctly (prefix bound to the right book); times/ratios/scores don't false-positive.
+
+**Confirmed (round-8):** the extractor parses abbreviations, roman/worded numeral prefixes bound to the correct book, and flexible/unicode whitespace — so formatting-variant fabricated refs are caught everywhere (publish, share serve, AI-reply create, `/invoke`, `/stream`) while legitimate citations still validate and prose does not false-positive.

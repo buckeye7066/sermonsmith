@@ -189,6 +189,24 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(parseTrailer(str.text).scripture.ok).toBe(false);
   });
 
+  it('/invoke and /stream reject formatting-variant fabricated refs (abbrev, roman-bound, spaced colon)', async () => {
+    for (const bad of ['Hez. 4:5', 'II Hezekiah 4:5', 'II John 1:20', 'hezekiah 4 : 5']) {
+      STREAM_TEXT = `{"note":"anchored on ${bad}"}`;
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      expect(inv.status, `/invoke should reject ${bad}`).toBe(422);
+
+      STREAM_TEXT = `anchored on ${bad}`;
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', stream_result: true });
+      expect(parseTrailer(str.text).scripture.ok, `/stream should flag ${bad}`).toBe(false);
+    }
+  });
+
   it('/invoke rejects a LOWERCASE fabricated ref', async () => {
     STREAM_TEXT = '{"note":"as hezekiah 4:5 reminds us"}';
     const res = await request(app)

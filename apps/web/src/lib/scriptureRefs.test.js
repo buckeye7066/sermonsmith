@@ -210,6 +210,25 @@ describe('validateAiSermon', () => {
     expect(validateScriptureRefs(extractScriptureRefs('see john 3:16'))[0].status).toBe('valid');
   });
 
+  it('parses formatting variants: spaced colons, abbreviations, roman/worded prefixes, unicode', () => {
+    const canon = (t) => extractScriptureRefs(t);
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t))[0]?.status;
+    // Fabricated variants must be CAUGHT (invalid / out_of_range).
+    expect(stat('hezekiah 4 : 5')).toBe('invalid_book');       // spaces around colon
+    expect(stat('Hez. 4:5')).toBe('invalid_book');             // abbreviation + period
+    expect(stat('II Hezekiah 4:5')).toBe('invalid_book');      // roman prefix + fabricated book
+    expect(stat('II John 1:20')).toBe('out_of_range');         // BOUND to 2 John (no v20), not John
+    expect(canon('II John 1:20')).toEqual(['2 John 1:20']);    // prefix bound to the right book
+    expect(stat('hezekiah 4：5')).toBe('invalid_book');         // fullwidth colon
+    expect(stat('hezekiah ４：５')).toBe('invalid_book');        // fullwidth digits
+    // Legit variants must VALIDATE.
+    expect(stat('Gen. 1:1')).toBe('valid');
+    expect(stat('1 Cor 13:4')).toBe('valid');
+    expect(stat('II Tim 1:7')).toBe('valid');
+    expect(stat('First John 3:16')).toBe('valid');
+    expect(canon('II Tim 1:7')).toEqual(['2 Timothy 1:7']);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);
@@ -258,7 +277,8 @@ describe('extractScriptureRefsDeep / validateAiContent (shape-agnostic sweep)', 
       key_verses: ['Romans 8:28', 'John 3:16'],
       study_sections: [{ scripture: 'Psalm 23:1', questions: ['See Isaiah 40:31'] }],
     }).sort();
-    expect(refs).toEqual(['Ephesians 2:8', 'Isaiah 40:31', 'John 3:16', 'Psalm 23:1', 'Romans 8:28']);
+    // The extractor canonicalizes: "Psalm" → "Psalms" (both are valid aliases).
+    expect(refs).toEqual(['Ephesians 2:8', 'Isaiah 40:31', 'John 3:16', 'Psalms 23:1', 'Romans 8:28']);
   });
 
   it('reaches into the double-nested ethics-analysis result shape', () => {

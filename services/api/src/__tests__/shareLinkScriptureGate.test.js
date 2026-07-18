@@ -121,6 +121,20 @@ describe('share-link Scripture gate (createShareableLink + /share/:slug)', () =>
     expect(res.body.resource.id).toBe('res-live');
   });
 
+  it('refuses to share/serve a Sermon whose fabricated ref uses a formatting variant', async () => {
+    // Roman-numeral prefix bound to a fabricated book, hidden in a prose field.
+    seedResource('res-var', 'Sermon', 'u-owner', {
+      title: 'v', anchor_passage: 'John 3:16', big_idea: 'as II Hezekiah 4:5 shows',
+    });
+    const create = await request(app)
+      .post('/api/functions/createShareableLink')
+      .set('Cookie', asUser('u-owner'))
+      .send({ resourceType: 'Sermon', resourceId: 'res-var' });
+    expect(create.status).toBe(422);
+    seedLink('link-var', 'u-owner', { slug: 'slug-var', resourceId: 'res-var' });
+    expect((await request(app).get('/api/community/share/slug-var')).status).toBe(422);
+  });
+
   it('refuses to share/serve a Sermon whose fabricated ref is LOWERCASE (case-insensitive extraction)', async () => {
     seedResource('res-lc', 'Sermon', 'u-owner', {
       title: 'lc', anchor_passage: 'John 3:16', theological_notes: 'as hezekiah 4:5 shows',

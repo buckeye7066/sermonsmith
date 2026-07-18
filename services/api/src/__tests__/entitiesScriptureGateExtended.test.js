@@ -356,6 +356,34 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.status).toBe(422);
   });
 
+  // --- Round-8: formatting-variant citations are caught through the gate ---
+  it('blocks publishing a Sermon with formatting-variant fabricated refs', async () => {
+    for (const bad of [
+      'as Hez. 4:5 shows',        // abbreviation + period
+      'per II Hezekiah 4:5',      // roman prefix + fabricated book
+      'see hezekiah 4 : 5 now',   // spaced colon, lowercase
+    ]) {
+      const res = await post(app, 'Sermon', 'u-pastor', {
+        title: 'v', anchor_passage: 'John 3:16', big_idea: bad, status: 'published',
+      });
+      expect(res.status).toBe(422);
+    }
+  });
+
+  it('blocks publishing when a roman-numeral prefix binds to the WRONG book (II John has no v20)', async () => {
+    const res = await post(app, 'Sermon', 'u-pastor', {
+      title: 'binding', anchor_passage: 'John 3:16', theological_notes: 'see II John 1:20', status: 'published',
+    });
+    expect(res.status).toBe(422); // 2 John 1:20 is out_of_range, not John 1:20 (valid)
+  });
+
+  it('rejects a generic-API AI reply with an abbreviated fabricated ref', async () => {
+    const res = await post(app, 'CommunityReply', 'u-pastor', {
+      post_id: 'p1', content: 'per Hez. 4:5, take heart', is_ai_response: true,
+    });
+    expect(res.status).toBe(422);
+  });
+
   // --- Round-6 R6-1: Sermon validator deep-scans ALL prose fields ---
   it('blocks publishing a Sermon with a fabricated ref in big_idea / theological_notes / a point field', async () => {
     for (const body of [

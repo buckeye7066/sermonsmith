@@ -122,31 +122,135 @@ const CANON_EXTRA_CHAPTERS = {
 // only, for core books whose exact per-chapter count is somehow unavailable.
 const MAX_VERSE = 176;
 
-// Match e.g. "John 3:16", "1 John 4:8", "Romans 8:28-30", "Song of Solomon 2:1",
-// "Wisdom of Solomon 3:1". We deliberately allow some loose punctuation/spacing
-// so casual citations in conclusion paragraphs are caught too. The book name is
-// the numbered prefix + one word, plus an optional "of X" clause.
+// ---------------------------------------------------------------------------
+// Citation extraction — normalization + variant-tolerant parsing.
 //
-// CASE-INSENSITIVE: the pattern must match `hezekiah 4:5` / `HEZEKIAH 4:5` as
-// readily as `Hezekiah 4:5`. The old `[A-Z][a-z]+` (no /i flag) extracted NOTHING
-// for a lowercase book word, so a lowercase fabricated reference slipped through
-// EVERY consumer (validateAiSermon, validateAiContent, assertAiReplyExposable,
-// screenStreamedScripture) as "zero references → all valid". Since
-// `validateScriptureRefs` already lower-cases the book for canon lookup, matching
-// case-insensitively here is all that is needed to validate correctly. The
-// `looksLikeReference` filter below then drops ordinary prose like times/ratios
-// ("at 3:30", "the ratio 2:1") so case-insensitivity doesn't over-match.
-const REF_RE = /\b(?:[1-3]\s*)?[A-Za-z]+(?:\s+of\s+[A-Za-z]+)?\s+\d{1,3}:\d{1,3}(?:[-–]\d{1,3})?\b/gi;
+// A single tight regex is not enough: an AI naturally produces citations in many
+// FORMS, and each form that the extractor misses is a total gate bypass (every
+// consumer — validateAiSermon, validateAiContent, assertAiReplyExposable,
+// screenStreamedScripture — sees "zero references → all valid"). We therefore:
+//   1. normalize unicode spaces / fullwidth digits / colon + dash variants to
+//      ASCII (so "Ｈｅｚ ４：５" / non-breaking spaces don't evade the matcher);
+//   2. match a permissive citation shape that allows a numeric/roman/worded
+//      prefix, an abbreviated book (with or without a trailing period), an
+//      optional "of X" clause, and flexible whitespace AROUND the colon;
+//   3. canonicalize each match (prefix → 1/2/3 BOUND to the book, abbreviation →
+//      full book) into a clean "Book C:V[-V]" string that validateScriptureRefs
+//      already understands — so `II John 1:20` validates as 2 John (v20 fails,
+//      not silently attributed to John), `Hez. 4:5` / `hezekiah 4 : 5` are
+//      caught as fabricated, and `Gen. 1:1` / `1 Cor 13:4` / `II Tim 1:7`
+//      validate correctly.
+// A looksLikeReference guard still drops ordinary prose (times/ratios/scores)
+// so the tolerant matcher does not over-match.
+// ---------------------------------------------------------------------------
+
+function normalizeCitationText(text) {
+  return String(text)
+    // Unicode spaces → ASCII space.
+    .replace(/[   -   　]/g, ' ')
+    // Fullwidth digits → ASCII digits.
+    .replace(/[０-９]/g, (d) => String(d.charCodeAt(0) - 0xFF10))
+    // Fullwidth Latin letters (U+FF21–FF3A / U+FF41–FF5A) → ASCII letters.
+    .replace(/[Ａ-Ｚａ-ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    // Colon variants (fullwidth colon, ratio, modifier letter colon) → ':'.
+    .replace(/[：∶ː꞉]/g, ':')
+    // Dash variants → '-'.
+    .replace(/[‐-―−－]/g, '-');
+}
+
+// Numeric-prefix words / roman numerals → 1 / 2 / 3.
+const PREFIX_NUM = {
+  1: '1', 2: '2', 3: '3', '1': '1', '2': '2', '3': '3',
+  i: '1', ii: '2', iii: '3',
+  first: '1', second: '2', third: '3',
+};
+
+// Book ABBREVIATION (no numeric prefix) → canonical lowercase book key. Numbered
+// books map by their SUFFIX (e.g. "cor" → "corinthians"); the numeric prefix is
+// bound separately. Full names validate directly and need no entry here. NONE of
+// these collide with a common English word (ambiguous forms like "is"/"am" are
+// deliberately omitted — use "isa"/"amos") so they never false-positive prose.
+const BOOK_ABBREV = {
+  gen: 'genesis', gn: 'genesis', ge: 'genesis',
+  ex: 'exodus', exo: 'exodus', exod: 'exodus',
+  lev: 'leviticus', lv: 'leviticus',
+  num: 'numbers', nm: 'numbers', nb: 'numbers',
+  deut: 'deuteronomy', dt: 'deuteronomy', deu: 'deuteronomy',
+  josh: 'joshua', jos: 'joshua', jsh: 'joshua',
+  judg: 'judges', jdg: 'judges', jgs: 'judges',
+  rth: 'ruth', ru: 'ruth',
+  sam: 'samuel', sm: 'samuel',
+  kgs: 'kings', kg: 'kings', ki: 'kings',
+  chr: 'chronicles', chron: 'chronicles',
+  ezr: 'ezra',
+  neh: 'nehemiah',
+  esth: 'esther', est: 'esther',
+  ps: 'psalms', psa: 'psalms', psalm: 'psalms', pss: 'psalms', psm: 'psalms',
+  prov: 'proverbs', prv: 'proverbs', pro: 'proverbs',
+  eccl: 'ecclesiastes', ecc: 'ecclesiastes', eccles: 'ecclesiastes', qoh: 'ecclesiastes',
+  song: 'song of solomon', sos: 'song of solomon', cant: 'song of solomon', canticles: 'song of solomon',
+  isa: 'isaiah', isai: 'isaiah',
+  jer: 'jeremiah', jr: 'jeremiah',
+  lam: 'lamentations',
+  ezek: 'ezekiel', eze: 'ezekiel', ezk: 'ezekiel',
+  dan: 'daniel', dn: 'daniel',
+  hos: 'hosea',
+  jl: 'joel', joe: 'joel',
+  amo: 'amos', amos: 'amos',
+  obad: 'obadiah', ob: 'obadiah',
+  jon: 'jonah', jnh: 'jonah',
+  mic: 'micah',
+  nah: 'nahum', na: 'nahum',
+  hab: 'habakkuk',
+  zeph: 'zephaniah', zep: 'zephaniah',
+  hag: 'haggai', hg: 'haggai',
+  zech: 'zechariah', zec: 'zechariah',
+  mal: 'malachi',
+  matt: 'matthew', mt: 'matthew', mat: 'matthew',
+  mrk: 'mark', mk: 'mark', mar: 'mark',
+  luk: 'luke', lk: 'luke',
+  jn: 'john', joh: 'john', jhn: 'john',
+  act: 'acts',
+  rom: 'romans', rm: 'romans',
+  cor: 'corinthians', co: 'corinthians',
+  gal: 'galatians', ga: 'galatians',
+  eph: 'ephesians',
+  phil: 'philippians', php: 'philippians', philipp: 'philippians',
+  col: 'colossians',
+  thess: 'thessalonians', thes: 'thessalonians', ths: 'thessalonians',
+  tim: 'timothy', ti: 'timothy', tm: 'timothy',
+  tit: 'titus',
+  philem: 'philemon', phlm: 'philemon', phm: 'philemon',
+  heb: 'hebrews',
+  jas: 'james', jm: 'james',
+  pet: 'peter', pt: 'peter', pe: 'peter',
+  jud: 'jude',
+  rev: 'revelation', rv: 'revelation', apoc: 'revelation',
+  tob: 'tobit', tb: 'tobit',
+  jdt: 'judith', jth: 'judith',
+  wis: 'wisdom', wisd: 'wisdom',
+  sir: 'sirach', ecclus: 'sirach',
+  bar: 'baruch',
+  macc: 'maccabees', mac: 'maccabees', mcc: 'maccabees',
+};
+
+// Canonical lowercase book key → display (Title Case) for a clean `ref` string.
+const DISPLAY_NAME = {};
+for (const b of BOOKS) DISPLAY_NAME[b.toLowerCase()] = b;
+Object.assign(DISPLAY_NAME, {
+  tobit: 'Tobit', judith: 'Judith', wisdom: 'Wisdom', 'wisdom of solomon': 'Wisdom of Solomon',
+  sirach: 'Sirach', ecclesiasticus: 'Ecclesiasticus', baruch: 'Baruch',
+  '1 maccabees': '1 Maccabees', '2 maccabees': '2 Maccabees',
+});
 
 // Common English words that legitimately precede "N:N" in ordinary prose (times,
-// ratios, scores, counts) and must NOT be mistaken for a (fabricated) book name.
-// Real book names — including deuterocanon aliases like "wisdom"/"song"/"job" —
-// are NEVER added here, and a known book always wins over this list (see
-// looksLikeReference), so genuine citations are never dropped. Anything else
-// shaped like "<Word> N:N" is kept as a possible fabrication, so a lowercase
-// evasion like "hezekiah 4:5" is still caught and flagged invalid_book.
+// ratios, scores, counts, pronoun-verb sequences) and must NOT be mistaken for a
+// (fabricated) book name. Real book names / abbreviations are NEVER added here
+// and always win (see looksLikeReference), so genuine citations are never
+// dropped; anything else shaped like "<Word> N:N" is kept as a possible
+// fabrication, so a lowercase/abbreviated evasion is still caught.
 const NON_BOOK_WORDS = new Set([
-  'at', 'by', 'to', 'of', 'in', 'on', 'up', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being',
+  'at', 'by', 'to', 'of', 'in', 'on', 'up', 'as', 'is', 'am', 'was', 'are', 'were', 'be', 'been', 'being',
   'the', 'a', 'an', 'and', 'or', 'but', 'for', 'from', 'with', 'without', 'within', 'into', 'onto',
   'this', 'that', 'these', 'those', 'our', 'your', 'their', 'his', 'her', 'its', 'my', 'we', 'you',
   'they', 'it', 'he', 'she', 'i', 'me', 'us', 'them', 'him', 'about', 'around', 'approximately',
@@ -155,24 +259,63 @@ const NON_BOOK_WORDS = new Set([
   'lines', 'room', 'number', 'no', 'version', 'level', 'round', 'size', 'part', 'parts', 'step',
   'steps', 'figure', 'table', 'item', 'day', 'days', 'week', 'weeks', 'year', 'years', 'vs', 'versus',
   'meeting', 'meetings', 'session', 'sessions', 'appointment', 'grade', 'model', 'chapter', 'verse',
+  'first', 'second', 'third', 'saw', 'see', 'seen', 'do', 'did', 'does', 'go', 'went', 'get', 'got',
+  'had', 'has', 'have', 'will', 'would', 'could', 'should', 'can', 'may', 'said', 'says', 'know', 'knew',
+  'make', 'made', 'take', 'took', 'come', 'came', 'meet', 'met', 'want', 'need', 'call', 'called',
 ]);
 
-function looksLikeReference(match) {
-  const str = String(match);
-  const bookPart = str.replace(/\s+\d{1,3}:.+$/, '').trim().toLowerCase();
-  const firstWord = bookPart.replace(/^[1-3]\s*/, '').split(/\s+/)[0] || '';
-  // A known book (core or deuterocanon, any alias) is always a reference — this
-  // guard also protects deuterocanon words that resemble common nouns (Wisdom).
-  if (BOOK_LOOKUP.has(bookPart) || DEUTERO_CHAPTER_COUNTS[bookPart] != null) return true;
-  if (BOOK_LOOKUP.has(firstWord) || DEUTERO_CHAPTER_COUNTS[firstWord] != null) return true;
+// Permissive citation matcher (run on normalized text). Groups:
+//   1 prefix (optional): 1-3 / I-III / first-third
+//   2 book (with optional trailing '.', optional "of X")
+//   3 chapter   4 verse   5 verseEnd (optional)
+const CITATION_RE = /\b(?:([1-3]|i{1,3}|first|second|third)\.?\s+)?([a-z]{2,}\.?(?:\s+of\s+[a-z]+)?)\s+(\d{1,3})\s*:\s*(\d{1,3})(?:\s*[-]\s*(\d{1,3}))?/gi;
+
+const titleCase = (s) => s.split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
+
+function parseCitation(m) {
+  const rawPrefix = m[1] ? m[1].toLowerCase().replace(/\./g, '') : '';
+  const prefixNum = rawPrefix ? (PREFIX_NUM[rawPrefix] || '') : '';
+  const rawBook = m[2].toLowerCase().replace(/\.$/, '').replace(/\s+/g, ' ').trim();
+  const base = BOOK_ABBREV[rawBook] || rawBook;
+  const canonicalKey = prefixNum ? `${prefixNum} ${base}` : base;
+  return {
+    prefixNum,
+    base,
+    canonicalKey,
+    chapter: m[3],
+    verse: m[4],
+    verseEnd: m[5],
+  };
+}
+
+function looksLikeReference({ base, canonicalKey }) {
+  // A known book (with prefix bound, or the bare base) is always a reference —
+  // this also protects deuterocanon words that resemble nouns (Wisdom, Song).
+  if (BOOK_LOOKUP.has(canonicalKey) || DEUTERO_CHAPTER_COUNTS[canonicalKey] != null) return true;
+  if (BOOK_LOOKUP.has(base) || DEUTERO_CHAPTER_COUNTS[base] != null) return true;
   // Otherwise keep it as a possible fabrication unless the leading word is a
-  // common non-book word (filters times/ratios/scores out of ordinary prose).
+  // common non-book word (filters times/ratios/scores/prose out).
+  const firstWord = base.split(' ')[0];
   return !NON_BOOK_WORDS.has(firstWord);
+}
+
+function buildCanonical({ canonicalKey, base, prefixNum, chapter, verse, verseEnd }) {
+  const display = DISPLAY_NAME[canonicalKey]
+    || (prefixNum ? `${prefixNum} ${titleCase(base)}` : titleCase(base));
+  const range = verseEnd != null ? `-${verseEnd}` : '';
+  return `${display} ${chapter}:${verse}${range}`;
 }
 
 export function extractScriptureRefs(text) {
   if (!text) return [];
-  return (String(text).match(REF_RE) || []).filter(looksLikeReference);
+  const normalized = normalizeCitationText(text);
+  const out = [];
+  for (const m of normalized.matchAll(CITATION_RE)) {
+    const parsed = parseCitation(m);
+    if (!looksLikeReference(parsed)) continue;
+    out.push(buildCanonical(parsed));
+  }
+  return out;
 }
 
 function normalizeCanon(canon) {

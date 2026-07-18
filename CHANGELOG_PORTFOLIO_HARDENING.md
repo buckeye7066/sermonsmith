@@ -56,6 +56,9 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 - **Fixed the root of all the gates: reference detection is now case-insensitive.** Previously a reference written in lowercase (e.g. "hezekiah 4:5") was not detected at all, so it slipped past every check. All checks now catch it regardless of capitalization, while ordinary prose like times ("at 3:30") and ratios ("2:1") is still ignored.
 - **The live-AI Scripture screen now checks all traditions.** An impossible deuterocanonical reference (e.g. "Wisdom 99:1") is now rejected in the non-streaming and streaming AI paths, while genuine deuterocanonical references still pass. No change for valid content.
 
+## Round-8 pass — reference detection now understands citation formatting (2026-07-18)
+- **Scripture detection now handles the many ways a reference can be written.** Abbreviations ("Gen. 1:1", "1 Cor 13:4"), spaces around the colon ("hezekiah 4 : 5"), roman-numeral and worded prefixes ("II John", "First John"), and unicode/fullwidth characters are all recognized and normalized. Previously these variants were invisible to the checks, letting a fabricated reference through. A key correctness win: "II John 1:20" is now correctly checked against 2 John (which has no verse 20) instead of being misread as the Gospel of John. Ordinary prose like times and ratios still isn't mistaken for a reference.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.
