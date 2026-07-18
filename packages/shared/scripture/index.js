@@ -236,7 +236,15 @@ function normalizeCitationText(text) {
     // COMPACT_NUMBERED_RE) so a real book name is never split ("Isaiah" stays
     // "Isaiah", never "1 Saiah") and prose is never mis-bound. This also stops
     // "2-John" from extracting as a bare, valid "John" (it becomes "2 John").
-    .replace(COMPACT_NUMBERED_RE, '$1 $2');
+    .replace(COMPACT_NUMBERED_RE, '$1 $2')
+    // COMPACT numeric/Roman prefix fused to a book-SHAPED (possibly fabricated)
+    // token → spaced numbered form ("2Hezekiah 4:5"/"2-Hezekiah 4:5" → invalid
+    // "2 Hezekiah 4:5"), gated so "Isaiah" is never split (see spaceCompactPrefix).
+    .replace(COMPACT_PREFIX_BOOKSHAPED_RE, spaceCompactPrefix)
+    // COMPACT book↔chapter with NO space → insert a space so a glued known /
+    // book-shaped ref binds ("John3:37"/"Jn3:37"/"Hezekiah4:5"). Book-shape-gated,
+    // so "cafe4:5" (not book-shaped) is left alone.
+    .replace(COMPACT_BOOK_CHAPTER_RE, '$1 ');
 }
 
 // Numeric-prefix words / roman numerals → 1 / 2 / 3.
@@ -416,11 +424,20 @@ function romanToInt(s) {
   }
   return total;
 }
-// A number token from the matcher → its decimal-string value (ASCII digits pass
-// through; a Roman token is converted). null/undefined stays as-is.
+// Canonical Roman-numeral grammar (case-insensitive). A token of Roman letters
+// that is NOT well-formed (e.g. "IIV", "VV", "IIII") must NOT be coerced into a
+// number — see numberTokenToDecimal.
+const ROMAN_CANONICAL_RE = /^m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/i;
+// A number token from the matcher → its decimal-string value: ASCII digits pass
+// through; a CANONICAL Roman numeral is converted; a NON-canonical Roman token
+// is returned RAW (non-numeric), so buildCanonical emits a non-numeric
+// chapter/verse/range that validateScriptureRefs flags (invalid_book /
+// unparseable / out_of_range) rather than silently accepting a coerced value.
+// null/undefined stays as-is.
 function numberTokenToDecimal(tok) {
   if (tok == null) return tok;
-  return /^\d+$/.test(tok) ? tok : String(romanToInt(tok));
+  if (/^\d+$/.test(tok)) return tok;
+  return ROMAN_CANONICAL_RE.test(tok) ? String(romanToInt(tok)) : tok;
 }
 
 function parseCitation(m) {
@@ -478,6 +495,45 @@ function isBookShaped(parsed) {
   const lastWord = base.split(/\s+/).pop() || '';
   if (NON_BOOK_WORDS.has(lastWord)) return false;
   return lastWord.length >= 4 && BIBLICAL_SUFFIX_RE.test(lastWord);
+}
+
+// --- Compact (no-space) book / prefix binding, used by normalizeCitationText ---
+// A single-word KNOWN book / abbreviation / numbered-book stem, for the compact
+// book↔chapter and compact-prefix rewrites. Derived from the book tables.
+const SINGLE_BOOK_TOKENS = new Set();
+for (const b of BOOKS) { const k = b.toLowerCase(); if (!k.includes(' ')) SINGLE_BOOK_TOKENS.add(k); }
+for (const k of Object.keys(DEUTERO_CHAPTER_COUNTS)) { if (!k.includes(' ')) SINGLE_BOOK_TOKENS.add(k); }
+for (const base of NUMBERED_FULL_BASES) SINGLE_BOOK_TOKENS.add(base);
+for (const a of Object.keys(BOOK_ABBREV)) SINGLE_BOOK_TOKENS.add(a);
+const KNOWN_BOOK_ALT = [...SINGLE_BOOK_TOKENS].sort((a, b) => b.length - a.length).join('|');
+// A BOOK-SHAPED token: a known book/abbrev OR a biblical-proper-noun-shaped word
+// (same suffix set as isBookShaped). Gates the compact rewrites so ordinary words
+// touching digits ("cafe4:5") are never bound, only book-shaped ones.
+const BIBLICAL_WORD_SRC = '[a-z]{2,}(?:iah|jah|iel|uel|ael|oel|[aeiou]el|ah|oth|ith|iath)';
+const BOOK_SHAPED_SRC = `(?:${KNOWN_BOOK_ALT}|${BIBLICAL_WORD_SRC})`;
+// Lookahead for a chapter:verse (ASCII digits OR Roman) immediately following.
+const CV_LOOKAHEAD = '(?:\\d{1,3}|[ivxlcdm]{1,15})\\s*:\\s*(?:\\d{1,3}|[ivxlcdm]{1,15})';
+// GAP 1 — a book-shaped/known token GLUED to chapter:verse (no space) → insert a
+// space so the matcher binds it ("John3:37"→"John 3:37", "Hezekiah4:5"→spaced).
+const COMPACT_BOOK_CHAPTER_RE = new RegExp(`\\b(${BOOK_SHAPED_SRC})(?=${CV_LOOKAHEAD})`, 'giu');
+// GAP 2 — a numeric (1-3) or Roman (I-III) prefix fused (no-space / hyphen / dot)
+// to a book-shaped token before chapter:verse → spaced numbered form, so a
+// FABRICATED compact numbered ref ("2Hezekiah 4:5", "2-Hezekiah 4:5") is bound
+// and flagged (invalid_book) instead of dropped. A digit prefix binds with no
+// separator (no real book starts with a digit); a Roman prefix with NO separator
+// binds ONLY when the fused word is not itself a real book, so "Isaiah" is never
+// split into "I saiah".
+const COMPACT_PREFIX_BOOKSHAPED_RE = new RegExp(
+  `\\b([1-3]|i{1,3})([.\\-]?)(${BOOK_SHAPED_SRC})(?=\\s+${CV_LOOKAHEAD})`,
+  'giu',
+);
+function spaceCompactPrefix(full, prefix, sep, book) {
+  const isDigit = /^[1-3]$/.test(prefix);
+  if (isDigit || sep) return `${prefix} ${book}`; // digit, or explicit separator
+  // Roman prefix, no separator: don't split a word that is itself a real book.
+  const whole = (prefix + book).toLowerCase();
+  if (SINGLE_BOOK_TOKENS.has(whole) || BOOK_LOOKUP.has(whole)) return full;
+  return `${prefix} ${book}`;
 }
 
 // Mark-INSENSITIVE detection shadow: NFKC-compatibility-fold, NFD-decompose,
@@ -606,6 +662,11 @@ export function validateScriptureRefs(refs, options = {}) {
     const chapter = cv ? Number(cv[1]) : null;
     const verse = cv ? Number(cv[2]) : null;
     const verseEnd = cv && cv[3] != null ? Number(cv[3]) : null;
+    // A range dash whose END is present but NON-numeric (e.g. a non-canonical
+    // Roman token "3:1-IIV") is malformed — the optional numeric range group
+    // above silently ignores it, so detect and flag it here rather than
+    // validating the truncated "3:1" as a clean reference.
+    const malformedRange = /:\s*\d{1,3}\s*[-–]\s*[^\d\s]/.test(str);
 
     let status;
     if (!isCore && !isDeutero) {
@@ -614,6 +675,8 @@ export function validateScriptureRefs(refs, options = {}) {
       status = 'unsupported_canon';
     } else if (chapter == null || verse == null) {
       status = 'unparseable';
+    } else if (malformedRange) {
+      status = 'out_of_range';
     } else {
       const coreChapters = isCore ? CHAPTER_COUNTS[bookKey] ?? Infinity : 0;
       const extraChapters = CANON_EXTRA_CHAPTERS[bookKey]?.[canon] ?? 0;

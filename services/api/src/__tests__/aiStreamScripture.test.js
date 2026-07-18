@@ -471,6 +471,35 @@ describe('/stream fabricated-Scripture screen', () => {
     ]);
   });
 
+  // --- Round-26: compact book↔chapter (no space), compact fabricated-book
+  // prefixes, and non-canonical Roman numerals — over /invoke AND /stream
+  // (success + error). Split for the 30/min AI rate limit. ---
+  it('/invoke + /stream catch compact book↔chapter and compact fabricated-book prefixes', async () => {
+    const kawi2 = String.fromCodePoint(0x11F52); // Kawi digit 2
+    await runR25(app, [
+      ['glued John3:37 (oor)', 'John3:37', true],
+      ['glued abbrev Jn3:37 (oor)', 'Jn3:37', true],
+      ['glued fabricated Hezekiah4:5 (invalid_book)', 'Hezekiah4:5', true],
+      ['compact 2Hezekiah 4:5 (invalid_book)', '2Hezekiah 4:5', true],
+      ['hyphen 2-Hezekiah 4:5 (invalid_book)', '2-Hezekiah 4:5', true],
+      ['Kawi-prefix glued fabricated (invalid_book)', `${kawi2}Hezekiah 4:5`, true],
+      ['glued VALID John3:16 (valid)', 'John3:16', false],
+      ['non-book cafe4:5 (not flagged)', 'cafe4:5', false],
+      ['Isaiah 5:1 not split (valid)', 'Isaiah 5:1', false],
+    ]);
+  });
+
+  it('/invoke + /stream reject non-canonical Roman numerals and canonical Roman still works', async () => {
+    await runR25(app, [
+      ['non-canonical John IIV:1 (not valid)', 'John IIV:1', true],
+      ['unicode non-canonical John ⅠⅠⅤ:1 (not valid)', 'John ⅠⅠⅤ:1', true],
+      ['malformed Roman range John 3:1-IIV (not valid)', 'John 3:1-IIV', true],
+      ['canonical John III:37 (oor)', 'John III:37', true],
+      ['canonical John IV:2 (valid)', 'John IV:2', false],
+      ['plain John 3:16 (valid)', 'John 3:16', false],
+    ]);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

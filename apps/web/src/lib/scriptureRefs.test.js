@@ -429,6 +429,54 @@ describe('validateAiSermon', () => {
     expect(validateScriptureRefs(extractScriptureRefs('1 John 1:1'))[0].status).toBe('valid');
   });
 
+  it('binds a book GLUED to chapter:verse with no space, gated by book-shape', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t)).map((r) => r.status);
+    // Known book / abbreviation / book-shaped name glued to the numbers → bound.
+    expect(extractScriptureRefs('John3:37')).toContain('John 3:37'); // John 3 has 36 verses
+    expect(stat('John3:37')).toContain('out_of_range');
+    expect(stat('Jn3:37')).toContain('out_of_range');
+    expect(validateScriptureRefs(extractScriptureRefs('Hezekiah4:5'))[0].status).toBe('invalid_book');
+    expect(stat('John3:XXXVII')).toContain('out_of_range'); // glued + Roman verse
+    // A glued VALID reference is still valid; a non-book word touching digits is NOT bound.
+    expect(validateScriptureRefs(extractScriptureRefs('John3:16'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('cafe4:5')).toEqual([]);
+    expect(extractScriptureRefs('size10:30')).toEqual([]);
+  });
+
+  it('binds a compact numeric/Roman prefix to a FABRICATED book-shaped name (flagged), never splitting a real book', () => {
+    const kawi2 = String.fromCodePoint(0x11F52); // Kawi digit 2
+    // Fabricated compact numbered refs are bound and flagged invalid_book (not dropped).
+    for (const form of ['2Hezekiah 4:5', '2-Hezekiah 4:5', '2.Hezekiah 4:5', 'IIHezekiah 4:5', `${kawi2}Hezekiah 4:5`]) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.some((r) => /^2 Hezekiah/.test(r.ref) && r.status === 'invalid_book'), form).toBe(true);
+    }
+    // A KNOWN compact numbered ref binds to the numbered book (out of range).
+    expect(extractScriptureRefs('2John 1:20')).toContain('2 John 1:20');
+    // A real book that starts with a numeral-prefix letter is NEVER split.
+    expect(extractScriptureRefs('Isaiah 5:1')).toEqual(['Isaiah 5:1']);
+    // A hyphenated non-book is not mis-bound to a numbered book (stays plain Hezekiah).
+    const pseudo = extractScriptureRefs('pseudo-Hezekiah 4:5');
+    expect(pseudo.some((r) => /^[123] /.test(r))).toBe(false);
+    expect(pseudo).toContain('Hezekiah 4:5');
+  });
+
+  it('rejects NON-canonical Roman numerals instead of coercing them to a valid ref', () => {
+    // "IIV" is not a well-formed Roman numeral → must NOT validate as John 5:1.
+    expect(validateScriptureRefs(extractScriptureRefs('John IIV:1')).every((r) => r.status !== 'valid')).toBe(true);
+    // Unicode Roman that folds to the same non-canonical "IIV".
+    expect(validateScriptureRefs(extractScriptureRefs('John ⅠⅠⅤ:1')).every((r) => r.status !== 'valid')).toBe(true);
+    // A malformed Roman RANGE end must not be silently dropped (→ leaving a clean "3:1").
+    const rng = validateScriptureRefs(extractScriptureRefs('John 3:1-IIV'));
+    expect(rng.length).toBeGreaterThan(0);
+    expect(rng.every((r) => r.status !== 'valid')).toBe(true);
+    // Canonical Roman still parses: III → 3 (out of range here), IV → 4 (valid).
+    expect(extractScriptureRefs('John III:37')).toContain('John 3:37');
+    expect(validateScriptureRefs(extractScriptureRefs('John IV:2'))[0].status).toBe('valid');
+    // Direct validator: a malformed range is out_of_range, a good one is valid.
+    expect(validateScriptureRefs(['John 3:1-IIV'])[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(['John 3:1-5'])[0].status).toBe('valid');
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

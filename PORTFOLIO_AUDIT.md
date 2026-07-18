@@ -525,3 +525,35 @@ The prefix grammar required whitespace after the numeral, so `"2John 1:20"` extr
 
 ### Status of the scripture-screening class
 With R25 the **numeric / prefix grammar** for reference detection is comprehensively closed: the book token (abbrevations, "of X", period), the numeric/Roman/worded prefix (spaced, compact, hyphen, dot), and the chapter/verse/range numbers (ASCII, fullwidth, every Unicode decimal-digit script, and Roman) are all covered, across all three normalization passes (normal, NFKC+global, NFKC+delete-rejoin shadow) and the book-shape gate, over per-string, deep, joined-array, `/invoke`, and `/stream` (success + error) surfaces. Remaining theoretical residue is intentional and fails safe: a common English word that is itself a valid Roman numeral sitting exactly in a `Book N:<word>` verse slot (e.g. "John 3:mix") over-flags (rejects the AI output) rather than under-flags. No known under-flagging (bypass) vector remains in the extractor grammar.
+
+---
+
+## Round-26 pass — the last under-flagging gaps: compact book↔chapter, compact fabricated-book prefixes, non-canonical Roman — FIXED
+
+### R26-1 — [MEDIUM] A book run together with chapter:verse (no space) was not bound — FIXED
+The matcher required whitespace between the book token and the chapter, so `"John3:37"`, `"Jn3:37"`, `"Hezekiah4:5"` extracted zero refs (an out-of-range real-book ref and a fabricated-book ref both slipped).
+
+**Fix** (`packages/shared/scripture/index.js`): a `COMPACT_BOOK_CHAPTER_RE` rewrite in `normalizeCitationText` inserts a space when a KNOWN book/abbreviation OR a book-SHAPED token (same biblical-suffix set as the r21 book-shape gate) is immediately glued to a `chapter:verse` (digit OR Roman). `"John3:37"`→`John 3:37` (out_of_range), `"Jn3:37"`→John 3:37, `"Hezekiah4:5"`→invalid_book, `"John3:16"`→valid. The book-shape gate keeps a non-book safe: `"cafe4:5"`/`"size10:30"` are not book-shaped → not bound → no false positive.
+
+### R26-2 — [MEDIUM] A compact numeric/Roman prefix only bound KNOWN numbered-book stems — FIXED
+`COMPACT_NUMBERED_RE` (r25) rewrote only when the suffix was an existing numbered-book stem, so a compact FABRICATED numbered ref `"2Hezekiah 4:5"` / `"𑽒Hezekiah 4:5"` (Kawi 2) → no refs, while spaced `"2 Hezekiah 4:5"` was caught.
+
+**Fix**: a second rewrite `COMPACT_PREFIX_BOOKSHAPED_RE` binds a numeric (1-3, incl. any Unicode digit already folded to ASCII) or Roman prefix fused (no-space / hyphen / dot) to a book-SHAPED token before `chapter:verse` into the spaced numbered form, emitting `invalid_book` rather than dropping. `spaceCompactPrefix` gates it: a digit prefix binds with no separator (no real book starts with a digit); a Roman prefix with an explicit separator always binds; a Roman prefix with NO separator binds only when the fused word is not itself a real book — so `"Isaiah"` (which the biblical-suffix pattern would otherwise match as "I"+"saiah") is NEVER split, while `"IIHezekiah 4:5"` (fused word not a book) IS caught. `"2Hezekiah 4:5"`/`"2-Hezekiah 4:5"`/`"𑽒Hezekiah 4:5"`/`"IIHezekiah 4:5"` → `2 Hezekiah 4:5` (invalid_book); `"2John 1:20"` → `2 John 1:20` (out_of_range); a hyphenated non-book `"pseudo-Hezekiah 4:5"` → plain `Hezekiah 4:5` (invalid_book), NOT a numbered form.
+
+### R26-3 — [MEDIUM] Malformed Roman numerals were coerced into valid refs — FIXED
+`romanToInt` accepted any `[ivxlcdm]{1,15}` without canonical validation, so `"John IIV:1"` → `John 5:1` (valid), `"John ⅠⅠⅤ:1"` → 5:1, and `"John 3:1-IIV"` → `3:1-5` all validated as clean.
+
+**Fix**: `numberTokenToDecimal` now validates a Roman token against the canonical grammar `^m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$` (case-insensitive, over the NFKC-folded ASCII form) BEFORE conversion. A NON-canonical token is kept RAW (non-numeric), so `buildCanonical` emits a non-numeric chapter/verse that `validateScriptureRefs` flags: `"John IIV:1"` → `John IIV:1` (invalid_book), `"John 3:IIV"` → unparseable. For a malformed RANGE end (chapter/verse numeric, only the end non-numeric), `validateScriptureRefs` gained a `malformedRange` check (`/:\s*\d{1,3}\s*[-–]\s*[^\d\s]/`) → out_of_range, so `"John 3:1-IIV"` can no longer be silently trimmed to a valid `John 3:1`. Canonical Roman still parses: `III`→3, `IV`→4.
+
+**Tests:** `apps/web/src/lib/scriptureRefs.test.js` (three new `it` blocks: glued book↔chapter with the `cafe4:5`/`size10:30` negatives; compact fabricated-book prefixes with the `Isaiah`/`pseudo-Hezekiah` negatives; non-canonical Roman incl. the malformed-range direct-validator assertion) and `services/api/src/__tests__/aiStreamScripture.test.js` (two new blocks over `/invoke` + `/stream` success + error, split for the 30/min AI rate limit). CAUGHT: `John3:37`, `Jn3:37`, `Hezekiah4:5`, `2Hezekiah 4:5`, `2-Hezekiah 4:5`, `𑽒Hezekiah 4:5`, `IIHezekiah 4:5`, `John IIV:1`, `John ⅠⅠⅤ:1`, `John 3:1-IIV`, `John III:37`. Not flagged / still valid: `John3:16`, `cafe4:5`, `size10:30`, `Isaiah 5:1`, `John IV:2`, `John 3:16`, café/résumé/naïve/L'Oréal.
+
+**Confirmed (round-26):** compact book↔chapter, compact fabricated-book prefixes, and non-canonical Roman are all handled on `/invoke` and `/stream` (success + error) with no new false positive.
+
+### Status of the scripture-screening class — comprehensively closed
+With R26 the reference-detection grammar has no remaining known UNDER-flagging (bypass) vector. Every axis is covered across all three normalization passes (normal, NFKC+global, NFKC+delete-rejoin shadow), the book-shape gate, and every surface (per-string, deep, joined-array, `/invoke`, `/stream` success + error):
+- **Book token:** full names, abbreviations, "of X", trailing period; glued to chapter with no space (R26-1); book-shape-gated so non-books don't false-positive.
+- **Prefix:** numeric (ASCII + every Unicode decimal-digit script) / Roman (ASCII + Unicode) / worded; spaced, compact, hyphen, dot; bound to KNOWN numbered books (valid) and to fabricated book-shaped names (invalid_book) (R25-3, R26-2); real books never split.
+- **Chapter / verse / range:** ASCII, fullwidth, every Unicode decimal digit (complete `\p{Nd}` fold, property-sweep-verified), and canonical Roman; non-canonical Roman and malformed ranges are flagged, not coerced (R26-3).
+- **Evasion normalization:** control / format / default-ignorable / combining-mark / compatibility (NFKC) hiding, in all positions, with position-aware delete-vs-space.
+
+The only remaining residue is intentional and fails SAFE (over-flagging, i.e. rejecting AI output — never a bypass): a common English word that is itself a valid Roman numeral sitting exactly in a `Book N:<word>` verse slot (e.g. "John 3:mix"), and a book-shaped but non-canonical proper noun (e.g. "Utah 4:5"). No under-flagging vector remains.
