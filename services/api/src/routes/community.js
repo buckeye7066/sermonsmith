@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
+import { assertGatedResourceExposable, SCRIPTURE_GATED_TYPES } from '../services/scriptureGate.js';
 
 // ---------------------------------------------------------------------------
 // Community / share routes.
@@ -119,6 +120,17 @@ router.get('/share/:slug', optionalAuth, async (req, res, next) => {
     if (resource.userId !== link.userId) {
       return res.status(404).json({ message: 'Shared resource not found' });
     }
+
+    // Serve-time Scripture gate: the resource may have been valid when the link
+    // was minted and later edited into an invalid private state (the merged-
+    // record entity gate cannot see this external SharedLink). Re-validate the
+    // CURRENT stored content and refuse to surface a gated resource whose
+    // references no longer all verify — so a share link can never present
+    // unverified/fabricated Scripture as trusted. Owner denomination → canon.
+    const shareDenomination = resource.data?.denomination
+      || (await prisma.user.findUnique({ where: { id: resource.userId }, select: { profile: true } }))?.profile?.denomination
+      || '';
+    assertGatedResourceExposable({ type: resource.type, resourceData: resource.data, denomination: shareDenomination });
 
     // Increment views opportunistically; failure must not block the read.
     prisma.entity.update({
@@ -440,6 +452,18 @@ router.patch('/moderation/:type/:id', authenticateToken, requireAdmin, async (re
       ...(patch.moderatorNotes !== undefined ? { moderator_notes: patch.moderatorNotes } : {}),
       ...(removed ? { removedAt: new Date().toISOString(), removedBy: req.userId } : {}),
     };
+
+    // A moderator explicitly making a gated resource public is a publish
+    // transition through a non-entity route — run it through the SAME exposure
+    // gate so unverified Scripture can't be surfaced this way either. Only the
+    // explicit visibility:'public' transition is gated; hide/remove/status
+    // actions (the normal moderation path) are never blocked by this.
+    if (patch.visibility === 'public' && SCRIPTURE_GATED_TYPES.has(existing.type)) {
+      const denom = existing.data?.denomination
+        || (await prisma.user.findUnique({ where: { id: existing.userId }, select: { profile: true } }))?.profile?.denomination
+        || '';
+      assertGatedResourceExposable({ type: existing.type, resourceData: data, denomination: denom });
+    }
 
     const updated = await prisma.entity.update({
       where: { id: existing.id },

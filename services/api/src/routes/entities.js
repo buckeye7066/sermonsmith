@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, requireAdmin } from '../middleware/auth.js';
-import { validateAiSermon, validateAiContent } from '@sermonsmith/shared/scripture';
+import { validateAiSermon } from '@sermonsmith/shared/scripture';
 import { canonForDenomination } from '@sermonsmith/shared/denominations';
+import {
+  SCRIPTURE_GATED_TYPES,
+  REVIEWABLE_TYPES,
+  gateEntityWrite,
+} from '../services/scriptureGate.js';
 
 // Tenant-isolated entity API.
 //
@@ -314,38 +319,11 @@ const ENTITY_SCHEMAS = {
 // review-field-stripping guarantees now cover these types too; a UI shape
 // change can't quietly drop a field out of validation.
 // ---------------------------------------------------------------------------
-const SCRIPTURE_GATED_TYPES = new Set([
-  'Sermon',
-  'BibleStudy',
-  'Quiz',
-  'ReadingPlan',
-  'EthicsAnalysis',
-  'StudyNote',
-]);
-
-// The gated subset that models a draft → published status lifecycle. For these
-// an unverified reference set blocks `published` (422) and honestly relabels an
-// unverified `draft` as `needs_review`. The other gated types carry no such
-// status field, so we store the honest server-computed `scripture_validation`
-// (and strip trust fields) WITHOUT inventing a status their UI cannot render.
-const STATUS_WORKFLOW_TYPES = new Set(['Sermon']);
-
-// Types that expose the human-only pastoral review acknowledgment. Kept to
-// `Sermon`: the /review evidence is computed with the sermon-shaped validator
-// and only the sermon editor surfaces the review affordance today. (Everything
-// in SCRIPTURE_GATED_TYPES is still forgery-protected at the save gate; this
-// set only governs the explicit /review endpoint.)
-const REVIEWABLE_TYPES = new Set(['Sermon']);
-
-// Trust-state fields that only a human review flow may set. No current UI
-// writes these; stripping them closes the forgery path before one exists.
-const REVIEW_ONLY_FIELDS = [
-  'pastor_reviewed',
-  'ready_to_present',
-  'reviewed_by',
-  'reviewed_at',
-  'verified',
-];
+// Gate constants + core (SCRIPTURE_GATED_TYPES, STATUS_WORKFLOW_TYPES,
+// REVIEWABLE_TYPES, REVIEW_ONLY_FIELDS, isPublicOrPublished, gateEntityWrite)
+// live in ../services/scriptureGate.js so the entity save gate, the share-link
+// routes, and the community routes all share ONE implementation and cannot
+// drift. See that module.
 
 async function denominationForRequest(req, ...candidates) {
   for (const c of candidates) {
@@ -359,114 +337,22 @@ async function denominationForRequest(req, ...candidates) {
   return typeof fromProfile === 'string' ? fromProfile : '';
 }
 
-// A record crosses a PUBLIC / SHARED surface when any of these signals is set.
-// Every one of them is a "publish" transition for gate purposes: a gated record
-// whose references do not all verify must never become publicly visible or
-// shared. `status:'published'` is the sermon lifecycle; ReadingPlan goes public
-// via `is_public:true` (surfaced by GET /api/community/reading-plans);
-// SharedContent-style rows via `visibility:'public'`; the remaining flags are
-// defense-in-depth against any other public/share surface a UI might add.
-export function isPublicOrPublished(rec) {
-  if (!rec || typeof rec !== 'object') return false;
-  return (
-    rec.status === 'published' ||
-    rec.is_public === true ||
-    rec.public === true ||
-    rec.is_shared === true ||
-    rec.shared === true ||
-    rec.visibility === 'public'
-  );
-}
-
 /**
- * Apply the Scripture/quality-state gate to an incoming create/update for a
- * gated type. Mutates and returns a copy of `incoming` with trust fields
- * stripped, `scripture_validation` recomputed over the full merged record,
- * and `status` honestly downgraded. Throws 422 on an attempt to publish OR
- * publicly share a record whose references do not all verify.
+ * Thin request-shaped wrapper around the centralized gate core. Resolves the
+ * denomination string (payload → stored record → user profile — the one part
+ * that needs the DB) and delegates every gate decision to `gateEntityWrite` in
+ * ../services/scriptureGate.js, which the share-link and community routes also
+ * call. Throws 422 on an attempt to publish OR publicly share a record whose
+ * references do not all verify.
  */
 async function applyScriptureGate(req, type, incoming, existingData = null) {
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
-
-  const data = { ...incoming };
-  for (const field of REVIEW_ONLY_FIELDS) delete data[field];
-  // The client's validation blob is advisory UI state at best; the stored
-  // record carries only the server-computed result.
-  delete data.scripture_validation;
-
-  const merged = { ...(existingData || {}), ...data };
-  // Never let a previously-stored validation array (carried in existingData on
-  // an update) be re-swept as content — its `ref` strings would be re-extracted
-  // and mix stale results into the fresh computation.
-  delete merged.scripture_validation;
   const denomination = await denominationForRequest(
     req,
-    merged.denomination,
+    incoming?.denomination,
+    existingData?.denomination,
   );
-  const canon = canonForDenomination(denomination);
-  // Sermons keep the proven sermon-shaped validator; every other gated type is
-  // swept with the shape-agnostic deep validator so its type-specific fields
-  // (and nested shapes) are all revalidated.
-  const validation = type === 'Sermon'
-    ? validateAiSermon(merged, { canon })
-    : validateAiContent(merged, { canon });
-  data.scripture_validation = validation.refs;
-
-  // Neutralize stale / forged trust markers on the MERGED stored record. The
-  // gate strips these from the incoming patch, but the caller's write merges
-  // `{...existing.data, ...patch}` — so a marker already on disk (a legacy row,
-  // a migrated blob, or one set before this gate existed) would otherwise
-  // survive a normal edit even as `scripture_validation` recomputes to invalid.
-  // `verified` and `ready_to_present` are set by NO endpoint ever, so they are
-  // always stale; the review markers are legitimate ONLY on a type with the
-  // human-review endpoint (Sermon), where the /review flow and the stale-review
-  // rule below own their lifecycle. Everywhere else, clear them.
-  const STALE_TRUST_FIELDS = REVIEWABLE_TYPES.has(type)
-    ? ['verified', 'ready_to_present']
-    : REVIEW_ONLY_FIELDS;
-  for (const field of STALE_TRUST_FIELDS) {
-    if (field in merged) data[field] = null;
-  }
-
-  // The full record as it WILL be stored (existing ∪ patch). Public/share
-  // transitions are detected here so a flag already on disk (or newly set)
-  // both count.
-  const resultRecord = { ...(existingData || {}), ...data };
-  const requestedStatus = data.status ?? existingData?.status;
-  if (!validation.allValid) {
-    // Publishing OR publicly sharing unverified references is never allowed
-    // for any gated type, regardless of which flag carries it public.
-    if (isPublicOrPublished(resultRecord)) {
-      throw Object.assign(
-        new Error(
-          `Cannot publish or share: ${validation.summary}. Fix the flagged references (or keep the record private) and try again.`,
-        ),
-        { status: 422, scripture_validation: validation.refs },
-      );
-    }
-    // Honestly relabel an unverified draft — but only for types whose UI
-    // models the draft/needs_review lifecycle. Other types simply carry the
-    // honest `scripture_validation` without a fabricated status change.
-    if (
-      STATUS_WORKFLOW_TYPES.has(type) &&
-      (requestedStatus === 'draft' || requestedStatus == null)
-    ) {
-      data.status = 'needs_review';
-    }
-  }
-
-  // Stale-review rule: a pastor's acknowledgment covers the content they
-  // actually read. If this write changes content fields on a record that was
-  // previously marked reviewed, the review is reset — the pastor re-reviews
-  // the edited draft via the explicit /review acknowledgment endpoint.
-  const CONTENT_FIELDS = ['title', 'topic', 'anchor_passage', 'big_idea', 'points', 'conclusion', 'theological_notes'];
-  if (existingData?.pastor_reviewed && CONTENT_FIELDS.some((f) => f in data)) {
-    data.pastor_reviewed = false;
-    data.reviewed_at = null;
-    data.reviewed_by = null;
-  }
-
-  return data;
+  return gateEntityWrite({ type, incoming, existingData, denomination });
 }
 
 function validateEntityPayload(type, body) {

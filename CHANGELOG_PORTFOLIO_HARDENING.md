@@ -33,6 +33,11 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 - **Stale "verified"/"reviewed" markers are cleared on edit.** A record that somehow carried a trust marker it shouldn't (legacy/migrated data) has it removed whenever it is saved and re-validated.
 - **Streamed drafts are screened for fabricated Scripture.** A live-generated draft containing a reference that is invalid in every tradition (e.g. a non-existent book) is no longer shown as a finished, trusted result; the client discards it and regenerates. No behaviour change for clean drafts. No API break (the stream result trailer gained an optional `scripture` field; older clients ignore it).
 
+## Round-3 pass — closed 2 more exposure surfaces + centralized the gate (2026-07-18)
+- **Share links now enforce the Scripture gate.** A sermon, study, or plan with an unverified reference can no longer be exposed by a share link — blocked both when the link is created and when it is opened (so a record shared while valid and later edited to invalid is also caught). Share links whose type doesn't match the resource are rejected.
+- **Community "shared" content is gated like everything else.** Public community posts (SharedContent) now have their Scripture re-checked and any forged "verified" marker stripped before they can go public; the same applies when a moderator makes something public.
+- **Durable fix:** the Scripture/trust gate now lives in one shared module that the entity save path, the share-link routes, and the community routes all call — so these surfaces can't drift apart in the future. No API break; no user-facing behavior change for valid content.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

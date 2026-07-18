@@ -304,6 +304,43 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.status).toBe(422); // gated as BibleStudy (stored type), public+invalid
   });
 
+  // --- Round-3 B2: SharedContent public-share must be gated + trust-stripped ---
+  it('public SharedContent with an invalid reference and forged verified:true is rejected', async () => {
+    const res = await post(app, 'SharedContent', 'u-pastor', {
+      title: 'Public study',
+      content: 'A study leaning on Hezekiah 4:5 for hope.',
+      content_type: 'study',
+      visibility: 'public',
+      verified: true,
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.message).toMatch(/Cannot publish or share/);
+  });
+
+  it('private SharedContent recomputes validation and strips forged verified:true', async () => {
+    const res = await post(app, 'SharedContent', 'u-pastor', {
+      title: 'Private study',
+      content: 'A study leaning on Hezekiah 4:5 for hope.',
+      content_type: 'study',
+      visibility: 'private',
+      verified: true,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.verified).toBeFalsy();
+    expect(res.body.scripture_validation.some((r) => r.status === 'invalid_book')).toBe(true);
+  });
+
+  it('public SharedContent with only valid references is allowed', async () => {
+    const res = await post(app, 'SharedContent', 'u-pastor', {
+      title: 'Clean public study',
+      content: 'Grounded in John 3:16 and Ephesians 2:8.',
+      content_type: 'study',
+      visibility: 'public',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.scripture_validation.every((r) => r.status === 'valid')).toBe(true);
+  });
+
   // --- Bypass #3: stale trust markers must be neutralized on revalidation ---
   it('a stale verified:true is stripped when a gated row is updated to an invalid state', async () => {
     // Seed a row that already carries forged trust markers (legacy/migrated).
