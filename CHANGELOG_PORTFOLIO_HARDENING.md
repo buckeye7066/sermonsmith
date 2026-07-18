@@ -94,6 +94,9 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 ## Round-18 pass — closes the remaining invisible-character split trick (2026-07-18)
 - **References split by other invisible characters — variation selectors, joiners, and similar zero-width marks — are now caught too.** This completes the invisible-character coverage from the previous round on both the streaming and non-streaming AI paths. No change for genuine references or ordinary text (including emoji).
 
+## Round-19 pass — completes invisible-character coverage in reference detection (2026-07-18)
+- **References split by combining marks (accents and enclosing marks placed between characters) are now caught too**, completing the invisible/zero-width character coverage on both the streaming and non-streaming AI paths. Safe by design: it only affects what the checker sees, never stored or displayed text, and can only make a hidden reference easier to catch. No change for genuine references or ordinary (including accented) text.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

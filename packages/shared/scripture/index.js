@@ -153,15 +153,21 @@ function normalizeCitationText(text) {
     // a space recombines the split. \p{Cc} also covers C1 (U+0080–U+009F, incl.
     // NEL U+0085) and DEL (U+007F).
     .replace(/\p{Cc}/gu, (c) => (c === '\t' || c === '\n' || c === '\r' ? c : ' '))
-    // INVISIBLE / default-ignorable characters → space, so a citation can't be
-    // split by any zero-advance code point. \p{Default_Ignorable_Code_Point}
-    // subsumes the format chars (Cf: zero-width space/joiner/non-joiner U+200B–
-    // U+200D, word joiner U+2060, BOM/ZWNBSP U+FEFF, soft hyphen U+00AD) AND the
-    // non-Cf ones that also sit invisibly between book and number — variation
-    // selectors (U+FE00–FE0F, U+E0100–E01EF), combining grapheme joiner (U+034F),
-    // Mongolian free variation selectors (U+180B–180D), Hangul fillers, etc.
-    // \p{Cf} is kept alongside it to also cover any Cf-not-DI format code point.
-    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, ' ')
+    // INVISIBLE / zero-advance characters → space, so a citation can't be split
+    // by any invisible or zero-width code point between book and number:
+    //   \p{Cf}                          — format chars (zero-width space/joiner/
+    //                                     non-joiner, word joiner, BOM, soft hyphen)
+    //   \p{Default_Ignorable_Code_Point}— + variation selectors (U+FE00–FE0F,
+    //                                     U+E0100–E01EF), CGJ (U+034F), Mongolian
+    //                                     FVS (U+180B–180D), Hangul fillers, …
+    //   \p{M}                           — ALL combining marks (Mn/Mc/Me), incl.
+    //                                     non-default-ignorable ones like combining
+    //                                     accents (U+0300/U+0301) and enclosing
+    //                                     marks (U+20DD), which are zero-advance.
+    // Safe: scripture book names are ASCII, so legit citations are unaffected;
+    // mapping a mark to a space can only ADD whitespace, erring toward FLAGGING a
+    // hidden citation, never toward missing one. Affects only the extraction copy.
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\p{M}]/gu, ' ')
     // Unicode spaces → ASCII space.
     .replace(/[   -   　]/g, ' ')
     // Fullwidth digits → ASCII digits.

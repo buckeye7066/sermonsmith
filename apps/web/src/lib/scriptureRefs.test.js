@@ -237,6 +237,7 @@ describe('validateAiSermon', () => {
       0x2060, 0xfeff, 0x00ad,       // word joiner, BOM/ZWNBSP, soft hyphen
       0x034f, 0xfe00, 0xfe0f,       // CGJ, variation selectors 1/16
       0x180b, 0x3164, 0xe0100,      // Mongolian FVS, Hangul filler, VS supplement
+      0x0300, 0x0301, 0x20dd, 0x20e3, // combining marks (grave/acute/enclosing circle/keycap) — \p{M}, non-DI
     ];
     for (const code of codes) {
       const sep = String.fromCodePoint(code);
@@ -249,6 +250,9 @@ describe('validateAiSermon', () => {
     // Ordinary valid refs still validate; ordinary text isn't corrupted.
     expect(extractScriptureRefs('See John 3:16')).toContain('John 3:16');
     expect(extractScriptureRefs('an ordinary sentence with no reference')).toEqual([]);
+    // Accented prose (even decomposed combining accents) without a
+    // book-name+chapter:verse pattern does NOT create a false citation.
+    expect(extractScriptureRefs('café and résumé are lovely words')).toEqual([]);
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {

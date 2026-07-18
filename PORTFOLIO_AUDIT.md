@@ -391,3 +391,16 @@ Round-17 mapped `\p{Cc}` + `\p{Cf}`, but **variation selectors** (`U+FE00–FE0F
 **Tests:** `Hezekiah<VS1/VS16/VS-supp/CGJ/MongFVS/HangulFiller>4:5` (plus the r16/r17 control/zero-width set) and `II<invisible>John 1:1` and a split-array variant → all caught (`scripture.ok:false`) on `/invoke` AND `/stream` (success + started-error); a normal-space citation still validates; ordinary text isn't corrupted.
 
 **Confirmed (round-18):** `\p{Cc}` + `\p{Default_Ignorable_Code_Point}` (+`\p{Cf}`) normalization catches variation-selector / CGJ / Mongolian-FVS / Hangul-filler splits on `/invoke` and `/stream`, closing the invisible-separator class.
+
+---
+
+## Round-19 pass — the last invisible class: non-default-ignorable combining marks — FIXED
+
+### R19-1 — [HIGH] Non-default-ignorable combining marks split citations past the gate — FIXED
+Round-18 mapped `\p{Cc}` + `\p{Cf}` + `\p{Default_Ignorable_Code_Point}`, but zero-advance **combining marks** that aren't default-ignorable remained: combining accents (`U+0300` grave, `U+0301` acute) and enclosing marks (`U+20DD`) are `\p{Mn}`/`\p{Me}` — NOT DI, NOT JS whitespace. So `"Hezekiah<U+0300>4:5"` / `"Hezekiah<U+20DD>4:5"` extracted ZERO refs → the shared screen returned `{ok:true,checked:0,fabricated:0}`, and `/invoke` + `/stream` shipped the fabricated reference clean.
+
+**Fix** (`packages/shared/scripture/index.js`): `normalizeCitationText` now adds `\p{M}` (all combining marks — Mn/Mc/Me) to the space-normalization set, so the full set is `\p{Cc}` (except `\t\n\r`) + `[\p{Cf} \p{Default_Ignorable_Code_Point} \p{M}]` → space, before extraction. This is safe: scripture book names are ASCII so legit citations are unaffected; mapping a combining mark to a space can only ADD whitespace — erring toward FLAGGING a hidden citation, never toward missing one; and it affects only the extraction/screen copy, not stored/displayed text. It runs inside `extractScriptureRefs`, so every consumer benefits (persist validators + flattened-join + `/invoke` + `/stream` success AND started-error).
+
+**Tests:** `Hezekiah<U+0300/U+0301/U+20DD/U+20E3>4:5` (plus the full prior DI/Cf/control/zero-width set) and `II<invisible>John 1:1` and a split-array variant → all caught (`scripture.ok:false`) on `/invoke` AND `/stream` (success + started-error); a normal-space citation still validates; ordinary accented prose (even decomposed combining accents) without a book-name+chapter:verse pattern is NOT mis-flagged as a citation.
+
+**Confirmed (round-19):** `\p{Cc}` + `\p{Cf}` + `\p{Default_Ignorable_Code_Point}` + `\p{M}` normalization catches combining-mark splits on `/invoke` and `/stream` — the invisible / zero-width / zero-advance separator class is now fully covered.
