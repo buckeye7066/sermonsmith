@@ -42,9 +42,12 @@
  * Exports:
  *   - CANONS
  *   - extractScriptureRefs(text) -> string[]
+ *   - extractScriptureRefsDeep(obj) -> string[]   (recursive, shape-agnostic)
  *   - validateScriptureRefs(refs, { canon }) ->
  *       Array<{ ref, validBook, chapter, verse, verseEnd, status, canon }>
  *   - validateAiSermon(sermon, { canon }) -> { refs, allValid, summary, counts }
+ *   - validateAiContent(content, { canon }) -> { refs, allValid, summary, counts }
+ *       (same shape as validateAiSermon, for any persisted AI content type)
  *   - re-exports VERSE_COUNTS / versesInChapter / chaptersInBook
  */
 
@@ -196,6 +199,78 @@ export function validateScriptureRefs(refs, options = {}) {
 
     return { ref, validBook, chapter, verse, verseEnd, status, canon };
   });
+}
+
+// Keys that never hold sermon prose but DO hold prior validation output or
+// bookkeeping whose `ref` strings would be re-extracted and double-counted by
+// the deep walk. `scripture_validation` is the array of {ref,status,...}
+// objects this module itself produced; walking it would re-validate already-
+// recorded references (and, on an update, mix stale results into the new
+// computation). Skip these keys everywhere in the tree.
+const NON_CONTENT_KEYS = new Set(['scripture_validation']);
+
+/**
+ * Recursively collect scripture references from every string anywhere in an
+ * arbitrary AI-generated content object.
+ *
+ * The per-type generators persist scripture in wildly different shapes —
+ * sermon `points[].supporting_scriptures[]`, Bible-study
+ * `study_sections[].scripture` + `key_verses[]`, quiz
+ * `questions[].scripture_reference`, reading-plan `daily_readings[].passages[]`,
+ * and the Christian-Ethics analysis which nests everything under
+ * `data.result.biblical_foundation.key_scriptures[].reference`. Hard-coding a
+ * field list per type is fragile (a UI shape change silently drops a field out
+ * of validation), so the durable save gate walks the whole object and extracts
+ * references from every string. Array-of-reference fields (already bare
+ * "John 3:16" strings) and prose fields are handled uniformly because the
+ * reference regex matches a bare reference as readily as one embedded in a
+ * sentence.
+ */
+export function extractScriptureRefsDeep(value, _depth = 0, _seen = new Set()) {
+  if (value == null || _depth > 12) return [];
+  if (typeof value === 'string') return extractScriptureRefs(value);
+  if (typeof value !== 'object') return [];
+  // Guard against cyclic references (defensive; entity data is plain JSON).
+  if (_seen.has(value)) return [];
+  _seen.add(value);
+
+  const out = [];
+  if (Array.isArray(value)) {
+    for (const item of value) out.push(...extractScriptureRefsDeep(item, _depth + 1, _seen));
+  } else {
+    for (const [key, item] of Object.entries(value)) {
+      if (NON_CONTENT_KEYS.has(key)) continue;
+      out.push(...extractScriptureRefsDeep(item, _depth + 1, _seen));
+    }
+  }
+  return out;
+}
+
+/**
+ * Canon-aware validation summary for ANY persisted AI-generated content
+ * object, regardless of its type-specific shape. Deep-sweeps every string for
+ * references and returns the same `{ refs, allValid, summary, counts }` shape
+ * `validateAiSermon` produces, so the entity save gate can persist an honest
+ * `scripture_validation` for Bible studies, quizzes, reading plans, ethics
+ * analyses, study notes, etc. — not just sermons.
+ *
+ * `allValid` is strict in exactly the same way: only fully verse-verified
+ * references count, so a 'chapter_checked' deuterocanon reference keeps the
+ * record in a review-required state rather than passing as verified.
+ */
+export function validateAiContent(content, options = {}) {
+  const refs = extractScriptureRefsDeep(content);
+  const checked = validateScriptureRefs(refs, options);
+  const allValid = checked.every((r) => r.status === 'valid');
+  const problems = checked.filter((r) => r.status !== 'valid').length;
+  const counts = checked.reduce((acc, r) => {
+    acc[r.status] = (acc[r.status] || 0) + 1;
+    return acc;
+  }, {});
+  const summary = problems === 0
+    ? `${checked.length} reference(s) reviewed — all valid`
+    : `${checked.length} reference(s) reviewed — ${problems} need attention`;
+  return { refs: checked, allValid, summary, counts };
 }
 
 /**

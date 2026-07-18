@@ -5,7 +5,7 @@
   "type": "module",
   "author": {
     "name": "Sermon Smith Team",
-    "email": "support@sermonsmith.app"
+    "email": "dr.johnwhite@axiombiolabs.org"
   },
   "description": "Sermon Smith - A comprehensive sermon preparation and Bible study application",
   "workspaces": [
@@ -48,10 +48,9 @@
     "generate:icons": "npm run generate:icons -w @sermonsmith/web"
   },
   "engines": {
-    "node": ">=20",
-    "npm": ">=10"
+    "node": ">=20 <25",
+    "npm": ">=10 <12"
   },
-  "devDependencies": {},
   "allowScripts": {
     "@prisma/client@6.19.2": true,
     "@prisma/engines@6.19.3": true,

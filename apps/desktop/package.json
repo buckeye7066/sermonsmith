@@ -6,7 +6,7 @@
   "main": "electron/main.cjs",
   "author": {
     "name": "Sermon Smith Team",
-    "email": "support@sermonsmith.app"
+    "email": "dr.johnwhite@axiombiolabs.org"
   },
   "description": "Sermon Smith Desktop Application",
   "scripts": {

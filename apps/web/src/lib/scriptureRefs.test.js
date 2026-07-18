@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractScriptureRefs,
+  extractScriptureRefsDeep,
   validateScriptureRefs,
   validateAiSermon,
+  validateAiContent,
 } from '@/lib/scriptureRefs';
 import { VERSE_COUNTS, versesInChapter } from '@/lib/bibleVerseCounts';
 
@@ -215,6 +217,52 @@ describe('validateAiSermon', () => {
     expect(out.refs.find((r) => r.ref === 'Wisdom 3:1-9').status).toBe('chapter_checked');
     expect(out.counts.chapter_checked).toBe(1);
     expect(out.counts.valid).toBe(1);
+  });
+});
+
+describe('extractScriptureRefsDeep / validateAiContent (shape-agnostic sweep)', () => {
+  it('collects references from arbitrarily nested strings and arrays', () => {
+    const refs = extractScriptureRefsDeep({
+      overview: 'Grounded in Ephesians 2:8.',
+      key_verses: ['Romans 8:28', 'John 3:16'],
+      study_sections: [{ scripture: 'Psalm 23:1', questions: ['See Isaiah 40:31'] }],
+    }).sort();
+    expect(refs).toEqual(['Ephesians 2:8', 'Isaiah 40:31', 'John 3:16', 'Psalm 23:1', 'Romans 8:28']);
+  });
+
+  it('reaches into the double-nested ethics-analysis result shape', () => {
+    const out = validateAiContent({
+      data: {
+        result: {
+          biblical_foundation: {
+            key_scriptures: [
+              { reference: 'Ephesians 4:25' },
+              { reference: 'Deuteronomy 99:1' },
+            ],
+          },
+        },
+      },
+    });
+    const statuses = out.refs.map((r) => r.status).sort();
+    expect(statuses).toContain('valid');
+    expect(statuses).toContain('out_of_range');
+    expect(out.allValid).toBe(false);
+  });
+
+  it('does not re-sweep a previously-stored scripture_validation array', () => {
+    const out = validateAiContent({
+      key_verses: ['John 3:16'],
+      // A prior validation blob whose ref would be double-counted if walked.
+      scripture_validation: [{ ref: 'Genesis 1:1', status: 'valid' }],
+    });
+    expect(out.refs).toHaveLength(1);
+    expect(out.refs[0].ref).toBe('John 3:16');
+  });
+
+  it('is canon-aware just like validateAiSermon', () => {
+    const out = validateAiContent({ key_verses: ['Wisdom 3:1'] }, { canon: 'catholic' });
+    expect(out.refs[0].status).toBe('chapter_checked');
+    expect(out.allValid).toBe(false);
   });
 });
 

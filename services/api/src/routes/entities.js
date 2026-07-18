@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, requireAdmin } from '../middleware/auth.js';
-import { validateAiSermon } from '@sermonsmith/shared/scripture';
+import { validateAiSermon, validateAiContent } from '@sermonsmith/shared/scripture';
 import { canonForDenomination } from '@sermonsmith/shared/denominations';
 
 // Tenant-isolated entity API.
@@ -302,8 +302,40 @@ const ENTITY_SCHEMAS = {
 // Canon: references are validated against the canon of the record's
 // denomination (payload → stored record → user profile), so a Catholic
 // sermon citing Wisdom is honestly `chapter_checked`, not "invalid book".
+//
+// Extended (2026-07-18) beyond `Sermon` to EVERY persisted AI-generated type
+// that can carry Scripture references. Sermons keep the sermon-shaped
+// validator (unchanged); the other types are swept with the shape-agnostic
+// `validateAiContent`, which deep-walks the whole record — so the Bible-study
+// `study_sections[].scripture`/`key_verses[]`, quiz
+// `questions[].scripture_reference`, reading-plan `daily_readings[].passages[]`,
+// and the double-nested EthicsAnalysis `data.result…key_scriptures[].reference`
+// are all revalidated server-side at the durable write. The forged-blob and
+// review-field-stripping guarantees now cover these types too; a UI shape
+// change can't quietly drop a field out of validation.
 // ---------------------------------------------------------------------------
-const SCRIPTURE_GATED_TYPES = new Set(['Sermon']);
+const SCRIPTURE_GATED_TYPES = new Set([
+  'Sermon',
+  'BibleStudy',
+  'Quiz',
+  'ReadingPlan',
+  'EthicsAnalysis',
+  'StudyNote',
+]);
+
+// The gated subset that models a draft → published status lifecycle. For these
+// an unverified reference set blocks `published` (422) and honestly relabels an
+// unverified `draft` as `needs_review`. The other gated types carry no such
+// status field, so we store the honest server-computed `scripture_validation`
+// (and strip trust fields) WITHOUT inventing a status their UI cannot render.
+const STATUS_WORKFLOW_TYPES = new Set(['Sermon']);
+
+// Types that expose the human-only pastoral review acknowledgment. Kept to
+// `Sermon`: the /review evidence is computed with the sermon-shaped validator
+// and only the sermon editor surfaces the review affordance today. (Everything
+// in SCRIPTURE_GATED_TYPES is still forgery-protected at the save gate; this
+// set only governs the explicit /review endpoint.)
+const REVIEWABLE_TYPES = new Set(['Sermon']);
 
 // Trust-state fields that only a human review flow may set. No current UI
 // writes these; stripping them closes the forgery path before one exists.
@@ -344,17 +376,27 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
   delete data.scripture_validation;
 
   const merged = { ...(existingData || {}), ...data };
+  // Never let a previously-stored validation array (carried in existingData on
+  // an update) be re-swept as content — its `ref` strings would be re-extracted
+  // and mix stale results into the fresh computation.
+  delete merged.scripture_validation;
   const denomination = await denominationForRequest(
     req,
     merged.denomination,
   );
-  const validation = validateAiSermon(merged, {
-    canon: canonForDenomination(denomination),
-  });
+  const canon = canonForDenomination(denomination);
+  // Sermons keep the proven sermon-shaped validator; every other gated type is
+  // swept with the shape-agnostic deep validator so its type-specific fields
+  // (and nested shapes) are all revalidated.
+  const validation = type === 'Sermon'
+    ? validateAiSermon(merged, { canon })
+    : validateAiContent(merged, { canon });
   data.scripture_validation = validation.refs;
 
   const requestedStatus = data.status ?? existingData?.status;
   if (!validation.allValid) {
+    // Publishing unverified references is never allowed for any gated type
+    // that supports a `published` status.
     if (requestedStatus === 'published') {
       throw Object.assign(
         new Error(
@@ -363,7 +405,13 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
         { status: 422, scripture_validation: validation.refs },
       );
     }
-    if (requestedStatus === 'draft' || requestedStatus == null) {
+    // Honestly relabel an unverified draft — but only for types whose UI
+    // models the draft/needs_review lifecycle. Other types simply carry the
+    // honest `scripture_validation` without a fabricated status change.
+    if (
+      STATUS_WORKFLOW_TYPES.has(type) &&
+      (requestedStatus === 'draft' || requestedStatus == null)
+    ) {
       data.status = 'needs_review';
     }
   }
@@ -680,7 +728,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
 // the references are fixed. `acknowledged: false` withdraws a review.
 router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
   try {
-    if (!SCRIPTURE_GATED_TYPES.has(req.params.type)) {
+    if (!REVIEWABLE_TYPES.has(req.params.type)) {
       return res.status(400).json({ message: `'${req.params.type}' does not support review acknowledgment.` });
     }
     const { acknowledged } = req.body || {};
