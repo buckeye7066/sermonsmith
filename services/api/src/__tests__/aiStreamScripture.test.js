@@ -543,6 +543,60 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(parseTrailer(err).scripture.ok).toBe(false);
   });
 
+  // --- Round-28: unsupported numbered-book prefixes (never reinterpreted as
+  // bare valid John) and trailing-letter malformed number tokens — over
+  // /invoke AND /stream (success + error). Split for the 30/min AI rate limit. ---
+  it('/invoke + /stream flag unsupported numbered-book prefixes, keeping supported/bare correct', async () => {
+    const arabic4 = String.fromCodePoint(0x0664);
+    await runR25(app, [
+      ['unsupported 4 John 1:1 (invalid)', '4 John 1:1', true],
+      [`unsupported Arabic ${arabic4} John 1:1 (invalid)`, `${arabic4} John 1:1`, true],
+      ['unsupported Roman IV John 1:1 (invalid)', 'IV John 1:1', true],
+      ['unsupported Fourth-John 1:1 (invalid)', 'Fourth-John 1:1', true],
+      ['unsupported 4John 1:1 (invalid)', '4John 1:1', true],
+      ['bare Gospel John 1:1 (valid)', 'John 1:1', false],
+      ['supported 2 John 1:1 (valid)', '2 John 1:1', false],
+      ['spurious 5 Psalms 119:1 → bare Psalms (valid)', '5 Psalms 119:1', false],
+    ]);
+  });
+
+  it('/invoke + /stream flag trailing-letter malformed number tokens (no truncate-to-valid)', async () => {
+    await runR25(app, [
+      ['malformed John 3:16I', 'John 3:16I', true],
+      ['malformed Psalms 119:176I', 'Psalms 119:176I', true],
+      ['malformed range John 3:1-5I', 'John 3:1-5I', true],
+      ['malformed range John 3:1-5abc', 'John 3:1-5abc', true],
+      ['clean John 3:16 (valid)', 'John 3:16', false],
+      ['clean John 3:1-5 (valid)', 'John 3:1-5', false],
+      ['clean Psalms 119:176 (valid)', 'Psalms 119:176', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch an unsupported prefix split across a JOINED array', async () => {
+    // ["4 John","1:1"] joins to "4 John 1:1" → fabricated numbered book, flagged.
+    STREAM_TEXT = JSON.stringify({ cross_references: ['4 John', '1:1'] });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status).toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+    STREAM_TEXT = JSON.stringify({ cross_references: ['4 John', '1:1'] });
+    STREAM_THROW = false;
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok).toBe(false);
+    STREAM_THROW = true;
+    const err = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(err).scripture.ok).toBe(false);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

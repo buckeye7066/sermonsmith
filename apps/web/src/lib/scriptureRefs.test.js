@@ -518,6 +518,61 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('Isaiah 5:1')).toEqual(['Isaiah 5:1']);
   });
 
+  it('flags an UNSUPPORTED numbered-book prefix (never reinterprets it as the bare valid book)', () => {
+    const CANONS = ['protestant', 'catholic', 'orthodox'];
+    // The reference is CAUGHT: some extracted ref is a fabricated numbered book
+    // (invalid in every canon), so the all-valid screen fails.
+    const isCaught = (t) => {
+      const refs = extractScriptureRefs(t);
+      const fabricated = refs.filter((ref) => !CANONS.some((canon) => {
+        const [r] = validateScriptureRefs([ref], { canon });
+        return r && (r.status === 'valid' || r.status === 'chapter_checked');
+      }));
+      return fabricated.some((ref) => /^\d+ John/.test(ref));
+    };
+    for (const form of ['4 John 1:1', 'Ⅳ John 1:1', 'IV John 1:1', 'Fourth-John 1:1', 'IIII-John 1:1', '4John 1:1', `${String.fromCodePoint(0x0664)} John 1:1`]) {
+      expect(isCaught(form), form).toBe(true);
+    }
+    // For pure-ASCII forms the prefix is consumed by the match, so it does NOT
+    // additionally reinterpret as a bare valid "John 1:1".
+    for (const form of ['4 John 1:1', 'IV John 1:1', '4John 1:1', 'Fourth-John 1:1']) {
+      expect(extractScriptureRefs(form).includes('John 1:1'), form).toBe(false);
+    }
+    // "5 Corinthians" (a numbered stem, unsupported number) is likewise invalid.
+    expect(validateScriptureRefs(extractScriptureRefs('5 Corinthians 1:1'))[0].status).toBe('invalid_book');
+    // Deep + joined-array paths.
+    expect(extractScriptureRefsDeep({ note: '4 John 1:1' })).toContain('4 John 1:1');
+    const joined = extractScriptureRefsJoined(['4 John', '1:1']);
+    expect(joined).toContain('4 John 1:1');
+    expect(joined.includes('John 1:1')).toBe(false);
+    // SUPPORTED prefixes and the bare Gospel stay correct.
+    expect(validateScriptureRefs(extractScriptureRefs('John 1:1'))[0].status).toBe('valid'); // bare Gospel
+    expect(validateScriptureRefs(extractScriptureRefs('2 John 1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('3 John 1:1'))[0].status).toBe('valid');
+    // A spurious number on a NON-numbered book is dropped → the bare book validates.
+    expect(validateScriptureRefs(extractScriptureRefs('5 Psalms 119:1'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('5 Psalms 119:1')).toContain('Psalms 119:1');
+  });
+
+  it('flags a numeric token with trailing letters as malformed (no truncate-to-valid)', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t)).map((r) => r.status);
+    // Trailing garbage after a chapter/verse/range number → whole ref malformed.
+    for (const form of ['John 3:16I', 'Psalms 119:176I', 'John 3:1-5I', 'John 3:1-5abc']) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.length, form).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid'), form).toBe(true);
+    }
+    // Direct validator: trailing letters make the token malformed → out_of_range.
+    expect(validateScriptureRefs(['John 3:16I'])[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(['John 3:1-5abc'])[0].status).toBe('out_of_range');
+    // Clean references (incl. the longest chapter) are unaffected, and a real word
+    // after a real space is NOT swallowed / flagged.
+    expect(stat('John 3:16')).toEqual(['valid']);
+    expect(stat('John 3:1-5')).toEqual(['valid']);
+    expect(validateScriptureRefs(['Psalms 119:176'])[0].status).toBe('valid');
+    expect(extractScriptureRefs('John 3:16 is a great verse')).toEqual(['John 3:16']);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

@@ -247,13 +247,6 @@ function normalizeCitationText(text) {
     .replace(COMPACT_BOOK_CHAPTER_RE, '$1 ');
 }
 
-// Numeric-prefix words / roman numerals → 1 / 2 / 3.
-const PREFIX_NUM = {
-  1: '1', 2: '2', 3: '3', '1': '1', '2': '2', '3': '3',
-  i: '1', ii: '2', iii: '3',
-  first: '1', second: '2', third: '3',
-};
-
 // Book ABBREVIATION (no numeric prefix) → canonical lowercase book key. Numbered
 // books map by their SUFFIX (e.g. "cor" → "corinthians"); the numeric prefix is
 // bound separately. Full names validate directly and need no entry here. NONE of
@@ -342,11 +335,17 @@ const NUMBERED_ABBREV_STEMS = Object.keys(BOOK_ABBREV)
   .filter((a) => a.length >= 3 && NUMBERED_FULL_BASES.has(BOOK_ABBREV[a]));
 const COMPACT_STEMS = [...NUMBERED_FULL_BASES, ...NUMBERED_ABBREV_STEMS]
   .sort((a, b) => b.length - a.length);
-// All numbered-book prefix forms: numeric (1-3), Roman (I-III), and WORDED
-// (first/second/third). Shared by the compact rewrites so every form binds in
-// the compact / hyphen / dot cases, not just the whitespace case CITATION_RE
-// already handles.
-const COMPACT_PREFIX_ALT = '[1-3]|i{1,3}|first|second|third';
+// Ordinal-WORD prefixes (first..tenth). Only first/second/third denote a REAL
+// numbered book; the rest are unsupported and, bound to a numbered stem, name a
+// fabricated numbered book (classified invalid by validation, never dropped).
+const ORDINAL_WORDS = 'first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth';
+// EVERY numbered-book prefix FORM: any-length numeric (post Unicode-digit fold),
+// any Roman run, or an ordinal word. Shared by the compact rewrites so every form
+// binds in the compact / hyphen / dot cases (not just the whitespace case
+// CITATION_RE handles). An UNSUPPORTED value (not 1-3) bound to a numbered stem
+// is a fabricated numbered book — parseCitation keeps the number so validation
+// flags it, and NEVER lets the matcher fall back to the bare (valid) book.
+const COMPACT_PREFIX_ALT = `\\d+|[ivxlcdm]+|${ORDINAL_WORDS}`;
 // A numeric / Roman / worded prefix joined to a numbered-book stem by nothing, a
 // hyphen, or a dot → rewritten to the spaced form ("$1 $2"), so "2John",
 // "IIJohn", "Second-John", "Third.John" all bind to the numbered book. The
@@ -392,14 +391,16 @@ const NON_BOOK_WORDS = new Set([
 ]);
 
 // A chapter / verse / range-end NUMBER token: the FULL contiguous run of ASCII
-// digits OR Roman letters — NEVER length-capped, so an overlong token (e.g. a
-// 4+-digit chapter "1000", or a 16-I Roman range end) is captured and handed to
-// VALIDATION to classify (out_of_range / invalid / unparseable) rather than
-// being silently dropped, which would hide the reference. The Roman alternative
-// requires a trailing non-letter (`(?![a-z])`, case-insensitive) so it cannot be
-// the head of a longer word ("Luke 2:live" does not become verse "liv"). Roman
-// Unicode code points (Ⅰ-Ⅻ etc.) are folded to ASCII by the NFKC passes first.
-const NUM_TOKEN = '(\\d+|[ivxlcdm]+(?![a-z]))';
+// digits (with any TRAILING letters/marks captured so a malformed "16I"/"5abc"
+// reaches the validator instead of being truncated to "16"/"5"), OR a Roman
+// run. NEVER length-capped, so an overlong token ("1000", a 16-I Roman) is
+// captured and handed to VALIDATION to classify (out_of_range / invalid /
+// unparseable) rather than dropped. The digit branch's trailing `[\p{L}\p{M}]*`
+// only bites when letters DIRECTLY follow the digits (no separator) — a real
+// space ends the token cleanly ("John 3:16 is" is unaffected). The Roman branch
+// keeps `(?![a-z])` so it is not the head of a longer word ("Luke 2:live"). Roman
+// Unicode code points (Ⅰ-Ⅻ) are folded to ASCII by the NFKC passes first.
+const NUM_TOKEN = '(\\d+[\\p{L}\\p{M}]*|[ivxlcdm]+(?![a-z]))';
 // Permissive citation matcher (run on normalized text). Groups:
 //   1 prefix (optional): 1-3 / I-III / first-third
 //   2 book (with optional trailing '.', optional "of X")
@@ -411,8 +412,14 @@ const NUM_TOKEN = '(\\d+|[ivxlcdm]+(?![a-z]))';
 // as fabricated). Requiring the match not be preceded by a Unicode letter,
 // combining mark, or apostrophe forces a real word start (BoS / whitespace /
 // non-letter punctuation). The `u` flag is needed for the \p{…} classes.
+// The prefix accepts EVERY form (any-length numeric, any Roman, ordinal word),
+// not just the supported 1-3 — so an UNSUPPORTED prefix ("4 John", "IV John",
+// "Fourth John") is CONSUMED by the match and bound (parseCitation classifies it
+// invalid for a numbered stem, or drops a spurious number for a non-numbered
+// book), instead of the matcher restarting at the bare book and reinterpreting
+// it as a valid Gospel.
 const CITATION_RE = new RegExp(
-  `(?<![\\p{L}\\p{M}'’])\\b(?:([1-3]|i{1,3}|first|second|third)\\.?\\s+)?`
+  `(?<![\\p{L}\\p{M}'’])\\b(?:(${COMPACT_PREFIX_ALT})\\.?\\s+)?`
   + `([a-z]{2,}\\.?(?:\\s+of\\s+[a-z]+)?)\\s+`
   + `${NUM_TOKEN}\\s*:\\s*${NUM_TOKEN}(?:\\s*[-]\\s*${NUM_TOKEN})?`,
   'giu',
@@ -450,11 +457,34 @@ function numberTokenToDecimal(tok) {
   return ROMAN_CANONICAL_RE.test(tok) ? String(romanToInt(tok)) : tok;
 }
 
+// Ordinal WORD → number (first..tenth). Only 1-3 are supported numbered books.
+const ORDINAL_NUM = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
+  sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+};
+// A prefix token (numeric / Roman / ordinal word) → its integer value, or null.
+function prefixToNumber(raw) {
+  const t = raw.toLowerCase().replace(/\./g, '');
+  if (/^\d+$/.test(t)) return Number(t);
+  if (ORDINAL_NUM[t] != null) return ORDINAL_NUM[t];
+  if (/^[ivxlcdm]+$/.test(t)) return romanToInt(t);
+  return null;
+}
+
 function parseCitation(m) {
   const rawPrefix = m[1] ? m[1].toLowerCase().replace(/\./g, '') : '';
-  const prefixNum = rawPrefix ? (PREFIX_NUM[rawPrefix] || '') : '';
+  const num = rawPrefix ? prefixToNumber(rawPrefix) : null;
   const rawBook = m[2].toLowerCase().replace(/\.$/, '').replace(/\s+/g, ' ').trim();
   const base = BOOK_ABBREV[rawBook] || rawBook;
+  const isNumberedStem = NUMBERED_FULL_BASES.has(base);
+  // Bind the prefix number to the book when it is a SUPPORTED ordinal (1-3) OR
+  // the book actually HAS numbered forms. An unsupported number on a numbered
+  // stem ("4 John", "IV John", "Fourth John") stays bound so validation flags it
+  // as a fabricated numbered book (invalid_book) — it is NEVER dropped to the
+  // bare valid Gospel. A number on a NON-numbered book ("5 Psalms 119:1") is
+  // spurious and dropped, so the bare book validates as before.
+  const bind = num != null && ((num >= 1 && num <= 3) || isNumberedStem);
+  const prefixNum = bind ? String(num) : '';
   const canonicalKey = prefixNum ? `${prefixNum} ${base}` : base;
   return {
     prefixNum,
@@ -538,8 +568,8 @@ const COMPACT_PREFIX_BOOKSHAPED_RE = new RegExp(
   'giu',
 );
 function spaceCompactPrefix(full, prefix, sep, book) {
-  const isDigit = /^[1-3]$/.test(prefix);
-  if (isDigit || sep) return `${prefix} ${book}`; // digit, or explicit separator
+  const isDigit = /^\d+$/.test(prefix);
+  if (isDigit || sep) return `${prefix} ${book}`; // any digit prefix, or explicit separator
   // Roman / worded prefix, no separator: don't split a word that is itself a
   // real book (so "Isaiah" is never split into "I saiah").
   const whole = (prefix + book).toLowerCase();
@@ -676,6 +706,15 @@ export function validateScriptureRefs(refs, options = {}) {
     const chapter = cv ? Number(cv[1]) : null;
     const verse = cv ? Number(cv[2]) : null;
     const verseEnd = cv && cv[3] != null ? Number(cv[3]) : null;
+    // STRICT token anchoring: a numeric chapter/verse/range token immediately
+    // followed by a letter or combining mark (no separator) is MALFORMED — the
+    // `\d+` matches above silently TRUNCATE to the valid prefix ("3:16I"→"16",
+    // "3:1-5abc"→range "5"), so detect the trailing garbage and flag the whole
+    // reference instead of validating the truncated part. A real separator (a
+    // space before a following word, "John 3:16 is") ends the token cleanly and
+    // is NOT flagged. Numbered-book display prefixes are always space-separated
+    // ("1 John"), so the only digit↔letter adjacency is a malformed number.
+    const malformedToken = /\d[\p{L}\p{M}]/u.test(str);
     // A range dash whose END is present but NON-numeric (e.g. a non-canonical or
     // overlong Roman token "3:1-IIV" / "3:1-IIIIIIIIIIIIIIII") is malformed — the
     // optional numeric range group above silently ignores it, so detect and flag
@@ -689,7 +728,7 @@ export function validateScriptureRefs(refs, options = {}) {
       status = 'unsupported_canon';
     } else if (chapter == null || verse == null) {
       status = 'unparseable';
-    } else if (malformedRange) {
+    } else if (malformedRange || malformedToken) {
       status = 'out_of_range';
     } else {
       const coreChapters = isCore ? CHAPTER_COUNTS[bookKey] ?? Infinity : 0;
