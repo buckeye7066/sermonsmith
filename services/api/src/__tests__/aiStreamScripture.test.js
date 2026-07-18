@@ -412,6 +412,65 @@ describe('/stream fabricated-Scripture screen', () => {
     }
   });
 
+  // --- Round-25: complete Unicode-digit folding (Kawi), Roman-numeral
+  // chapter/verse, and compact/hyphen numbered-book binding — over /invoke AND
+  // /stream (success + error). Split across two tests to stay under the 30/min
+  // AI rate limit (each `it` gets a fresh app + limiter via beforeEach). ---
+  const runR25 = async (app, attacks) => {
+    for (const [label, ref, expectFab] of attacks) {
+      STREAM_TEXT = JSON.stringify({ note: `anchored on ${ref}` });
+      STREAM_THROW = false;
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      if (expectFab) {
+        expect(inv.status, `/invoke should reject: ${label}`).toBe(422);
+        expect(inv.body.scripture_unverified, `/invoke unverified: ${label}`).toBe(true);
+      } else {
+        expect(inv.status, `/invoke should pass: ${label}`).toBe(200);
+        expect(inv.body.scripture_unverified, `/invoke clean: ${label}`).toBeFalsy();
+      }
+      STREAM_TEXT = `anchored on ${ref}`;
+      STREAM_THROW = false;
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', stream_result: true });
+      expect(parseTrailer(str).scripture.ok, `/stream success: ${label}`).toBe(!expectFab);
+      STREAM_TEXT = `anchored on ${ref}`;
+      STREAM_THROW = true;
+      const err = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', stream_result: true });
+      expect(parseTrailer(err).scripture.ok, `/stream error: ${label}`).toBe(!expectFab);
+    }
+  };
+
+  it('/invoke + /stream catch Roman-numeral chapter/verse and compact numbered-book prefixes', async () => {
+    await runR25(app, [
+      ['Roman chapter John III:37 (oor)', 'John III:37', true],
+      ['Roman verse John 3:XXXVII (oor)', 'John 3:XXXVII', true],
+      ['Unicode Roman John Ⅲ:37 (oor)', 'John Ⅲ:37', true],
+      ['Roman ch+verse II John I:XX → 2 John 1:20 (oor)', 'II John I:XX', true],
+      ['compact 2John 1:20 (oor)', '2John 1:20', true],
+      ['hyphen 2-John 1:20 (oor)', '2-John 1:20', true],
+      ['dot 2.John 1:20 (oor)', '2.John 1:20', true],
+      ['compact roman IIJohn 1:20 (oor)', 'IIJohn 1:20', true],
+    ]);
+  });
+
+  it('/invoke + /stream catch exotic-digit refs and leave valid refs alone', async () => {
+    const kawi = (v) => String.fromCodePoint(0x11F50 + v); // Kawi digits 0-9 (no NFKC fold)
+    await runR25(app, [
+      ['Kawi digits John 3:37 (oor)', `John 3:${kawi(3)}${kawi(7)}`, true],
+      ['plain John 3:16 (valid)', 'John 3:16', false],
+      ['plain 1 John 1:1 (valid)', '1 John 1:1', false],
+      ['Isaiah 3:1 not split (valid)', 'Isaiah 3:1', false],
+    ]);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

@@ -166,25 +166,30 @@ const SHADOW_HIDDEN_ANY = new RegExp(`${SHADOW_HIDDEN}+`, 'gu');
 
 // Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
 // NOT match the matcher's ASCII `\d`, and NFKC does not fold most of them
-// (Arabic-Indic, Devanagari, …) to ASCII. A model can therefore write a visibly
-// out-of-range chapter/verse ("John 3:٣٧", "John ٩٩:١") that extracts NO ref.
-// We map every decimal-digit code point to its ASCII value before matching, by
-// enumerating each script's DIGIT-ZERO base (value 0) and its next nine code
-// points (Nd runs are always 10 contiguous, 0–9). Covers the BMP scripts plus
-// the SMP sets (incl. the mathematical / fullwidth digits NFKC already folds).
-const DIGIT_ZERO_BASES = [
-  0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6,
-  0x0C66, 0x0CE6, 0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20, 0x1040, 0x1090,
-  0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90, 0x1B50, 0x1BB0, 0x1C40,
-  0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0, 0xA9F0, 0xAA50, 0xABF0, 0xFF10,
-  0x104A0, 0x10D30, 0x11066, 0x110F0, 0x11136, 0x111D0, 0x112F0, 0x11450,
-  0x114D0, 0x11650, 0x116C0, 0x11730, 0x118E0, 0x11950, 0x11C50, 0x11D50,
-  0x11DA0, 0x16A60, 0x16B50, 0x1D7CE, 0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6,
-  0x1E140, 0x1E2F0, 0x1E950, 0x1FBF0,
-];
-const NON_ASCII_DIGIT_VALUE = new Map();
-for (const base of DIGIT_ZERO_BASES) {
-  for (let d = 0; d < 10; d += 1) NON_ASCII_DIGIT_VALUE.set(base + d, String(d));
+// (Arabic-Indic, Devanagari, Kawi, Nag Mundari, …) to ASCII. A model can write a
+// visibly out-of-range chapter/verse ("John 3:٣٧", "John ٩٩:١", "John 𑽓:𑽓𑽗")
+// that extracts NO ref. We map EVERY decimal digit to its ASCII value with a
+// COMPLETE, Unicode-version-agnostic rule instead of a hand-listed table: for a
+// digit code point, walk down to the start of its contiguous \p{Nd} run
+// (decimal-digit sets are always 10 contiguous code points encoding 0–9 in
+// order) and take (codePoint − runStart) mod 10. The `mod 10` keeps it correct
+// even for two script blocks encoded back-to-back. Memoized per code point.
+const ND_ONE_RE = /\p{Nd}/u;
+const DIGIT_VALUE_CACHE = new Map();
+function decimalDigitToAscii(ch) {
+  const cp = ch.codePointAt(0);
+  if (cp >= 0x30 && cp <= 0x39) return ch; // ASCII 0-9 fast path
+  let value = DIGIT_VALUE_CACHE.get(cp);
+  if (value === undefined) {
+    let start = cp;
+    // Walk to the run start (bounded by 9 steps — a decimal run is 10 wide).
+    while (start > 0 && cp - start < 10 && ND_ONE_RE.test(String.fromCodePoint(start - 1))) {
+      start -= 1;
+    }
+    value = String((cp - start) % 10);
+    DIGIT_VALUE_CACHE.set(cp, value);
+  }
+  return value;
 }
 
 function normalizeCitationText(text) {
@@ -215,22 +220,23 @@ function normalizeCitationText(text) {
     .replace(/(?<=\p{Nd})\p{M}+(?=\p{L})/gu, ' ')
     // Unicode spaces → ASCII space.
     .replace(/[   -   　]/g, ' ')
-    // ALL Unicode decimal digits (fullwidth, Arabic-Indic, Devanagari, math,
-    // …) → ASCII, so a visibly out-of-range "John 3:٣٧" / "John ٩٩:١" is matched
-    // by the ASCII `\d` matcher and range-checked. Detection-only (see
-    // NON_ASCII_DIGIT_VALUE); a code point outside the enumerated sets is left.
-    .replace(/\p{Nd}/gu, (d) => {
-      const cp = d.codePointAt(0);
-      if (cp >= 0x30 && cp <= 0x39) return d;
-      const v = NON_ASCII_DIGIT_VALUE.get(cp);
-      return v != null ? v : d;
-    })
+    // ALL Unicode decimal digits (fullwidth, Arabic-Indic, Devanagari, Kawi,
+    // math, …) → ASCII, so a visibly out-of-range "John 3:٣٧" / "John ٩٩:١" is
+    // matched by the ASCII `\d` matcher and range-checked. Detection-only.
+    .replace(/\p{Nd}/gu, decimalDigitToAscii)
     // Fullwidth Latin letters (U+FF21–FF3A / U+FF41–FF5A) → ASCII letters.
     .replace(/[Ａ-Ｚａ-ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
     // Colon variants (fullwidth colon, ratio, modifier letter colon) → ':'.
     .replace(/[：∶ː꞉]/g, ':')
     // Dash variants → '-'.
-    .replace(/[‐-―−－]/g, '-');
+    .replace(/[‐-―−－]/g, '-')
+    // COMPACT numbered-book forms → spaced, so the matcher's spaced-prefix
+    // grammar binds them to the numbered book: "2John"/"2-John"/"2.John"/
+    // "IIJohn" → "2 John". Restricted to actual numbered-book stems (see
+    // COMPACT_NUMBERED_RE) so a real book name is never split ("Isaiah" stays
+    // "Isaiah", never "1 Saiah") and prose is never mis-bound. This also stops
+    // "2-John" from extracting as a bare, valid "John" (it becomes "2 John").
+    .replace(COMPACT_NUMBERED_RE, '$1 $2');
 }
 
 // Numeric-prefix words / roman numerals → 1 / 2 / 3.
@@ -309,6 +315,33 @@ const BOOK_ABBREV = {
   macc: 'maccabees', mac: 'maccabees', mcc: 'maccabees',
 };
 
+// Stems of the NUMBERED books (full names + their 3+ character abbreviations)
+// for the compact-form rewrite. Derived from the book tables so it can never
+// drift. 2-character abbreviations are deliberately EXCLUDED so an ordinary word
+// cannot be split by a fused prefix (e.g. "ism" must not become "1 sm"/1 Samuel;
+// only clear stems like "john"/"cor"/"sam" bind). Longest-first so the greedy
+// alternation prefers the full name over its abbreviation.
+const NUMBERED_FULL_BASES = new Set();
+for (const key of BOOK_LOOKUP) {
+  const m = /^[123]\s+(.+)$/.exec(key);
+  if (m) NUMBERED_FULL_BASES.add(m[1]);
+}
+for (const key of Object.keys(DEUTERO_CHAPTER_COUNTS)) {
+  const m = /^[123]\s+(.+)$/.exec(key);
+  if (m) NUMBERED_FULL_BASES.add(m[1]);
+}
+const NUMBERED_ABBREV_STEMS = Object.keys(BOOK_ABBREV)
+  .filter((a) => a.length >= 3 && NUMBERED_FULL_BASES.has(BOOK_ABBREV[a]));
+const COMPACT_STEMS = [...NUMBERED_FULL_BASES, ...NUMBERED_ABBREV_STEMS]
+  .sort((a, b) => b.length - a.length);
+// A numeric (1-3) or roman (I-III) prefix joined to a numbered-book stem by
+// nothing, a hyphen, or a dot → rewritten to the spaced form ("$1 $2"). The
+// trailing \b keeps "2content"/"IIJohnny" from matching a stem inside a word.
+const COMPACT_NUMBERED_RE = new RegExp(
+  `\\b([1-3]|i{1,3})[.\\-]?(${COMPACT_STEMS.join('|')})\\b`,
+  'giu',
+);
+
 // Canonical lowercase book key → display (Title Case) for a clean `ref` string.
 const DISPLAY_NAME = {};
 for (const b of BOOKS) DISPLAY_NAME[b.toLowerCase()] = b;
@@ -343,10 +376,16 @@ const NON_BOOK_WORDS = new Set([
   'cafe', 'café', 'resume', 'résumé', 'fiance', 'fiancé', 'cliche', 'cliché', 'naive', 'naïve',
 ]);
 
+// A chapter / verse / range-end NUMBER token: ASCII digits OR a Roman numeral.
+// The Roman alternative requires a trailing non-letter (`(?![a-z])`, case-
+// insensitive) so it cannot be the head of a longer word ("Luke 2:live" does not
+// become verse "liv"). Roman Unicode code points (Ⅰ-Ⅻ etc.) are handled by the
+// NFKC detection passes, which fold them to ASCII before this matcher runs.
+const NUM_TOKEN = '(\\d{1,3}|[ivxlcdm]{1,15}(?![a-z]))';
 // Permissive citation matcher (run on normalized text). Groups:
 //   1 prefix (optional): 1-3 / I-III / first-third
 //   2 book (with optional trailing '.', optional "of X")
-//   3 chapter   4 verse   5 verseEnd (optional)
+//   3 chapter   4 verse   5 verseEnd (optional) — each ASCII digits OR Roman
 // A leading Unicode-aware negative lookbehind stops the ASCII book token from
 // starting in the MIDDLE of a non-ASCII word: the ASCII `\b` treats the seam
 // between an accented letter and an ASCII letter as a boundary, so "naïve 4:5"
@@ -354,9 +393,35 @@ const NON_BOOK_WORDS = new Set([
 // as fabricated). Requiring the match not be preceded by a Unicode letter,
 // combining mark, or apostrophe forces a real word start (BoS / whitespace /
 // non-letter punctuation). The `u` flag is needed for the \p{…} classes.
-const CITATION_RE = /(?<![\p{L}\p{M}'’])\b(?:([1-3]|i{1,3}|first|second|third)\.?\s+)?([a-z]{2,}\.?(?:\s+of\s+[a-z]+)?)\s+(\d{1,3})\s*:\s*(\d{1,3})(?:\s*[-]\s*(\d{1,3}))?/giu;
+const CITATION_RE = new RegExp(
+  `(?<![\\p{L}\\p{M}'’])\\b(?:([1-3]|i{1,3}|first|second|third)\\.?\\s+)?`
+  + `([a-z]{2,}\\.?(?:\\s+of\\s+[a-z]+)?)\\s+`
+  + `${NUM_TOKEN}\\s*:\\s*${NUM_TOKEN}(?:\\s*[-]\\s*${NUM_TOKEN})?`,
+  'giu',
+);
 
 const titleCase = (s) => s.split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
+
+// Roman numeral (I V X L C D M, any case) → integer. Lenient subtractive parse;
+// the resulting number is range-checked afterward, so a large/odd value simply
+// reads as out_of_range rather than being silently accepted.
+const ROMAN_VALUE = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+function romanToInt(s) {
+  const t = s.toLowerCase();
+  let total = 0;
+  for (let i = 0; i < t.length; i += 1) {
+    const cur = ROMAN_VALUE[t[i]] || 0;
+    const next = ROMAN_VALUE[t[i + 1]] || 0;
+    total += cur < next ? -cur : cur;
+  }
+  return total;
+}
+// A number token from the matcher → its decimal-string value (ASCII digits pass
+// through; a Roman token is converted). null/undefined stays as-is.
+function numberTokenToDecimal(tok) {
+  if (tok == null) return tok;
+  return /^\d+$/.test(tok) ? tok : String(romanToInt(tok));
+}
 
 function parseCitation(m) {
   const rawPrefix = m[1] ? m[1].toLowerCase().replace(/\./g, '') : '';
@@ -368,9 +433,9 @@ function parseCitation(m) {
     prefixNum,
     base,
     canonicalKey,
-    chapter: m[3],
-    verse: m[4],
-    verseEnd: m[5],
+    chapter: numberTokenToDecimal(m[3]),
+    verse: numberTokenToDecimal(m[4]),
+    verseEnd: numberTokenToDecimal(m[5]),
   };
 }
 

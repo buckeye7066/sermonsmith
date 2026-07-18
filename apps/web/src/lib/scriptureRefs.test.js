@@ -374,6 +374,61 @@ describe('validateAiSermon', () => {
     expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
   });
 
+  it('folds EVERY Unicode decimal-digit code point to its ASCII value (property sweep)', () => {
+    const ndRe = /\p{Nd}/u;
+    let tested = 0;
+    for (let cp = 0x0600; cp <= 0x1FBFF; cp += 1) {
+      const ch = String.fromCodePoint(cp);
+      if (!ndRe.test(ch) || (cp >= 0x30 && cp <= 0x39)) continue;
+      tested += 1;
+      // Expected value via the same contiguous-run rule the extractor uses.
+      let start = cp;
+      while (start > 0 && cp - start < 10 && ndRe.test(String.fromCodePoint(start - 1))) start -= 1;
+      const expected = (cp - start) % 10;
+      // Put the exotic digit in the chapter position; the extracted chapter must be its ASCII value.
+      const out = extractScriptureRefs(`Genesis ${ch}:1`);
+      const m = out[0] && /Genesis (\d+):1/.exec(out[0]);
+      expect(m && m[1], `U+${cp.toString(16)} → ${expected}`).toBe(String(expected));
+    }
+    // Includes Kawi (U+11F50) and Nag Mundari (U+1E4F0), which have no NFKC folding.
+    expect(tested).toBeGreaterThan(500);
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${String.fromCodePoint(0x11F53)}:${String.fromCodePoint(0x11F53)}${String.fromCodePoint(0x11F57)}`))[0].status).toBe('out_of_range'); // Kawi John 3:37
+  });
+
+  it('parses Roman-numeral chapter / verse / range-end and range-checks the converted number', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t)).map((r) => r.status);
+    // Roman CHAPTER: "John III:37" → John 3:37 (John 3 has 36 verses) → out of range.
+    expect(extractScriptureRefs('John III:37')).toContain('John 3:37');
+    expect(stat('John III:37')).toContain('out_of_range');
+    // Roman VERSE: "John 3:XXXVII" → John 3:37 → out of range.
+    expect(extractScriptureRefs('John 3:XXXVII')).toContain('John 3:37');
+    // Unicode Roman numeral (U+2162 = Ⅲ) folds via NFKC → chapter 3.
+    expect(extractScriptureRefs('John Ⅲ:37')).toContain('John 3:37');
+    // Numbered book + Roman chapter AND verse: "II John I:XX" → 2 John 1:20 (oor).
+    expect(validateScriptureRefs(extractScriptureRefs('II John I:XX'))[0].status).toBe('out_of_range');
+    // A legit ASCII reference is unaffected, and a Roman token that heads a longer
+    // word is NOT parsed as a verse ("Luke 2:live" → no ref, not verse "liv"=54).
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('Luke 2:live')).toEqual([]);
+  });
+
+  it('binds compact / hyphen / dot numbered-book prefixes to the numbered book', () => {
+    // "2John"/"2-John"/"2.John"/"IIJohn" all → 2 John 1:20 (2 John ch.1 has 13 verses → oor).
+    for (const form of ['2John 1:20', '2-John 1:20', '2.John 1:20', 'IIJohn 1:20']) {
+      expect(extractScriptureRefs(form), form).toContain('2 John 1:20');
+      expect(validateScriptureRefs(extractScriptureRefs(form))[0].status, form).toBe('out_of_range');
+    }
+    // A hyphenated NON-book is not mis-bound to a numbered book (stays plain John).
+    const pseudo = extractScriptureRefs('pseudo-John 4:5');
+    expect(pseudo.some((r) => /^[123] /.test(r))).toBe(false);
+    expect(pseudo).toContain('John 4:5');
+    // A real book that merely STARTS with a numeral-prefix letter is never split.
+    expect(extractScriptureRefs('Isaiah 3:1')).toEqual(['Isaiah 3:1']);
+    // Genuine spaced forms still correct.
+    expect(extractScriptureRefs('II John 1:1')).toEqual(['2 John 1:1']);
+    expect(validateScriptureRefs(extractScriptureRefs('1 John 1:1'))[0].status).toBe('valid');
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);
