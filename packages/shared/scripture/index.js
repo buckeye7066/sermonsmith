@@ -181,9 +181,15 @@ function decimalDigitToAscii(ch) {
   if (cp >= 0x30 && cp <= 0x39) return ch; // ASCII 0-9 fast path
   let value = DIGIT_VALUE_CACHE.get(cp);
   if (value === undefined) {
+    // Walk to the start of the MAXIMAL contiguous \p{Nd} run (NOT capped at 9 —
+    // several styled decimal blocks are encoded back-to-back, e.g. the 50-wide
+    // mathematical-digit run U+1D7CE–U+1D7FF). A decimal run is always a
+    // concatenation of aligned 10-code-point script blocks, so the value is the
+    // offset from the run start MOD 10 — correct even across adjacent blocks.
+    // The previous 9-step cap stopped mid-run and derived a digit's value from a
+    // NEIGHBOUR block (phantom "0:00" refs); walking to the true run start fixes it.
     let start = cp;
-    // Walk to the run start (bounded by 9 steps — a decimal run is 10 wide).
-    while (start > 0 && cp - start < 10 && ND_ONE_RE.test(String.fromCodePoint(start - 1))) {
+    while (start > 0 && ND_ONE_RE.test(String.fromCodePoint(start - 1))) {
       start -= 1;
     }
     value = String((cp - start) % 10);
@@ -435,8 +441,13 @@ const ORDINAL_NUMBERED_RE = new RegExp(
 // internal hidden chars so the digit↔suffix seam is never turned into a space,
 // and folding superscripts. Requiring the ordinal SUFFIX + a following stem
 // bounds the fold so a lone superscript footnote marker is never touched.
+const SUP_DIGITS = Object.keys(SUPERSCRIPT_FOLD).filter((c) => /[0-9]/.test(SUPERSCRIPT_FOLD[c])).join('');
+const SUP_LETTERS = Object.keys(SUPERSCRIPT_FOLD).filter((c) => /[a-z]/.test(SUPERSCRIPT_FOLD[c])).join('');
 const ORD_HIDDEN = '[\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}]';
-const ORD_DIGIT = '[0-9¹²³⁰⁴⁵⁶⁷⁸⁹]';
+// Ordinal DIGIT: any Unicode decimal digit (\p{Nd} — ASCII, fullwidth,
+// Arabic-Indic, mathematical, …) PLUS superscript digits (\p{No}, not Nd). The
+// leading digits fold to ASCII in foldOrdinalPrefix regardless of script.
+const ORD_DIGIT = `[\\p{Nd}${SUP_DIGITS}]`;
 const ORD_SUFFIX = `(?:[sˢ]${ORD_HIDDEN}*[tᵗ]|[nⁿ]${ORD_HIDDEN}*[dᵈ]|[rʳ]${ORD_HIDDEN}*[dᵈ]|[tᵗ]${ORD_HIDDEN}*[hʰ])`;
 const ORD_SEP = `(?:[\\s.\\-]|${ORD_HIDDEN})`;
 // Start boundary is a Unicode-aware negative lookbehind (NOT `\b`, which does not
@@ -447,24 +458,36 @@ const ORDINAL_PREFIX_RE = new RegExp(
   'giu',
 );
 function foldOrdinalPrefix(_m, digits, suffix) {
-  const d = [...digits].map((c) => SUPERSCRIPT_FOLD[c] || c).join('');
+  const d = [...digits].map((c) => {
+    if (SUPERSCRIPT_FOLD[c] !== undefined) return SUPERSCRIPT_FOLD[c]; // superscript digit
+    if (/\p{Nd}/u.test(c)) return decimalDigitToAscii(c);             // any Unicode decimal digit
+    return c;
+  }).join('');
   const s = [...suffix].map((c) => SUPERSCRIPT_FOLD[c] || c).filter((c) => /[a-z]/i.test(c)).join('');
   return d + s;
 }
-// Any superscript digit / ordinal letter NOT consumed by the ordinal-prefix fold
-// is a FOOTNOTE marker or stray — deleted (never folded into a number).
-const STRAY_SUPERSCRIPT_RE = new RegExp(`[${Object.keys(SUPERSCRIPT_FOLD).join('')}]`, 'g');
-// Scrub superscript look-alikes on the RAW text, run FIRST in every pass — ahead
-// of NFKC (pass 2) and the shadow's hidden→space handling (pass 3), which would
-// otherwise fold a footnote superscript into a chapter/verse digit or split an
-// ordinal's digit↔suffix seam into a space. (1) Fold an ordinal prefix that sits
-// before a numbered stem (deleting hidden/combining chars inside it, folding
-// superscripts) to the bare ASCII ordinal; (2) delete any REMAINING superscript
-// (a footnote marker), so "John 3:16¹" → "John 3:16" and "John²:1" mints nothing.
+// A superscript digit run that TRAILS a complete number (preceded by a decimal
+// digit, not followed by more number/colon/superscript) is a FOOTNOTE marker →
+// delete ("John 3:16¹" → "John 3:16"). A superscript digit in an EMPTY chapter/
+// verse slot (no ASCII digit there — after a colon, before a colon, or between
+// digits) is NUMBER DATA and is LEFT for NFKC (pass 2) to fold as the user sees
+// it ("John 3:¹⁶" → John 3:16; "John²:1" → John 2:1), so a real ref is never
+// silently dropped — the strict validator then classifies it.
+const FOOTNOTE_SUPERSCRIPT_RE = new RegExp(`(?<=\\p{Nd})[${SUP_DIGITS}]+(?![\\p{Nd}:${SUP_DIGITS}])`, 'gu');
+// A superscript ORDINAL LETTER not consumed by the ordinal-prefix fold is never
+// number data → delete.
+const STRAY_SUP_LETTER_RE = new RegExp(`[${SUP_LETTERS}]`, 'gu');
+// Scrub superscript / Unicode-digit ordinal look-alikes on the RAW text, run
+// FIRST in every pass — ahead of NFKC (pass 2) and the shadow's hidden→space
+// handling (pass 3). (1) Fold an ordinal prefix before a numbered stem (any
+// Unicode digit + hidden/combining seams + superscript suffix) to the bare ASCII
+// ordinal; (2) delete only TRAILING footnote superscript digits, LEAVING
+// number-data superscripts for NFKC to fold; (3) delete stray superscript letters.
 function scrubSuperscripts(text) {
   return String(text)
     .replace(ORDINAL_PREFIX_RE, foldOrdinalPrefix)
-    .replace(STRAY_SUPERSCRIPT_RE, '');
+    .replace(FOOTNOTE_SUPERSCRIPT_RE, '')
+    .replace(STRAY_SUP_LETTER_RE, '');
 }
 
 // Canonical lowercase book key → display (Title Case) for a clean `ref` string.

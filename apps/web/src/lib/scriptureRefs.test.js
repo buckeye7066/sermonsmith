@@ -382,9 +382,11 @@ describe('validateAiSermon', () => {
       const ch = String.fromCodePoint(cp);
       if (!ndRe.test(ch) || (cp >= 0x30 && cp <= 0x39)) continue;
       tested += 1;
-      // Expected value via the same contiguous-run rule the extractor uses.
+      // Expected value via the same contiguous-run rule the extractor uses:
+      // walk to the start of the MAXIMAL \p{Nd} run (no cap — adjacent styled
+      // blocks are back-to-back) and take the offset MOD 10.
       let start = cp;
-      while (start > 0 && cp - start < 10 && ndRe.test(String.fromCodePoint(start - 1))) start -= 1;
+      while (start > 0 && ndRe.test(String.fromCodePoint(start - 1))) start -= 1;
       const expected = (cp - start) % 10;
       // Put the exotic digit in the chapter position; the extracted chapter must be its ASCII value.
       const out = extractScriptureRefs(`Genesis ${ch}:1`);
@@ -783,18 +785,56 @@ describe('validateAiSermon', () => {
     const four = extractScriptureRefs(`4${Th} John 1:1`);
     expect(four.includes('John 1:1')).toBe(false);
     expect(validateScriptureRefs(four).some((r) => r.status === 'invalid_book')).toBe(true);
-    // A superscript FOOTNOTE marker adjacent to a citation must NOT mutate it:
-    // "John 3:16¹" stays valid John 3:16 (NOT 3:161); "John²:1"/"Rev²:1" mint nothing.
+    // A TRAILING superscript FOOTNOTE marker (after a complete number) is deleted,
+    // so "John 3:16¹" stays valid John 3:16 (NOT the minted 3:161).
     expect(validateScriptureRefs(extractScriptureRefs(`John 3:16${SUP1}`))[0].status).toBe('valid');
     expect(extractScriptureRefs(`John 3:16${SUP1}`)).toEqual(['John 3:16']);
-    expect(extractScriptureRefs(`John${SUP2}:1`)).toEqual([]);
-    expect(extractScriptureRefs(`Rev${SUP2}:1`)).toEqual([]);
+    // A superscript filling an EMPTY chapter slot (no ASCII digit) is NUMBER DATA
+    // → folded as the user sees it (r35 principled rule): "John²:1" → John 2:1.
+    expect(extractScriptureRefs(`John${SUP2}:1`)).toEqual(['John 2:1']);
+    expect(extractScriptureRefs(`Rev${SUP2}:1`)).toEqual(['Revelation 2:1']);
+    // A superscript filling an empty VERSE slot is folded, not dropped.
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${cp(0xB9)}${cp(0x2076)}`))[0].status).toBe('valid'); // John 3:¹⁶ → 3:16
     // (B) span-suppression still preserves a genuinely un-prefixed bare John that co-occurs.
     const mixed = extractScriptureRefs(`John 1:1 and 2${Nd} John 1:1`);
     expect(mixed).toContain('John 1:1');
     expect(mixed).toContain('2 John 1:1');
     // r30 bare-numeric outline intact.
     expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+  });
+
+  it('binds UNICODE-DIGIT ordinals (fullwidth/Arabic/math) incl. hidden seams; folds digits with no phantom zeros', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const ZWSP = cp(0x200B);
+    const FW4 = cp(0xFF14), AI4 = cp(0x0664), MATH2 = cp(0x1D7DA);
+    const MATH3 = cp(0x1D7DB), MATH1 = cp(0x1D7D9), MATH6 = cp(0x1D7DE);
+    // Unicode-digit ordinals with a hidden seam bind numbered, never bare John.
+    for (const form of [`${FW4}${ZWSP}th John 1:1`, `${AI4}${ZWSP}th John 1:1`]) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${JSON.stringify([...form])} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book')).toBe(true);
+    }
+    expect(extractScriptureRefs(`${MATH2}${ZWSP}nd John 1:1`)).toEqual(['2 John 1:1']);
+    // Finding 3: adjacent Unicode decimal blocks no longer corrupt into phantom zeros.
+    expect(extractScriptureRefs(`John ${MATH3}:${MATH1}${MATH6}`)).toEqual(['John 3:16']);
+    expect(extractScriptureRefs(`${MATH2} John 1:1`)).toEqual(['2 John 1:1']);
+    // Positive Unicode-digit citations extract the correct single ref (no phantom).
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${cp(0x0663)}:${cp(0x0661)}${cp(0x0666)}`))[0].status).toBe('valid'); // Arabic John 3:16
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${cp(0xFF13)}:${cp(0xFF11)}${cp(0xFF16)}`))[0].status).toBe('valid'); // fullwidth John 3:16
+  });
+
+  it('folds a superscript digit that FORMS a chapter/verse number (not dropped); still deletes trailing footnotes', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP1 = cp(0xB9), SUP5 = cp(0x2075), SUP6 = cp(0x2076);
+    // Empty verse slot filled by superscript → folded to the real verse (NOT dropped).
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${SUP1}${SUP6}`))[0].status).toBe('valid'); // John 3:16
+    // A real but out-of-range/invalid ref written with a superscript verse is CAUGHT, not silently dropped.
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah 4:${SUP5}`))[0].status).toBe('invalid_book');
+    // A between-digits superscript is number data → the ref is flagged (not silently rewritten to 3:15).
+    const between = validateScriptureRefs(extractScriptureRefs(`John 3:1${SUP6}5`));
+    expect(between.some((r) => r.status !== 'valid' && r.status !== 'chapter_checked')).toBe(true);
+    // A trailing footnote is still deleted.
+    expect(extractScriptureRefs(`John 3:16${SUP1}`)).toEqual(['John 3:16']);
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {

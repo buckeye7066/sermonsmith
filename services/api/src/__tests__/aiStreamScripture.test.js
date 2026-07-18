@@ -747,8 +747,8 @@ describe('/stream fabricated-Scripture screen', () => {
       [`4${ZWSP}th John 1:1 → invalid_book`, `4${ZWSP}th John 1:1`, true],
       [`superscript 2${Nd} John 1:1 → 2 John (valid)`, `2${Nd} John 1:1`, false],
       [`superscript 4${Th} John 1:1 → invalid_book`, `4${Th} John 1:1`, true],
-      [`footnote John 3:16${SUP1} → valid John 3:16`, `John 3:16${SUP1}`, false],
-      [`footnote John${SUP2}:1 → not minted`, `John${SUP2}:1`, false],
+      [`trailing footnote John 3:16${SUP1} → valid John 3:16`, `John 3:16${SUP1}`, false],
+      [`empty-slot superscript John${SUP2}:1 → folds to valid John 2:1`, `John${SUP2}:1`, false],
       ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
       ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
     ]);
@@ -765,6 +765,25 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(inv.body.scripture_unverified).toBe(true);
     expect(inv.body.scripture.fabricated).toBe(inv.body.scripture.checked);
     expect(inv.body.scripture.fabricated).toBeGreaterThan(0);
+  });
+
+  // --- Round-35: Unicode-digit ordinals, superscript number-data vs footnote,
+  // and phantom-zero digit folding — over /invoke AND /stream (success + error). ---
+  it('/invoke + /stream bind Unicode-digit ordinals and fold superscript number data (no phantom zeros)', async () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const ZWSP = cp(0x200B);
+    const FW4 = cp(0xFF14), MATH2 = cp(0x1D7DA), MATH3 = cp(0x1D7DB), MATH1 = cp(0x1D7D9), MATH6 = cp(0x1D7DE);
+    const SUP1 = cp(0xB9), SUP6 = cp(0x2076), SUP5 = cp(0x2075);
+    await runR25(app, [
+      [`fullwidth ${FW4}${ZWSP}th John 1:1 → invalid_book`, `${FW4}${ZWSP}th John 1:1`, true],
+      [`math ${MATH2}${ZWSP}nd John 1:1 → 2 John (valid)`, `${MATH2}${ZWSP}nd John 1:1`, false],
+      [`math digits John ${MATH3}:${MATH1}${MATH6} → John 3:16 (valid, no phantom)`, `John ${MATH3}:${MATH1}${MATH6}`, false],
+      [`superscript verse John 3:${SUP1}${SUP6} → John 3:16 (valid, folded)`, `John 3:${SUP1}${SUP6}`, false],
+      [`superscript verse Hezekiah 4:${SUP5} → invalid_book (not dropped)`, `Hezekiah 4:${SUP5}`, true],
+      [`trailing footnote John 3:16${SUP1} → valid John 3:16`, `John 3:16${SUP1}`, false],
+      ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
+      ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
+    ]);
   });
 
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
