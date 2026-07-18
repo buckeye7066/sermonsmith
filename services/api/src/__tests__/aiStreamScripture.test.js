@@ -374,6 +374,25 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(na).not.toBe(nb);
   });
 
+  it('catches an INVISIBLE (zero-width / C1 / DEL) separator split citation on /invoke and /stream', async () => {
+    for (const cp of [0x200b, 0x2060, 0xfeff, 0x00ad, 0x7f, 0x9f]) {
+      const sep = String.fromCharCode(cp);
+      STREAM_TEXT = JSON.stringify({ cross_references: [`Hezekiah${sep}4:5`] });
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      expect(inv.status, `/invoke U+${cp.toString(16)}`).toBe(422);
+      expect(inv.body.scripture_unverified).toBe(true);
+
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+      expect(parseTrailer(str).scripture.ok, `/stream U+${cp.toString(16)}`).toBe(false);
+    }
+  });
+
   it('normalizes a JSON-ESCAPED control-split citation before screening (server /stream + /invoke)', async () => {
     const RSesc = `Hezekiah${RS}4:5`; // decoded control-split; screen must recombine → invalid_book
     STREAM_TEXT = JSON.stringify({ note: RSesc });

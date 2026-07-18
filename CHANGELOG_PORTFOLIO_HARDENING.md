@@ -88,6 +88,9 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 - **A reference hidden with an escaped control character is now caught.** The AI could previously split a fabricated reference using an invisible control character that survived until the response was decoded; the checks now normalize those characters so the reference is recombined and flagged.
 - **The token that authenticates the streaming validation result is now unique per response and delivered privately** (in a response header the AI never sees), instead of a fixed value baked into the app. An echoed or guessed token no longer works. No change for genuine successful responses.
 
+## Round-17 pass — closes invisible-character evasions in reference detection (2026-07-18)
+- **A fabricated reference split by an invisible character is now caught.** Beyond the control characters handled previously, references hidden using zero-width spaces, joiners, the byte-order mark, soft hyphens, and other invisible formatting characters are now normalized so the reference is recombined and flagged — on both the streaming and non-streaming AI paths. No change for genuine references or ordinary text.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

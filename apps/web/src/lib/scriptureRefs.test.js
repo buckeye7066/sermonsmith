@@ -229,15 +229,24 @@ describe('validateAiSermon', () => {
     expect(canon('II Tim 1:7')).toEqual(['2 Timothy 1:7']);
   });
 
-  it('normalizes decoded C0 control separators (RS/US/GS) so a control-split citation is caught', () => {
-    for (const code of [0x1c, 0x1d, 0x1e, 0x1f, 0x01]) {
-      const ctrl = String.fromCharCode(code);
-      // A control char between book and chapter:verse recombines to a real ref.
-      expect(extractScriptureRefs(`Hezekiah${ctrl}4:5`)).toContain('Hezekiah 4:5');
-      expect(validateScriptureRefs(extractScriptureRefs(`John${ctrl}3:16`))[0].status).toBe('valid');
+  it('normalizes the full INVISIBLE separator set (C0/C1/DEL controls + Cf format) before extraction', () => {
+    const codes = [
+      0x01, 0x1c, 0x1d, 0x1e, 0x1f, // C0 controls (incl. FS/GS/RS/US)
+      0x7f, 0x80, 0x85, 0x9f,       // DEL + C1 controls (incl. NEL)
+      0x200b, 0x200c, 0x200d,       // zero-width space / non-joiner / joiner
+      0x2060, 0xfeff, 0x00ad,       // word joiner, BOM/ZWNBSP, soft hyphen
+    ];
+    for (const code of codes) {
+      const sep = String.fromCharCode(code);
+      // An invisible separator between book and chapter:verse recombines to a real ref.
+      expect(extractScriptureRefs(`Hezekiah${sep}4:5`), `U+${code.toString(16)}`).toContain('Hezekiah 4:5');
+      expect(validateScriptureRefs(extractScriptureRefs(`John${sep}3:16`))[0].status).toBe('valid');
+      // Prefix stays bound to the book through an invisible separator.
+      expect(extractScriptureRefs(`II${sep}John 1:1`)).toEqual(['2 John 1:1']);
     }
-    // Ordinary valid refs still validate.
+    // Ordinary valid refs still validate; ordinary text isn't corrupted.
     expect(extractScriptureRefs('See John 3:16')).toContain('John 3:16');
+    expect(extractScriptureRefs('an ordinary sentence with no reference')).toEqual([]);
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {

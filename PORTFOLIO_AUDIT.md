@@ -361,3 +361,20 @@ The server's delta sanitizer replaced only LITERAL U+001E, so a schema response 
 The round-15 marker was a FIXED literal shipped in the browser bundle, so a malicious user/model could know and echo it. **Fix:** replaced with a **per-stream crypto-random nonce** (`crypto.randomBytes(16)`) generated per `/stream` request, delivered **out of band** in the `X-Stream-Trailer-Nonce` response header set BEFORE any model bytes (and exposed via CORS `exposedHeaders` for cross-origin/Electron clients), and written immediately after the RS before the trailer JSON. The client reads the header and requires that exact nonce after the last RS before parsing; the RS-strip stays as defense in depth. The model never sees the nonce (header-only, set pre-body) and it changes every stream, so an echoed value from model output or a prior stream is useless. **Tests:** wrong nonce → 502; missing nonce header → 502; the authentic per-stream nonce resolves; two streams issue different nonces; the model-injected fake trailer (no nonce prefix) → 502.
 
 **Confirmed (round-16):** decoded C0/RS separators in content are normalized to spaces before screening (an escaped control-split citation is caught on `/invoke` and `/stream`); and the trailer is authenticated by a per-stream out-of-band crypto nonce (static-marker echo no longer works).
+
+---
+
+## Round-17 pass — INVISIBLE non-C0 separators still bypassed screening — FIXED
+
+### R17-1 — [HIGH] Invisible non-C0 separators bypassed Scripture screening — FIXED
+Round-16 normalized C0 controls and selected Unicode spaces, but `U+200B` (zero-width space), `U+007F` (DEL), the C1 controls `U+0080–U+009F` (incl. `U+0085` NEL), and other invisible format characters are NOT matched by JS `\s` and were not normalized — so `"Hezekiah<ZWSP>4:5"` / `"Hezekiah<DEL>4:5"` returned NO refs and `validateAiContent` reported `allValid:true`. The `/stream` and `/invoke` parsed-value screens then wrote/returned a clean success.
+
+**Fix** (`packages/shared/scripture/index.js`): `normalizeCitationText` now maps the FULL invisible/format threat set to a space before extraction, using Unicode property classes (robust and future-proof, and lint-safe — no literal control chars):
+- `\p{Cc}` → space (all control chars: C0 + C1 + DEL), **except** real whitespace `\t\n\r`;
+- `\p{Cf}` → space (all Unicode FORMAT characters: `U+200B–U+200D` zero-width space/non-joiner/joiner, `U+2060` word joiner, `U+FEFF` BOM/ZWNBSP, `U+00AD` soft hyphen, and every other default-ignorable format code point).
+
+This replaces (and subsumes) round-16's dynamic C0 regex. It runs inside `extractScriptureRefs`, so every consumer benefits — the persist validators (`validateAiSermon`/`validateAiContent`), the flattened-join scan, and the `/invoke` + `/stream` screens (success AND started-error paths, which scan the decoded parsed value). A prefix stays bound through an invisible separator (`II<ZWSP>John 1:1` → `2 John 1:1`).
+
+**Tests:** `Hezekiah<ZWSP>4:5`, `<DEL>`, `<WJ>`, `<BOM>`, `<SHY>`, C1 (`U+0080`/`U+009F`) and C0 splits, plus `II<ZWSP>John 1:1` and a split-array variant → all caught (`scripture.ok:false`) on `/invoke` AND `/stream` (success + started-error); a normal-space citation still validates; ordinary text isn't corrupted.
+
+**Confirmed (round-17):** the full invisible-separator set (C0/C1/DEL controls via `\p{Cc}`, all format chars via `\p{Cf}`) is normalized to spaces before extraction and covered on `/invoke` and `/stream` — an invisible-char-split citation can no longer bypass the screen.

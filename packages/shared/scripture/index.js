@@ -144,27 +144,20 @@ const MAX_VERSE = 176;
 // so the tolerant matcher does not over-match.
 // ---------------------------------------------------------------------------
 
-// C0 control characters (U+0000–U+001F) EXCEPT tab/newline/CR. A model can hide
-// a citation behind a JSON-escaped separator ("Hezekiah4:5"): the wire has
-// no literal control byte to strip, but once the JSON is decoded the string
-// carries a real U+001E (or other C0 control) that the reference regex does not
-// treat as whitespace — so "Hezekiah<RS>4:5" would slip through. Normalizing
-// every decoded C0 control to a SPACE recombines the split so the reference is
-// caught (by the direct or the flattened-join scan). Built dynamically so
-// eslint's no-control-regex does not flag a literal control range.
-const C0_CONTROL_RE = new RegExp(
-  `[${Array.from({ length: 0x20 }, (_, i) => i)
-    .filter((i) => i !== 0x09 && i !== 0x0a && i !== 0x0d)
-    .map((i) => `\\u${i.toString(16).padStart(4, '0')}`)
-    .join('')}]`,
-  'g',
-);
-
 function normalizeCitationText(text) {
   return String(text)
-    // Decoded C0 control chars (incl. RS/US/GS/FS) → space, so an escaped
-    // control-split citation recombines and is caught.
-    .replace(C0_CONTROL_RE, ' ')
+    // Control characters (C0 + C1 + DEL, i.e. Unicode Cc) → space, EXCEPT real
+    // whitespace tab/newline/CR. A model can split a citation with an invisible
+    // control byte that is JSON-escaped on the wire and decodes to a real
+    // separator the reference regex does not treat as whitespace; mapping it to
+    // a space recombines the split. \p{Cc} also covers C1 (U+0080–U+009F, incl.
+    // NEL U+0085) and DEL (U+007F).
+    .replace(/\p{Cc}/gu, (c) => (c === '\t' || c === '\n' || c === '\r' ? c : ' '))
+    // Unicode FORMAT characters (Cf): zero-width space/non-joiner/joiner
+    // (U+200B–U+200D), word joiner (U+2060), BOM/ZWNBSP (U+FEFF), soft hyphen
+    // (U+00AD), and every other default-ignorable format code point → space, so
+    // an INVISIBLE separator can't split "Hezekiah<ZWSP>4:5" past the screen.
+    .replace(/\p{Cf}/gu, ' ')
     // Unicode spaces → ASCII space.
     .replace(/[   -   　]/g, ' ')
     // Fullwidth digits → ASCII digits.
