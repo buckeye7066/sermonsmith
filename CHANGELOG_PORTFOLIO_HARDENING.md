@@ -74,6 +74,9 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 - **A slow/unavailable audit log can no longer swallow the failure signal** — the validation result is always sent to the app first, and record-keeping happens afterward.
 - **The failure result on a mid-stream error is now checked as thoroughly as a normal one** (including references split across list items), so a fabricated citation is flagged even when the model connection drops right after producing it.
 
+## Round-13 pass — the app only trusts a clean, well-formed "all clear" (2026-07-18)
+- **The app now verifies the streaming validation result is exact and self-consistent before trusting it.** A result that claims success but includes contradictory evidence (e.g. says it's clean yet reports a fabricated reference), carries unexpected extra fields, or has duplicated/tampered fields is now rejected and retried, rather than accepted. No change for genuine successful responses.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

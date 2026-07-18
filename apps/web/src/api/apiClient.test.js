@@ -189,6 +189,41 @@ describe('StreamLLM result-trailer contract', () => {
     expect(text).toBe('Grace — John 3:16');
   });
 
+  it('STRICT trailer: rejects contradictory, unknown-key, and duplicate-key success trailers', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const { api } = await loadClient();
+
+    // Each raw trailer parses to an object with ok/truncated/scripture.ok truthy,
+    // but is invalid (contradiction, unknown key, or duplicate key) → must throw.
+    const rawBadTrailers = [
+      // fabricated:1 contradicts scripture.ok:true
+      '{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1,"fabricated":1}}',
+      // unknown top-level key
+      '{"ok":true,"truncated":false,"scripture":{"ok":true},"extra":"ignored"}',
+      // unknown scripture key
+      '{"ok":true,"truncated":false,"scripture":{"ok":true,"bogus":1}}',
+      // duplicate top-level key: last-wins would flip ok:false → ok:true
+      '{"ok":false,"ok":true,"truncated":false,"scripture":{"ok":true}}',
+      // duplicate scripture key
+      '{"ok":true,"truncated":false,"scripture":{"ok":false,"ok":true}}',
+      // non-numeric count
+      '{"ok":true,"truncated":false,"scripture":{"ok":true,"fabricated":"0"}}',
+    ];
+    for (const raw of rawBadTrailers) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse(`draft${RS}${raw}`)));
+      await expect(
+        api.integrations.Core.StreamLLM({ prompt: 'p' }),
+        `trailer must be rejected: ${raw}`,
+      ).rejects.toMatchObject({ status: 502 });
+    }
+
+    // A fully-valid, consistent trailer WITH counts resolves.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      streamResponse(`John 3:16${RS}{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1,"fabricated":0}}`),
+    ));
+    expect(await api.integrations.Core.StreamLLM({ prompt: 'p' })).toBe('John 3:16');
+  });
+
   it('throws (scriptureUnverified) when the streamed draft contained fabricated Scripture', async () => {
     vi.stubEnv('VITE_API_URL', 'https://api.example');
     const body = '{"points":["Hezekiah 4:5"]}' + '\n' + RS + '{"ok":false,"truncated":false,"scripture":{"ok":false,"checked":1,"fabricated":1}}';

@@ -306,3 +306,19 @@ The `started` catch path `await`ed `auditAiCall` **before** `writeTrailerOnce`; 
 Success screened raw text AND the decoded JSON (`screenStreamedScripture(full, parsedValue)`), but the error path screened only raw `full` — so for a schema request that emitted complete JSON `{"cross_references":["Hezekiah","4:5"]}` then threw, the raw string had no whitespace citation and the error trailer wrongly reported `scripture.ok:true`. **Fix:** the schema context is hoisted (`responseSchema`) and a shared `screenAccumulated()` helper re-runs the SAME raw+parsed scan (flattened-join + parsed-value) the success path uses, falling back to raw-only if the accumulated text doesn't parse. **Test:** a split-array citation and a plain citation in complete JSON, each followed by an upstream throw → the trailer carries `scripture.ok:false`.
 
 **Confirmed (round-12):** the client resolves ONLY on a fully-valid positive trailer (`ok && !truncated && scripture.ok`, else throw); the failure trailer is written before any awaited audit (audit can't block the protocol); and the error-path screen uses the same raw+parsed scan as success.
+
+---
+
+## Round-13 pass — client accepted internally-contradictory success trailers — FIXED
+
+### R13-1 — [MEDIUM] Client accepted tampered/contradictory success trailers — FIXED
+R12's positive check (`ok===true && truncated===false && scripture.ok===true`) did not reject **unknown keys**, **duplicate keys**, or **evidence that contradicts the verdict**. Accepted-but-should-fail cases: `{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1,"fabricated":1}}` (fabricated:1 contradicts ok:true); a trailer with an unknown `"extra"` key; and a duplicate-key `{"ok":false,"ok":true,…}` where `JSON.parse` silently keeps the last value (ok:true), letting a corrupted/tampered trailer overwrite a failure with success.
+
+**Fix** (`apps/web/src/api/apiClient.js`) — validate the trailer against an EXACT STRICT schema before resolving (`isFullyValidSuccessTrailer`):
+1. **Unknown-key rejection**: top-level keys allowlisted to `{ok, truncated, scripture}`, scripture keys to `{ok, checked, fabricated}`; any extra key → throw 502.
+2. **Duplicate-key rejection**: `trailerHasDuplicateKeys` scans the raw trailer text tracking one key-set per open object, so `{"ok":false,"ok":true}` is rejected (not silently last-wins) at any level.
+3. **Verdict/evidence consistency**: all verdict fields strictly boolean and present (r12); when scripture counts are present they must be numeric with `fabricated===0` (and `checked>=0`) for `scripture.ok:true` — a `scripture.ok:true` with `fabricated>0` or a non-numeric count throws 502.
+
+The server already includes the counts it screened (`{ok, checked, fabricated}`), so real trailers satisfy the consistency check; the client accepts a countless `scripture:{ok:true}` too (keeps r12 green). Trailer wire shape unchanged → no API change. **Tests:** `fabricated:1`-with-`ok:true`, an unknown top-level or scripture key, a duplicate `ok` key, and a non-numeric count all throw; a consistent `{ok:true,truncated:false,scripture:{ok:true,checked:N,fabricated:0}}` resolves; all r12 positive-validation tests stay green.
+
+**Confirmed (round-13):** the client rejects unknown keys, duplicate keys, and evidence/verdict-inconsistent trailers, resolving ONLY on an exact, consistent, positive trailer.

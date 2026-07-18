@@ -339,6 +339,69 @@ const auth = {
 // STREAM_RESULT_SEPARATOR in services/api/src/routes/ai.js.
 const STREAM_RESULT_SEPARATOR = String.fromCharCode(0x1e);
 
+// Duplicate-key detector for a small JSON trailer. JSON.parse silently keeps the
+// LAST value for a repeated key, so a tampered `{"ok":false,"ok":true}` would
+// otherwise parse to ok:true. We scan the raw text, tracking one key-set per
+// open object (arrays have no keys), and report a repeat AT A GIVEN LEVEL. Only
+// used on the tiny result trailer.
+function trailerHasDuplicateKeys(text) {
+  const stack = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === '{') { stack.push(new Set()); i++; continue; }
+    if (ch === '}') { stack.pop(); i++; continue; }
+    if (ch === '[') { stack.push(null); i++; continue; } // array level: no keys
+    if (ch === ']') { stack.pop(); i++; continue; }
+    if (ch === '"') {
+      let j = i + 1;
+      let s = '';
+      while (j < n) {
+        if (text[j] === '\\') { s += text[j + 1]; j += 2; continue; }
+        if (text[j] === '"') break;
+        s += text[j]; j += 1;
+      }
+      let k = j + 1;
+      while (k < n && /\s/.test(text[k])) k += 1;
+      if (text[k] === ':') { // this string is an object KEY
+        const top = stack[stack.length - 1];
+        if (top instanceof Set) {
+          if (top.has(s)) return true;
+          top.add(s);
+        }
+        i = k + 1; continue;
+      }
+      i = j + 1; continue; // it was a string VALUE
+    }
+    i += 1;
+  }
+  return false;
+}
+
+// EXACT, consistent, positive success-trailer check. Resolve ONLY on a clean,
+// well-formed success trailer: no unknown keys, no duplicate keys, verdict
+// fields strictly boolean and present, and evidence CONSISTENT with the verdict
+// (scripture.ok:true requires fabricated:0 and numeric, non-negative counts).
+// Anything else fails closed.
+const TRAILER_TOP_KEYS = new Set(['ok', 'truncated', 'scripture']);
+const TRAILER_SCRIPTURE_KEYS = new Set(['ok', 'checked', 'fabricated']);
+function isFullyValidSuccessTrailer(result, rawText) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
+  if (trailerHasDuplicateKeys(rawText)) return false;
+  if (Object.keys(result).some((key) => !TRAILER_TOP_KEYS.has(key))) return false;
+  if (result.ok !== true || result.truncated !== false) return false;
+
+  const s = result.scripture;
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return false;
+  if (Object.keys(s).some((key) => !TRAILER_SCRIPTURE_KEYS.has(key))) return false;
+  if (s.ok !== true) return false;
+  // Evidence must not contradict the verdict when present.
+  if ('fabricated' in s && (typeof s.fabricated !== 'number' || s.fabricated !== 0)) return false;
+  if ('checked' in s && (typeof s.checked !== 'number' || !(s.checked >= 0))) return false;
+  return true;
+}
+
 const integrations = {
   Core: {
     // When the caller declares a `response_json_schema`, coerce the response to
@@ -449,21 +512,20 @@ const integrations = {
         throw error;
       }
       const text = full.slice(0, sepIdx).replace(/\n$/, '');
+      const rawTrailer = full.slice(sepIdx + 1);
       let result = null;
-      try { result = JSON.parse(full.slice(sepIdx + 1)); } catch { /* malformed trailer */ }
-      // POSITIVE validation: resolve ONLY on an explicit, fully-valid success
-      // trailer — ok===true AND truncated===false AND scripture.ok===true, all
-      // present and strictly boolean. Anything else (missing/malformed trailer,
-      // a non-boolean or missing field, an inconsistent {ok:true,truncated:true}
-      // or {ok:true,scripture:{ok:false}}, or a bare {}) is treated as FAILURE.
-      // Absence of explicit success is failure, never success — a streamed
-      // preview can carry fabricated Scripture the server only confirms clean in
-      // the trailer, so the UI must never mark it validated without one.
-      const fullyValid = !!result
-        && result.ok === true
-        && result.truncated === false
-        && !!result.scripture
-        && result.scripture.ok === true;
+      try { result = JSON.parse(rawTrailer); } catch { /* malformed trailer */ }
+      // POSITIVE + STRICT validation: resolve ONLY on an exact, consistent,
+      // fully-valid success trailer (see isFullyValidSuccessTrailer) — the right
+      // keys and nothing more, no duplicate keys (JSON.parse's last-wins can't
+      // overwrite a failure with success), verdict fields strictly boolean and
+      // present, and evidence CONSISTENT with the verdict (scripture.ok:true
+      // requires fabricated:0). Anything else — missing/malformed/contradictory
+      // trailer — is FAILURE. Absence of explicit, coherent success is never
+      // success: a streamed preview can carry fabricated Scripture the server
+      // only confirms clean in the trailer, so the UI must never mark it
+      // validated without a clean one.
+      const fullyValid = isFullyValidSuccessTrailer(result, rawTrailer);
       if (!fullyValid) {
         const scriptureFailed = !!(result && result.scripture && result.scripture.ok === false);
         const error = new Error(
