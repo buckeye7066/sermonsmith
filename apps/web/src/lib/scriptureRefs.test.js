@@ -755,6 +755,48 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('won the 3rd race yesterday')).toEqual([]);
   });
 
+  it('binds an ordinal prefix with HIDDEN/combining chars at the digit↔suffix seam (no bare-John leak)', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const ZWSP = cp(0x200B);
+    const CGJ = cp(0x034F);   // combining grapheme joiner (default-ignorable)
+    const ACUTE = cp(0x0301); // combining mark
+    const Th = cp(0x1D57) + cp(0x02B0); // superscript ᵗʰ
+    const SUP4 = cp(0x2074);            // superscript ⁴
+    // A hidden/combining char inside the ordinal is deleted BEFORE the boundary
+    // pass, so the ordinal binds as one token (never split into a bare John).
+    expect(extractScriptureRefs(`2${ZWSP}nd John 1:1`)).toEqual(['2 John 1:1']);
+    for (const form of [`4${ZWSP}th John 1:1`, `4${CGJ}th. John 1:1`, `4${ACUTE}th- John 1:1`, `${SUP4}${ZWSP}${Th} John 1:1`]) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${JSON.stringify([...form])} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book')).toBe(true);
+    }
+  });
+
+  it('folds a SUPERSCRIPT ordinal only in ordinal-prefix position; a superscript FOOTNOTE marker is left alone', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP1 = cp(0xB9), SUP2 = cp(0xB2);
+    const Nd = cp(0x207F) + cp(0x1D48); // superscript ⁿᵈ
+    const Th = cp(0x1D57) + cp(0x02B0); // superscript ᵗʰ
+    // Ordinal-prefix superscript before a numbered stem → numbered book.
+    expect(extractScriptureRefs(`2${Nd} John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`${SUP2}${Nd} John 1:1`)).toEqual(['2 John 1:1']);
+    const four = extractScriptureRefs(`4${Th} John 1:1`);
+    expect(four.includes('John 1:1')).toBe(false);
+    expect(validateScriptureRefs(four).some((r) => r.status === 'invalid_book')).toBe(true);
+    // A superscript FOOTNOTE marker adjacent to a citation must NOT mutate it:
+    // "John 3:16¹" stays valid John 3:16 (NOT 3:161); "John²:1"/"Rev²:1" mint nothing.
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:16${SUP1}`))[0].status).toBe('valid');
+    expect(extractScriptureRefs(`John 3:16${SUP1}`)).toEqual(['John 3:16']);
+    expect(extractScriptureRefs(`John${SUP2}:1`)).toEqual([]);
+    expect(extractScriptureRefs(`Rev${SUP2}:1`)).toEqual([]);
+    // (B) span-suppression still preserves a genuinely un-prefixed bare John that co-occurs.
+    const mixed = extractScriptureRefs(`John 1:1 and 2${Nd} John 1:1`);
+    expect(mixed).toContain('John 1:1');
+    expect(mixed).toContain('2 John 1:1');
+    // r30 bare-numeric outline intact.
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

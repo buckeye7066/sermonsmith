@@ -733,6 +733,40 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(inv.body.scripture.fabricated).toBeGreaterThan(0);
   });
 
+  // --- Round-34: hidden/combining chars inside an ordinal, and superscript
+  // FOOTNOTE markers (bounded fold) — over /invoke AND /stream (success +
+  // error). Split for the 30/min AI rate limit. ---
+  it('/invoke + /stream: ordinal-with-hidden binds (no bare leak), footnote superscripts do not mutate citations', async () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const ZWSP = cp(0x200B);
+    const Nd = cp(0x207F) + cp(0x1D48); // ⁿᵈ
+    const Th = cp(0x1D57) + cp(0x02B0); // ᵗʰ
+    const SUP1 = cp(0xB9), SUP2 = cp(0xB2);
+    await runR25(app, [
+      [`2${ZWSP}nd John 1:1 → 2 John (valid)`, `2${ZWSP}nd John 1:1`, false],
+      [`4${ZWSP}th John 1:1 → invalid_book`, `4${ZWSP}th John 1:1`, true],
+      [`superscript 2${Nd} John 1:1 → 2 John (valid)`, `2${Nd} John 1:1`, false],
+      [`superscript 4${Th} John 1:1 → invalid_book`, `4${Th} John 1:1`, true],
+      [`footnote John 3:16${SUP1} → valid John 3:16`, `John 3:16${SUP1}`, false],
+      [`footnote John${SUP2}:1 → not minted`, `John${SUP2}:1`, false],
+      ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
+      ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
+    ]);
+  });
+
+  it('/invoke: an ordinal hidden-seam fabricated book is flagged and never rebinds to a bare valid John', async () => {
+    STREAM_TEXT = JSON.stringify({ note: `4${String.fromCodePoint(0x200B)}th John 1:1` });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status).toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+    expect(inv.body.scripture.fabricated).toBe(inv.body.scripture.checked);
+    expect(inv.body.scripture.fabricated).toBeGreaterThan(0);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

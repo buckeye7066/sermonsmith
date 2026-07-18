@@ -215,19 +215,15 @@ const ARCHAIC_ROMAN = {
 for (const [ch, val] of Object.entries(ARCHAIC_ROMAN)) ROMAN_NUMERAL_FOLD.set(ch, val);
 const ROMAN_NUMERAL_RE = /[Ⅰ-ↈ]/g;
 
-// Superscript / compatibility ORDINAL characters → their ASCII form, folded in
-// the shared normalization (ahead of pass 1) so a look-alike ordinal prefix
-// ("2ⁿᵈ", "4ᵗʰ", "1ˢᵗ", "3ʳᵈ", incl. superscript digits "²ⁿᵈ") is recognized as
-// "2nd"/"4th"/"1st"/"3rd" in the SAME pass that would otherwise emit a bare
-// "John". Covers the superscript digits (No, not Nd — decimalDigitToAscii does
-// NOT catch these) and the modifier/superscript letters used in ordinal
-// suffixes (s t n d r h). NFKC would fold these, but pass 1 does not NFKC-fold,
-// so we fold them explicitly here.
+// Superscript / compatibility ORDINAL characters → their ASCII form. Used ONLY
+// by the BOUNDED ordinal-prefix normalization (ORDINAL_PREFIX_RE below), never
+// globally: a global fold would corrupt FOOTNOTE markers adjacent to a citation
+// ("John 3:16¹" → "John 3:161"; "John²:1" → minted "John 2:1"). Superscript
+// digits are category No (not Nd), so decimalDigitToAscii does not catch them.
 const SUPERSCRIPT_FOLD = {
   '¹': '1', '²': '2', '³': '3', '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
   'ˢ': 's', 'ᵗ': 't', 'ⁿ': 'n', 'ᵈ': 'd', 'ʳ': 'r', 'ʰ': 'h',
 };
-const SUPERSCRIPT_RE = new RegExp(`[${Object.keys(SUPERSCRIPT_FOLD).join('')}]`, 'g');
 
 function normalizeCitationText(text) {
   return String(text)
@@ -241,9 +237,6 @@ function normalizeCitationText(text) {
     // Unicode-Roman PREFIX is consumed by the matcher in the normal pass too (no
     // spurious bare-book duplicate). Targeted — does not touch ordinary accents.
     .replace(ROMAN_NUMERAL_RE, (c) => ROMAN_NUMERAL_FOLD.get(c) || c)
-    // Superscript / compatibility ordinal characters → ASCII ("2ⁿᵈ"→"2nd"), so a
-    // look-alike ordinal-suffix PREFIX is bound in pass 1 (no bare-book leak).
-    .replace(SUPERSCRIPT_RE, (c) => SUPERSCRIPT_FOLD[c] || c)
     // Control characters (C0 + C1 + DEL, i.e. Unicode Cc) → space, EXCEPT real
     // whitespace tab/newline/CR. \p{Cc} also covers C1 (incl. NEL U+0085) and
     // DEL (U+007F). GLOBAL → space keeps a numeral-prefix↔book seam ("II​John")
@@ -432,6 +425,47 @@ const ORDINAL_NUMBERED_RE = new RegExp(
   `\\b(${ORDINAL_SUFFIX_PREFIX})\\s*[.\\-]?\\s*(${COMPACT_STEMS.join('|')})(?:\\b|(?=${CV_LOOKAHEAD}))`,
   'giu',
 );
+
+// BOUNDED ordinal-prefix normalizer (applied EARLY in normalizeCitationText,
+// before the hidden→space passes). Matches an ordinal PREFIX whose digits and/or
+// suffix letters may be ASCII or SUPERSCRIPT and may have hidden/combining chars
+// (\p{Cf}, \p{Default_Ignorable_Code_Point}, \p{M} — incl. U+200B) spliced in —
+// ONLY when it sits immediately before a NUMBERED-book stem. `foldOrdinalPrefix`
+// rewrites it to the bare ASCII ordinal ("4​th"/"4́th"/"⁴ᵗʰ"→"4th"), deleting the
+// internal hidden chars so the digit↔suffix seam is never turned into a space,
+// and folding superscripts. Requiring the ordinal SUFFIX + a following stem
+// bounds the fold so a lone superscript footnote marker is never touched.
+const ORD_HIDDEN = '[\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}]';
+const ORD_DIGIT = '[0-9¹²³⁰⁴⁵⁶⁷⁸⁹]';
+const ORD_SUFFIX = `(?:[sˢ]${ORD_HIDDEN}*[tᵗ]|[nⁿ]${ORD_HIDDEN}*[dᵈ]|[rʳ]${ORD_HIDDEN}*[dᵈ]|[tᵗ]${ORD_HIDDEN}*[hʰ])`;
+const ORD_SEP = `(?:[\\s.\\-]|${ORD_HIDDEN})`;
+// Start boundary is a Unicode-aware negative lookbehind (NOT `\b`, which does not
+// fire before a SUPERSCRIPT digit — category No, not a word char — so "⁴ᵗʰ" would
+// be missed): the ordinal must not start mid-word or mid-number.
+const ORDINAL_PREFIX_RE = new RegExp(
+  `(?<![\\p{L}\\p{N}])(${ORD_DIGIT}+)${ORD_HIDDEN}*(${ORD_SUFFIX})(?=${ORD_SEP}*(?:${COMPACT_STEMS.join('|')}))`,
+  'giu',
+);
+function foldOrdinalPrefix(_m, digits, suffix) {
+  const d = [...digits].map((c) => SUPERSCRIPT_FOLD[c] || c).join('');
+  const s = [...suffix].map((c) => SUPERSCRIPT_FOLD[c] || c).filter((c) => /[a-z]/i.test(c)).join('');
+  return d + s;
+}
+// Any superscript digit / ordinal letter NOT consumed by the ordinal-prefix fold
+// is a FOOTNOTE marker or stray — deleted (never folded into a number).
+const STRAY_SUPERSCRIPT_RE = new RegExp(`[${Object.keys(SUPERSCRIPT_FOLD).join('')}]`, 'g');
+// Scrub superscript look-alikes on the RAW text, run FIRST in every pass — ahead
+// of NFKC (pass 2) and the shadow's hidden→space handling (pass 3), which would
+// otherwise fold a footnote superscript into a chapter/verse digit or split an
+// ordinal's digit↔suffix seam into a space. (1) Fold an ordinal prefix that sits
+// before a numbered stem (deleting hidden/combining chars inside it, folding
+// superscripts) to the bare ASCII ordinal; (2) delete any REMAINING superscript
+// (a footnote marker), so "John 3:16¹" → "John 3:16" and "John²:1" mints nothing.
+function scrubSuperscripts(text) {
+  return String(text)
+    .replace(ORDINAL_PREFIX_RE, foldOrdinalPrefix)
+    .replace(STRAY_SUPERSCRIPT_RE, '');
+}
 
 // Canonical lowercase book key → display (Title Case) for a clean `ref` string.
 const DISPLAY_NAME = {};
@@ -760,16 +794,20 @@ function collectRefs(source, gate) {
 
 export function extractScriptureRefs(text) {
   if (!text) return [];
+  // Scrub superscript look-alikes FIRST (fold ordinal-prefix superscripts +
+  // hidden seams before a numbered stem; delete stray footnote superscripts) so
+  // NFKC (pass 2) and the shadow's hidden→space (pass 3) can't corrupt them.
+  const scrubbed = scrubSuperscripts(text);
   // Pass 1: normal normalization (NFC + prefix folds + invisible/zero-width +
   // boundary-aware marks). Any non-stopword "Word N:N" is a candidate.
-  const pass1 = collectRefs(normalizeCitationText(text), looksLikeReference);
+  const pass1 = collectRefs(normalizeCitationText(scrubbed), looksLikeReference);
   // Pass 2: NFKC-fold THEN the SAME global normalization — catches a COMPATIBILITY
-  // prefix (unicode roman/digit/superscript, invisible seam) that pass 1's
-  // targeted folds might miss. NFKC keeps precomposed accents non-ASCII.
-  const pass2 = collectRefs(normalizeCitationText(String(text).normalize('NFKC')), looksLikeReference);
+  // prefix (unicode roman/digit, invisible seam) that pass 1's targeted folds
+  // might miss. NFKC keeps precomposed accents non-ASCII.
+  const pass2 = collectRefs(normalizeCitationText(String(scrubbed).normalize('NFKC')), looksLikeReference);
   // Pass 3: mark-STRIPPED, gated to BOOK-SHAPED tokens — catches a book name a
   // combining mark hid anywhere WITHOUT re-flagging an accented common word.
-  const pass3 = collectRefs(markStrippedText(text), isBookShaped);
+  const pass3 = collectRefs(markStrippedText(scrubbed), isBookShaped);
 
   // (B) SPAN-AWARE CROSS-PASS BARE-BOOK SUPPRESSION. A folded pass (2 or 3) may
   // recognize a look-alike PREFIX that pass 1 did not — turning a spurious bare
