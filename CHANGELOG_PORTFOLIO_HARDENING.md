@@ -81,6 +81,9 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 - **A validation result that repeats a field using disguised (unicode-escaped) spellings is now caught and rejected** — previously such a trick could flip a failure into a fake success.
 - **A success result must now include its supporting evidence (how many references were checked, and zero fabricated)** — a result that omits the evidence is no longer trusted. No change for genuine successful responses.
 
+## Round-15 pass — the AI can no longer fake its own "all clear" (2026-07-18)
+- **The signal that tells the app a streamed answer passed validation is now unforgeable.** Previously, the AI's own output could imitate that signal; if the connection dropped at the wrong moment, the app could mistake the AI's imitation for a genuine server confirmation and show unvalidated content. The server now guarantees only it can produce the signal (and marks it with a private token the model doesn't know), and the app rejects anything that isn't the genuine server-produced confirmation. No change for genuine successful responses.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

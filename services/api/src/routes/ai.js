@@ -71,6 +71,15 @@ export function violatesStringSchema(schema, value) {
 
 const router = Router();
 
+// Server-only, unguessable sentinel written immediately AFTER the RS separator
+// and BEFORE the trailer JSON, making the validation frame unforgeable. The
+// model does not know it (it is in no prompt), and the server replaces any RS
+// byte in model deltas with a space, so a model-injected `<RS>{"ok":true,...}`
+// can neither create a separator nor carry this marker — an interrupted stream
+// with no real server trailer therefore has NO valid frame and fails closed on
+// the client. Keep in sync with STREAM_TRAILER_MARKER in apiClient.js.
+const STREAM_TRAILER_MARKER = 'ss.trailer.v1.9f3a2c7e4b1d68a5:';
+
 // Production-readiness fix: lazy-load OpenAI so the API can boot without
 // the SDK installed (e.g., in CI or in a deployment that has DISABLE_AI=1).
 let _openai = null;
@@ -792,7 +801,9 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
   const writeTrailerOnce = (payload) => {
     if (trailerWritten) return;
     trailerWritten = true;
-    try { res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify(payload)}`); } catch { /* socket closed */ }
+    // Frame = separator + server-only marker + trailer JSON. The marker makes
+    // the frame unforgeable even beyond the RS-stripping of model deltas.
+    try { res.write(`\n${STREAM_RESULT_SEPARATOR}${STREAM_TRAILER_MARKER}${JSON.stringify(payload)}`); } catch { /* socket closed */ }
   };
   // The SAME Scripture screen success uses — raw text AND, for a structured
   // response, the decoded parsed value (flattened-join + parsed scan). The error
@@ -883,8 +894,15 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     for await (const chunk of completion) {
       const delta = chunk?.choices?.[0]?.delta?.content || '';
       if (delta) {
-        full += delta;
-        res.write(delta);
+        // Replace any RS byte the MODEL emits with a space BEFORE forwarding, so
+        // the only RS in the stream is the server's trailer separator (a model
+        // can't inject its own frame). Space (not deletion) also keeps a citation
+        // the model tried to hide with an RS ("John<RS>3:16") detectable by the
+        // screen. `full` accumulates exactly what the client sees, so the screen
+        // and the client's reconstructed text agree.
+        const safeDelta = delta.split(STREAM_RESULT_SEPARATOR).join(' ');
+        full += safeDelta;
+        res.write(safeDelta);
       }
       if (chunk?.choices?.[0]?.finish_reason) {
         finishReason = chunk.choices[0].finish_reason;

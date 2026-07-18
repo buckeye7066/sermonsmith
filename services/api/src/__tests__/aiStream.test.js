@@ -85,6 +85,13 @@ function buildApp() {
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 const tokenFor = (id) => jwt.sign({ userId: id }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
 const RS = String.fromCharCode(0x1e);
+const TRAILER_MARKER = 'ss.trailer.v1.9f3a2c7e4b1d68a5:';
+// The authentic trailer after the RS is prefixed with the server-only marker;
+// strip it to read the JSON.
+const trailerJson = (raw) => {
+  if (!raw.startsWith(TRAILER_MARKER)) throw new Error('missing trailer marker');
+  return JSON.parse(raw.slice(TRAILER_MARKER.length));
+};
 // The result trailer now also carries a canon-independent Scripture screen.
 // The payloads in this suite contain no references, so it is always clean.
 const CLEAN_SCRIPTURE = { ok: true, checked: 0, fabricated: 0 };
@@ -121,7 +128,7 @@ describe('/api/ai/stream — final validator parity', () => {
     expect(res.status).toBe(200);
     const [text, trailer] = res.text.split(RS);
     expect(text.trimEnd()).toBe(payload);
-    expect(JSON.parse(trailer)).toEqual({ ok: true, truncated: false, scripture: CLEAN_SCRIPTURE });
+    expect(trailerJson(trailer)).toEqual({ ok: true, truncated: false, scripture: CLEAN_SCRIPTURE });
     const audit = auditRows().at(-1);
     expect(audit.status).toBe('success');
   });
@@ -134,7 +141,7 @@ describe('/api/ai/stream — final validator parity', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(res.status).toBe(200);
     const [, trailer] = res.text.split(RS);
-    expect(JSON.parse(trailer)).toEqual({ ok: false, truncated: true, scripture: CLEAN_SCRIPTURE });
+    expect(trailerJson(trailer)).toEqual({ ok: false, truncated: true, scripture: CLEAN_SCRIPTURE });
     const audit = auditRows().at(-1);
     expect(audit.status).toBe('invalid_json');
     expect(audit.failureType).toBe('truncated');
@@ -147,7 +154,7 @@ describe('/api/ai/stream — final validator parity', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     const [, trailer] = res.text.split(RS);
-    expect(JSON.parse(trailer)).toEqual({ ok: false, truncated: false, scripture: CLEAN_SCRIPTURE });
+    expect(trailerJson(trailer)).toEqual({ ok: false, truncated: false, scripture: CLEAN_SCRIPTURE });
     const audit = auditRows().at(-1);
     expect(audit.status).toBe('invalid_json');
     expect(audit.failureType).toBe('invalid_json');
@@ -173,7 +180,7 @@ describe('/api/ai/stream — final validator parity', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
       .send({ prompt: 'p', stream_result: true });
     const [, trailer] = res.text.split(RS);
-    expect(JSON.parse(trailer)).toEqual({ ok: true, truncated: false, scripture: CLEAN_SCRIPTURE });
+    expect(trailerJson(trailer)).toEqual({ ok: true, truncated: false, scripture: CLEAN_SCRIPTURE });
     expect(auditRows().at(-1).status).toBe('success');
   });
 });

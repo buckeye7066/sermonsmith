@@ -339,6 +339,16 @@ const auth = {
 // STREAM_RESULT_SEPARATOR in services/api/src/routes/ai.js.
 const STREAM_RESULT_SEPARATOR = String.fromCharCode(0x1e);
 
+// Server-only, unguessable sentinel that prefixes the authentic trailer JSON
+// (see STREAM_TRAILER_MARKER in services/api/src/routes/ai.js). The server also
+// replaces any RS byte in model deltas with a space, so a model can neither
+// inject its own separator nor emit this marker — the frame is unforgeable. The
+// client locates the trailer at the LAST RS, rejects any RS in the content
+// portion (post-strip there can be none), and requires this exact marker before
+// parsing, so a model-injected fake trailer on an interrupted stream can never
+// be accepted as a validated success.
+const STREAM_TRAILER_MARKER = 'ss.trailer.v1.9f3a2c7e4b1d68a5:';
+
 // Duplicate-key detector for a small JSON trailer. JSON.parse silently keeps the
 // LAST value for a repeated key, so a tampered `{"ok":false,"ok":true}` (or its
 // unicode-escaped spelling `{"ok":false,"ok":true}`) would otherwise parse
@@ -515,7 +525,10 @@ const integrations = {
       // as a PROTOCOL FAILURE, never as a completed answer: an unscreened /
       // partial preview (which may already contain fabricated Scripture) must
       // not be kept as the result.
-      const sepIdx = full.indexOf(STREAM_RESULT_SEPARATOR);
+      // Locate the trailer at the LAST RS (the server writes exactly one, right
+      // before the marker+JSON; content RS bytes were replaced with spaces
+      // server-side). A missing separator → interrupted/unvalidated stream.
+      const sepIdx = full.lastIndexOf(STREAM_RESULT_SEPARATOR);
       if (sepIdx === -1) {
         const error = new Error('The AI stream ended before it could be validated. Please retry.');
         error.status = 502;
@@ -523,8 +536,22 @@ const integrations = {
         error.streamIncomplete = true;
         throw error;
       }
-      const text = full.slice(0, sepIdx).replace(/\n$/, '');
-      const rawTrailer = full.slice(sepIdx + 1);
+      const content = full.slice(0, sepIdx);
+      const afterSep = full.slice(sepIdx + 1);
+      // Frame integrity: content must contain NO RS (a model-injected RS would
+      // have been stripped by the server; one appearing here signals tampering),
+      // and the authentic trailer MUST carry the server-only marker. Either check
+      // failing means a forged/absent frame → fail closed, never accept as
+      // success.
+      if (content.indexOf(STREAM_RESULT_SEPARATOR) !== -1 || !afterSep.startsWith(STREAM_TRAILER_MARKER)) {
+        const error = new Error('The AI stream validation frame was invalid. Please retry.');
+        error.status = 502;
+        error.streamTextPreview = content.replace(/\n$/, '').slice(0, 500);
+        error.streamIncomplete = true;
+        throw error;
+      }
+      const text = content.replace(/\n$/, '');
+      const rawTrailer = afterSep.slice(STREAM_TRAILER_MARKER.length);
       let result = null;
       try { result = JSON.parse(rawTrailer); } catch { /* malformed trailer */ }
       // POSITIVE + STRICT validation: resolve ONLY on an exact, consistent,
