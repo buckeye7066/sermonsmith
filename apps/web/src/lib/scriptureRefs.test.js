@@ -857,6 +857,43 @@ describe('validateAiSermon', () => {
     }
   });
 
+  it('folds an ordinal across a UNICODE-SEPARATOR seam (one complete shared seam class), no bare-John leak', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const HAIR = cp(0x200A), NBSP = cp(0x00A0), NNBSP = cp(0x202F), THIN = cp(0x2009), ZL = cp(0x2028), ZP = cp(0x2029);
+    // A Unicode separator (Zs/Zl/Zp) wedged in the ordinal is consumed by the fold
+    // BEFORE it is normalized to an ASCII space → the ordinal binds numbered.
+    expect(extractScriptureRefs(`2${NBSP}nd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`2${THIN}nd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`${cp(0x1D7DA)}${HAIR}nd John 1:1`)).toEqual(['2 John 1:1']); // math digit + hair-space seam
+    for (const seam of [HAIR, NNBSP, ZL, ZP]) {
+      const refs = extractScriptureRefs(`4${seam}th John 1:1`);
+      expect(refs.includes('John 1:1'), `U+${seam.codePointAt(0).toString(16)} seam must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book' || r.status === 'out_of_range')).toBe(true);
+    }
+  });
+
+  it('fails closed on a superscript number joined to an ASCII digit by ANY seam (hidden or separator)', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const ZWSP = cp(0x200B), NBSP = cp(0x00A0), CGJ = cp(0x034F), VS = cp(0xFE0F);
+    const SUP1 = cp(0xB9), SUP6 = cp(0x2076);
+    // A seam between the ASCII digit and the superscript can no longer smuggle the
+    // shortened/extended reading past the fail-closed rule.
+    const failClosed = (t) => {
+      const v = validateScriptureRefs(extractScriptureRefs(t));
+      return v.length > 0 && v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked')
+        && !v.some((r) => /^John 3:(1|16|1-3|1-36)$/.test(r.ref) && r.status === 'valid');
+    };
+    for (const seam of [ZWSP, NBSP, CGJ, VS]) {
+      expect(failClosed(`John 3:1${seam}${SUP6}`), `verse seam U+${seam.codePointAt(0).toString(16)}`).toBe(true);
+    }
+    // Range-end seam is covered too.
+    expect(failClosed(`John 3:1-3${ZWSP}${SUP6}`), 'range-end seam').toBe(true);
+    expect(failClosed(`John 3:16${ZWSP}${SUP1}`), 'trailing seam').toBe(true);
+    // Empty-slot superscript still folds as data (unchanged).
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${SUP1}${SUP6}`))[0].status).toBe('valid'); // John 3:16
+    expect(extractScriptureRefs(`John${cp(0xB2)}:1`)).toEqual(['John 2:1']);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

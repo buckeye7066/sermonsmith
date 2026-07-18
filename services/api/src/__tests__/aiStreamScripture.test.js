@@ -804,6 +804,24 @@ describe('/stream fabricated-Scripture screen', () => {
     ]);
   });
 
+  // --- Round-37: Unicode-separator ordinal seams (complete shared seam class),
+  // and seam-tolerant fail-closed superscript handling. ---
+  it('/invoke + /stream: Unicode-separator ordinal seams bind, and seamed superscript numbers fail closed', async () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const NBSP = cp(0x00A0), HAIR = cp(0x200A), ZWSP = cp(0x200B);
+    const SUP1 = cp(0xB9), SUP6 = cp(0x2076);
+    await runR25(app, [
+      [`separator 2${NBSP}nd John 1:1 → 2 John (valid)`, `2${NBSP}nd John 1:1`, false],
+      [`separator 4${HAIR}th John 1:1 → invalid_book (no bare John)`, `4${HAIR}th John 1:1`, true],
+      [`seamed superscript John 3:1${ZWSP}${SUP6} → FAIL CLOSED`, `John 3:1${ZWSP}${SUP6}`, true],
+      [`seamed superscript John 3:1${NBSP}${SUP6} → FAIL CLOSED`, `John 3:1${NBSP}${SUP6}`, true],
+      [`range-end seam John 3:1-3${ZWSP}${SUP6} → FAIL CLOSED`, `John 3:1-3${ZWSP}${SUP6}`, true],
+      [`empty-slot John 3:${SUP1}${SUP6} → John 3:16 (valid)`, `John 3:${SUP1}${SUP6}`, false],
+      ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
+      ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
+    ]);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

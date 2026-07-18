@@ -163,6 +163,18 @@ const SHADOW_HIDDEN = `(?:${ZERO_WIDTH}|\\p{M})`;
 const SHADOW_AT_BOOK_CHAPTER = new RegExp(`(?<=\\p{L})${SHADOW_HIDDEN}+(?=\\p{Nd})`, 'gu');
 const SHADOW_AT_CHAPTER_BOOK = new RegExp(`(?<=\\p{Nd})${SHADOW_HIDDEN}+(?=\\p{L})`, 'gu');
 const SHADOW_HIDDEN_ANY = new RegExp(`${SHADOW_HIDDEN}+`, 'gu');
+// The COMPLETE seam class = the hidden class (non-whitespace \p{Cc} C0/C1 + \p{Cf}
+// + \p{Default_Ignorable_Code_Point} [incl. variation selectors + tag chars] +
+// \p{M}) PLUS Unicode SEPARATORS (\p{Zs} — space/NBSP/hair/narrow/thin/… — and
+// the line/paragraph separators \p{Zl} U+2028 / \p{Zp} U+2029). It is the single
+// source of truth for a seam wedged BETWEEN two citation-significant tokens that
+// must be consumed BEFORE normalization collapses it: normalizeCitationText
+// turns every Unicode separator into an ASCII space and every hidden char into a
+// space, so a context-scrub (ordinal digit↔suffix, decimal-digit↔superscript)
+// must strip the WHOLE class first, or the collapsed space splits the token. Used
+// ONLY inside those bounded contexts — never treats a normal inter-word space as
+// a seam elsewhere. tab/nl/cr stay real whitespace (excluded).
+const COMPLETE_SEAM = '(?:(?![\\t\\n\\r])[\\p{Cc}\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}\\p{Zs}\\p{Zl}\\p{Zp}])';
 
 // Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
 // NOT match the matcher's ASCII `\d`, and NFKC does not fold most of them
@@ -443,14 +455,13 @@ const ORDINAL_NUMBERED_RE = new RegExp(
 // bounds the fold so a lone superscript footnote marker is never touched.
 const SUP_DIGITS = Object.keys(SUPERSCRIPT_FOLD).filter((c) => /[0-9]/.test(SUPERSCRIPT_FOLD[c])).join('');
 const SUP_LETTERS = Object.keys(SUPERSCRIPT_FOLD).filter((c) => /[a-z]/.test(SUPERSCRIPT_FOLD[c])).join('');
-// The SINGLE shared hidden-seam class, reused by the ordinal-prefix fold AND the
-// detection shadow (SHADOW_HIDDEN): non-whitespace \p{Cc} (C0/C1 controls) +
-// \p{Cf} + \p{Default_Ignorable_Code_Point} + \p{M}. Using the same constant
-// means the ordinal fold can never drift from the rest of the extractor's
-// hidden-char handling (the previous ORD_HIDDEN dropped \p{Cc}, so a C0/C1
-// control seam inside an ordinal — "4<C0>th" — was NOT deleted before
-// normalizeCitationText turned it into a space, splitting the ordinal → bare John).
-const ORD_HIDDEN = SHADOW_HIDDEN;
+// The ordinal digit↔suffix seam uses the COMPLETE seam class (hidden + Unicode
+// separators). SHADOW_HIDDEN alone (hidden only) missed \p{Zs}/\p{Zl}/\p{Zp},
+// which normalizeCitationText turns into an ASCII space LATER — so a Unicode-
+// space seam ("4<U+200A>th", "2<U+00A0>nd") split the ordinal → bare John. Using
+// COMPLETE_SEAM here (a superset of the shadow's hidden class) closes the whole
+// seam-class gap at once and keeps the two paths from drifting.
+const ORD_HIDDEN = COMPLETE_SEAM;
 // Ordinal DIGIT: any Unicode decimal digit (\p{Nd} — ASCII, fullwidth,
 // Arabic-Indic, mathematical, …) PLUS superscript digits (\p{No}, not Nd). The
 // leading digits fold to ASCII in foldOrdinalPrefix regardless of script.
@@ -481,12 +492,16 @@ function foldOrdinalPrefix(_m, digits, suffix) {
 // CLOSED: replace the superscript run with a malformed-token MARKER (a letter),
 // so the number becomes malformed and the strict validator flags the reference —
 // NEVER silently emitting a valid ref that DIFFERS from the visible text.
-// Applies to trailing ("3:16¹"→"3:16z", "3:3⁷"→"3:3z") and between-digit
-// ("3:1⁶5"→"3:1z5") superscripts. A superscript filling an EMPTY chapter/verse
-// slot (NOT preceded by a digit — "John 3:¹⁶", "John²:1") is UNAMBIGUOUS number
-// data → LEFT for NFKC to fold as the user sees it (r35 rule, unchanged).
+// Applies to trailing ("3:16¹"→"3:16z", "3:3⁷"→"3:3z"), between-digit
+// ("3:1⁶5"→"3:1z5"), and range-end ("3:1-3⁶") superscripts — INCLUDING when a
+// COMPLETE_SEAM (hidden OR Unicode separator) is wedged between the decimal digit
+// and the superscript ("3:1<U+200B>⁶", "3:1<U+00A0>⁶"): the seam is consumed and
+// the superscript run replaced with the marker, so no inserted seam can smuggle
+// the shortened/extended reading past the fail-closed rule. A superscript filling
+// an EMPTY chapter/verse slot (NOT preceded by a digit — "John 3:¹⁶", "John²:1")
+// is UNAMBIGUOUS number data → LEFT for NFKC to fold (r35 rule, unchanged).
 const SUP_AMBIG_MARK = 'z'; // a letter → NUM_TOKEN captures it as a trailing char → malformedToken flags
-const AMBIGUOUS_SUPERSCRIPT_RE = new RegExp(`(?<=\\p{Nd})[${SUP_DIGITS}]+`, 'gu');
+const AMBIGUOUS_SUPERSCRIPT_RE = new RegExp(`(\\p{Nd})${COMPLETE_SEAM}*[${SUP_DIGITS}]+`, 'gu');
 // A superscript ORDINAL LETTER not consumed by the ordinal-prefix fold is never
 // number data → delete.
 const STRAY_SUP_LETTER_RE = new RegExp(`[${SUP_LETTERS}]`, 'gu');
@@ -500,7 +515,7 @@ const STRAY_SUP_LETTER_RE = new RegExp(`[${SUP_LETTERS}]`, 'gu');
 function scrubSuperscripts(text) {
   return String(text)
     .replace(ORDINAL_PREFIX_RE, foldOrdinalPrefix)
-    .replace(AMBIGUOUS_SUPERSCRIPT_RE, SUP_AMBIG_MARK)
+    .replace(AMBIGUOUS_SUPERSCRIPT_RE, (_m, digit) => digit + SUP_AMBIG_MARK)
     .replace(STRAY_SUP_LETTER_RE, '');
 }
 
