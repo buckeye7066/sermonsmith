@@ -132,7 +132,9 @@ describe('StreamLLM result-trailer contract', () => {
   it('opts in with stream_result, strips the trailer, and resolves the clean text', async () => {
     vi.stubEnv('VITE_API_URL', 'https://api.example');
     const payload = '{"title":"Grace"}';
-    const fetchMock = vi.fn().mockResolvedValue(streamResponse(payload + '\n' + RS + '{"ok":true,"truncated":false}'));
+    // A real success trailer always carries the scripture screen; the client now
+    // requires ok && !truncated && scripture.ok to resolve.
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse(payload + '\n' + RS + '{"ok":true,"truncated":false,"scripture":{"ok":true}}'));
     vi.stubGlobal('fetch', fetchMock);
 
     const { api } = await loadClient();
@@ -156,6 +158,35 @@ describe('StreamLLM result-trailer contract', () => {
       status: 502,
       truncated: true,
     });
+  });
+
+  it('POSITIVE validation: resolves ONLY on a fully-valid trailer; any weaker trailer throws', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const { api } = await loadClient();
+
+    // Each of these is NOT a fully-valid success trailer → must throw (502).
+    const badTrailers = [
+      {},                                        // no fields
+      { ok: true },                              // missing truncated + scripture
+      { ok: true, truncated: false },            // missing scripture
+      { ok: true, truncated: true, scripture: { ok: true } },  // truncated
+      { ok: true, truncated: false, scripture: { ok: false } }, // scripture failed
+      { ok: 'yes', truncated: false, scripture: { ok: true } }, // non-boolean ok
+    ];
+    for (const t of badTrailers) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse(`draft text${RS}${JSON.stringify(t)}`)));
+      await expect(
+        api.integrations.Core.StreamLLM({ prompt: 'p' }),
+        `trailer ${JSON.stringify(t)} must throw`,
+      ).rejects.toMatchObject({ status: 502 });
+    }
+
+    // The one fully-valid trailer resolves with the text.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      streamResponse(`Grace — John 3:16${RS}${JSON.stringify({ ok: true, truncated: false, scripture: { ok: true } })}`),
+    ));
+    const text = await api.integrations.Core.StreamLLM({ prompt: 'p' });
+    expect(text).toBe('Grace — John 3:16');
   });
 
   it('throws (scriptureUnverified) when the streamed draft contained fabricated Scripture', async () => {

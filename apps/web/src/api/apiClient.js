@@ -451,23 +451,29 @@ const integrations = {
       const text = full.slice(0, sepIdx).replace(/\n$/, '');
       let result = null;
       try { result = JSON.parse(full.slice(sepIdx + 1)); } catch { /* malformed trailer */ }
-      if (!result || result.ok === false) {
-        // Same contract as /invoke's 502: fail honestly so the caller's fallback
-        // path runs instead of a partial preview being kept as the completed
-        // (and, worse, trusted) result. A missing/malformed outcome is itself a
-        // failure — the client cannot confirm the stream validated. A streamed
-        // preview can carry fabricated Scripture the server only detects after
-        // the last token, so this is the point where the UI must NOT mark it
-        // validated/complete.
+      // POSITIVE validation: resolve ONLY on an explicit, fully-valid success
+      // trailer — ok===true AND truncated===false AND scripture.ok===true, all
+      // present and strictly boolean. Anything else (missing/malformed trailer,
+      // a non-boolean or missing field, an inconsistent {ok:true,truncated:true}
+      // or {ok:true,scripture:{ok:false}}, or a bare {}) is treated as FAILURE.
+      // Absence of explicit success is failure, never success — a streamed
+      // preview can carry fabricated Scripture the server only confirms clean in
+      // the trailer, so the UI must never mark it validated without one.
+      const fullyValid = !!result
+        && result.ok === true
+        && result.truncated === false
+        && !!result.scripture
+        && result.scripture.ok === true;
+      if (!fullyValid) {
         const scriptureFailed = !!(result && result.scripture && result.scripture.ok === false);
         const error = new Error(
           !result
             ? 'The AI stream result could not be validated. Please retry.'
-            : result.truncated
+            : result.truncated === true
               ? 'The AI response was too long and was cut off before it finished.'
               : scriptureFailed
                 ? 'The AI draft contained Scripture references that could not be verified. Regenerating.'
-                : 'AI stream returned invalid JSON.',
+                : 'The AI stream could not be confirmed as validated. Please retry.',
         );
         error.status = 502;
         error.streamTextPreview = text.slice(0, 500);

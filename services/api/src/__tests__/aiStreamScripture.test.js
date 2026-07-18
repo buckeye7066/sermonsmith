@@ -292,6 +292,42 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(trailer.scripture.ok).toBe(false);
   });
 
+  it('error-path trailer uses the SAME raw+parsed screen: a split/escaped citation then a throw is flagged', async () => {
+    for (const body of [
+      JSON.stringify({ cross_references: ['Hezekiah', '4:5'] }), // split across array
+      JSON.stringify({ note: 'Hezekiah 4:5' }),                  // plain (raw would catch)
+    ]) {
+      STREAM_TEXT = body;
+      STREAM_THROW = true;
+      const res = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+      const trailer = parseTrailer(res.text);
+      expect(trailer.ok, `error trailer ok for ${body}`).toBe(false);
+      expect(trailer.scripture.ok, `error screen must be as strong as success for ${body}`).toBe(false);
+    }
+  });
+
+  it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
+    const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
+    try {
+      STREAM_TEXT = 'Anchored on Hezekiah 4:5.';
+      STREAM_THROW = true;
+      const res = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', stream_result: true });
+      // Response completed with exactly one failure trailer despite the stalled audit.
+      expect((res.text.match(new RegExp(RS, 'g')) || []).length).toBe(1);
+      const trailer = parseTrailer(res.text);
+      expect(trailer.ok).toBe(false);
+      expect(trailer.scripture.ok).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('writes the trailer EXACTLY ONCE on the normal success path (no double-write)', async () => {
     STREAM_TEXT = 'Grace abounds — John 3:16.';
     const res = await request(app)

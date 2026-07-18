@@ -788,10 +788,22 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
   // trailer.
   let full = '';
   let trailerWritten = false;
+  let responseSchema; // hoisted so the catch path can parse + screen like success
   const writeTrailerOnce = (payload) => {
     if (trailerWritten) return;
     trailerWritten = true;
     try { res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify(payload)}`); } catch { /* socket closed */ }
+  };
+  // The SAME Scripture screen success uses — raw text AND, for a structured
+  // response, the decoded parsed value (flattened-join + parsed scan). The error
+  // path must be exactly as strong, so an already-emitted split/escaped citation
+  // in complete JSON is still flagged even when the upstream throws afterward.
+  const screenAccumulated = () => {
+    if (responseSchema) {
+      const parsed = extractJson(full);
+      if (parsed.ok) return screenStreamedScripture(full, parsed.value);
+    }
+    return screenStreamedScripture(full);
   };
   try {
     const parsed = invokeRequestSchema.safeParse(req.body || {});
@@ -799,6 +811,7 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ message: 'Invalid AI request', issues: parsed.error.issues });
     }
     const { prompt, system_prompt, response_json_schema, feature, model, max_tokens, temperature, stream_result } = parsed.data;
+    responseSchema = response_json_schema;
 
     // Fail closed: the streaming path writes raw model tokens to the client
     // BEFORE Scripture/JSON validation, so the ONLY signal that the final
@@ -934,23 +947,27 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
       tokenEstimate: estimateTokenCount(auditBase.prompt, full),
     });
   } catch (err) {
-    // Quota was counted but nothing streamed → give it back (transient upstream
-    // failure, not the user's fault).
-    if (usageConsumed && !started) await refundUsageDb(req.userId);
-    if (auditBase && started) {
-      await auditAiCall({ ...auditBase, status: 'failure', failureType: classifyAiFailure(err) });
-    }
     if (started) {
       // Headers already sent, so we can't change the status — but the trailer is
-      // MANDATORY. A mid-stream upstream error must NOT reach the client as a
-      // trailer-less body (which the client would treat as legacy success). Emit
-      // a FAILURE trailer, screening the already-emitted text so a citation
-      // already on the wire is still flagged. writeTrailerOnce means this is a
-      // no-op if the success path already wrote one.
-      writeTrailerOnce({ ok: false, truncated: true, scripture: screenStreamedScripture(full) });
+      // MANDATORY. Write it and END the response BEFORE any awaited observability
+      // work: a stalled Prisma pool / network partition during audit must never
+      // prevent the failure trailer from reaching the client (which would leave
+      // it with partial rendered text and no RS/trailer, treated as legacy
+      // success). The screen is the SAME raw+parsed scan success uses, so an
+      // already-emitted split/escaped citation in complete JSON is still flagged.
+      // writeTrailerOnce is a no-op if the success path already wrote one.
+      writeTrailerOnce({ ok: false, truncated: true, scripture: screenAccumulated() });
       try { res.end(); } catch { /* already closed */ }
+      // Best-effort audit AFTER the response is closed — fire-and-forget so
+      // degraded audit storage can never block the stream protocol.
+      if (auditBase) {
+        auditAiCall({ ...auditBase, status: 'failure', failureType: classifyAiFailure(err) }).catch(() => {});
+      }
       return;
     }
+    // Pre-stream failure: nothing was sent, so it's safe to refund and error out
+    // normally (the global handler returns JSON).
+    if (usageConsumed) await refundUsageDb(req.userId);
     next(err);
   }
 });

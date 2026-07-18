@@ -69,6 +69,11 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 ## Round-11 pass — streaming reports its result even when the AI errors mid-stream (2026-07-18)
 - **A streamed AI response now always reports its validation result, even if the underlying model connection fails partway through.** Previously, an error after streaming began could drop the pass/fail signal, and the app would treat the half-finished text (possibly containing a fabricated reference) as a completed answer. Now the server always appends a failure result on error, and the app treats any missing result signal as a failure and retries instead of showing unvalidated content. No change for successful responses.
 
+## Round-12 pass — streaming trusts only an explicit "all clear" (2026-07-18)
+- **The app now accepts a streamed AI answer only when the server explicitly confirms it passed every check.** Previously an incomplete or ambiguous validation result could be treated as success; now anything short of a full, explicit pass is retried instead of shown.
+- **A slow/unavailable audit log can no longer swallow the failure signal** — the validation result is always sent to the app first, and record-keeping happens afterward.
+- **The failure result on a mid-stream error is now checked as thoroughly as a normal one** (including references split across list items), so a fabricated citation is flagged even when the model connection drops right after producing it.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.
