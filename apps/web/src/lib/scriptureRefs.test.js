@@ -652,6 +652,41 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('Ⅱ John 1:1')).toEqual(['2 John 1:1']);
   });
 
+  it('binds a compact numbered book with the chapter GLUED to the stem (never rebinds to bare John)', () => {
+    // Legit compact numbered-book citations (chapter digit glued to the stem) bind correctly.
+    expect(validateScriptureRefs(extractScriptureRefs('2John1:1'))[0].status).toBe('valid'); // 2 John 1:1
+    expect(validateScriptureRefs(extractScriptureRefs('2-John1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('SecondJohn1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('1Cor13:4'))[0].status).toBe('valid'); // 1 Corinthians 13:4
+    // Fabricated / unsupported glued forms are invalid_book — NOT rebound to a bare valid John.
+    for (const form of ['4John1:1', '4-John1:1', 'Ⅳ-John1:1', 'ↀJohn1:1']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${form} must not rebind to bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book'), form).toBe(true);
+    }
+    // Deep + joined-array.
+    expect(validateScriptureRefs(extractScriptureRefsDeep({ note: '2John1:1' }))[0].status).toBe('valid');
+    expect(extractScriptureRefsJoined(['4John', '1:1']).some((r) => /^4 John/.test(r))).toBe(true);
+    // The r30 SPACED-separator OUTLINE behavior is intact (not re-broken).
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+    expect(validateScriptureRefs(extractScriptureRefs('2John 1:1'))[0].status).toBe('valid'); // single-space still 2 John
+  });
+
+  it('routes a lowercase NON-canonical all-Roman token to the strict validator (not dropped as prose)', () => {
+    // Lowercased malformed Roman numerals must reach the validator (malformed / out_of_range),
+    // NOT be silently dropped as prose.
+    for (const form of ['John iiii:2', 'John vv:2', 'John iiv:2', 'John 3:iiii']) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.length, form).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked'), form).toBe(true);
+    }
+    // A clean canonical lowercase Roman still validates.
+    expect(validateScriptureRefs(extractScriptureRefs('John iv:2'))[0].status).toBe('valid'); // John 4:2
+    // A lowercase word with a NON-Roman letter stays prose (clean, dropped).
+    expect(extractScriptureRefs('John 2:live your faith')).toEqual([]);
+    expect(extractScriptureRefs('John 3:ivy grows tall')).toEqual([]);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

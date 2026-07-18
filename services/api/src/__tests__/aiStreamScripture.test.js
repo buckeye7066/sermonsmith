@@ -644,6 +644,37 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(parseTrailer(err).scripture.ok).toBe(false);
   });
 
+  // --- Round-31: compact numbered book with GLUED chapter, and lowercase
+  // non-canonical Roman tokens — over /invoke AND /stream (success + error).
+  // Split for the 30/min AI rate limit. ---
+  it('/invoke + /stream bind glued compact numbered books and screen lowercase malformed Roman', async () => {
+    await runR25(app, [
+      ['legit 2John1:1 → 2 John (valid)', '2John1:1', false],
+      ['legit 1Cor13:4 → 1 Corinthians (valid)', '1Cor13:4', false],
+      ['fabricated 4John1:1 → invalid_book', '4John1:1', true],
+      ['fabricated 4-John1:1 → invalid_book', '4-John1:1', true],
+      ['lowercase malformed John iiii:2', 'John iiii:2', true],
+      ['lowercase malformed John 3:iiii', 'John 3:iiii', true],
+      ['clean John iv:2 (valid)', 'John iv:2', false],
+      ['prose John 2:live (clean)', 'John 2:live your faith', false],
+    ]);
+  });
+
+  it('/invoke: a fabricated glued numbered book is flagged and never rebinds to a bare valid John', async () => {
+    // "4John1:1" must screen as fabricated (4 John, invalid_book) — NOT reinterpreted
+    // as a valid bare "John 1:1" (which would leave fabricated < checked).
+    STREAM_TEXT = JSON.stringify({ note: '4John1:1' });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status).toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+    expect(inv.body.scripture.fabricated).toBe(inv.body.scripture.checked);
+    expect(inv.body.scripture.fabricated).toBeGreaterThan(0);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

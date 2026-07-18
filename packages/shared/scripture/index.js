@@ -381,13 +381,19 @@ const COMPACT_PREFIX_ALT = `\\d+|[ivxlcdm]+|${ORDINAL_WORDS}`;
 // `\s*[.\-]?\s*`, which wrongly rejected a valid Gospel-John ref written as a
 // numbered outline item, e.g. "2 - John 3:16".)
 const COMPACT_SEP = '[.\\-]?';
+// Lookahead for a chapter:verse (ASCII digits OR Roman, any length) following.
+const CV_LOOKAHEAD = '(?:\\d+|[ivxlcdm]+)\\s*:\\s*(?:\\d+|[ivxlcdm]+)';
 // A numeric / Roman / worded prefix joined to a numbered-book stem by that
 // separator → rewritten to the spaced form ("$1 $2"), so "2John", "IIJohn",
-// "Second-John", "Third.John", "4 - John" all bind to the numbered book. The
-// trailing \b keeps "2content"/"IIJohnny"/"secondary" from matching a stem
-// inside a word.
+// "Second-John", "Third.John" all bind to the numbered book. The stem must be
+// followed by EITHER a word boundary (keeps "2content"/"IIJohnny"/"secondary"
+// from matching a stem inside a word) OR a glued chapter:verse — so a compact
+// citation with the chapter DIGIT glued to the stem ("2John1:1", "2-John1:1",
+// "1Cor13:4") still binds to the numbered book instead of being dropped or
+// rebinding to a bare "John" (the later book↔chapter spacing pass then inserts
+// the "John 1:1" space). A glued chapter never occurs in prose.
 const COMPACT_NUMBERED_RE = new RegExp(
-  `\\b(${COMPACT_PREFIX_ALT})${COMPACT_SEP}(${COMPACT_STEMS.join('|')})\\b`,
+  `\\b(${COMPACT_PREFIX_ALT})${COMPACT_SEP}(${COMPACT_STEMS.join('|')})(?:\\b|(?=${CV_LOOKAHEAD}))`,
   'giu',
 );
 
@@ -530,7 +536,12 @@ function classifyNumberToken(tok) {
   if (/^\d+$/.test(tok)) return 'number';
   if (/^\d/.test(tok)) return 'malformed';            // digits + trailing junk
   if (ROMAN_CANONICAL_RE.test(tok)) return 'number';  // clean canonical Roman (any case)
-  if (/^[a-z]+$/.test(tok)) return 'prose';           // lowercase-ASCII word, not a numeral
+  // A token made up ONLY of Roman-numeral letters that is NOT canonical is a
+  // MALFORMED numeral, even all-lowercase ("iiii", "vv", "iiv") — an adversary
+  // lowercases the bad numeral to dodge the prose escape. Route it to the strict
+  // validator (→ malformed / out_of_range), do NOT silently drop it as prose.
+  if (/^[ivxlcdm]+$/.test(tok)) return 'malformed';
+  if (/^[a-z]+$/.test(tok)) return 'prose';           // lowercase word with a NON-Roman letter (live, ivy)
   return 'malformed';                                 // uppercase-Roman+junk / non-ASCII / non-canonical
 }
 
@@ -634,8 +645,6 @@ const KNOWN_BOOK_ALT = [...SINGLE_BOOK_TOKENS].sort((a, b) => b.length - a.lengt
 // touching digits ("cafe4:5") are never bound, only book-shaped ones.
 const BIBLICAL_WORD_SRC = '[a-z]{2,}(?:iah|jah|iel|uel|ael|oel|[aeiou]el|ah|oth|ith|iath)';
 const BOOK_SHAPED_SRC = `(?:${KNOWN_BOOK_ALT}|${BIBLICAL_WORD_SRC})`;
-// Lookahead for a chapter:verse (ASCII digits OR Roman, any length) following.
-const CV_LOOKAHEAD = '(?:\\d+|[ivxlcdm]+)\\s*:\\s*(?:\\d+|[ivxlcdm]+)';
 // GAP 1 — a book-shaped/known token GLUED to chapter:verse (no space) → insert a
 // space so the matcher binds it ("John3:37"→"John 3:37", "Hezekiah4:5"→spaced).
 const COMPACT_BOOK_CHAPTER_RE = new RegExp(`\\b(${BOOK_SHAPED_SRC})(?=${CV_LOOKAHEAD})`, 'giu');
