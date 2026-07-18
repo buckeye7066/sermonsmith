@@ -71,14 +71,15 @@ export function violatesStringSchema(schema, value) {
 
 const router = Router();
 
-// Server-only, unguessable sentinel written immediately AFTER the RS separator
-// and BEFORE the trailer JSON, making the validation frame unforgeable. The
-// model does not know it (it is in no prompt), and the server replaces any RS
-// byte in model deltas with a space, so a model-injected `<RS>{"ok":true,...}`
-// can neither create a separator nor carry this marker — an interrupted stream
-// with no real server trailer therefore has NO valid frame and fails closed on
-// the client. Keep in sync with STREAM_TRAILER_MARKER in apiClient.js.
-const STREAM_TRAILER_MARKER = 'ss.trailer.v1.9f3a2c7e4b1d68a5:';
+// The validation trailer is authenticated by a PER-STREAM crypto-random nonce
+// (see /stream). The nonce is generated per request, delivered OUT OF BAND in
+// the `X-Stream-Trailer-Nonce` response header BEFORE any model bytes, and
+// written immediately after the RS separator, before the trailer JSON. The
+// model never sees it (not in any prompt/header it can read) and it changes
+// every stream, so an echoed value from model output or a prior stream is
+// useless — combined with the RS-strip of model deltas, the frame is
+// unforgeable. Header name kept in sync with apiClient.js.
+const STREAM_TRAILER_NONCE_HEADER = 'X-Stream-Trailer-Nonce';
 
 // Production-readiness fix: lazy-load OpenAI so the API can boot without
 // the SDK installed (e.g., in CI or in a deployment that has DISABLE_AI=1).
@@ -798,12 +799,15 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
   let full = '';
   let trailerWritten = false;
   let responseSchema; // hoisted so the catch path can parse + screen like success
+  // Per-stream nonce; sent in the X-Stream-Trailer-Nonce header before any body
+  // bytes and required by the client immediately after the RS before the JSON.
+  const streamNonce = crypto.randomBytes(16).toString('hex');
   const writeTrailerOnce = (payload) => {
     if (trailerWritten) return;
     trailerWritten = true;
-    // Frame = separator + server-only marker + trailer JSON. The marker makes
-    // the frame unforgeable even beyond the RS-stripping of model deltas.
-    try { res.write(`\n${STREAM_RESULT_SEPARATOR}${STREAM_TRAILER_MARKER}${JSON.stringify(payload)}`); } catch { /* socket closed */ }
+    // Frame = separator + per-stream nonce + trailer JSON. The nonce (delivered
+    // out of band in a header) authenticates the trailer as server-produced.
+    try { res.write(`\n${STREAM_RESULT_SEPARATOR}${streamNonce}${JSON.stringify(payload)}`); } catch { /* socket closed */ }
   };
   // The SAME Scripture screen success uses — raw text AND, for a structured
   // response, the decoded parsed value (flattened-join + parsed scan). The error
@@ -888,6 +892,9 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('X-Accel-Buffering', 'no'); // ask proxies not to buffer the stream
+    // Deliver the trailer nonce OUT OF BAND, before any model bytes, so the model
+    // can never see or echo it and the client can authenticate the trailer.
+    res.setHeader(STREAM_TRAILER_NONCE_HEADER, streamNonce);
     started = true;
 
     let finishReason = null;

@@ -229,6 +229,17 @@ describe('validateAiSermon', () => {
     expect(canon('II Tim 1:7')).toEqual(['2 Timothy 1:7']);
   });
 
+  it('normalizes decoded C0 control separators (RS/US/GS) so a control-split citation is caught', () => {
+    for (const code of [0x1c, 0x1d, 0x1e, 0x1f, 0x01]) {
+      const ctrl = String.fromCharCode(code);
+      // A control char between book and chapter:verse recombines to a real ref.
+      expect(extractScriptureRefs(`Hezekiah${ctrl}4:5`)).toContain('Hezekiah 4:5');
+      expect(validateScriptureRefs(extractScriptureRefs(`John${ctrl}3:16`))[0].status).toBe('valid');
+    }
+    // Ordinary valid refs still validate.
+    expect(extractScriptureRefs('See John 3:16')).toContain('John 3:16');
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

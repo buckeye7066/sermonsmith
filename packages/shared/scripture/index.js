@@ -144,8 +144,27 @@ const MAX_VERSE = 176;
 // so the tolerant matcher does not over-match.
 // ---------------------------------------------------------------------------
 
+// C0 control characters (U+0000–U+001F) EXCEPT tab/newline/CR. A model can hide
+// a citation behind a JSON-escaped separator ("Hezekiah4:5"): the wire has
+// no literal control byte to strip, but once the JSON is decoded the string
+// carries a real U+001E (or other C0 control) that the reference regex does not
+// treat as whitespace — so "Hezekiah<RS>4:5" would slip through. Normalizing
+// every decoded C0 control to a SPACE recombines the split so the reference is
+// caught (by the direct or the flattened-join scan). Built dynamically so
+// eslint's no-control-regex does not flag a literal control range.
+const C0_CONTROL_RE = new RegExp(
+  `[${Array.from({ length: 0x20 }, (_, i) => i)
+    .filter((i) => i !== 0x09 && i !== 0x0a && i !== 0x0d)
+    .map((i) => `\\u${i.toString(16).padStart(4, '0')}`)
+    .join('')}]`,
+  'g',
+);
+
 function normalizeCitationText(text) {
   return String(text)
+    // Decoded C0 control chars (incl. RS/US/GS/FS) → space, so an escaped
+    // control-split citation recombines and is caught.
+    .replace(C0_CONTROL_RE, ' ')
     // Unicode spaces → ASCII space.
     .replace(/[   -   　]/g, ' ')
     // Fullwidth digits → ASCII digits.

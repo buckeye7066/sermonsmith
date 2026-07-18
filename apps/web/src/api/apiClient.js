@@ -339,15 +339,14 @@ const auth = {
 // STREAM_RESULT_SEPARATOR in services/api/src/routes/ai.js.
 const STREAM_RESULT_SEPARATOR = String.fromCharCode(0x1e);
 
-// Server-only, unguessable sentinel that prefixes the authentic trailer JSON
-// (see STREAM_TRAILER_MARKER in services/api/src/routes/ai.js). The server also
-// replaces any RS byte in model deltas with a space, so a model can neither
-// inject its own separator nor emit this marker — the frame is unforgeable. The
-// client locates the trailer at the LAST RS, rejects any RS in the content
-// portion (post-strip there can be none), and requires this exact marker before
-// parsing, so a model-injected fake trailer on an interrupted stream can never
-// be accepted as a validated success.
-const STREAM_TRAILER_MARKER = 'ss.trailer.v1.9f3a2c7e4b1d68a5:';
+// The authentic trailer is prefixed with a PER-STREAM crypto-random nonce the
+// server delivers OUT OF BAND in this response header (before any model bytes).
+// The model never sees it and it changes every stream, so a static value echoed
+// from model output or a prior stream is useless. The client requires this exact
+// nonce immediately after the LAST RS before parsing the trailer JSON; combined
+// with the server's RS-strip of model deltas, the frame is unforgeable. Header
+// name kept in sync with STREAM_TRAILER_NONCE_HEADER in services/api/src/routes/ai.js.
+const STREAM_TRAILER_NONCE_HEADER = 'X-Stream-Trailer-Nonce';
 
 // Duplicate-key detector for a small JSON trailer. JSON.parse silently keeps the
 // LAST value for a repeated key, so a tampered `{"ok":false,"ok":true}` (or its
@@ -493,6 +492,9 @@ const integrations = {
         throw error;
       }
 
+      // Per-stream nonce delivered out of band in the response header — the model
+      // never sees it, so it authenticates the trailer as server-produced.
+      const trailerNonce = res.headers.get(STREAM_TRAILER_NONCE_HEADER);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let full = '';
@@ -538,12 +540,14 @@ const integrations = {
       }
       const content = full.slice(0, sepIdx);
       const afterSep = full.slice(sepIdx + 1);
-      // Frame integrity: content must contain NO RS (a model-injected RS would
-      // have been stripped by the server; one appearing here signals tampering),
-      // and the authentic trailer MUST carry the server-only marker. Either check
-      // failing means a forged/absent frame → fail closed, never accept as
-      // success.
-      if (content.indexOf(STREAM_RESULT_SEPARATOR) !== -1 || !afterSep.startsWith(STREAM_TRAILER_MARKER)) {
+      // Frame integrity: we must have received the out-of-band nonce header;
+      // content must contain NO RS (a model-injected RS is stripped server-side,
+      // so one here signals tampering); and the authentic trailer MUST begin with
+      // the exact per-stream nonce. Any failure → forged/absent frame → fail
+      // closed, never accept as success.
+      if (!trailerNonce
+          || content.indexOf(STREAM_RESULT_SEPARATOR) !== -1
+          || !afterSep.startsWith(trailerNonce)) {
         const error = new Error('The AI stream validation frame was invalid. Please retry.');
         error.status = 502;
         error.streamTextPreview = content.replace(/\n$/, '').slice(0, 500);
@@ -551,7 +555,7 @@ const integrations = {
         throw error;
       }
       const text = content.replace(/\n$/, '');
-      const rawTrailer = afterSep.slice(STREAM_TRAILER_MARKER.length);
+      const rawTrailer = afterSep.slice(trailerNonce.length);
       let result = null;
       try { result = JSON.parse(rawTrailer); } catch { /* malformed trailer */ }
       // POSITIVE + STRICT validation: resolve ONLY on an exact, consistent,
