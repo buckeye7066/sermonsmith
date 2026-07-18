@@ -675,6 +675,34 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(inv.body.scripture.fabricated).toBeGreaterThan(0);
   });
 
+  // --- Round-32: numeric ordinal-suffix prefixes (1st/2nd/3rd/4th/11th) —
+  // over /invoke AND /stream (success + error). Split for the 30/min AI limit. ---
+  it('/invoke + /stream bind numeric ordinal-suffix prefixes (supported valid, unsupported invalid, never bare John)', async () => {
+    await runR25(app, [
+      ['1st John 1:1 → 1 John (valid)', '1st John 1:1', false],
+      ['2nd John 1:1 → 2 John (valid)', '2nd John 1:1', false],
+      ['3rd John 1:1 → 3 John (valid)', '3rd John 1:1', false],
+      ['4th John 1:1 → invalid_book', '4th John 1:1', true],
+      ['11th John 1:1 → invalid_book', '11th John 1:1', true],
+      ['glued 2ndJohn1:1 → 2 John (valid)', '2ndJohn1:1', false],
+      ['glued 4thJohn1:1 → invalid_book', '4thJohn1:1', true],
+      ['prose "the 1st chapter" (no ref)', 'the 1st chapter of the book', false],
+    ]);
+  });
+
+  it('/invoke: an unsupported ordinal-suffix numbered book is flagged, never rebinds to bare valid John', async () => {
+    STREAM_TEXT = JSON.stringify({ note: '4th John 1:1' });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status).toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+    expect(inv.body.scripture.fabricated).toBe(inv.body.scripture.checked);
+    expect(inv.body.scripture.fabricated).toBeGreaterThan(0);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

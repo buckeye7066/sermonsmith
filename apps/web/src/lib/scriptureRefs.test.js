@@ -687,6 +687,33 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('John 3:ivy grows tall')).toEqual([]);
   });
 
+  it('binds NUMERIC ORDINAL-SUFFIX prefixes (1st/2nd/3rd/4th/11th) to the numbered book', () => {
+    // Supported ordinals bind to the correct numbered book.
+    expect(validateScriptureRefs(extractScriptureRefs('1st John 1:1'))[0].ref).toBe('1 John 1:1');
+    expect(validateScriptureRefs(extractScriptureRefs('1st John 1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('2nd John 1:1'))[0].ref).toBe('2 John 1:1');
+    expect(validateScriptureRefs(extractScriptureRefs('3rd John 1:1'))[0].ref).toBe('3 John 1:1');
+    expect(validateScriptureRefs(extractScriptureRefs('1ST John 1:1'))[0].status).toBe('valid'); // suffix case-insensitive
+    // Unsupported ordinals bind as INVALID — never a bare valid Gospel John.
+    for (const form of ['4th John 1:1', '5th John 1:1', '11th John 1:1', '4thJohn1:1', '4th-John1:1']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${form} must not rebind to bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book'), form).toBe(true);
+    }
+    // Glued / hyphen / dot supported forms bind to the numbered book (valid).
+    expect(validateScriptureRefs(extractScriptureRefs('2ndJohn1:1'))[0].ref).toBe('2 John 1:1');
+    expect(validateScriptureRefs(extractScriptureRefs('2nd.John1:1'))[0].ref).toBe('2 John 1:1');
+    // Deep + joined-array.
+    expect(validateScriptureRefs(extractScriptureRefsDeep({ note: '1st John 1:1' }))[0].ref).toBe('1 John 1:1');
+    expect(extractScriptureRefsJoined(['4th John', '1:1']).some((r) => /^4 John/.test(r))).toBe(true);
+    // A bare ordinal not bound to a book name stays clean prose (no citation).
+    expect(extractScriptureRefs('the 1st chapter of this book')).toEqual([]);
+    expect(extractScriptureRefs('read the 2nd verse today')).toEqual([]);
+    // r30 outline + r31 glued behaviors intact.
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+    expect(validateScriptureRefs(extractScriptureRefs('2John1:1'))[0].status).toBe('valid');
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

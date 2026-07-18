@@ -372,7 +372,12 @@ const ORDINAL_WORDS = 'first|second|third|fourth|fifth|sixth|seventh|eighth|nint
 // CITATION_RE handles). An UNSUPPORTED value (not 1-3) bound to a numbered stem
 // is a fabricated numbered book — parseCitation keeps the number so validation
 // flags it, and NEVER lets the matcher fall back to the bare (valid) book.
-const COMPACT_PREFIX_ALT = `\\d+|[ivxlcdm]+|${ORDINAL_WORDS}`;
+// The numeric alternative also accepts an ORDINAL SUFFIX (1st, 2nd, 3rd, 4th,
+// 11th, …; the suffix letters match case-insensitively via CITATION_RE's `i`
+// flag). `\d+(?:st|nd|rd|th)?` keeps a bare number working too; prefixToNumber
+// strips the suffix. So "1st John"/"2nd-John"/"3rdJohn1:1" bind like their bare-
+// number twins (1/2/3 John valid; 4th/5th/11th → invalid_book, never bare John).
+const COMPACT_PREFIX_ALT = `\\d+(?:st|nd|rd|th)?|[ivxlcdm]+|${ORDINAL_WORDS}`;
 // ONE shared prefix↔book separator: nothing (glued), or a hyphen / dot with NO
 // surrounding whitespace. Only these UNAMBIGUOUS compact forms ("2John",
 // "2-John", "2.John") bind as a numbered-book prefix. A separator with
@@ -550,9 +555,12 @@ const ORDINAL_NUM = {
   first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
   sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
 };
-// A prefix token (numeric / Roman / ordinal word) → its integer value, or null.
+// A prefix token (numeric, numeric-ordinal-suffix, Roman, or ordinal word) → its
+// integer value, or null.
 function prefixToNumber(raw) {
   const t = raw.toLowerCase().replace(/\./g, '');
+  const ord = /^(\d+)(?:st|nd|rd|th)$/.exec(t); // 1st, 2nd, 3rd, 4th, 11th, …
+  if (ord) return Number(ord[1]);
   if (/^\d+$/.test(t)) return Number(t);
   if (ORDINAL_NUM[t] != null) return ORDINAL_NUM[t];
   if (/^[ivxlcdm]+$/.test(t)) return romanToInt(t);
@@ -660,8 +668,8 @@ const COMPACT_PREFIX_BOOKSHAPED_RE = new RegExp(
   'giu',
 );
 function spaceCompactPrefix(full, prefix, sep, book) {
-  const isDigit = /^\d+$/.test(prefix);
-  if (isDigit || sep) return `${prefix} ${book}`; // any digit prefix, or explicit separator
+  const isDigit = /^\d/.test(prefix); // starts with a digit (incl. "4th") — no real book does
+  if (isDigit || sep) return `${prefix} ${book}`; // digit-led prefix, or explicit separator
   // Roman / worded prefix, no separator: don't split a word that is itself a
   // real book (so "Isaiah" is never split into "I saiah").
   const whole = (prefix + book).toLowerCase();
