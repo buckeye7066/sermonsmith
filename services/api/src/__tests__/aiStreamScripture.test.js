@@ -1254,4 +1254,39 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream mixed-surrogate under reserved key').toBe(false);
   });
+
+  // --- Round-43: an escaped seam AFTER the ordinal suffix (suffix↔book position)
+  // is now decoded to a real seam by the global pre-pass, so it binds the
+  // fabricated numbered book like a real seam — every representation, every
+  // position — through the real transport. ---
+  it('/invoke + /stream: escaped seams at the suffix↔book position bind the fabricated numbered book', async () => {
+    const BS = String.fromCharCode(92);
+    const HI = String.fromCharCode(0xDB40), LO = String.fromCharCode(0xDD00);
+    await runR25(app, [
+      [`4th${BS}u200BJohn 1:1 → 4 John invalid_book`, `4th${BS}u200BJohn 1:1`, true],
+      [`4th${BS}u{E0100}John 1:1 → 4 John invalid_book`, `4th${BS}u{E0100}John 1:1`, true],
+      [`4th${BS}uDB40<lit-low>John 1:1 → 4 John invalid_book`, `4th${BS}uDB40${LO}John 1:1`, true],
+      [`4th<lit-high>${BS}uDD00John 1:1 → 4 John invalid_book`, `4th${HI}${BS}uDD00John 1:1`, true],
+      [`non-seam 4th${BS}u{1F600}John 1:1 → bare valid John`, `4th${BS}u{1F600}John 1:1`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a suffix↔book escaped-seam fabrication hidden under scripture_validation', async () => {
+    const BS = String.fromCharCode(92);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `4th${BS}u{E0100}John 1:1` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke suffix-book seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream suffix-book seam under reserved key').toBe(false);
+  });
 });

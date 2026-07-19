@@ -1095,6 +1095,55 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs(`4${LO}${HI}th John 1:1`)).toContain('John 1:1');
   });
 
+  it('decodes an escaped seam GLOBALLY: every seam POSITION behaves like a real seam, by construction', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const ZWSP = cp(0x200B), E0100 = cp(0xE0100);
+    const HI = String.fromCharCode(0xDB40), LO = String.fromCharCode(0xDD00);
+    const EHI = `${BS}uDB40`, ELO = `${BS}uDD00`;
+    const is4John = (s) => {
+      const r = extractScriptureRefs(s);
+      return r.some((x) => /^4 John/.test(x)) && !r.includes('John 1:1') &&
+        validateScriptureRefs(r).some((v) => v.status === 'invalid_book');
+    };
+    const failsClosed = (s) => validateScriptureRefs(extractScriptureRefs(s)).some((v) => v.status === 'out_of_range');
+    // A representative BMP seam (U+200B) and supplementary seam (U+E0100) in EVERY
+    // representation — literal, fully-escaped \uXXXX, \u{...}, mixed surrogate
+    // halves (both orders) — are consumed IDENTICALLY at every seam POSITION.
+    const seamForms = [
+      ZWSP, `${BS}u200B`, `${BS}u{200B}`,
+      E0100, EHI + ELO, `${BS}u{E0100}`, EHI + LO, HI + ELO,
+    ];
+    for (const seam of seamForms) {
+      const label = JSON.stringify(seam);
+      // digit↔suffix, suffix↔book, digit↔superscript, book↔chapter
+      expect(is4John(`4${seam}th John 1:1`), `digit-suffix ${label}`).toBe(true);
+      expect(is4John(`4th${seam}John 1:1`), `suffix-book ${label}`).toBe(true);
+      expect(failsClosed(`John 3:1${seam}${SUP6}`), `digit-superscript ${label}`).toBe(true);
+      expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${seam}4:5`)).some((v) => v.status === 'invalid_book'), `book-chapter ${label}`).toBe(true);
+      // reserved-key live scan (suffix↔book, the r43 position)
+      expect(extractScriptureRefsDeep({ scripture_validation: { note: `4th${seam}John 1:1` } }, { screenReservedKeys: true }).some((r) => /^4 John/.test(r)), `reserved ${label}`).toBe(true);
+    }
+    // Escaped seam == REAL seam at suffix↔book.
+    expect(extractScriptureRefs(`4th${BS}u200BJohn 1:1`)).toEqual(extractScriptureRefs(`4th${ZWSP}John 1:1`));
+    expect(extractScriptureRefs(`4th${BS}u{E0100}John 1:1`)).toEqual(extractScriptureRefs(`4th${E0100}John 1:1`));
+    // Non-seam escapes at those positions never fabricate a numbered book, and
+    // behave like the literal codepoint.
+    for (const ns of [`${BS}u0041`, `${BS}u{1F600}`, `${BS}uD83D${BS}uDE00`]) {
+      expect(extractScriptureRefs(`4th${ns}John 1:1`).some((r) => /^4 John/.test(r)), `non-seam suffix-book ${JSON.stringify(ns)}`).toBe(false);
+      expect(extractScriptureRefs(`4${ns}th John 1:1`).some((r) => /^4 John/.test(r)), `non-seam digit-suffix ${JSON.stringify(ns)}`).toBe(false);
+    }
+    expect(extractScriptureRefs(`4th${BS}u0041John 1:1`)).toEqual(extractScriptureRefs('4thAJohn 1:1'));
+    // Prose backslash / Windows path and short named escapes are untouched (never
+    // decoded globally): no false ref, valid refs beside them still extract.
+    expect(extractScriptureRefs(`the path C:${BS}name here`)).toEqual([]);
+    expect(extractScriptureRefs(`open C:${BS}new folder`)).toEqual([]);
+    expect(extractScriptureRefs(`John 3:16 and C:${BS}nope`)).toEqual(['John 3:16']);
+    // Malformed escape at a seam position never throws.
+    expect(() => extractScriptureRefs(`4th${BS}u{110000}John 1:1`)).not.toThrow();
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

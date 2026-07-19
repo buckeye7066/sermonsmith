@@ -266,6 +266,49 @@ function seamRunIsAllSeam(run) {
   return true;
 }
 
+// GLOBAL escaped-seam pre-pass. Rather than teach every seam POSITION (digit↔
+// suffix, digit↔superscript, suffix↔book, book↔chapter, …) to decode escapes, we
+// ELIMINATE the escaped representation once, up front: any run of EXPLICIT
+// code-point escapes (\uXXXX, \u{…}, \xHH — incl. surrogate pairs, and MIXED with
+// LITERAL surrogate halves / real seam chars) whose decoded codepoints are ALL
+// seams is REPLACED with the real seam codepoint(s) it denotes. After this, an
+// escaped seam ANYWHERE is a REAL seam codepoint, and the existing real-seam
+// paths (normalizeCitationText Cf/Cc/Zs→space, the ordinal/superscript scrubs)
+// handle every position uniformly — escaped == real by construction, no position
+// is special. Scoped to the citation-screening text (fed to extract/validate).
+//
+// SHORT NAMED escapes (\n \t \r …) are DELIBERATELY excluded here: a bare
+// backslash-letter is overwhelmingly a prose path/regex ("C:\name"), not an
+// intended invisible, so decoding them globally would corrupt prose. They remain
+// handled ONLY inside the two bounded scrub contexts (where a digit/suffix/
+// superscript anchor proves citation intent), exactly as in r39–r42. Guards: a
+// non-seam escape (A=A, \u{1F600}=emoji) stays literal; a malformed / lone /
+// reversed surrogate or \u{110000} is left as-is (non-seam) and never throws; a
+// prose backslash with no code-point-escape form is never matched.
+const CODEPOINT_ESCAPE = '\\\\+(?:u\\{[0-9a-fA-F]{1,6}\\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2})';
+const CODEPOINT_ESCAPE_TOKEN_RE = new RegExp(CODEPOINT_ESCAPE, 'gu');
+const GLOBAL_SEAM_RUN_RE = new RegExp(`(?:${CODEPOINT_ESCAPE}|[${SEAM_CHARS}${LONE_SURROGATE}])+`, 'gu');
+function decodeEscapedSeams(text) {
+  return String(text).replace(GLOBAL_SEAM_RUN_RE, (run) => {
+    if (run.indexOf('\\') === -1) return run; // no code-point escape → already real
+    let bad = false;
+    const decoded = run.replace(CODEPOINT_ESCAPE_TOKEN_RE, (esc) => {
+      const frag = escapeToChars(esc);
+      if (frag == null) { bad = true; return esc; }
+      return frag;
+    });
+    if (bad) return run; // an escape that doesn't decode (e.g. \u{110000}) → leave literal
+    for (const ch of decoded) {
+      if (ch.length === 1) {
+        const u = ch.charCodeAt(0);
+        if (u >= 0xD800 && u <= 0xDFFF) return run; // lone/unpaired surrogate → non-seam
+      }
+      if (!SEAM_CHAR_RE.test(ch)) return run; // any non-seam codepoint → leave the run untouched
+    }
+    return decoded; // every decoded codepoint is a real seam → escaped seam becomes real
+  });
+}
+
 // Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
 // NOT match the matcher's ASCII `\d`, and NFKC does not fold most of them
 // (Arabic-Indic, Devanagari, Kawi, Nag Mundari, …) to ASCII. A model can write a
@@ -947,10 +990,16 @@ function collectRefs(source, gate) {
 
 export function extractScriptureRefs(text) {
   if (!text) return [];
+  // GLOBAL escaped-seam pre-pass FIRST: turn every all-seam code-point-escape run
+  // (\uXXXX / \u{…} / \xHH, incl. surrogate pairs and mixed literal/escaped halves)
+  // into the REAL seam codepoint(s) it denotes, so an escaped seam at ANY position
+  // (digit↔suffix, suffix↔book, digit↔superscript, book↔chapter) is handled by the
+  // ordinary real-seam paths below. Non-seam escapes and prose backslashes untouched.
+  const deseamed = decodeEscapedSeams(text);
   // Scrub superscript look-alikes FIRST (fold ordinal-prefix superscripts +
   // hidden seams before a numbered stem; delete stray footnote superscripts) so
   // NFKC (pass 2) and the shadow's hidden→space (pass 3) can't corrupt them.
-  const scrubbed = scrubSuperscripts(text);
+  const scrubbed = scrubSuperscripts(deseamed);
   // Pass 1: normal normalization (NFC + prefix folds + invisible/zero-width +
   // boundary-aware marks). Any non-stopword "Word N:N" is a candidate.
   const pass1 = collectRefs(normalizeCitationText(scrubbed), looksLikeReference);
