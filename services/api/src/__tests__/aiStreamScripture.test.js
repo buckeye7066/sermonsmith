@@ -1106,4 +1106,73 @@ describe('/stream fabricated-Scripture screen', () => {
     expect(audit.status).toBe('unverified_scripture');
     expect(audit.failureType).toBe('unverified_scripture');
   });
+
+  // --- Round-40: the screen must cover the COMPLETE emitted surface — not only
+  // decoded string VALUES, but object KEYS and any non-JSON PREFIX/SUFFIX text
+  // that extractJson leaves outside the parsed/salvaged object. Two false-accepts
+  // (a fabricated ref hidden as a JSON key; a fabricated ref in trailing prose
+  // after a salvaged object) must be caught by /invoke AND /stream. Plus the
+  // escaped-space seam (BY CONSTRUCTION) routed through the real transport. ---
+  it('/invoke + /stream catch a fabricated ref hidden in a JSON KEY (not just values)', async () => {
+    STREAM_TEXT = JSON.stringify({ 'Hezekiah 4:5': 'safe' });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke must flag a fabricated JSON key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+    expect(inv.body.scripture.ok).toBe(false);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream must flag a fabricated JSON key').toBe(false);
+  });
+
+  it('/invoke + /stream catch a fabricated ref in TRAILING prose after a salvaged JSON object', async () => {
+    // extractJson salvages {"text":"safe"} but the model also emitted a fabricated
+    // citation OUTSIDE the object — the leftover suffix must still be screened.
+    STREAM_TEXT = '{"text":"safe"}\nHezekiah 4:5';
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke must flag trailing-prose fabrication').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream must flag trailing-prose fabrication').toBe(false);
+  });
+
+  it('/invoke passes a clean object with a VALID ref in a key and blank trailing whitespace', async () => {
+    // A valid ref in a key + only whitespace outside the object must NOT false-reject.
+    STREAM_TEXT = '{"John 3:16":"anchor"}\n\n';
+    STREAM_THROW = false;
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(res.status, 'valid key + blank suffix must NOT 422').toBe(200);
+  });
+
+  it('/invoke + /stream: escaped-space seams (BY CONSTRUCTION) bind/fail-closed through the transport', async () => {
+    const BS = String.fromCharCode(92);
+    const SUP6 = String.fromCodePoint(0x2076);
+    await runR25(app, [
+      [`escaped-space 4${BS}u0020th John 1:1 → invalid_book (no bare John)`, `4${BS}u0020th John 1:1`, true],
+      [`escaped-space 2${BS}u0020nd John 1:1 → 2 John (valid)`, `2${BS}u0020nd John 1:1`, false],
+      [`hex-escaped 4${BS}x20th John 1:1 → invalid_book`, `4${BS}x20th John 1:1`, true],
+      [`escaped-space superscript John 3:1${BS}u0020${SUP6} → FAIL CLOSED`, `John 3:1${BS}u0020${SUP6}`, true],
+      [`non-seam escape 4${BS}u0041th John 1:1 → bare John (A is NOT a seam)`, `4${BS}u0041th John 1:1`, false],
+      ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
+      ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
 });

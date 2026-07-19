@@ -188,8 +188,39 @@ const SHADOW_HIDDEN_ANY = new RegExp(`${SHADOW_HIDDEN}+`, 'gu');
 // requires a SUPERSCRIPT digit after the seam, so a newline between two real refs
 // ("…3:16\nMark 1:1") is untouched, and a bare numeric with no st/nd/rd/th suffix
 // ("2\tJohn") is not an ordinal → the r30 outline and multi-line refs preserved.
-const ESCAPE_SEAM = '\\\\+(?:[nrtvfb0]|u00[01][0-9a-fA-F]|u007[fF]|u0085|u00[aA]0|u2028|u2029|u200[bBcCdD]|u2060|ufeff|x[01][0-9a-fA-F]|x7[fF])';
-const CONTEXT_SEAM = `(?:[\\p{Cc}\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}\\p{Zs}\\p{Zl}\\p{Zp}]|${ESCAPE_SEAM})`;
+// The seam CHAR class (real codepoints) — single source of truth for membership.
+const SEAM_CHARS = '\\p{Cc}\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}\\p{Zs}\\p{Zl}\\p{Zp}';
+const SEAM_CHAR_RE = new RegExp(`^[${SEAM_CHARS}]$`, 'u');
+// ESCAPE_SEAM matches a GENERIC backslash-escape token (one+ backslashes then a
+// JSON-style escape: \uXXXX, \xXX, or a single letter/digit like \n). It does NOT
+// itself decide seam-hood — the scrub's replace function DECODES the token and
+// keeps it as a seam ONLY when the decoded codepoint ∈ the seam char set (see
+// escapeDecodesToSeam). So the escaped-seam coverage is BY CONSTRUCTION against
+// SEAM_CHARS: adding a codepoint to the seam set automatically covers its escaped
+// form, and a non-seam escape (A = "A") is NEVER treated as a seam.
+const ESCAPE_SEAM = '\\\\+(?:u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[a-zA-Z0-9])';
+const CONTEXT_SEAM = `(?:[${SEAM_CHARS}]|${ESCAPE_SEAM})`;
+// A single escape token → the codepoint it JSON-decodes to (null if not a known
+// escape form). Named control escapes + \xHH + \uHHHH; leading backslashes stripped.
+const NAMED_ESCAPE_CP = { n: 0x0A, r: 0x0D, t: 0x09, v: 0x0B, f: 0x0C, b: 0x08, 0: 0x00 };
+function escapeCodePoint(esc) {
+  const body = esc.replace(/^\\+/, '');
+  if (/^u[0-9a-fA-F]{4}$/.test(body)) return parseInt(body.slice(1), 16);
+  if (/^x[0-9a-fA-F]{2}$/.test(body)) return parseInt(body.slice(1), 16);
+  if (body.length === 1 && Object.prototype.hasOwnProperty.call(NAMED_ESCAPE_CP, body)) return NAMED_ESCAPE_CP[body];
+  return null; // e.g. \A / \5 → decodes to a literal letter/digit, NOT a control
+}
+const ESCAPE_TOKEN_RE = new RegExp(ESCAPE_SEAM, 'gu');
+// Is a captured seam RUN entirely seam? Real chars matched the char class (always
+// seams); every ESCAPE token in the run must decode to a seam codepoint too.
+function seamRunIsAllSeam(run) {
+  const escapes = run.match(ESCAPE_TOKEN_RE);
+  if (!escapes) return true;
+  return escapes.every((esc) => {
+    const cp = escapeCodePoint(esc);
+    return cp != null && SEAM_CHAR_RE.test(String.fromCodePoint(cp));
+  });
+}
 
 // Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
 // NOT match the matcher's ASCII `\d`, and NFKC does not fold most of them
@@ -487,10 +518,14 @@ const ORD_SEP = `(?:[\\s.\\-]|${ORD_HIDDEN})`;
 // fire before a SUPERSCRIPT digit — category No, not a word char — so "⁴ᵗʰ" would
 // be missed): the ordinal must not start mid-word or mid-number.
 const ORDINAL_PREFIX_RE = new RegExp(
-  `(?<![\\p{L}\\p{N}])(${ORD_DIGIT}+)${ORD_HIDDEN}*(${ORD_SUFFIX})(?=${ORD_SEP}*(?:${COMPACT_STEMS.join('|')}))`,
+  `(?<![\\p{L}\\p{N}])(${ORD_DIGIT}+)(${ORD_HIDDEN}*)(${ORD_SUFFIX})(?=${ORD_SEP}*(?:${COMPACT_STEMS.join('|')}))`,
   'giu',
 );
-function foldOrdinalPrefix(_m, digits, suffix) {
+function foldOrdinalPrefix(m, digits, seam, suffix) {
+  // If the digit↔suffix seam contains a backslash-escape that does NOT decode to
+  // a seam codepoint (e.g. "A" = "A"), it is not really a seam → leave the
+  // match untouched (it is not an ordinal, so the bare book is extracted later).
+  if (!seamRunIsAllSeam(seam)) return m;
   const d = [...digits].map((c) => {
     if (SUPERSCRIPT_FOLD[c] !== undefined) return SUPERSCRIPT_FOLD[c]; // superscript digit
     if (/\p{Nd}/u.test(c)) return decimalDigitToAscii(c);             // any Unicode decimal digit
@@ -518,7 +553,12 @@ function foldOrdinalPrefix(_m, digits, suffix) {
 // LEFT for NFKC to fold (r35 rule, unchanged). The required SUPERSCRIPT digit
 // after the seam keeps a newline between two real refs ("…3:16\nMark 1:1") safe.
 const SUP_AMBIG_MARK = 'z'; // a letter → NUM_TOKEN captures it as a trailing char → malformedToken flags
-const AMBIGUOUS_SUPERSCRIPT_RE = new RegExp(`(\\p{Nd})${CONTEXT_SEAM}*[${SUP_DIGITS}]+`, 'gu');
+const AMBIGUOUS_SUPERSCRIPT_RE = new RegExp(`(\\p{Nd})(${CONTEXT_SEAM}*)[${SUP_DIGITS}]+`, 'gu');
+// Fail-closed only when the digit↔superscript seam is entirely seam; a non-seam
+// escape between them means they are not adjacent → leave the match untouched.
+function markAmbiguousSuperscript(m, digit, seam) {
+  return seamRunIsAllSeam(seam) ? digit + SUP_AMBIG_MARK : m;
+}
 // A superscript ORDINAL LETTER not consumed by the ordinal-prefix fold is never
 // number data → delete.
 const STRAY_SUP_LETTER_RE = new RegExp(`[${SUP_LETTERS}]`, 'gu');
@@ -532,7 +572,7 @@ const STRAY_SUP_LETTER_RE = new RegExp(`[${SUP_LETTERS}]`, 'gu');
 function scrubSuperscripts(text) {
   return String(text)
     .replace(ORDINAL_PREFIX_RE, foldOrdinalPrefix)
-    .replace(AMBIGUOUS_SUPERSCRIPT_RE, (_m, digit) => digit + SUP_AMBIG_MARK)
+    .replace(AMBIGUOUS_SUPERSCRIPT_RE, markAmbiguousSuperscript)
     .replace(STRAY_SUP_LETTER_RE, '');
 }
 
@@ -1061,6 +1101,10 @@ export function extractScriptureRefsDeep(value, _depth = 0, _seen = new Set()) {
   } else {
     for (const [key, item] of Object.entries(value)) {
       if (NON_CONTENT_KEYS.has(key)) continue;
+      // Scan the KEY string itself, not just the value: a model can put a
+      // fabricated reference in an object KEY ({"Hezekiah 4:5":"safe"}) which is
+      // still user-visible output but which value-only walking would miss.
+      out.push(...extractScriptureRefs(key));
       out.push(...extractScriptureRefsDeep(item, _depth + 1, _seen));
     }
   }

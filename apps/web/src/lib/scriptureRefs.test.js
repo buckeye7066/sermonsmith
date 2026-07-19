@@ -964,6 +964,45 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs(`John 3:16 and C:${BS}nope`)).toEqual(['John 3:16']);
   });
 
+  it('treats an escaped seam BY CONSTRUCTION (escaped ASCII space bound; escaped non-seam like \\u0041 NOT a seam)', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    // Escaped ASCII space (  / \x20) is a seam → ordinal binds, superscript fails closed.
+    expect(extractScriptureRefs(`2${BS}u0020nd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`4${BS}u0020th John 1:1`).includes('John 1:1')).toBe(false);
+    expect(validateScriptureRefs(extractScriptureRefs(`4${BS}x20th John 1:1`)).some((r) => r.status === 'invalid_book')).toBe(true);
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${BS}u0020${SUP6}`)).every((r) => r.status !== 'valid')).toBe(true);
+    // A backslash-escape that decodes to a NON-seam ("A" = "A") is NOT a seam:
+    // "4Ath John" is not an ordinal → bare valid John, no spurious "4 John".
+    const nonSeam = extractScriptureRefs(`4${BS}u0041th John 1:1`);
+    expect(nonSeam.some((r) => /^4 John/.test(r))).toBe(false);
+    expect(nonSeam).toContain('John 1:1');
+    // The dual: a NON-seam escape between the verse digit and a superscript leaves
+    // a real character between them, so the superscript is an unambiguous footnote
+    // (NOT a verse-shortening seam) — "John 3:1" therefore stays VALID. This is the
+    // by-construction asymmetry vs. the escaped-space seam case above (which fails closed).
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${BS}u0041${SUP6}`)).some((r) => r.ref === 'John 3:1' && r.status === 'valid')).toBe(true);
+    // A by-construction guard: for a sample of seam vs non-seam codepoints, the
+    // escaped form matches the real-char behaviour (seam consumed, non-seam not).
+    for (const seamCp of [0x20, 0x09, 0x0A, 0xA0, 0x2028, 0x200B]) {
+      const hex = seamCp.toString(16).padStart(4, '0');
+      expect(extractScriptureRefs(`4${BS}u${hex}th John 1:1`).includes('John 1:1'), `\\u${hex} seam`).toBe(false);
+    }
+    for (const nonSeamCp of [0x41, 0x35, 0x7A]) { // A, 5, z — not seams
+      const hex = nonSeamCp.toString(16).padStart(4, '0');
+      expect(extractScriptureRefs(`4${BS}u${hex}th John 1:1`).some((r) => /^4 John/.test(r)), `\\u${hex} non-seam`).toBe(false);
+    }
+  });
+
+  it('the deep scanner covers object KEYS, not just values (a fabricated ref in a key is caught)', () => {
+    expect(extractScriptureRefsDeep({ 'Hezekiah 4:5': 'safe' })).toContain('Hezekiah 4:5');
+    expect(extractScriptureRefsDeep({ note: { 'John 99:1': 'x' } })).toContain('John 99:1');
+    expect(validateAiContent({ 'Hezekiah 4:5': 'ok' }).allValid).toBe(false);
+    // A normal object with a valid ref in a key is fine.
+    expect(validateAiContent({ 'John 3:16': 'anchor' }).allValid).toBe(true);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

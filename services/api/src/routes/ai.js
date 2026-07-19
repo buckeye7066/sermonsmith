@@ -470,16 +470,35 @@ export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500
 // fence, or (b) get cut off by the token ceiling mid-object. We strip fences
 // and, as a last resort, slice the outermost {...}/[...] block before giving
 // up — so a stray fence never turns a perfectly good response into a 502.
+// Returns { ok, value, rest }. `rest` is the RAW text OUTSIDE the parsed JSON
+// object/fence (leading/trailing prose, the bytes salvage discarded) — the screen
+// must scan it too, because a fabricated reference in trailing prose after a
+// salvaged object ('{"text":"safe"}\nHezekiah 4:5') is real emitted output. `rest`
+// is raw (not inside a JSON string literal), so it has no JSON escaping — scanning
+// it does NOT re-introduce the escaped-newline fabrication (that lives INSIDE a
+// string value, which we screen via the decoded `value`).
 export function extractJson(raw) {
   if (typeof raw !== 'string') return { ok: false };
   let text = raw.trim();
+  let outerPrefix = '';
+  let outerSuffix = '';
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fence) text = fence[1].trim();
-  try { return { ok: true, value: JSON.parse(text) }; } catch { /* try salvage */ }
+  if (fence) {
+    outerPrefix = text.slice(0, fence.index);
+    outerSuffix = text.slice(fence.index + fence[0].length);
+    text = fence[1].trim();
+  }
+  try {
+    return { ok: true, value: JSON.parse(text), rest: `${outerPrefix} ${outerSuffix}` };
+  } catch { /* try salvage */ }
   const first = text.search(/[{[]/);
   const last = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'));
   if (first !== -1 && last > first) {
-    try { return { ok: true, value: JSON.parse(text.slice(first, last + 1)) }; } catch { /* fall through */ }
+    try {
+      const value = JSON.parse(text.slice(first, last + 1));
+      const rest = `${outerPrefix} ${text.slice(0, first)} ${text.slice(last + 1)} ${outerSuffix}`;
+      return { ok: true, value, rest };
+    } catch { /* fall through */ }
   }
   return { ok: false };
 }
@@ -676,14 +695,14 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
         // Scripture parity with /stream: screen the response for references
         // that are fabricated in EVERY canon and fail closed (422) so the
         // client cannot render/save the draft as a clean, completed result
-        // before the durable entity save gate ever runs. JSON PARSE SUCCEEDED,
-        // so the decoded value is the AUTHORITATIVE, user-visible data — screen
-        // ONLY it. Do NOT also union refs scanned from the raw JSON TEXT: there
-        // an escape is literal, so a real newline ("John 3:16\nMark 1:1") appears
-        // as `\n` and fabricates a bogus "Nmark 1:1", falsely rejecting valid
-        // structured output. A JSON-escaped citation is still caught because the
-        // parse DECODES it into the object we screen.
-        const scripture = screenStreamedScripture(parsed.value);
+        // before the durable entity save gate ever runs. Screen the DECODED
+        // value (authoritative, incl. keys) AND the RAW leftover prose OUTSIDE
+        // the JSON (`parsed.rest`). We do NOT scan the raw JSON string bytes:
+        // there an escape is literal, so a real newline ("John 3:16\nMark 1:1")
+        // fabricates a bogus "Nmark 1:1", falsely rejecting valid output — while
+        // a fabricated ref in trailing prose or an object KEY is still caught
+        // (rest is scanned raw; keys are scanned by the deep walker).
+        const scripture = screenStreamedScripture(parsed.value, parsed.rest);
         const typeViolation = response_json_schema
           ? violatesStringSchema(response_json_schema, parsed.value)
           : false;
@@ -819,7 +838,7 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
   const screenAccumulated = () => {
     if (responseSchema) {
       const parsed = extractJson(full);
-      if (parsed.ok) return screenStreamedScripture(parsed.value);
+      if (parsed.ok) return screenStreamedScripture(parsed.value, parsed.rest);
     }
     return screenStreamedScripture(full);
   };
@@ -929,6 +948,7 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     const truncated = finishReason === 'length';
     let outcome = { status: 'success', failureType: null, ok: true };
     let parsedValue;
+    let parsedRest;
     if (response_json_schema) {
       const finalParse = extractJson(full);
       if (!finalParse.ok) {
@@ -939,17 +959,19 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
         };
       } else {
         parsedValue = finalParse.value;
+        parsedRest = finalParse.rest;
       }
     }
     // Screen for fabricated Scripture regardless of schema — the tokens are
     // already on the wire, so the trailer is how the client learns the preview
     // must not be kept/marked as validated. When the completion parsed as JSON,
-    // the DECODED value is authoritative → screen ONLY it (never union the raw
-    // JSON text, whose literal escapes fabricate refs like "Nmark" and falsely
-    // fail a valid multiline reference); a JSON-escaped citation is still caught
-    // because the parse decoded it. Only non-JSON output falls back to raw text.
+    // screen the DECODED value (authoritative, incl. keys) AND the RAW leftover
+    // prose OUTSIDE the JSON (parsedRest) — covering the FULL emitted byte range
+    // before ok:true — without scanning the raw JSON string bytes (whose literal
+    // escapes fabricate refs like "Nmark" and would falsely fail a valid multiline
+    // reference). Only non-JSON output falls back to scanning the raw text.
     const scripture = parsedValue !== undefined
-      ? screenStreamedScripture(parsedValue)
+      ? screenStreamedScripture(parsedValue, parsedRest)
       : screenStreamedScripture(full);
     if (!scripture.ok && outcome.ok) {
       outcome = { status: 'unverified_scripture', failureType: 'unverified_scripture', ok: false };
