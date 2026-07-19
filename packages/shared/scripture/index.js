@@ -323,34 +323,61 @@ function decodeSeamRun(run) {
   }
   return decoded;
 }
-// Citation-candidate contexts where a seam is canonicalized. The citation matcher
-// (CITATION_RE) tolerates whitespace at exactly these internal positions:
-//   • WORD↔WORD  — book↔number, prefix/ordinal↔book, digit↔suffix, digit↔digit.
-//   • NUMBER↔delimiter↔NUMBER — chapter ':' verse, and range '-' — the ONLY
-//     delimiters CITATION_RE puts `\s*` around. A seam next to ':' or '-' is NOT
-//     word-flanked (the delimiter is not \p{L}/\p{Nd}), so the word↔word rule alone
-//     missed it and an escaped seam there (`4\n:5`, `1\n-999`) bypassed the screen
-//     while a real newline flagged. Covering the numeric span closes that class.
-// Digit↔SUPERSCRIPT stays with the bounded AMBIGUOUS_SUPERSCRIPT scrub (the
-// superscript is \p{No}, not \p{Nd}); parity there is asserted by tests.
+// COMPLETE-BY-CONSTRUCTION seam coverage against the grammar. Auditing CITATION_RE
+// and the compact/ordinal/abbreviation sub-grammars, these are EVERY internal
+// position where they tolerate whitespace (`\s` / `\s*`) — a seam of ANY
+// representation must reach the SAME verdict as a real space at each:
+//   P1 prefix↔book         `(prefix)\s+book`            "4\nJohn"          → word↔word
+//   P2 book-internal "of"  `\s+of\s+`                   "Song of\nSolomon" → word↔word
+//   P3 book↔chapter        `book\s+NUM`                 "Hezekiah\n4:5"    → word↔word
+//   P4 abbrev-dot↔chapter  `book\.?\s+NUM` (dotted)     "Gen.\n999:1"      → ABBREV-DOT pass
+//   P5 chapter↔':'↔verse   `NUM\s*:\s*NUM`              "4\n:5" / "4:\n5"  → numeric span
+//   P6 range↔'-'           `NUM\s*-\s*NUM`              "3:1\n-999"        → numeric span
+//   P7 ordinal-sep↔stem    `\d+(st|nd|rd|th)\s*[.\-]?\s*stem` "4th.\nJohn" → ORDINAL-SEP pass
+//   P8 digit↔suffix        ORD digits↔suffix            "4\nth John"       → word↔word (+ bounded scrub)
+//   P9 suffix↔book         suffix↔stem                  "4th\nJohn"        → word↔word
+//   P10 digit↔superscript  digit↔\p{No}                 "3:1\n⁶"           → bounded AMBIGUOUS_SUPERSCRIPT scrub
+// decodeCitationSeams runs a scoped pass for each, all sharing the one
+// by-construction decodeSeamRun. The grammar-derived parity test asserts P1–P10 ×
+// every representation reach the real-space verdict — so a boundary CITATION_RE
+// tolerates but a pass misses FAILS that test (the lock). Prose-safety: every pass
+// is anchored to a citation shape (a number-delimited span, a book/abbrev/ordinal
+// token adjacent to a number/stem), so a lone escaped seam in a path/regex/version/
+// phone/non-citation literal is not a candidate and is left untouched.
 const WORDISH = '[\\p{L}\\p{Nd}]';
 const CITATION_SEAM_RUN_RE = new RegExp(`(?<=${WORDISH})(${CONTEXT_SEAM}+)(?=${WORDISH})`, 'gu');
 // The chapter:verse and range delimiters, including the Unicode colon/dash variants
 // normalizeCitationText later folds to ASCII ':' / '-'.
 const CITE_DELIM = '(?::|-|[\\uFF1A\\u2236\\u02D0\\uA789\\u2010-\\u2015\\u2212\\uFF0D])';
-// A numeric citation span: a digit run joined to further digit runs by a
+// P5/P6 — a numeric citation span: a digit run joined to further digit runs by a
 // chapter:verse / range delimiter, with seam runs (any representation) as the
 // connective tissue. Anchored by an ACTUAL number-delimiter-number shape, so a
 // lone escaped seam in prose/code (no numeric-delimited neighbours) is not matched.
 const NUMERIC_CITATION_SPAN_RE = new RegExp(`\\p{Nd}+(?:${CONTEXT_SEAM}*${CITE_DELIM}${CONTEXT_SEAM}*\\p{Nd}+)+`, 'gu');
+// P4 — abbreviation-dot↔chapter: a seam between a BOOK-SHAPED word + trailing '.'
+// and a chapter DIGIT ("Gen.\n999:1", "Jn.\n4:5"). Anchored to two+ letters then a
+// dot then a digit, so a sentence period before a non-number word ("Gen.\nThen")
+// is NOT matched, and a digit-dot ("4.\n5") is NOT matched. Escaped==real (a real
+// "book.\n number:number" already binds), so no NEW over-flag beyond the r44 class.
+const ABBREV_DOT_SEAM_RE = new RegExp(`(?<=\\p{L}\\p{L}\\.)(${CONTEXT_SEAM}+)(?=\\p{Nd})`, 'gu');
+// P7 — ordinal-suffix prefix ↔ book stem, across the optional '.'/'-' separator
+// with surrounding whitespace ("4th.\nJohn", "4th\n-John"). Decode the seam runs in
+// the connector, KEEPING the '.'/'-', so ORDINAL_NUMBERED_RE binds it like a real
+// space. Anchored to `\d(st|nd|rd|th)` + a following letter, so it only fires on an
+// ordinal-suffix → word shape.
+const ORDINAL_SEP_SPAN_RE = new RegExp(`(\\d+(?:st|nd|rd|th))((?:${CONTEXT_SEAM}|[.\\-])+)(?=\\p{L})`, 'giu');
 const SEAM_RUN_ONLY_RE = new RegExp(`${CONTEXT_SEAM}+`, 'gu');
 function decodeCitationSeams(text) {
   let out = String(text);
-  // (1) WORD↔WORD seams (book↔number, prefix/ordinal↔book, digit↔suffix, digit↔digit).
+  // P1/P2/P3/P8/P9 — WORD↔WORD seams (book↔number, prefix/ordinal↔book, "of",
+  // digit↔suffix, digit↔digit).
   out = out.replace(CITATION_SEAM_RUN_RE, decodeSeamRun);
-  // (2) NUMBER↔':'/'-'↔NUMBER: within each numeric citation span, decode every seam
-  // run (real, code-point escapes, surrogate pairs incl. mixed, AND named escapes),
-  // so a seam adjacent to ':' / '-' behaves identically to a real space there.
+  // P4 — abbreviation-dot↔chapter.
+  out = out.replace(ABBREV_DOT_SEAM_RE, decodeSeamRun);
+  // P7 — ordinal-suffix separator: decode the seam runs in the connector, keep '.'/'-'.
+  out = out.replace(ORDINAL_SEP_SPAN_RE, (m, g1, g2) => g1 + g2.replace(SEAM_RUN_ONLY_RE, decodeSeamRun));
+  // P5/P6 — NUMBER↔':'/'-'↔NUMBER: within each numeric citation span, decode every
+  // seam run, so a seam adjacent to ':' / '-' behaves identically to a real space.
   out = out.replace(NUMERIC_CITATION_SPAN_RE, (span) => span.replace(SEAM_RUN_ONLY_RE, decodeSeamRun));
   return out;
 }

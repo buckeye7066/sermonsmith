@@ -1243,6 +1243,66 @@ describe('validateAiSermon', () => {
     expect(() => extractScriptureRefs(`John 3:1${BS}u{110000}-999`)).not.toThrow();
   });
 
+  // THE LOCK: a grammar-derived parity test. For EVERY whitespace-tolerant position
+  // in CITATION_RE + the compact/ordinal/abbreviation sub-grammars (P1–P10), and for
+  // EVERY seam representation, the seam must reach the IDENTICAL verdict as a real
+  // space. A future boundary the matcher tolerates but the decoder misses FAILS here.
+  it('grammar parity: every whitespace-tolerant position × every representation == a real space', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const LO = String.fromCharCode(0xDD00);
+    const reps = [
+      cp(0x200B),                // real BMP seam
+      cp(0x0A),                  // real newline
+      `${BS}n`, `${BS}t`,        // named escapes
+      `${BS}u200B`,              // BMP code-point escape
+      `${BS}u{E0100}`,           // supplementary escape
+      `${BS}uDB40${LO}`,         // mixed escaped-high + literal-low surrogate
+    ];
+    const verdict = (s) => validateScriptureRefs(extractScriptureRefs(s)).map((v) => v.status).sort().join(',');
+    // Each entry: [label, seam→string]. Baseline verdict is taken with a real ASCII space.
+    const positions = [
+      ['P1 prefix↔book', (s) => `4${s}John 1:1`],
+      ['P2 book-internal of', (s) => `Song of${s}Solomon 3:1`],
+      ['P3 book↔chapter', (s) => `Hezekiah${s}4:5`],
+      ['P4 abbrev-dot↔chapter (Gen.)', (s) => `Gen.${s}999:1`],
+      ['P4 abbrev-dot↔chapter (Jn.)', (s) => `Jn.${s}999:1`],
+      ['P4 abbrev-dot↔chapter (Hez.)', (s) => `Hez.${s}4:5`],
+      ['P5 chapter↔:↔verse (before)', (s) => `John 999${s}:16`],
+      ['P5 chapter↔:↔verse (after)', (s) => `John 3:${s}16`],
+      ['P6 range↔- (before)', (s) => `John 3:1${s}-999`],
+      ['P6 range↔- (after)', (s) => `John 3:1-${s}999`],
+      ['P7 ordinal-sep (4th._John)', (s) => `4th.${s}John 1:1`],
+      ['P7 ordinal-sep (4th_.John)', (s) => `4th${s}.John 1:1`],
+      ['P7 ordinal-sep (4th-_John)', (s) => `4th-${s}John 1:1`],
+      ['P8 digit↔suffix', (s) => `4${s}th John 1:1`],
+      ['P9 suffix↔book', (s) => `4th${s}John 1:1`],
+      ['P10 digit↔superscript', (s) => `John 3:1${s}${SUP6}`],
+    ];
+    for (const [label, mk] of positions) {
+      const want = verdict(mk(' ')); // real-space baseline for this position
+      for (const seam of reps) {
+        expect(verdict(mk(seam)), `${label} | ${JSON.stringify(seam)} must match real-space verdict "${want}"`).toBe(want);
+      }
+    }
+    // The HIGH (abbrev-dot): no longer a zero-ref bypass; reserved-key parity.
+    expect(validateAiContent({ content: `Jn.${BS}n999:1` }).allValid).toBe(false);
+    expect(extractScriptureRefsDeep({ scripture_validation: { x: `Hez.${BS}n4:5` } }, { screenReservedKeys: true }).some((r) => /^Hez 4:5$/.test(r))).toBe(true);
+    // Prose-safety: a real sentence (period + newline + capitalized NON-number word)
+    // and single-letter abbreviations ("e.g.") are NOT fabricated into references.
+    expect(extractScriptureRefs(`I read Gen.${BS}nThen we prayed.`)).toEqual([]);
+    expect(extractScriptureRefs(`I read Gen.${cp(0x0A)}Then we prayed.`)).toEqual([]); // real-newline twin
+    expect(extractScriptureRefs(`e.g.${BS}n4 apples`)).toEqual([]);
+    // Out-of-range / bad range preserved (never truncated to a valid ref).
+    expect(extractScriptureRefs(`Gen.${BS}n999:1`).some((r) => r === 'Genesis 999:1')).toBe(true);
+    expect(extractScriptureRefs(`John 3:1${BS}n-999`).some((r) => r === 'John 3:1')).toBe(false);
+    // Valid citations with escaped seams stay valid.
+    expect(extractScriptureRefs(`Gen.${BS}n3:16`)).toEqual(['Genesis 3:16']);
+    expect(extractScriptureRefs(`Song of${BS}nSolomon 3:1`)).toEqual(['Song of Solomon 3:1']);
+    expect(() => extractScriptureRefs(`Gen.${BS}u{110000}999:1`)).not.toThrow();
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

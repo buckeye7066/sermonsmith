@@ -1010,3 +1010,42 @@ After both passes an escaped seam adjacent to `:` / `-` is a real seam, and the 
 - `services/api/src/__tests__/aiStreamScripture.test.js` — delimiter-adjacent named-escape seams (`:` and `-`, fabricated / out-of-range / bad-range, valid stays valid) over `/invoke` + `/stream`, and a delimiter-adjacent fabrication under `scripture_validation`.
 
 **Confirmed (round-45):** the scoped decoder now covers the full citation-shaped span, so a seam adjacent to `:` / `-` (and the book↔number space, digit↔suffix, suffix↔book) reaches the same verdict as a real space at every position — across real, named, code-point, and supplementary representations — with out-of-range/bad-range readings preserved (never truncated), digit↔superscript parity via the bounded scrub, and prose/code still not false-rejected. r44 (word↔word positions), r43, r42, r41, r40, r39, and r30–r38 are all preserved, on per-string / deep / joined-array / `/invoke` / `/stream` (success + error). The single accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag.
+
+---
+
+## Round-46 pass (re-review of r45) — the abbreviation-dot boundary; then CLOSE THE CLASS with grammar-complete seam coverage + a grammar-derived parity lock — FIXED
+
+### R46-1 — [HIGH] Escaped seam after an abbreviation dot drops the reference — FIXED
+r45's `decodeCitationSeams` decoded seams only between word chars or inside a numeric `:`/`-` span. The abbreviated-book + trailing `.` + whitespace + chapter boundary — which `CITATION_RE` supports (`[a-z]{2,}\.?\s+NUM`) — is neither (left neighbour is `.`, the numeric span starts after the book). Confirmed: `extractScriptureRefs('Jn.\n999:1' / 'Gen.\n999:1' / 'Hez.\n4:5')` → `[]`, while the real-newline forms return `John 999:1` / `Genesis 999:1` (out_of_range) and `Hez 4:5` (invalid_book); `validateAiContent({content:'Jn.\n999:1'})` → `allValid:true` zero refs — a model hides an invalid/out-of-range ref via a dotted abbreviation + escaped seam.
+
+### CLOSING THE CLASS — enumerated whitespace-tolerant positions + grammar-derived parity lock
+Rather than fix one boundary at a time, I audited `CITATION_RE` and the compact/ordinal/abbreviation sub-grammars and enumerated EVERY position where they tolerate whitespace (`\s` / `\s*`). A probe (escaped `\n` vs a real newline) confirmed which were already at parity and which bypassed:
+
+| # | Position | Grammar | Example | Coverage |
+|---|---|---|---|---|
+| P1 | prefix↔book | `(prefix)\s+book` | `4\nJohn` | word↔word |
+| P2 | book-internal "of" | `\s+of\s+` | `Song of\nSolomon` | word↔word |
+| P3 | book↔chapter | `book\s+NUM` | `Hezekiah\n4:5` | word↔word |
+| P4 | abbrev-dot↔chapter | `book\.?\s+NUM` (dotted) | `Gen.\n999:1` | **NEW abbrev-dot pass** |
+| P5 | chapter↔`:`↔verse | `NUM\s*:\s*NUM` | `4\n:5` / `4:\n5` | numeric span (r45) |
+| P6 | range↔`-` | `NUM\s*-\s*NUM` | `3:1\n-999` | numeric span (r45) |
+| P7 | ordinal-sep↔stem | `\d+(st\|nd\|rd\|th)\s*[.\-]?\s*stem` | `4th.\nJohn` | **NEW ordinal-sep pass** |
+| P8 | digit↔suffix | ORD digit↔suffix | `4\nth John` | word↔word + bounded scrub |
+| P9 | suffix↔book | suffix↔stem | `4th\nJohn` | word↔word |
+| P10 | digit↔superscript | digit↔`\p{No}` | `3:1\n⁶` | bounded AMBIGUOUS_SUPERSCRIPT scrub |
+
+The probe showed P4 (abbrev-dot) and P7 (ordinal-separator, `4th.\nJohn` / `4th\n.John` / `4th-\nJohn`) bypassing; all others already at parity.
+
+**Fix** (`packages/shared/scripture/index.js`): `decodeCitationSeams` now runs one scoped pass per position class, all sharing the single by-construction `decodeSeamRun` (real / code-point escapes incl. surrogate pairs and mixed literal-escaped / short named escapes → real seam iff every decoded codepoint is a seam):
+- **P4 abbrev-dot↔chapter** — `ABBREV_DOT_SEAM_RE = (?<=\p{L}\p{L}\.)(seam+)(?=\p{Nd})`: a seam between a ≥2-letter word + `.` and a chapter DIGIT is decoded. Anchored so a sentence period before a NON-number word (`Gen.\nThen`) and a digit-dot (`4.\n5`) and a single-letter abbreviation (`e.g.`) are NOT matched.
+- **P7 ordinal-separator** — `ORDINAL_SEP_SPAN_RE = (\d+(st|nd|rd|th))((seam|[.\-])+)(?=\p{L})`: decode the seam runs in the connector, KEEPING the `.`/`-`, so `ORDINAL_NUMBERED_RE` binds `4th.\nJohn`→`4 John` like a real space.
+
+**Grammar-derived parity LOCK** (the new test): for EACH enumerated position P1–P10 and EACH representation (real BMP seam, real newline, named `\n`/`\t`, BMP code-point escape, supplementary `\u{E0100}`, mixed escaped/literal surrogate), assert the seam reaches the IDENTICAL verdict as a real space at that position — valid / invalid_book / out_of_range as applicable. The baseline for each position is computed with a real ASCII space, so the test tracks the grammar: a future boundary `CITATION_RE` tolerates but the decoder misses will FAIL it (verified red-able — the pre-fix probe showed P4/P7 mismatching).
+
+**Preserved:** prose-safety (the abbrev pass needs a 2-letter word + dot + DIGIT, so a sentence period + non-number word is not fabricated; bookless number:number / times / ratios / versions (`1\n.2.3`, `.` is not a chapter delimiter) / phones (`555\n-1234`) still not fabricated); out-of-range / bad-range preservation (`John 3:1<seam>-999` keeps the 999 → out_of_range, never truncated); digit↔superscript parity via the bounded scrub; the r30 outline + r44 code-literal fail-safe residuals; and r30–r45 behaviour. Multi-pass ordering (word↔word → abbrev-dot → ordinal-sep → numeric span) targets disjoint positions over the shared decodeSeamRun, so there is no double-decode; escapes only ever SHRINK to real codepoints, and the ordinal-sep pass keeps the `.`/`-`, so span-suppression / superscript-marker offsets downstream are unaffected. Malformed / lone / reversed surrogate never throws.
+
+**Tests** (literals via `String.fromCodePoint`/`String.fromCharCode`/explicit escapes; API through the REAL JSON transport):
+- `apps/web/src/lib/scriptureRefs.test.js` — the grammar-derived parity lock (P1–P10 × 7 representations vs the real-space baseline); the HIGH abbrev-dot no-bypass + reserved-key parity; prose-safety (sentence period + newline, `e.g.`, paths, version, phone) NOT fabricated; out-of-range/bad-range preserved; valid citations with escaped seams stay valid; malformed no-throw.
+- `services/api/src/__tests__/aiStreamScripture.test.js` — abbrev-dot + ordinal-separator escaped seams over `/invoke` + `/stream`, a real sentence period + newline NOT false-rejected, and an abbrev-dot fabrication under `scripture_validation`.
+
+**Confirmed (round-46):** decodeCitationSeams covers every enumerated whitespace-tolerant citation position (P1–P10), so no citation boundary lets an escaped seam bypass — a seam of any representation reaches the same verdict as a real space at every position, guarded by the grammar-derived parity lock — with prose-safety (sentence periods, paths, versions, phones untouched) and out-of-range/bad-range preservation intact. r45 (delimiter-adjacent), r44 (word↔word + code-literal residual), r43, r42, r41, r40, r39, and r30–r38 are all preserved, on per-string / deep / joined-array / `/invoke` / `/stream` (success + error). The accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag.

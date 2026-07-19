@@ -1369,4 +1369,49 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream delimiter seam under reserved key').toBe(false);
   });
+
+  // --- Round-46: complete-by-construction seam coverage. An escaped seam after a
+  // book ABBREVIATION dot (Gen.\n999:1) or in an ORDINAL separator (4th.\nJohn)
+  // was a zero-ref bypass; both are now decoded like a real space — through the
+  // real transport. A real sentence period + newline is NOT fabricated. ---
+  it('/invoke + /stream: abbrev-dot and ordinal-separator escaped seams bind the ref (grammar-complete)', async () => {
+    const BS = String.fromCharCode(92);
+    await runR25(app, [
+      [`Gen.${BS}n999:1 → out_of_range`, `Gen.${BS}n999:1`, true],
+      [`Jn.${BS}n999:1 → out_of_range`, `Jn.${BS}n999:1`, true],
+      [`Hez.${BS}n4:5 → invalid_book`, `Hez.${BS}n4:5`, true],
+      [`4th.${BS}nJohn 1:1 → invalid_book`, `4th.${BS}nJohn 1:1`, true],
+      [`valid Gen.${BS}n3:16 stays valid`, `Gen.${BS}n3:16`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke does NOT false-reject a real sentence period + newline before a non-number word', async () => {
+    const BS = String.fromCharCode(92);
+    STREAM_TEXT = JSON.stringify({ note: `I read Gen.${BS}nThen we prayed.` });
+    STREAM_THROW = false;
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(res.status, 'sentence period + newline must NOT 422').toBe(200);
+  });
+
+  it('/invoke + /stream catch an abbrev-dot escaped-seam fabrication under scripture_validation', async () => {
+    const BS = String.fromCharCode(92);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `Hez.${BS}n4:5` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke abbrev-dot seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream abbrev-dot seam under reserved key').toBe(false);
+  });
 });
