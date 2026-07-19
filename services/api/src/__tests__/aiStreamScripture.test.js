@@ -1289,4 +1289,50 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream suffix-book seam under reserved key').toBe(false);
   });
+
+  // --- Round-44: one citation-scoped seam decoder — a NAMED-escape seam at the
+  // book↔chapter position (previously a zero-ref bypass) is now caught, consistent
+  // with the code-point escape and real seam — through the real transport. ---
+  it('/invoke + /stream: named-escape (and code-point) seams at book↔chapter bind the fabricated book', async () => {
+    const BS = String.fromCharCode(92);
+    await runR25(app, [
+      [`named Hezekiah${BS}n4:5 → invalid_book (finding #1 closed)`, `Hezekiah${BS}n4:5`, true],
+      [`named Hezekiah${BS}t4:5 → invalid_book`, `Hezekiah${BS}t4:5`, true],
+      [`code-point Hezekiah${BS}u000A4:5 → invalid_book`, `Hezekiah${BS}u000A4:5`, true],
+      [`braced Hezekiah${BS}u{E0100}4:5 → invalid_book`, `Hezekiah${BS}u{E0100}4:5`, true],
+      [`valid John${BS}n3:16 stays valid (consistent)`, `John${BS}n3:16`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a named-escape book↔chapter fabrication hidden under scripture_validation', async () => {
+    const BS = String.fromCharCode(92);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `Hezekiah${BS}n4:5` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke named book-chapter seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream named book-chapter seam under reserved key').toBe(false);
+  });
+
+  it('/invoke does NOT false-reject a non-citation-shaped escape (prose/code literal is prose-safe)', async () => {
+    const BS = String.fromCharCode(92);
+    // A Windows path and a JSON-ish value whose escapes are NOT between two word
+    // chars forming a book↔number shape must pass (not screened as a citation).
+    STREAM_TEXT = JSON.stringify({ path: `C:${BS}new${BS}temp`, width: `${BS}u002050px` });
+    STREAM_THROW = false;
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(res.status, 'non-citation escapes must NOT 422').toBe(200);
+  });
 });

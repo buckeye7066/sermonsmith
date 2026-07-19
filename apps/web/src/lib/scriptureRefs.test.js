@@ -1144,6 +1144,65 @@ describe('validateAiSermon', () => {
     expect(() => extractScriptureRefs(`4th${BS}u{110000}John 1:1`)).not.toThrow();
   });
 
+  it('one citation-scoped seam decoder: EVERY representation (incl. named escapes) is consistent at EVERY position', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const HI = String.fromCharCode(0xDB40), LO = String.fromCharCode(0xDD00);
+    const EHI = `${BS}uDB40`, ELO = `${BS}uDD00`;
+    const is4John = (s) => {
+      const r = extractScriptureRefs(s);
+      return r.some((x) => /^4 John/.test(x)) && !r.includes('John 1:1') &&
+        validateScriptureRefs(r).some((v) => v.status === 'invalid_book');
+    };
+    const isHez = (s) => validateScriptureRefs(extractScriptureRefs(s)).some((v) => v.status === 'invalid_book') &&
+      extractScriptureRefs(s).some((r) => /^Hezekiah 4:5$/.test(r));
+    const failsClosed = (s) => validateScriptureRefs(extractScriptureRefs(s)).some((v) => v.status === 'out_of_range');
+    // Real, code-point-escaped, braced, mixed-surrogate (both orders), AND short
+    // NAMED escapes — all decode to the same seam and behave IDENTICALLY at
+    // digit↔suffix, suffix↔book, book↔chapter, and digit↔superscript.
+    const seamForms = [
+      cp(0x200B), `${BS}u200B`, `${BS}u{200B}`,
+      cp(0xE0100), EHI + ELO, `${BS}u{E0100}`, EHI + LO, HI + ELO,
+      cp(0x0A), `${BS}n`, cp(0x09), `${BS}t`,
+    ];
+    for (const seam of seamForms) {
+      const label = JSON.stringify(seam);
+      expect(is4John(`4${seam}th John 1:1`), `digit-suffix ${label}`).toBe(true);
+      expect(is4John(`4th${seam}John 1:1`), `suffix-book ${label}`).toBe(true);
+      expect(isHez(`Hezekiah${seam}4:5`), `book-chapter ${label}`).toBe(true);
+      expect(failsClosed(`John 3:1${seam}${SUP6}`), `digit-superscript ${label}`).toBe(true);
+      expect(extractScriptureRefsDeep({ scripture_validation: { note: `Hezekiah${seam}4:5` } }, { screenReservedKeys: true }).some((r) => /^Hezekiah 4:5$/.test(r)), `reserved ${label}`).toBe(true);
+    }
+    // FINDING #1 closed: a named-escape book↔chapter seam is no longer a zero-ref bypass.
+    expect(validateAiContent({ content: `Hezekiah${BS}n4:5` }).allValid).toBe(false);
+    expect(validateAiContent({ content: `John${BS}n3:16` }).allValid).toBe(true); // valid ref via \n stays valid
+    // Non-seam escapes never fabricate at any position.
+    for (const ns of [`${BS}u0041`, `${BS}u{1F600}`, `${BS}uD83D${BS}uDE00`]) {
+      expect(extractScriptureRefs(`4th${ns}John 1:1`).some((r) => /^4 John/.test(r)), `non-seam suffix-book ${JSON.stringify(ns)}`).toBe(false);
+      expect(extractScriptureRefs(`Hezekiah${ns}4:5`).some((r) => /^Hezekiah 4:5$/.test(r)), `non-seam book-chapter ${JSON.stringify(ns)}`).toBe(false);
+    }
+  });
+
+  it('citation-scoped seam decoding is PROSE-SAFE: escapes not between two word chars are untouched', () => {
+    const BS = '\\';
+    // A seam whose neighbor is a NON-word char (":" in a path, a quote, string edge)
+    // is not a citation candidate → not decoded → no fabricated ref, not rejected.
+    expect(extractScriptureRefs(`C:${BS}name`)).toEqual([]);
+    expect(extractScriptureRefs(`open C:${BS}new folder`)).toEqual([]);
+    expect(extractScriptureRefs(`John 3:16 and C:${BS}nope`)).toEqual(['John 3:16']);
+    expect(extractScriptureRefs(`${BS}u002050`)).toEqual([]);          // standalone value, no book
+    expect(extractScriptureRefs(`${BS}d+${BS}s*`)).toEqual([]);        // regex literal
+    expect(validateAiContent({ width: `${BS}u002050px` }).allValid).toBe(true); // JSON style value
+    expect(validateAiContent({ path: `C:${BS}new${BS}temp` }).allValid).toBe(true);
+    // DOCUMENTED RESIDUAL (r25 fail-safe over-flag): a book+chapter shape WITH an
+    // escaped seam BETWEEN two word chars IS a citation candidate and is flagged —
+    // required so a real space, a zero-width, and a \n reach the same verdict.
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${BS}u00204:5`)).some((v) => v.status === 'invalid_book')).toBe(true);
+    // Malformed escape at a candidate position never throws.
+    expect(() => extractScriptureRefs(`Hezekiah${BS}u{110000}4:5`)).not.toThrow();
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

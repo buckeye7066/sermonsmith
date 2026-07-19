@@ -266,38 +266,50 @@ function seamRunIsAllSeam(run) {
   return true;
 }
 
-// GLOBAL escaped-seam pre-pass. Rather than teach every seam POSITION (digit↔
-// suffix, digit↔superscript, suffix↔book, book↔chapter, …) to decode escapes, we
-// ELIMINATE the escaped representation once, up front: any run of EXPLICIT
-// code-point escapes (\uXXXX, \u{…}, \xHH — incl. surrogate pairs, and MIXED with
-// LITERAL surrogate halves / real seam chars) whose decoded codepoints are ALL
-// seams is REPLACED with the real seam codepoint(s) it denotes. After this, an
-// escaped seam ANYWHERE is a REAL seam codepoint, and the existing real-seam
-// paths (normalizeCitationText Cf/Cc/Zs→space, the ordinal/superscript scrubs)
-// handle every position uniformly — escaped == real by construction, no position
-// is special. Scoped to the citation-screening text (fed to extract/validate).
+// ONE citation-shaped seam decoder. Instead of teaching each seam POSITION (digit↔
+// suffix, digit↔superscript, suffix↔book, book↔chapter, chapter↔verse, …) to see
+// through escapes — always one behind — a single pre-pass canonicalizes seams
+// UNIFORMLY across EVERY representation, scoped to CITATION-CANDIDATE spans. A
+// candidate seam is one that sits BETWEEN TWO WORD CHARACTERS (`\p{L}`/`\p{Nd}`) —
+// the intra-citation position where a book/prefix/number token meets the next
+// citation token. Within such a run, ALL escape representations are decoded via the
+// SAME by-construction decode-then-check as `seamRunIsAllSeam`: real seam
+// codepoints, EXPLICIT code-point escapes (\uXXXX / \u{…} / \xHH, incl. surrogate
+// pairs and MIXED literal/escaped halves, both orders), AND short NAMED escapes
+// (\n \r \t \v \f \b \0). When every decoded codepoint is a seam, the run is
+// REPLACED with the real codepoint(s); then the ordinary real-seam paths
+// (normalizeCitationText Cf/Cc/Zs→space, the ordinal/superscript scrubs) handle
+// every position uniformly — escaped == real at EVERY position, by construction.
 //
-// SHORT NAMED escapes (\n \t \r …) are DELIBERATELY excluded here: a bare
-// backslash-letter is overwhelmingly a prose path/regex ("C:\name"), not an
-// intended invisible, so decoding them globally would corrupt prose. They remain
-// handled ONLY inside the two bounded scrub contexts (where a digit/suffix/
-// superscript anchor proves citation intent), exactly as in r39–r42. Guards: a
-// non-seam escape (A=A, \u{1F600}=emoji) stays literal; a malformed / lone /
-// reversed surrogate or \u{110000} is left as-is (non-seam) and never throws; a
-// prose backslash with no code-point-escape form is never matched.
-const CODEPOINT_ESCAPE = '\\\\+(?:u\\{[0-9a-fA-F]{1,6}\\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2})';
-const CODEPOINT_ESCAPE_TOKEN_RE = new RegExp(CODEPOINT_ESCAPE, 'gu');
-const GLOBAL_SEAM_RUN_RE = new RegExp(`(?:${CODEPOINT_ESCAPE}|[${SEAM_CHARS}${LONE_SURROGATE}])+`, 'gu');
-function decodeEscapedSeams(text) {
-  return String(text).replace(GLOBAL_SEAM_RUN_RE, (run) => {
-    if (run.indexOf('\\') === -1) return run; // no code-point escape → already real
+// SCOPING gives prose-safety WITHOUT excluding named escapes (the r43 trade-off):
+// an escape NOT between two word chars — a Windows path ("C:\name": the seam sits
+// after ":", a non-word char), a standalone/edge escape, a regex/LaTeX literal not
+// forming a book↔number shape — is NOT a candidate and is left untouched (no
+// fabricated ref, no false-reject). Guards: a decoded NON-seam codepoint anywhere
+// (A=A, \u{1F600}=emoji) leaves the run literal; a malformed / lone / reversed
+// surrogate or \u{110000} is left as-is (non-seam) and never throws.
+//
+// DOCUMENTED RESIDUAL (r25 over-flag class): a fabricated/wrong book+chapter shape
+// that appears INSIDE a code/JSON literal with an ESCAPED seam ({"x":"Hezekiah
+// 4:5"}) IS a citation candidate (word↔word), so it is screened as a citation and
+// over-flagged (invalid_book). This is the fail-safe direction and is REQUIRED for
+// representation-consistency: a real space, a  , and a \n between the same
+// book and chapter must all reach the same verdict — a screen cannot let the
+// ENCODING of a seam decide whether a smuggled reference is checked. Shape cannot
+// soundly tell a smuggled citation from a code-literal one, so the screen prefers
+// to flag. Content whose escapes do NOT form a book↔number shape is unaffected.
+const WORDISH = '[\\p{L}\\p{Nd}]';
+const CITATION_SEAM_RUN_RE = new RegExp(`(?<=${WORDISH})(${CONTEXT_SEAM}+)(?=${WORDISH})`, 'gu');
+function decodeCitationSeams(text) {
+  return String(text).replace(CITATION_SEAM_RUN_RE, (run) => {
+    if (run.indexOf('\\') === -1) return run; // pure real-seam run → already real; downstream handles it
     let bad = false;
-    const decoded = run.replace(CODEPOINT_ESCAPE_TOKEN_RE, (esc) => {
+    const decoded = run.replace(ESCAPE_TOKEN_RE, (esc) => {
       const frag = escapeToChars(esc);
       if (frag == null) { bad = true; return esc; }
       return frag;
     });
-    if (bad) return run; // an escape that doesn't decode (e.g. \u{110000}) → leave literal
+    if (bad) return run; // an escape that doesn't decode to a codepoint → leave literal (non-seam)
     for (const ch of decoded) {
       if (ch.length === 1) {
         const u = ch.charCodeAt(0);
@@ -990,12 +1002,14 @@ function collectRefs(source, gate) {
 
 export function extractScriptureRefs(text) {
   if (!text) return [];
-  // GLOBAL escaped-seam pre-pass FIRST: turn every all-seam code-point-escape run
-  // (\uXXXX / \u{…} / \xHH, incl. surrogate pairs and mixed literal/escaped halves)
-  // into the REAL seam codepoint(s) it denotes, so an escaped seam at ANY position
-  // (digit↔suffix, suffix↔book, digit↔superscript, book↔chapter) is handled by the
-  // ordinary real-seam paths below. Non-seam escapes and prose backslashes untouched.
-  const deseamed = decodeEscapedSeams(text);
+  // CITATION-SHAPED seam decoder FIRST: within citation-candidate spans (a seam
+  // between two word chars), turn every all-seam run — real, code-point escapes
+  // (\uXXXX / \u{…} / \xHH, incl. surrogate pairs and mixed literal/escaped halves),
+  // AND short named escapes (\n \t \r …) — into the REAL seam codepoint(s), so an
+  // escaped seam at ANY position (digit↔suffix, suffix↔book, book↔chapter, chapter↔
+  // verse, digit↔superscript) is handled uniformly by the ordinary real-seam paths
+  // below. Non-word-flanked escapes (prose paths, non-citation code) stay untouched.
+  const deseamed = decodeCitationSeams(text);
   // Scrub superscript look-alikes FIRST (fold ordinal-prefix superscripts +
   // hidden seams before a numbered stem; delete stray footnote superscripts) so
   // NFKC (pass 2) and the shadow's hidden→space (pass 3) can't corrupt them.
