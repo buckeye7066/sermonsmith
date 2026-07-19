@@ -198,28 +198,58 @@ const SEAM_CHAR_RE = new RegExp(`^[${SEAM_CHARS}]$`, 'u');
 // escapeDecodesToSeam). So the escaped-seam coverage is BY CONSTRUCTION against
 // SEAM_CHARS: adding a codepoint to the seam set automatically covers its escaped
 // form, and a non-seam escape (A = "A") is NEVER treated as a seam.
-const ESCAPE_SEAM = '\\\\+(?:u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[a-zA-Z0-9])';
+// An escape token is a run of backslashes then one JSON-style escape FORM:
+//   \u{HHHHHH}  ES6 code-point escape (1..6 hex; astral codepoints)
+//   \uHHHH      a single UTF-16 code UNIT (a surrogate HALF for astral chars)
+//   \xHH        a byte
+//   \<char>     a named/simple escape (\n \t …) or a literal letter/digit
+// The forms are ordered longest-first so \u{…} wins over \uHHHH.
+const ESCAPE_SEAM = '\\\\+(?:u\\{[0-9a-fA-F]{1,6}\\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[a-zA-Z0-9])';
 const CONTEXT_SEAM = `(?:[${SEAM_CHARS}]|${ESCAPE_SEAM})`;
-// A single escape token → the codepoint it JSON-decodes to (null if not a known
-// escape form). Named control escapes + \xHH + \uHHHH; leading backslashes stripped.
 const NAMED_ESCAPE_CP = { n: 0x0A, r: 0x0D, t: 0x09, v: 0x0B, f: 0x0C, b: 0x08, 0: 0x00 };
-function escapeCodePoint(esc) {
+// Decode ONE escape token to the raw string fragment it represents: a single
+// UTF-16 code unit for \uHHHH (which may be a lone surrogate half), or a full
+// codepoint for \u{…}/\xHH/named. Returns null for an unknown/malformed form
+// (e.g. \A, \5, or \u{110000}) — such a token is NOT a seam.
+function escapeToChars(esc) {
   const body = esc.replace(/^\\+/, '');
-  if (/^u[0-9a-fA-F]{4}$/.test(body)) return parseInt(body.slice(1), 16);
-  if (/^x[0-9a-fA-F]{2}$/.test(body)) return parseInt(body.slice(1), 16);
-  if (body.length === 1 && Object.prototype.hasOwnProperty.call(NAMED_ESCAPE_CP, body)) return NAMED_ESCAPE_CP[body];
-  return null; // e.g. \A / \5 → decodes to a literal letter/digit, NOT a control
+  const brace = /^u\{([0-9a-fA-F]{1,6})\}$/.exec(body);
+  if (brace) {
+    const cp = parseInt(brace[1], 16);
+    if (cp > 0x10FFFF) return null; // out of Unicode range → not a seam (no throw)
+    return String.fromCodePoint(cp);
+  }
+  if (/^u[0-9a-fA-F]{4}$/.test(body)) return String.fromCharCode(parseInt(body.slice(1), 16)); // 16-bit unit; may be a surrogate half
+  if (/^x[0-9a-fA-F]{2}$/.test(body)) return String.fromCharCode(parseInt(body.slice(1), 16));
+  if (body.length === 1 && Object.prototype.hasOwnProperty.call(NAMED_ESCAPE_CP, body)) return String.fromCharCode(NAMED_ESCAPE_CP[body]);
+  return null; // \A / \5 → a literal letter/digit, NOT a control
 }
 const ESCAPE_TOKEN_RE = new RegExp(ESCAPE_SEAM, 'gu');
-// Is a captured seam RUN entirely seam? Real chars matched the char class (always
-// seams); every ESCAPE token in the run must decode to a seam codepoint too.
+// Is a captured seam RUN entirely seam? Real chars in the run already matched the
+// SEAM_CHARS class (always seams). We DECODE the run in place — each escape token
+// → the char(s) it stands for, real chars kept as-is — then iterate the decoded
+// string BY CODEPOINT, so a truly-adjacent escaped surrogate PAIR
+// (\uD800-\uDBFF then \uDC00-\uDFFF) recombines into its one supplementary
+// codepoint BEFORE the seam-membership test. An escaped astral seam char
+// (U+E0100 variation selector, U+E0000 tag, …) is thus recognised by
+// construction; a non-seam codepoint (emoji \u{1F600}, "A"), a lone/unpaired
+// surrogate, or a malformed escape is NOT a seam. Never throws.
 function seamRunIsAllSeam(run) {
-  const escapes = run.match(ESCAPE_TOKEN_RE);
-  if (!escapes) return true;
-  return escapes.every((esc) => {
-    const cp = escapeCodePoint(esc);
-    return cp != null && SEAM_CHAR_RE.test(String.fromCodePoint(cp));
+  let bad = false;
+  const decoded = run.replace(ESCAPE_TOKEN_RE, (esc) => {
+    const frag = escapeToChars(esc);
+    if (frag == null) { bad = true; return ''; }
+    return frag;
   });
+  if (bad) return false;
+  for (const ch of decoded) {
+    if (ch.length === 1) {
+      const u = ch.charCodeAt(0);
+      if (u >= 0xD800 && u <= 0xDFFF) return false; // lone surrogate → not a valid codepoint
+    }
+    if (!SEAM_CHAR_RE.test(ch)) return false;
+  }
+  return true;
 }
 
 // Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
@@ -956,7 +986,7 @@ export function extractScriptureRefs(text) {
  * AI response screen; kept separate from `extractScriptureRefsDeep` so the
  * persist-gate sweep (which validates already-typed fields) is unchanged.
  */
-export function extractScriptureRefsJoined(value, _depth = 0, _seen = new Set()) {
+export function extractScriptureRefsJoined(value, options = {}, _depth = 0, _seen = new Set()) {
   if (value == null || _depth > 12 || typeof value !== 'object') return [];
   if (_seen.has(value)) return [];
   _seen.add(value);
@@ -968,11 +998,13 @@ export function extractScriptureRefsJoined(value, _depth = 0, _seen = new Set())
       out.push(...extractScriptureRefs(strings.join(' ')));
       out.push(...extractScriptureRefs(strings.join('\n')));
     }
-    for (const item of value) out.push(...extractScriptureRefsJoined(item, _depth + 1, _seen));
+    for (const item of value) out.push(...extractScriptureRefsJoined(item, options, _depth + 1, _seen));
   } else {
     for (const [key, item] of Object.entries(value)) {
-      if (NON_CONTENT_KEYS.has(key)) continue;
-      out.push(...extractScriptureRefsJoined(item, _depth + 1, _seen));
+      // See extractScriptureRefsDeep: the reserved SERVER-blob key is skipped on
+      // the persist path (default) but SCREENED on the live model-output path.
+      if (!options.screenReservedKeys && NON_CONTENT_KEYS.has(key)) continue;
+      out.push(...extractScriptureRefsJoined(item, options, _depth + 1, _seen));
     }
   }
   return out;
@@ -1087,7 +1119,7 @@ const NON_CONTENT_KEYS = new Set(['scripture_validation']);
  * reference regex matches a bare reference as readily as one embedded in a
  * sentence.
  */
-export function extractScriptureRefsDeep(value, _depth = 0, _seen = new Set()) {
+export function extractScriptureRefsDeep(value, options = {}, _depth = 0, _seen = new Set()) {
   if (value == null || _depth > 12) return [];
   if (typeof value === 'string') return extractScriptureRefs(value);
   if (typeof value !== 'object') return [];
@@ -1097,15 +1129,21 @@ export function extractScriptureRefsDeep(value, _depth = 0, _seen = new Set()) {
 
   const out = [];
   if (Array.isArray(value)) {
-    for (const item of value) out.push(...extractScriptureRefsDeep(item, _depth + 1, _seen));
+    for (const item of value) out.push(...extractScriptureRefsDeep(item, options, _depth + 1, _seen));
   } else {
     for (const [key, item] of Object.entries(value)) {
-      if (NON_CONTENT_KEYS.has(key)) continue;
+      // `scripture_validation` is a SERVER-generated blob on a persisted record;
+      // the persist gate skips it (default) to avoid re-validating/double-counting
+      // its own prior output. But on the LIVE screen of untrusted MODEL output
+      // there is no trusted server block — everything the model emitted is
+      // user-visible — so screenReservedKeys:true screens the subtree like any
+      // other content, closing a reserved-key blind spot.
+      if (!options.screenReservedKeys && NON_CONTENT_KEYS.has(key)) continue;
       // Scan the KEY string itself, not just the value: a model can put a
       // fabricated reference in an object KEY ({"Hezekiah 4:5":"safe"}) which is
       // still user-visible output but which value-only walking would miss.
       out.push(...extractScriptureRefs(key));
-      out.push(...extractScriptureRefsDeep(item, _depth + 1, _seen));
+      out.push(...extractScriptureRefsDeep(item, options, _depth + 1, _seen));
     }
   }
   return out;

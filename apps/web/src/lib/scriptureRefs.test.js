@@ -1003,6 +1003,59 @@ describe('validateAiSermon', () => {
     expect(validateAiContent({ 'John 3:16': 'anchor' }).allValid).toBe(true);
   });
 
+  it('screens the reserved scripture_validation subtree on the LIVE path but skips it on the PERSIST path', () => {
+    const hidden = { scripture_validation: { 'Hezekiah 4:5': 'safe', note: ['see', '4 John 1:1'] } };
+    // Persist path (default): reserved SERVER blob is skipped (no double-count).
+    expect(extractScriptureRefsDeep(hidden)).toEqual([]);
+    expect(extractScriptureRefsJoined(hidden)).toEqual([]);
+    // Live path (untrusted model output): the reserved subtree IS screened —
+    // value, key, and split-array recombination are all caught.
+    const live = extractScriptureRefsDeep(hidden, { screenReservedKeys: true });
+    expect(live).toContain('Hezekiah 4:5');
+    expect(live.some((r) => /^4 John/.test(r))).toBe(true);
+    expect(extractScriptureRefsJoined({ scripture_validation: { refs: ['Hezekiah', '4:5'] } }, { screenReservedKeys: true })).toContain('Hezekiah 4:5');
+    // The persist-path contract (ignore a stored valid blob, no double-flag) holds.
+    expect(validateAiContent({ key_verses: ['John 3:16'], scripture_validation: [{ ref: 'Genesis 1:1', status: 'valid' }] }).refs).toHaveLength(1);
+  });
+
+  it('decodes escape RUNS as full codepoints: escaped SUPPLEMENTARY seam chars are seams BY CONSTRUCTION', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    // A representative supplementary SEAM codepoint: U+E0100 (variation selector,
+    // \p{Mn} + Default_Ignorable). Assert its literal form, its surrogate-PAIR
+    // \uXXXX\uXXXX escaped form, and its \u{...} form are ALL consumed in BOTH
+    // bounded contexts (ordinal binds → no bare John; superscript → fail closed).
+    const hi = 0xDB40, lo = 0xDD00; // UTF-16 surrogate halves of U+E0100
+    const seamForms = [
+      cp(0xE0100),                              // literal astral char
+      `${BS}uDB40${BS}uDD00`,                   // surrogate-pair \uXXXX\uXXXX
+      `${BS}u{E0100}`,                          // ES6 code-point escape
+      `${BS}u{2028}`,                           // braced LINE SEPARATOR (Zl)
+    ];
+    for (const seam of seamForms) {
+      expect(extractScriptureRefs(`4${seam}th John 1:1`).includes('John 1:1'), `ordinal seam ${JSON.stringify(seam)}`).toBe(false);
+      expect(validateScriptureRefs(extractScriptureRefs(`4${seam}th John 1:1`)).some((r) => r.status === 'invalid_book'), `ordinal invalid ${JSON.stringify(seam)}`).toBe(true);
+      expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${seam}${SUP6}`)).every((r) => r.status !== 'valid'), `superscript fail-closed ${JSON.stringify(seam)}`).toBe(true);
+    }
+    // A NON-seam supplementary codepoint (emoji U+1F600), in both escaped forms,
+    // is NOT a seam → bare valid John, no spurious "4 John", superscript stays a
+    // valid footnote.
+    for (const nonSeam of [cp(0x1F600), `${BS}u{1F600}`, `${BS}uD83D${BS}uDE00`]) {
+      const refs = extractScriptureRefs(`4${nonSeam}th John 1:1`);
+      expect(refs.some((r) => /^4 John/.test(r)), `non-seam no 4John ${JSON.stringify(nonSeam)}`).toBe(false);
+      expect(refs, `non-seam bare John ${JSON.stringify(nonSeam)}`).toContain('John 1:1');
+      expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${nonSeam}${SUP6}`)).some((r) => r.ref === 'John 3:1' && r.status === 'valid'), `non-seam footnote ${JSON.stringify(nonSeam)}`).toBe(true);
+    }
+    // A malformed escape (out-of-range \u{110000}, lone surrogate) never throws
+    // and is treated as a non-seam.
+    expect(() => extractScriptureRefs(`4${BS}u{110000}th John 1:1`)).not.toThrow();
+    expect(extractScriptureRefs(`4${BS}u{110000}th John 1:1`)).toContain('John 1:1');
+    expect(extractScriptureRefs(`4${BS}uD800th John 1:1`)).toContain('John 1:1');
+    // Reference hi/lo (silence unused-var lint while documenting the pair).
+    expect(String.fromCharCode(hi, lo)).toBe(cp(0xE0100));
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

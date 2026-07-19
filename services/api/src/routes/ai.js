@@ -31,7 +31,11 @@ export function screenStreamedScripture(...values) {
   // Deep sweep of every string, PLUS the join of each array's string elements
   // (so a citation split across array items — "Hezekiah","4:5" — that the
   // client would recombine for display is caught here first).
-  const refs = values.flatMap((v) => [...extractScriptureRefsDeep(v), ...extractScriptureRefsJoined(v)]);
+  // screenReservedKeys: this is LIVE, untrusted model output — there is no
+  // trusted server-generated `scripture_validation` blob to skip, so the reserved
+  // subtree is screened like any other user-visible content (no blind spot).
+  const screenOpts = { screenReservedKeys: true };
+  const refs = values.flatMap((v) => [...extractScriptureRefsDeep(v, screenOpts), ...extractScriptureRefsJoined(v, screenOpts)]);
   const fabricated = refs.filter((ref) => {
     // "Placeable" in a canon = fully verse-verified OR a real book+chapter
     // (chapter_checked). Anything else in ALL canons is a fabrication.

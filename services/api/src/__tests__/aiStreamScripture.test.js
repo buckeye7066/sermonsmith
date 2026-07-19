@@ -1175,4 +1175,45 @@ describe('/stream fabricated-Scripture screen', () => {
       ['valid John 3:16', 'John 3:16', false],
     ]);
   });
+
+  // --- Round-41: (1) the reserved `scripture_validation` key is a persistence-
+  // only skip; on the LIVE screen the whole subtree is screened (no blind spot).
+  // (2) escape decoding reconstructs FULL codepoints (surrogate pairs + \u{...}),
+  // so escaped SUPPLEMENTARY seam chars are caught by construction. ---
+  it('/invoke + /stream screen a fabricated ref hidden under the reserved scripture_validation key', async () => {
+    const bodies = [
+      JSON.stringify({ scripture_validation: { x: 'Hezekiah 4:5' } }),         // value
+      JSON.stringify({ scripture_validation: { 'Hezekiah 4:5': 'safe' } }),    // key
+      JSON.stringify({ scripture_validation: { refs: ['Hezekiah', '4:5'] } }), // split array (joined)
+    ];
+    for (const body of bodies) {
+      STREAM_TEXT = body;
+      STREAM_THROW = false;
+      const inv = await request(app)
+        .post('/api/ai/invoke')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+      expect(inv.status, `/invoke reserved-key ${body}`).toBe(422);
+      expect(inv.body.scripture_unverified).toBe(true);
+
+      const str = await request(app)
+        .post('/api/ai/stream')
+        .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+        .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+      expect(parseTrailer(str).scripture.ok, `/stream reserved-key ${body}`).toBe(false);
+    }
+  });
+
+  it('/invoke + /stream: escaped SUPPLEMENTARY seam codepoints (surrogate pair + \\u{...}) bind/fail-closed', async () => {
+    const BS = String.fromCharCode(92);
+    const SUP6 = String.fromCodePoint(0x2076);
+    await runR25(app, [
+      [`surrogate-pair E0100 4${BS}uDB40${BS}uDD00th John 1:1 → invalid_book`, `4${BS}uDB40${BS}uDD00th John 1:1`, true],
+      [`braced ${BS}u{E0100} 4th John 1:1 → invalid_book`, `4${BS}u{E0100}th John 1:1`, true],
+      [`braced ${BS}u{2028} 4th John 1:1 → invalid_book`, `4${BS}u{2028}th John 1:1`, true],
+      [`surrogate-pair E0100 superscript John 3:1 → FAIL CLOSED`, `John 3:1${BS}uDB40${BS}uDD00${SUP6}`, true],
+      [`non-seam emoji ${BS}u{1F600} 4th John 1:1 → bare valid John`, `4${BS}u{1F600}th John 1:1`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
 });
