@@ -837,7 +837,17 @@ function foldOrdinalPrefix(m, digits, seam, suffix) {
 // LEFT for NFKC to fold (r35 rule, unchanged). The required SUPERSCRIPT digit
 // after the seam keeps a newline between two real refs ("…3:16\nMark 1:1") safe.
 const SUP_AMBIG_MARK = 'z'; // a letter → NUM_TOKEN captures it as a trailing char → malformedToken flags
-const AMBIGUOUS_SUPERSCRIPT_RE = new RegExp(`(\\p{Nd})(${CONTEXT_SEAM}*)[${SUP_DIGITS}]+`, 'gu');
+// The LEFT digit before a superscript is ANY non-superscript DIGIT source the
+// extractor folds to a digit — \p{Nd} (every decimal script) PLUS the full-scan
+// compat digit sources (subscript ₁, circled ①, …) that normalizeTokenChar maps to
+// digits — but NOT the superscript digits themselves (so the all-superscript
+// EMPTY-SLOT case "John 3:¹⁶" is still unambiguous number data, r35, preserved).
+// A non-superscript compat digit immediately before a superscript is the same
+// footnote-vs-data ambiguity as a plain digit → fail-closed.
+const AMBIG_LEFT_DIGIT = `[\\p{Nd}${COMPAT_TOKEN_SOURCES
+  .filter(([src, norm]) => [...norm].every((c) => ASCII_DIGITS.has(c)) && !SUP_DIGITS.includes(src))
+  .map(([src]) => clsEsc(src)).join('')}]`;
+const AMBIGUOUS_SUPERSCRIPT_RE = new RegExp(`(${AMBIG_LEFT_DIGIT})(${CONTEXT_SEAM}*)[${SUP_DIGITS}]+`, 'gu');
 // Fail-closed only when the digit↔superscript seam is entirely seam; a non-seam
 // escape between them means they are not adjacent → leave the match untouched.
 function markAmbiguousSuperscript(m, digit, seam) {

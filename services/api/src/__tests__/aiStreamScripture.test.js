@@ -1621,4 +1621,40 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream ligature-ordinal seam under reserved key').toBe(false);
   });
+
+  // --- Round-53: P10 digit↔superscript now uses the full-scan digit-source class,
+  // so a NON-superscript compat digit (circled ①, subscript ₁) immediately before a
+  // superscript fails closed (ambiguous), not silently the extended reading — through
+  // the real transport. The all-superscript empty slot (¹⁶) stays valid data. ---
+  it('/invoke + /stream: a compat digit before a superscript fails closed (not silently valid)', async () => {
+    const BS = String.fromCharCode(92);
+    const c = (x) => String.fromCodePoint(x);
+    const C1 = c(0x2460), SUB1 = c(0x2081), S6 = c(0x2076), ZWSP = c(0x200B), S1 = c(0xB9);
+    await runR25(app, [
+      [`circled John 3:①⁶ → fail closed`, `John 3:${C1}${S6}`, true],
+      [`circled seamed John 3:①${BS}u200B⁶ → fail closed`, `John 3:${C1}${BS}u200B${S6}`, true],
+      [`circled real-seam John 3:①<ZWSP>⁶ → fail closed`, `John 3:${C1}${ZWSP}${S6}`, true],
+      [`subscript John 3:₁⁶ → fail closed`, `John 3:${SUB1}${S6}`, true],
+      [`empty-slot John 3:¹⁶ → valid (data)`, `John 3:${S1}${S6}`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a compat-digit-superscript fabrication under scripture_validation', async () => {
+    const c = (x) => String.fromCodePoint(x);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `John 3:${c(0x2460)}${c(0x2076)}` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke circled-superscript under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream circled-superscript under reserved key').toBe(false);
+  });
 });

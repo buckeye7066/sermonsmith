@@ -1430,6 +1430,36 @@ describe('validateAiSermon', () => {
     expect(is1JohnOor(`1${BS}u200B${ST6} John 6:1`)).toBe(true);       // 1 + escaped-ZWSP + ﬆ
     expect(is1JohnOor(`1${cp(0xFB05)} John 6:1`)).toBe(true);          // 1ﬅ (FB05, no seam)
     expect(extractScriptureRefs(`1${ST6} John 1:1`)).toEqual(['1 John 1:1']); // supported 1ﬆ → 1 John valid
+    // (d) P10 digit↔superscript: EVERY discovered NON-superscript digit source before
+    // a superscript must FAIL-CLOSED exactly like its ASCII digit — with AND without a
+    // seam, across every representation — while the all-superscript EMPTY SLOT stays
+    // number data (r35). The superscript digit codepoints (the empty-slot case) are
+    // excluded from the left-source loop.
+    const SUP6 = cp(0x2076);
+    const DIGITS = new Set('0123456789');
+    const SUPERSCRIPT_DIGITS = new Set([0x2070, 0xB9, 0xB2, 0xB3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079].map((c) => cp(c)));
+    let p10Sources = 0;
+    for (const [ascii, sources] of foldMap) {
+      if (!DIGITS.has(ascii)) continue;
+      for (const src of sources) {
+        if (SUPERSCRIPT_DIGITS.has(src)) continue; // superscript-before-superscript = empty slot (data)
+        p10Sources += 1;
+        // No-seam adjacency AND seamed forms must match the ASCII-digit verdict
+        // (fail-closed), so a compat digit before a superscript can't read as valid.
+        expect(verdict(`John 3:${src}${SUP6}`), `P10 src U+${src.codePointAt(0).toString(16)} no-seam`).toBe(verdict(`John 3:${ascii}${SUP6}`));
+        for (const seam of reps) {
+          expect(verdict(`John 3:${src}${seam}${SUP6}`), `P10 src U+${src.codePointAt(0).toString(16)} | ${JSON.stringify(seam)}`).toBe(verdict(`John 3:${ascii}${seam}${SUP6}`));
+        }
+        // The ASCII baseline is genuinely fail-closed (no valid John 3:16).
+        expect(validateScriptureRefs(extractScriptureRefs(`John 3:${src}${SUP6}`)).every((v) => v.status !== 'valid'), `P10 src U+${src.codePointAt(0).toString(16)} fail-closed`).toBe(true);
+      }
+    }
+    expect(p10Sources).toBeGreaterThan(0); // at least subscript/circled digit sources
+    // Explicit P10 repros + the r35 empty-slot invariant preserved.
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${cp(0x2460)}${SUP6}`)).every((v) => v.status !== 'valid')).toBe(true); // circled ①⁶ fail-closed
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${cp(0x2460)}${cp(0x200B)}${SUP6}`)).every((v) => v.status !== 'valid')).toBe(true); // ①<ZWSP>⁶
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${cp(0x2081)}${SUP6}`)).every((v) => v.status !== 'valid')).toBe(true); // subscript ₁⁶ fail-closed
+    expect(extractScriptureRefs(`John 3:${cp(0xB9)}${SUP6}`)).toEqual(['John 3:16']); // empty-slot ¹⁶ → data (r35 preserved)
     // The r51 repros: circled ⓣⓗ ordinal at digit↔suffix / suffix-internal binds the
     // fabricated numbered book (never bare John), across real + escaped seams.
     const CT = cp(0x24E3), CH = cp(0x24D7);

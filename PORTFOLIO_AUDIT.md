@@ -1228,3 +1228,29 @@ r51 drove the ordinal-suffix scrub from the full scan, but built `ORD_SUFFIX` ON
 - **Representation** — every seam is handled by the one by-construction `decodeSeamRun` / `seamRunIsAllSeam` (real / code-point escapes incl. surrogate pairs + mixed literal-escaped / short named escapes), with non-seam escapes, malformed/lone surrogates, and prose backslashes left untouched.
 
 The only accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag — both deliberate, both consistent across all representations.
+
+---
+
+## Round-53 pass (re-review of r52) — P10 digit↔superscript ignored NFKC digit sources outside \p{Nd} — FIXED
+
+### R53-1 — [HIGH] The digit↔superscript fail-closed scrub only recognized \p{Nd} as the left digit — FIXED
+The r35/r36 fail-closed invariant marks a superscript digit that is adjacent (through seams) to a DIGIT as ambiguous (footnote vs. number data) and flags it. But `AMBIGUOUS_SUPERSCRIPT_RE` matched only `\p{Nd}` on the left, so a full-scan/NFKC digit source OUTSIDE `\p{Nd}` (circled ①, subscript ₁, …) before a superscript slipped through. Confirmed: `validateAiContent({content:"John 3:①⁶"}).allValid === true` (→ John 3:16 valid); with a seam `John 3:①<ZWSP>⁶` → BOTH `John 3:1` and `John 3:16`, both valid — violating the fail-closed invariant while the ASCII form `John 3:16¹` correctly fails closed (`John 3:16z` out_of_range).
+
+**Fix** (`packages/shared/scripture/index.js`): the LEFT digit of `AMBIGUOUS_SUPERSCRIPT_RE` is now the DERIVED non-superscript digit-source class — `\p{Nd}` (every decimal script) PLUS the full-scan compat digit sources (`COMPAT_TOKEN_SOURCES` whose `normalizeTokenChar` is wholly ASCII digits) — but EXCLUDING the superscript digits themselves (`SUP_DIGITS`). So a non-superscript compat digit immediately before a superscript is the same footnote-vs-data ambiguity as a plain digit → fail-closed (the superscript run is replaced with the malformed marker, so the verse is flagged, never silently the extended reading). Excluding the superscript digits from the left class PRESERVES the r35 EMPTY-SLOT case: `John 3:¹⁶` / `John²:1` (all-superscript, not preceded by a non-superscript digit) stays unambiguous number data and NFKC-folds to the valid ref. The right side (the superscript run) is unchanged (`SUP_DIGITS`), and a circled↔circled number with NO superscript (`John 3:①②` → `John 3:12`) stays valid data (no ambiguity).
+
+**The lock now covers P10 compat digits.** The exhaustive lock iterates every discovered non-superscript digit source (subscript, circled, …) placed before a superscript, WITH and WITHOUT a seam × every representation, asserting the verdict equals the ASCII-digit baseline (fail-closed) — so a compat digit at P10 can never read as valid again — and asserts the r35 empty-slot invariant (`John 3:¹⁶` → data) is preserved. The exact repros (circled ①⁶, ①<ZWSP>⁶, subscript ₁⁶ → fail-closed; empty-slot ¹⁶ → valid) are asserted explicitly.
+
+**Preserved:** the r35/r36 superscript footnote/empty-slot rules; the r50–r52 full-scan derivations (number/delimiter, per-letter and whole-suffix ordinal); the r31 Roman classifier; prose-safety; out-of-range/bad-range preservation; the r30 outline + r44 code-literal residuals; and r30–r52 (full suites green).
+
+**Tests** (literals via `String.fromCodePoint`/explicit escapes; API through the REAL JSON transport):
+- `apps/web/src/lib/scriptureRefs.test.js` — the exhaustive lock now iterates every non-superscript digit source at P10 (no-seam + seamed × representation) asserting fail-closed == the ASCII baseline, alongside the r50–r52 loops; the circled/subscript repros and the empty-slot invariant asserted.
+- `services/api/src/__tests__/aiStreamScripture.test.js` — circled/subscript digit before a superscript (adjacent + seamed real/escaped → fail-closed; empty-slot ¹⁶ → valid) over `/invoke` + `/stream`, plus a compat-digit-superscript fabrication under `scripture_validation`.
+
+**Confirmed (round-53):** P10 (digit↔superscript) uses the derived full-scan digit-source class (every `\p{Nd}` + compat digit source that normalizes to a digit, minus the superscript digits themselves), so a non-superscript compat digit before a superscript fails closed like an ASCII digit while the all-superscript empty slot stays number data; the lock covers compat digits at P10. r52, r51, r50, r49, r48, r47, r46, r45, r44, r43, r42, r41, r40, r39, and r30–r38 are all preserved, on per-string / deep / joined-array / `/invoke` / `/stream` (success + error).
+
+### The seam class is now closed BY CONSTRUCTION on EVERY position — including P10 compat-digit
+- **Position** — every whitespace-tolerant grammar position AND the digit↔superscript fail-closed sub-position (P10) is covered and locked; P1–P10 (incl. ordinal-suffix P8/P9/suffix-internal and P10 digit↔superscript) all derive their digit/token recognition from the full scan.
+- **Token** — every flank/scrub class (number, roman, delimiter, ordinal digit, ordinal suffix per-letter AND whole-suffix, AND the P10 left-digit) is derived from the grammar's actual normalization via the FULL-Unicode-scan set — no allowlist, provably complete; the lock reverses the same full scan.
+- **Representation** — every seam is handled by the one by-construction `decodeSeamRun` / `seamRunIsAllSeam` (real / code-point escapes incl. surrogate pairs + mixed literal-escaped / short named escapes), with non-seam escapes, malformed/lone surrogates, and prose backslashes left untouched.
+
+The only accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag — both deliberate, both consistent across all representations.
