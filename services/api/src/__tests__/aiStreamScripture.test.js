@@ -1552,4 +1552,39 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream ᶜ seam under reserved key').toBe(false);
   });
+
+  // --- Round-51: the ordinal-suffix scrub is now derived from the full-scan
+  // normalization, so an NFKC-only ordinal suffix (circled ⓣⓗ) with a seam at the
+  // digit↔suffix / suffix-internal position binds the fabricated numbered book —
+  // through the real transport. ---
+  it('/invoke + /stream: NFKC-only ordinal suffixes (circled ⓣⓗ) with a seam bind the fabricated book', async () => {
+    const BS = String.fromCharCode(92);
+    const c = (x) => String.fromCodePoint(x);
+    const CT = c(0x24E3), CH = c(0x24D7), CN = c(0x24DD), CD = c(0x24D3), ZWSP = c(0x200B);
+    await runR25(app, [
+      [`4${ZWSP}ⓣⓗ John (real seam) → invalid_book`, `4${ZWSP}${CT}${CH} John 1:1`, true],
+      [`4${BS}u200Bⓣⓗ John (escaped) → invalid_book`, `4${BS}u200B${CT}${CH} John 1:1`, true],
+      [`4ⓣ${ZWSP}ⓗ John (suffix-internal) → invalid_book`, `4${CT}${ZWSP}${CH} John 1:1`, true],
+      [`supported 2${ZWSP}ⓝⓓ John → 2 John (valid)`, `2${ZWSP}${CN}${CD} John 1:1`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a circled-ordinal fabrication under scripture_validation', async () => {
+    const c = (x) => String.fromCodePoint(x);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `4${c(0x200B)}${c(0x24E3)}${c(0x24D7)} John 1:1` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke circled-ordinal seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream circled-ordinal seam under reserved key').toBe(false);
+  });
 });

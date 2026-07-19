@@ -496,10 +496,16 @@ const ordLetterClass = (letter) => {
   return `[${letter}${letter.toUpperCase()}${derivedClassChars(target)}]`;
 };
 const ORD_SUFFIX_DERIVED = `(?:${ordLetterClass('s')}${ordLetterClass('t')}|${ordLetterClass('n')}${ordLetterClass('d')}|${ordLetterClass('r')}${ordLetterClass('d')}|${ordLetterClass('t')}${ordLetterClass('h')})`;
-// WORDISH — book/prefix token char: any letter (ASCII / fullwidth Latin / superscript
-// letter are all \p{L}), decimal digit, or a derived NUMBER/ROMAN char (Unicode Roman
-// Nl, superscript digit No — not otherwise \p{L}/\p{Nd}).
-const WORDISH = `[\\p{L}\\p{Nd}${derivedClassChars(DIGIT_OR_ROMAN)}]`;
+// The ASCII ordinal-suffix letters (of st/nd/rd/th) and the full token-char set.
+const ASCII_ORD_SUFFIX = new Set('stndrhSTNDRH');
+const TOKEN_CHARS = new Set([...DIGIT_OR_ROMAN, ...ASCII_ORD_SUFFIX]);
+// WORDISH — book/prefix/ordinal token char: any letter (ASCII / fullwidth Latin /
+// superscript letter are all \p{L}), decimal digit, or a derived NUMBER/ROMAN/
+// ORDINAL-SUFFIX char (Unicode Roman Nl, subscript/superscript digit No, circled
+// letter So — not otherwise \p{L}/\p{Nd}). Including the suffix sources lets an
+// ESCAPED seam at an NFKC-only ordinal suffix ("4​ⓣⓗ John") be consumed by
+// decodeSeamRun too (defense in depth with the bounded ordinal scrub).
+const WORDISH = `[\\p{L}\\p{Nd}${derivedClassChars(TOKEN_CHARS)}]`;
 const CITATION_SEAM_RUN_RE = new RegExp(`(?<=${WORDISH})(${CONTEXT_SEAM}+)(?=${WORDISH})`, 'gu');
 // The chapter:verse and range delimiters, incl. the Unicode colon/dash variants
 // normalizeCitationText folds to ASCII ':' / '-'.
@@ -764,11 +770,14 @@ const SUP_LETTERS = Object.keys(SUPERSCRIPT_FOLD).filter((c) => /[a-z]/.test(SUP
 // CONTEXT_SEAM here (a superset of the shadow's hidden class) closes the whole
 // seam-class gap at once and keeps the two paths from drifting.
 const ORD_HIDDEN = CONTEXT_SEAM;
-// Ordinal DIGIT: any Unicode decimal digit (\p{Nd} — ASCII, fullwidth,
-// Arabic-Indic, mathematical, …) PLUS superscript digits (\p{No}, not Nd). The
-// leading digits fold to ASCII in foldOrdinalPrefix regardless of script.
-const ORD_DIGIT = `[\\p{Nd}${SUP_DIGITS}]`;
-const ORD_SUFFIX = `(?:[sˢ]${ORD_HIDDEN}*[tᵗ]|[nⁿ]${ORD_HIDDEN}*[dᵈ]|[rʳ]${ORD_HIDDEN}*[dᵈ]|[tᵗ]${ORD_HIDDEN}*[hʰ])`;
+// Ordinal DIGIT and SUFFIX use the SAME full-scan derived classes as the number/
+// delimiter surfaces (ORD_PREFIX_DIGIT, ordLetterClass) — NOT a hand-list — so any
+// NFKC digit/suffix source (ASCII, superscript, fullwidth, circled ⓣ/ⓗ, subscript,
+// …) is captured and folded to the ASCII ordinal. `${ORD_HIDDEN}*` between the two
+// suffix letters consumes a SUFFIX-INTERNAL seam ("4ⓣ​ⓗ") too.
+const ORD_DIGIT = ORD_PREFIX_DIGIT;
+const sfx = (a, b) => `${ordLetterClass(a)}${ORD_HIDDEN}*${ordLetterClass(b)}`;
+const ORD_SUFFIX = `(?:${sfx('s', 't')}|${sfx('n', 'd')}|${sfx('r', 'd')}|${sfx('t', 'h')})`;
 const ORD_SEP = `(?:[\\s.\\-]|${ORD_HIDDEN})`;
 // Start boundary is a Unicode-aware negative lookbehind (NOT `\b`, which does not
 // fire before a SUPERSCRIPT digit — category No, not a word char — so "⁴ᵗʰ" would
@@ -782,12 +791,12 @@ function foldOrdinalPrefix(m, digits, seam, suffix) {
   // a seam codepoint (e.g. "A" = "A"), it is not really a seam → leave the
   // match untouched (it is not an ordinal, so the bare book is extracted later).
   if (!seamRunIsAllSeam(seam)) return m;
-  const d = [...digits].map((c) => {
-    if (SUPERSCRIPT_FOLD[c] !== undefined) return SUPERSCRIPT_FOLD[c]; // superscript digit
-    if (/\p{Nd}/u.test(c)) return decimalDigitToAscii(c);             // any Unicode decimal digit
-    return c;
-  }).join('');
-  const s = [...suffix].map((c) => SUPERSCRIPT_FOLD[c] || c).filter((c) => /[a-z]/i.test(c)).join('');
+  // Fold digits AND suffix via the SAME full-scan normalization the flank classes
+  // derive from (normalizeTokenChar = NFKC + explicit folds), so any digit/suffix
+  // source canonicalizes to its ASCII ordinal; seam chars in the suffix run drop out
+  // (their normalized form is not an ASCII letter).
+  const d = [...digits].map((c) => normalizeTokenChar(c)).join('');
+  const s = [...suffix].map((c) => normalizeTokenChar(c)).join('').replace(/[^a-z]/gi, '');
   return d + s;
 }
 // A superscript digit run that is ADJACENT TO (immediately after) an ASCII/

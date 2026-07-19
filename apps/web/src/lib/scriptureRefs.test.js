@@ -1373,23 +1373,45 @@ describe('validateAiSermon', () => {
       }
     }
     expect(numSources).toBeGreaterThan(200); // the full scan discovered a broad surface
-    // (b) EVERY discovered ORDINAL-SUFFIX source at the ordinal separator, placed in a
-    // valid two-letter suffix with the matching position filled by the source.
-    const suffixTpl = { s: (x) => `1${x}t`, t: (x) => `4${x}h`, n: (x) => `2${x}d`, d: (x) => `2n${x}`, r: (x) => `3${x}d`, h: (x) => `4t${x}` };
+    // (b) EVERY discovered ORDINAL-SUFFIX source, placed at its letter position in a
+    // valid two-letter suffix [digit, c1, c2], with a seam at P8 (digit↔suffix),
+    // P9 (suffix↔book), AND suffix-internal (between the two suffix letters).
+    const suffixParts = {
+      s: (x) => ['1', x, 't'], // 1 + [s] + t = 1st
+      t: (x) => ['4', x, 'h'], // 4 + [t] + h = 4th
+      n: (x) => ['2', x, 'd'], // 2 + [n] + d = 2nd
+      d: (x) => ['2', 'n', x], // 2 + n + [d] = 2nd
+      r: (x) => ['3', x, 'd'], // 3 + [r] + d = 3rd
+      h: (x) => ['4', 't', x], // 4 + t + [h] = 4th
+    };
     let sufSources = 0;
     for (const [ascii, sources] of foldMap) {
       const low = ascii.toLowerCase();
-      if (!SUFFIX.has(ascii) || !suffixTpl[low]) continue;
+      if (!SUFFIX.has(ascii) || !suffixParts[low]) continue;
       for (const src of sources) {
         sufSources += 1;
-        const ord = suffixTpl[low](src);
-        const base = verdict(`${ord}. John 1:1`);
-        for (const seam of reps) {
-          expect(verdict(`${ord}.${seam}John 1:1`), `suffix src U+${src.codePointAt(0).toString(16)} | ${JSON.stringify(seam)}`).toBe(base);
+        const [d, c1, c2] = suffixParts[low](src);
+        // P8 digit↔suffix, P9 suffix↔book, suffix-internal
+        const p8 = (s) => `${d}${s}${c1}${c2} John 1:1`;
+        const p9 = (s) => `${d}${c1}${c2}${s}John 1:1`;
+        const pi = (s) => `${d}${c1}${s}${c2} John 1:1`;
+        for (const [name, mk] of [['P8', p8], ['P9', p9], ['internal', pi]]) {
+          const base = verdict(mk(' '));
+          for (const seam of reps) {
+            expect(verdict(mk(seam)), `suffix src U+${src.codePointAt(0).toString(16)} @${name} | ${JSON.stringify(seam)}`).toBe(base);
+          }
         }
       }
     }
-    expect(sufSources).toBeGreaterThan(5);
+    expect(sufSources).toBeGreaterThan(50);
+    // The r51 repros: circled ⓣⓗ ordinal at digit↔suffix / suffix-internal binds the
+    // fabricated numbered book (never bare John), across real + escaped seams.
+    const CT = cp(0x24E3), CH = cp(0x24D7);
+    const is4John = (s) => extractScriptureRefs(s).some((r) => /^4 John/.test(r)) && !extractScriptureRefs(s).includes('John 1:1');
+    expect(is4John(`4${cp(0x200B)}${CT}${CH} John 1:1`)).toBe(true);   // 4<ZWSP>ⓣⓗ (real seam)
+    expect(is4John(`4${BS}u200B${CT}${CH} John 1:1`)).toBe(true);       // 4 + escaped-ZWSP + circled th
+    expect(is4John(`4${CT}${cp(0x200B)}${CH} John 1:1`)).toBe(true);    // 4ⓣ<ZWSP>ⓗ (suffix-internal)
+    expect(extractScriptureRefs(`2${cp(0x24DD)}${cp(0x24D3)} John 1:1`)).toEqual(['2 John 1:1']); // supported 2ⓝⓓ → 2 John valid
     // RED-ABLE: parity is achieved by the DECODER, not trivially — an un-decoded escape
     // (a literal, non-seam char) at the same position gives a DIFFERENT verdict.
     expect(verdict(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`)).not.toBe(verdict(`Hezekiah ${cp(0x2084)}X:${cp(0x2085)}`));

@@ -1168,3 +1168,34 @@ r49 derived the flank classes from the ACTUAL normalization (NFKC + explicit fol
 - **Representation** — every seam is decoded by the one by-construction `decodeSeamRun` (real / code-point escapes incl. surrogate pairs + mixed literal-escaped / short named escapes), with non-seam escapes, malformed/lone surrogates, and prose backslashes left untouched.
 
 The only accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag — both deliberate, both consistent across all representations.
+
+---
+
+## Round-51 pass (re-review of r50) — the full-scan close reached the number/delimiter classes but MISSED the ordinal-SUFFIX scrub — FIXED
+
+### R51-1 — [HIGH] NFKC-only ordinal suffixes bypass the ordinal seam scrub — FIXED
+r50 made the decodeCitationSeams flank classes (number/delimiter/prefix) full-scan-derived, but the SEPARATE bounded ordinal scrub (`ORDINAL_PREFIX_RE` / `foldOrdinalPrefix`, run in `scrubSuperscripts` before the NFKC pass) still HARD-CODED ASCII/superscript suffix letters (`[sˢ][tᵗ]…`) and folded only `SUPERSCRIPT_FOLD`. So an NFKC-only ordinal suffix bypassed: `4​ⓣⓗ John 1:1` (4 + ZWSP + circled ⓣⓗ) → `["John 1:1"]`, allValid true — the ZWSP seam is turned into a SPACE (by normalizeCitationText) BEFORE the NFKC pass folds ⓣⓗ→th, so the ordinal splits and falls through to the bare valid book (without the seam, `4ⓣⓗ John`→NFKC `4th John`→invalid_book). Same class as r50, at the ordinal-suffix sub-position (P8 digit↔suffix, P9 suffix↔book, and suffix-internal).
+
+**Fix — drive the ordinal-suffix scrub from the SAME full-scan normalization** (`packages/shared/scripture/index.js`), not a hand-list:
+- `ORD_DIGIT` now = `ORD_PREFIX_DIGIT` (the full-scan digit class, `\p{Nd}` + every source normalizing to a digit), and `ORD_SUFFIX` now uses the DERIVED per-letter classes `ordLetterClass('s')…` (ASCII + every source normalizing to that suffix letter — superscript ˢᵗ, fullwidth ｔｈ, circled ⓣⓗ, …), with `${ORD_HIDDEN}*` (the complete seam class, incl. escapes) between the two suffix letters so a SUFFIX-INTERNAL seam (`4ⓣ​ⓗ`) is consumed.
+- `foldOrdinalPrefix` now folds BOTH the digit run AND the suffix via `normalizeTokenChar` (the full-scan predicate: NFKC + explicit folds), so any digit/suffix source canonicalizes to its ASCII ordinal and seam chars in the run drop out (their normalized form is not an ASCII letter). It replaces the SUPERSCRIPT_FOLD-only folding.
+- `WORDISH` (the decodeCitationSeams word-flank class) now also includes the derived ordinal-suffix sources, so an ESCAPED seam at an NFKC-only suffix (`4​ⓣⓗ John`) is consumed by `decodeSeamRun` too (defense in depth with the bounded scrub).
+
+The scrub still only NORMALIZES the seam/ordinal; the validator classifies the canonical `4 John` (invalid_book) exactly as for ASCII `4th`. The r35/r36 position-aware superscript handling (`AMBIGUOUS_SUPERSCRIPT_RE` / fail-close, still keyed on superscript digits) and the r31 Roman classifier are untouched.
+
+**The exhaustive lock now covers the ordinal-suffix position.** It iterates EVERY discovered ordinal-suffix source from `__citationFoldSurfaces()` (the full scan — 215 sources) placed at its letter position in a valid two-letter suffix, with a seam at P8 (digit↔suffix), P9 (suffix↔book), AND suffix-internal, × every representation (real / named-escape / BMP / supplementary / mixed-surrogate), asserting `[ref, status]` == the real-space baseline. So an NFKC-only suffix source can never bypass again. The exact repros (`4​ⓣⓗ`, `4​ⓣⓗ`, `4ⓣ​ⓗ` → invalid_book, never bare John; supported `2ⓝⓓ`→2 John valid) are asserted explicitly.
+
+**Preserved:** prose-safety (`the 4th quarter` → no ref; times/versions/phones/paths/sentence periods); out-of-range/bad-range preservation; r30 outline + r44 code-literal residuals; digit↔superscript parity; the r31 Roman classifier; the r35/r36 superscript footnote/empty-slot rules; and r30–r50 (full suites green).
+
+**Tests** (literals via `String.fromCodePoint`/explicit escapes; API through the REAL JSON transport):
+- `apps/web/src/lib/scriptureRefs.test.js` — the exhaustive lock now iterates every suffix source at P8/P9/suffix-internal × representation (refs+statuses, red-able) alongside the r50 number/delimiter source loop; the circled-ordinal repros asserted.
+- `services/api/src/__tests__/aiStreamScripture.test.js` — circled-ordinal (`ⓣⓗ`) seams at digit↔suffix / suffix-internal (real + escaped; supported `2ⓝⓓ`→2 John valid) over `/invoke` + `/stream`, plus a circled-ordinal fabrication under `scripture_validation`.
+
+**Confirmed (round-51):** the ordinal-suffix scrub is now derived from the full-scan normalization — every NFKC digit/suffix source is captured and folded at P8/P9/suffix-internal across real + escaped seams — and the lock iterates every discovered suffix source. r50, r49, r48, r47, r46, r45, r44, r43, r42, r41, r40, r39, and r30–r38 are all preserved, on per-string / deep / joined-array / `/invoke` / `/stream` (success + error).
+
+### The seam class is now fully closed BY CONSTRUCTION — on all axes AND all sub-positions
+- **Position** — every whitespace-tolerant grammar position (P1–P10, incl. the ordinal-suffix sub-positions P8 digit↔suffix, P9 suffix↔book, and suffix-internal) is covered and locked by the grammar-derived parity test.
+- **Token** — every flank/scrub class (number, roman, delimiter, ordinal DIGIT, and ordinal SUFFIX) is derived from the grammar's actual normalization via the FULL-Unicode-scan set `{c: normalizeTokenChar(c) ⊆ tokenset}` — no allowlist, provably complete; the lock reverses the same full scan, so any code point the grammar accepts is inherited by the decoder/scrub AND exercised by the lock automatically.
+- **Representation** — every seam is decoded by the one by-construction `decodeSeamRun` / `seamRunIsAllSeam` (real / code-point escapes incl. surrogate pairs + mixed literal-escaped / short named escapes), with non-seam escapes, malformed/lone surrogates, and prose backslashes left untouched.
+
+The only accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag — both deliberate, both consistent across all representations.
