@@ -1482,4 +1482,41 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream fullwidth-roman seam under reserved key').toBe(false);
   });
+
+  // --- Round-49: the token surface is DERIVED from the ACTUAL normalization
+  // (NFKC + explicit folds), so NFKC-only compatibility tokens — subscript digits,
+  // mathematical letters, circled digits — reach grammar parity (were a bypass) —
+  // through the real transport. ---
+  it('/invoke + /stream: NFKC-only compatibility tokens (subscript, mathematical) reach parity', async () => {
+    const BS = String.fromCharCode(92);
+    const c = (x) => String.fromCodePoint(x);
+    const sub = (d) => c(0x2080 + d);
+    const mI = c(0x1D408), mV = c(0x1D415); // mathematical bold I, V
+    await runR25(app, [
+      [`subscript Hezekiah ${sub(4)}${BS}n:${sub(5)} → invalid_book`, `Hezekiah ${sub(4)}${BS}n:${sub(5)}`, true],
+      [`mathematical Hezekiah 𝐈𝐕${BS}n:𝐕 → invalid_book`, `Hezekiah ${mI}${mV}${BS}n:${mV}`, true],
+      [`subscript oor John ${sub(9)}${sub(9)}${sub(9)}${BS}n:1 → out_of_range`, `John ${sub(9)}${sub(9)}${sub(9)}${BS}n:1`, true],
+      [`valid subscript John ${sub(3)}:${sub(1)}${sub(6)}`, `John ${sub(3)}:${sub(1)}${sub(6)}`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a subscript-token fabrication under scripture_validation', async () => {
+    const BS = String.fromCharCode(92);
+    const sub = (d) => String.fromCodePoint(0x2080 + d);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `Hezekiah ${sub(4)}${BS}n:${sub(5)}` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke subscript seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream subscript seam under reserved key').toBe(false);
+  });
 });

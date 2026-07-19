@@ -1366,22 +1366,23 @@ describe('validateAiSermon', () => {
     };
     const reps = [cp(0x0A), `${BS}n`, `${BS}t`, `${BS}u200B`, `${BS}u{E0100}`, `${BS}uDB40${LO}`];
     const verdict = (s) => JSON.stringify(validateScriptureRefs(extractScriptureRefs(s)).map((v) => [v.ref, v.status]).sort());
+    // Every NFKC surface the module actually exposes — subscript, superscript,
+    // fullwidth, mathematical, romanNumeral, circled — DERIVED from the same tables,
+    // so a new compatibility form appears here automatically.
+    const ALL_SURFACES = ['ascii', ...new Set([...surfaces.values()].flatMap((o) => Object.keys(o)))];
     // A citation template with a NUMBER/ROMAN token slot {t} rendered per surface, and
-    // a seam slot {s}. Each entry: [label, asciiToken, surfaces[], build(renderedToken, seam)].
+    // a seam slot {s}. Each token is tried in EVERY surface; render() skips a surface
+    // whose glyphs don't exist for that token.
     const templates = [
-      // P5 chapter↔':' — decimal + fullwidth-decimal
-      ['P5 chapter (decimal)', '999', ['ascii', 'fullwidth'], (t, s) => `John ${t}${s}:16`],
-      // P5 chapter↔':' — ASCII Roman + Unicode Roman + fullwidth Latin Roman
-      ['P5 chapter (roman)', 'XCIX', ['ascii', 'unicodeRoman', 'fullwidth'], (t, s) => `John ${t}${s}:I`],
-      // P6 range↔'-' — roman range end (invalid range must be preserved)
-      ['P6 range-end (roman)', 'CM', ['ascii', 'unicodeRoman', 'fullwidth'], (t, s) => `John III:XVI${s}-${t}`],
-      // P4 abbrev-dot↔chapter — roman chapter across the dot
-      ['P4 abbrev-dot (roman)', 'III', ['ascii', 'unicodeRoman', 'fullwidth'], (t, s) => `Gen.${s}${t}:16`],
-      // P1 prefix↔book — roman prefix (unsupported IV → invalid_book)
-      ['P1 prefix (roman)', 'IV', ['ascii', 'unicodeRoman', 'fullwidth'], (t, s) => `${t}${s}John 1:1`],
+      ['P5 chapter (decimal)', '999', (t, s) => `John ${t}${s}:16`],
+      ['P5 chapter (roman)', 'XCIX', (t, s) => `John ${t}${s}:I`],
+      ['P6 range-end (roman)', 'CM', (t, s) => `John III:XVI${s}-${t}`],
+      ['P4 abbrev-dot (decimal)', '999', (t, s) => `Gen.${s}${t}:1`],
+      ['P4 abbrev-dot (roman)', 'III', (t, s) => `Gen.${s}${t}:16`],
+      ['P1 prefix (roman)', 'IV', (t, s) => `${t}${s}John 1:1`],
     ];
-    for (const [label, asciiTok, surfList, build] of templates) {
-      for (const surf of surfList) {
+    for (const [label, asciiTok, build] of templates) {
+      for (const surf of ALL_SURFACES) {
         const t = render(asciiTok, surf);
         if (t === null) continue;
         const baseline = verdict(build(t, ' ')); // real-space baseline for this rendered token
@@ -1390,21 +1391,16 @@ describe('validateAiSermon', () => {
         }
       }
     }
-    // P7 ordinal suffix rendered per surface (ascii "th", fullwidth "ｔｈ", superscript
-    // "ᵗʰ") with a fullwidth/superscript-or-ascii digit — seam across the '.' separator.
-    const ordTemplates = [
-      ['4', 'th'], // 4th → 4 John invalid_book
-    ];
-    for (const [dAscii, sfxAscii] of ordTemplates) {
-      for (const surf of ['ascii', 'fullwidth', 'superscript']) {
-        const d = render(dAscii, surf) ?? render(dAscii, 'ascii');
-        const sfx = render(sfxAscii, surf);
-        if (sfx === null) continue;
-        const ord = d + sfx;
-        const baseline = verdict(`${ord}. John 1:1`); // real-space baseline
-        for (const seam of reps) {
-          expect(verdict(`${ord}.${seam}John 1:1`), `P7 ordinal [${surf}] | ${JSON.stringify(seam)} must match "${baseline}"`).toBe(baseline);
-        }
+    // P7 ordinal — the DIGIT and the "th" suffix rendered in every surface that has
+    // both, with a seam across the '.' separator.
+    for (const surf of ALL_SURFACES) {
+      const d = render('4', surf);
+      const sfx = render('th', surf);
+      if (d === null || sfx === null) continue;
+      const ord = d + sfx;
+      const baseline = verdict(`${ord}. John 1:1`); // real-space baseline
+      for (const seam of reps) {
+        expect(verdict(`${ord}.${seam}John 1:1`), `P7 ordinal [${surf}] | ${JSON.stringify(seam)} must match "${baseline}"`).toBe(baseline);
       }
     }
     // MEANINGFUL / RED-ABLE: the surfaces are non-trivial (an un-decoded literal escape
@@ -1417,6 +1413,13 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs(`John ＩＩＩ:ＸＶＩ${BS}n-ＣＭ`).some((r) => r === 'John 3:16')).toBe(false); // range NOT truncated
     expect(extractScriptureRefs(`４ｔｈ${BS}n.John 1:1`).some((r) => /^4 John/.test(r))).toBe(true);       // fullwidth ordinal bound
     expect(extractScriptureRefs(`⁴ᵗʰ${BS}n.John 1:1`).some((r) => /^4 John/.test(r))).toBe(true);          // superscript ordinal bound
+    // --- r49 NFKC-only surfaces (subscript, mathematical, circled) ---
+    expect(extractScriptureRefs(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`)).toEqual(['Hezekiah 4:5']);  // subscript ₄:₅ SEEN (invalid_book)
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`))[0].status).toBe('invalid_book');
+    expect(extractScriptureRefs(`Hezekiah ${cp(0x1D408)}${cp(0x1D415)}${BS}n:${cp(0x1D415)}`)).toEqual(['Hezekiah 4:5']); // mathematical 𝐈𝐕:𝐕
+    expect(extractScriptureRefs(`Hezekiah ${cp(0x2463)}${BS}n:${cp(0x2464)}`)).toEqual(['Hezekiah 4:5']);  // circled ④:⑤
+    // ...and the un-decoded literal escape at a subscript delimiter DIFFERS (red-able).
+    expect(verdict(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`)).not.toBe(verdict(`Hezekiah ${cp(0x2084)}X:${cp(0x2085)}`));
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
