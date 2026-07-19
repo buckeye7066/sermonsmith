@@ -839,6 +839,50 @@ describe('/stream fabricated-Scripture screen', () => {
     ]);
   });
 
+  // --- Round-39: (RESTORED) a valid MULTILINE JSON string must not be rejected
+  // by raw-JSON escape fabrication; screen the parsed value authoritatively.
+  // Routed through the real JSON transport (STREAM_TEXT is the raw model output). ---
+  it('/invoke: a valid multiline JSON string ("John 3:16\\nMark 1:1", REAL newline) passes with no fabricated Nmark', async () => {
+    STREAM_TEXT = JSON.stringify({ text: 'John 3:16\nMark 1:1' }); // real newline; JSON-escapes on the wire
+    STREAM_THROW = false;
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    // Status 200 (not 422) proves the valid multiline ref was NOT rejected by a
+    // raw-JSON-escape fabrication; the body is the authoritative parsed value.
+    expect(res.status, 'valid multiline must NOT 422').toBe(200);
+    expect(res.body).toEqual({ text: 'John 3:16\nMark 1:1' });
+  });
+
+  it('/stream: a valid multiline JSON string passes (clean trailer, no raw-escape false-reject)', async () => {
+    STREAM_TEXT = JSON.stringify({ text: 'John 3:16\nMark 1:1' });
+    STREAM_THROW = false;
+    const res = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    const trailer = parseTrailer(res);
+    expect(trailer.scripture.ok, 'valid multiline stream must be ok').toBe(true);
+    expect(trailer.scripture.fabricated).toBe(0);
+  });
+
+  it('/invoke + /stream: literal backslash-escape seams still bind/fail-closed (defense in depth)', async () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const BS = '\\';
+    const SUP6 = cp(0x2076);
+    await runR25(app, [
+      [`literal 4${BS}nth John 1:1 → invalid_book (no bare John)`, `4${BS}nth John 1:1`, true],
+      [`literal 2${BS}nnd John 1:1 → 2 John (valid)`, `2${BS}nnd John 1:1`, false],
+      [`literal superscript John 3:1${BS}n${SUP6} → FAIL CLOSED`, `John 3:1${BS}n${SUP6}`, true],
+      [`double 4${BS}${BS}nth John 1:1 → invalid_book`, `4${BS}${BS}nth John 1:1`, true],
+      ['prose backslash C:\\name (no ref)', 'the path C:\\name here', false],
+      ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
+      ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

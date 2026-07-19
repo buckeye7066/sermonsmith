@@ -939,6 +939,31 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('2. John 3:16')).toEqual(['John 3:16']);
   });
 
+  it('neutralizes LITERAL backslash-escape seams in the bounded contexts, without mangling prose backslashes', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const BS = '\\'; // one literal backslash
+    const SUP6 = cp(0x2076);
+    // A literal JSON-style escape (backslash+n/t/r/v/f) between the digit and the
+    // ordinal suffix is a seam → the ordinal binds numbered, never bare John.
+    expect(extractScriptureRefs(`2${BS}nnd John 1:1`)).toEqual(['2 John 1:1']);
+    for (const esc of ['n', 't', 'r', 'v', 'f']) {
+      const refs = extractScriptureRefs(`4${BS}${esc}th John 1:1`);
+      expect(refs.includes('John 1:1'), `\\${esc} seam must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book')).toBe(true);
+    }
+    // Double-escaped (two backslashes) and \u/\x control forms too.
+    expect(extractScriptureRefs(`2${BS}${BS}nnd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`4${BS}u000ath John 1:1`).includes('John 1:1')).toBe(false);
+    // A literal escape seam before a superscript number fails closed.
+    const v = validateScriptureRefs(extractScriptureRefs(`John 3:1${BS}n${SUP6}`));
+    expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked')).toBe(true);
+    expect(v.some((r) => r.ref === 'John 3:1' && r.status === 'valid')).toBe(false);
+    // A legitimate literal backslash in PROSE (no digit↔suffix / digit↔superscript
+    // context) is NOT mangled — no spurious ref.
+    expect(extractScriptureRefs(`the file C:${BS}name is here`)).toEqual([]);
+    expect(extractScriptureRefs(`John 3:16 and C:${BS}nope`)).toEqual(['John 3:16']);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

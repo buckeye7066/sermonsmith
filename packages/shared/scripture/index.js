@@ -177,12 +177,19 @@ const SHADOW_HIDDEN_ANY = new RegExp(`${SHADOW_HIDDEN}+`, 'gu');
 // + \p{Default_Ignorable_Code_Point} (variation selectors + tag chars) + \p{M}
 // + \p{Zs} + \p{Zl} + \p{Zp}. By construction this ⊇ JS `\s` (proven by the
 // superset guard test) — closing the seam class BY CONSTRUCTION, not one char at
-// a time. It is contextual: only between two citation tokens, never a general
-// inter-word separator; the superscript scrub additionally requires a SUPERSCRIPT
-// digit after the seam, so a newline between two real refs ("…3:16\nMark 1:1") is
-// untouched, and a bare numeric with no st/nd/rd/th suffix ("2\tJohn") is not an
-// ordinal → the r30 outline and multi-line refs are preserved.
-const CONTEXT_SEAM = '(?:[\\p{Cc}\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}\\p{Zs}\\p{Zl}\\p{Zp}])';
+// a time. It ALSO matches a LITERAL JSON-STYLE ESCAPE for a whitespace/control
+// char (one or more backslashes + n/r/t/v/f/b/0 or a \x../\u.... control form) —
+// a model can DOUBLE-escape a citation ({"text":"4\\nth John"} → after one
+// JSON.parse the value still holds a literal backslash+n), and that literal
+// escape survives into the parsed value and would otherwise split the token. It
+// is contextual: only between two citation tokens (digit↔ordinal-suffix,
+// decimal-digit↔SUPERSCRIPT), never a general inter-word separator and never a
+// legitimate literal backslash in prose. The superscript scrub additionally
+// requires a SUPERSCRIPT digit after the seam, so a newline between two real refs
+// ("…3:16\nMark 1:1") is untouched, and a bare numeric with no st/nd/rd/th suffix
+// ("2\tJohn") is not an ordinal → the r30 outline and multi-line refs preserved.
+const ESCAPE_SEAM = '\\\\+(?:[nrtvfb0]|u00[01][0-9a-fA-F]|u007[fF]|u0085|u00[aA]0|u2028|u2029|u200[bBcCdD]|u2060|ufeff|x[01][0-9a-fA-F]|x7[fF])';
+const CONTEXT_SEAM = `(?:[\\p{Cc}\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}\\p{Zs}\\p{Zl}\\p{Zp}]|${ESCAPE_SEAM})`;
 
 // Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
 // NOT match the matcher's ASCII `\d`, and NFKC does not fold most of them

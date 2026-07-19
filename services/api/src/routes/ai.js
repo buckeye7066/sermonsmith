@@ -676,11 +676,14 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
         // Scripture parity with /stream: screen the response for references
         // that are fabricated in EVERY canon and fail closed (422) so the
         // client cannot render/save the draft as a clean, completed result
-        // before the durable entity save gate ever runs. Screen BOTH the raw
-        // text AND the decoded parsed value, so a JSON-escaped citation
-        // (e.g. "Hezekiah 4:5") that the raw regex misses is still caught
-        // in the object the client actually receives.
-        const scripture = screenStreamedScripture(content, parsed.value);
+        // before the durable entity save gate ever runs. JSON PARSE SUCCEEDED,
+        // so the decoded value is the AUTHORITATIVE, user-visible data — screen
+        // ONLY it. Do NOT also union refs scanned from the raw JSON TEXT: there
+        // an escape is literal, so a real newline ("John 3:16\nMark 1:1") appears
+        // as `\n` and fabricates a bogus "Nmark 1:1", falsely rejecting valid
+        // structured output. A JSON-escaped citation is still caught because the
+        // parse DECODES it into the object we screen.
+        const scripture = screenStreamedScripture(parsed.value);
         const typeViolation = response_json_schema
           ? violatesStringSchema(response_json_schema, parsed.value)
           : false;
@@ -809,14 +812,14 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     // out of band in a header) authenticates the trailer as server-produced.
     try { res.write(`\n${STREAM_RESULT_SEPARATOR}${streamNonce}${JSON.stringify(payload)}`); } catch { /* socket closed */ }
   };
-  // The SAME Scripture screen success uses — raw text AND, for a structured
-  // response, the decoded parsed value (flattened-join + parsed scan). The error
-  // path must be exactly as strong, so an already-emitted split/escaped citation
-  // in complete JSON is still flagged even when the upstream throws afterward.
+  // The SAME Scripture screen success uses. When the completion is complete JSON,
+  // the DECODED value is authoritative — screen ONLY it (never union the raw JSON
+  // text, whose literal escapes fabricate refs and falsely reject valid output).
+  // Only when there is no parseable JSON do we fall back to scanning the raw text.
   const screenAccumulated = () => {
     if (responseSchema) {
       const parsed = extractJson(full);
-      if (parsed.ok) return screenStreamedScripture(full, parsed.value);
+      if (parsed.ok) return screenStreamedScripture(parsed.value);
     }
     return screenStreamedScripture(full);
   };
@@ -940,13 +943,13 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     }
     // Screen for fabricated Scripture regardless of schema — the tokens are
     // already on the wire, so the trailer is how the client learns the preview
-    // must not be kept/marked as validated. Screen BOTH the raw streamed text
-    // AND (for structured responses) the decoded parsed value, so a JSON-escaped
-    // citation the raw regex misses is still caught in the object the client
-    // reconstructs. A fabricated reference fails the whole result (client falls
-    // back to /invoke, whose save then re-runs the durable Scripture gate).
+    // must not be kept/marked as validated. When the completion parsed as JSON,
+    // the DECODED value is authoritative → screen ONLY it (never union the raw
+    // JSON text, whose literal escapes fabricate refs like "Nmark" and falsely
+    // fail a valid multiline reference); a JSON-escaped citation is still caught
+    // because the parse decoded it. Only non-JSON output falls back to raw text.
     const scripture = parsedValue !== undefined
-      ? screenStreamedScripture(full, parsedValue)
+      ? screenStreamedScripture(parsedValue)
       : screenStreamedScripture(full);
     if (!scripture.ok && outcome.ok) {
       outcome = { status: 'unverified_scripture', failureType: 'unverified_scripture', ok: false };
