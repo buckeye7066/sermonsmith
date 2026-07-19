@@ -74,7 +74,7 @@ describe('ai routes — authentication & abuse limits', () => {
   it('/stream returns a pre-stream JSON error (503) when AI is disabled', async () => {
     prisma._store.user.push({ id: 'u-s', role: 'user', premium: false });
     process.env.DISABLE_AI = '1';
-    const res = await request(app).post('/api/ai/stream').send({ prompt: 'hi' }).set('Cookie', [`ss_token=${tokenFor('u-s')}`]);
+    const res = await request(app).post('/api/ai/stream').send({ prompt: 'hi', stream_result: true }).set('Cookie', [`ss_token=${tokenFor('u-s')}`]);
     expect(res.status).toBe(503);
   });
 
@@ -94,10 +94,14 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(aiInternals.clampTokens(undefined, true)).toBe(8192);
   });
 
-  it('extractJson parses plain, fenced, and trailing-text JSON', () => {
-    expect(extractJson('{"a":1}')).toEqual({ ok: true, value: { a: 1 } });
-    expect(extractJson('```json\n{"a":1}\n```')).toEqual({ ok: true, value: { a: 1 } });
-    expect(extractJson('Sure! Here you go:\n{"a":1}\nHope that helps')).toEqual({ ok: true, value: { a: 1 } });
+  it('extractJson parses plain, fenced, and trailing-text JSON (and exposes the non-JSON leftover as `rest`)', () => {
+    expect(extractJson('{"a":1}')).toMatchObject({ ok: true, value: { a: 1 } });
+    expect(extractJson('```json\n{"a":1}\n```')).toMatchObject({ ok: true, value: { a: 1 } });
+    // Trailing prose after a salvaged object is exposed in `rest` so the screen can scan it.
+    const trailing = extractJson('Sure! Here you go:\n{"a":1}\nHope that helps');
+    expect(trailing).toMatchObject({ ok: true, value: { a: 1 } });
+    expect(trailing.rest).toContain('Sure! Here you go:');
+    expect(trailing.rest).toContain('Hope that helps');
     expect(extractJson('not json at all').ok).toBe(false);
     expect(extractJson('').ok).toBe(false);
   });

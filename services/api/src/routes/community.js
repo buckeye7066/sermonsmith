@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
+import {
+  assertGatedResourceExposable,
+  isPublicContentServable,
+  assertAiReplyExposable,
+  SCRIPTURE_GATED_TYPES,
+} from '../services/scriptureGate.js';
 
 // ---------------------------------------------------------------------------
 // Community / share routes.
@@ -42,6 +48,71 @@ function sharedContentInteractionKey(userId, contentId) {
   return { userId, contentId, contentType: 'SharedContent' };
 }
 
+// Resolve a row owner's denomination (row.data.denomination → owner profile),
+// memoized per feed request so a 50-row feed does at most one lookup per owner.
+function makeDenominationResolver() {
+  const cache = new Map();
+  return async (row) => {
+    if (row.data?.denomination) return row.data.denomination;
+    const uid = row.userId;
+    if (!uid) return '';
+    if (cache.has(uid)) return cache.get(uid);
+    const user = await prisma.user
+      .findUnique({ where: { id: uid }, select: { profile: true } })
+      .catch(() => null);
+    const denom = (user?.profile?.denomination) || '';
+    cache.set(uid, denom);
+    return denom;
+  };
+}
+
+// Fail-closed serve filter for public feeds: keep only rows whose CURRENT stored
+// content still fully verifies. A gated row (or an is_ai_response reply) edited
+// into an invalid state AFTER it went public is OMITTED (and audit-logged), so a
+// public feed can never surface unverified/fabricated Scripture. Non-gated rows
+// pass through untouched.
+async function serveExposableRows(type, rows) {
+  const resolveDenom = makeDenominationResolver();
+  const kept = await Promise.all(rows.map(async (row) => {
+    const denomination = await resolveDenom(row);
+    if (isPublicContentServable({ type, data: row.data || {}, denomination })) return row;
+    recordCommunityAudit('community.omitted_unverified_scripture', row.userId, type, row.id, {}).catch(() => {});
+    return null;
+  }));
+  return kept.filter(Boolean);
+}
+
+// Interaction routes (like / report / save) echo the SharedContent row back so
+// the UI can refresh its card. If that row's Scripture no longer verifies, fail
+// closed: return the interaction STATUS (counters/flags) WITHOUT the content
+// body, so a public row the feed now OMITS can't be re-fetched by id through an
+// interaction response. Valid content is returned unchanged.
+async function interactionResult(row, extra = {}) {
+  const data = row.data || {};
+  const denomination = data.denomination
+    || (row.userId
+      ? ((await prisma.user.findUnique({ where: { id: row.userId }, select: { profile: true } }).catch(() => null))?.profile?.denomination || '')
+      : '');
+  if (isPublicContentServable({ type: 'SharedContent', data, denomination })) {
+    return { ...formatEntity(row), ...extra };
+  }
+  recordCommunityAudit('community.omitted_unverified_scripture', row.userId, 'SharedContent', row.id, {}).catch(() => {});
+  return {
+    id: row.id,
+    content_type: data.content_type,
+    visibility: data.visibility,
+    status: data.status,
+    likes_count: data.likes_count,
+    saves_count: data.saves_count,
+    reported_count: data.reported_count ?? data.reportedCount,
+    reportedCount: data.reportedCount ?? data.reported_count,
+    reported_by: data.reported_by,
+    last_report: data.last_report,
+    content_withheld: true,
+    ...extra,
+  };
+}
+
 async function recordCommunityAudit(action, userId, targetType, targetId, metadata = {}) {
   if (!prisma.auditLog?.create) return;
   try {
@@ -81,10 +152,14 @@ router.get('/shared-content', optionalAuth, async (req, res, next) => {
       where,
       orderBy: { createdAt: 'desc' },
       take: 50,
-      select: { id: true, data: true, createdAt: true, updatedAt: true },
+      select: { id: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
 
-    res.json(rows.filter((row) => isPublicCommunityData(row.data || {})).map(formatEntity));
+    const visible = rows.filter((row) => isPublicCommunityData(row.data || {}));
+    // Fail closed: re-validate Scripture over each row's CURRENT stored content
+    // and omit any that no longer verifies (edited-to-invalid after publish).
+    const servable = await serveExposableRows('SharedContent', visible);
+    res.json(servable.map(formatEntity));
   } catch (err) {
     next(err);
   }
@@ -119,6 +194,17 @@ router.get('/share/:slug', optionalAuth, async (req, res, next) => {
     if (resource.userId !== link.userId) {
       return res.status(404).json({ message: 'Shared resource not found' });
     }
+
+    // Serve-time Scripture gate: the resource may have been valid when the link
+    // was minted and later edited into an invalid private state (the merged-
+    // record entity gate cannot see this external SharedLink). Re-validate the
+    // CURRENT stored content and refuse to surface a gated resource whose
+    // references no longer all verify — so a share link can never present
+    // unverified/fabricated Scripture as trusted. Owner denomination → canon.
+    const shareDenomination = resource.data?.denomination
+      || (await prisma.user.findUnique({ where: { id: resource.userId }, select: { profile: true } }))?.profile?.denomination
+      || '';
+    assertGatedResourceExposable({ type: resource.type, resourceData: resource.data, denomination: shareDenomination });
 
     // Increment views opportunistically; failure must not block the read.
     prisma.entity.update({
@@ -166,13 +252,13 @@ router.get('/posts/:id/replies', optionalAuth, async (req, res, next) => {
       where: { type: 'CommunityReply', data: { path: ['post_id'], equals: req.params.id } },
       orderBy: { createdAt: 'asc' },
       take: 300,
-      select: { id: true, data: true, createdAt: true, updatedAt: true },
+      select: { id: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
-    res.json(
-      rows
-        .filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})))
-        .map(formatEntity),
-    );
+    const visible = rows.filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})));
+    // Fail closed: an is_ai_response reply whose Scripture no longer verifies is
+    // omitted (user-authored replies pass through untouched).
+    const servable = await serveExposableRows('CommunityReply', visible);
+    res.json(servable.map(formatEntity));
   } catch (err) {
     next(err);
   }
@@ -203,6 +289,17 @@ router.post('/posts/:id/reply', authenticateToken, async (req, res, next) => {
     }
 
     const isAi = parsed.data.is_ai_response === true;
+    // AI-generated replies are AI content posted straight to a public thread —
+    // route them through the centralized Scripture gate (user-authored replies
+    // are out of scope and pass through). Fabricated/unverified references are
+    // rejected at creation; the validated refs are stored for transparency.
+    let scriptureValidation;
+    if (isAi) {
+      const denomination = (await prisma.user
+        .findUnique({ where: { id: req.userId }, select: { profile: true } })
+        .catch(() => null))?.profile?.denomination || '';
+      scriptureValidation = assertAiReplyExposable({ content: parsed.data.content, denomination });
+    }
     const reply = await prisma.entity.create({
       data: {
         type: 'CommunityReply',
@@ -213,6 +310,7 @@ router.post('/posts/:id/reply', authenticateToken, async (req, res, next) => {
           user_name: isAi ? 'AI Assistant' : (parsed.data.user_name || 'Member'),
           content: parsed.data.content,
           is_ai_response: isAi,
+          ...(scriptureValidation ? { scripture_validation: scriptureValidation } : {}),
           created_date: new Date().toISOString(),
         },
       },
@@ -253,9 +351,11 @@ router.get('/reading-plans', optionalAuth, async (_req, res, next) => {
       where: { type: 'ReadingPlan', data: { path: ['is_public'], equals: true } },
       orderBy: { createdAt: 'desc' },
       take: 50,
-      select: { id: true, data: true, createdAt: true, updatedAt: true },
+      select: { id: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
-    res.json(rows.map(formatEntity));
+    // Fail closed: omit any public plan whose CURRENT references no longer verify.
+    const servable = await serveExposableRows('ReadingPlan', rows);
+    res.json(servable.map(formatEntity));
   } catch (err) {
     next(err);
   }
@@ -277,7 +377,7 @@ router.post('/shared-content/:id/like', authenticateToken, async (req, res, next
       where: { userId_contentId_contentType: key },
     });
     if (previous) {
-      return res.json({ ...formatEntity(existing), liked: true, alreadyLiked: true });
+      return res.json(await interactionResult(existing, { liked: true, alreadyLiked: true }));
     }
 
     await prisma.communityLike.create({ data: key });
@@ -287,15 +387,13 @@ router.post('/shared-content/:id/like', authenticateToken, async (req, res, next
       data: { data: { ...data, likes_count: Number(data.likes_count || 0) + 1 } },
     });
 
-    res.json({ ...formatEntity(updated), liked: true, alreadyLiked: false });
+    res.json(await interactionResult(updated, { liked: true, alreadyLiked: false }));
   } catch (err) {
     if (err.code === 'P2002') {
       const current = await prisma.entity.findUnique({ where: { id: req.params.id } }).catch(() => null);
-      return res.json({
-        ...(current ? formatEntity(current) : { id: req.params.id }),
-        liked: true,
-        alreadyLiked: true,
-      });
+      return res.json(current
+        ? await interactionResult(current, { liked: true, alreadyLiked: true })
+        : { id: req.params.id, liked: true, alreadyLiked: true });
     }
     next(err);
   }
@@ -349,7 +447,7 @@ router.post('/shared-content/:id/report', authenticateToken, async (req, res, ne
       category: parsed.data.category,
       reportedCount: nextCount,
     });
-    res.json(formatEntity(updated));
+    res.json(await interactionResult(updated));
   } catch (err) {
     next(err);
   }
@@ -371,7 +469,7 @@ router.post('/shared-content/:id/save', authenticateToken, async (req, res, next
       where: { userId_contentId_contentType: key },
     });
     if (previous) {
-      return res.json({ ...formatEntity(existing), saved: true, alreadySaved: true });
+      return res.json(await interactionResult(existing, { saved: true, alreadySaved: true }));
     }
 
     await prisma.savedContent.create({ data: key });
@@ -381,15 +479,13 @@ router.post('/shared-content/:id/save', authenticateToken, async (req, res, next
       data: { data: { ...data, saves_count: Number(data.saves_count || 0) + 1 } },
     });
 
-    res.json({ ...formatEntity(updated), saved: true, alreadySaved: false });
+    res.json(await interactionResult(updated, { saved: true, alreadySaved: false }));
   } catch (err) {
     if (err.code === 'P2002') {
       const current = await prisma.entity.findUnique({ where: { id: req.params.id } }).catch(() => null);
-      return res.json({
-        ...(current ? formatEntity(current) : { id: req.params.id }),
-        saved: true,
-        alreadySaved: true,
-      });
+      return res.json(current
+        ? await interactionResult(current, { saved: true, alreadySaved: true })
+        : { id: req.params.id, saved: true, alreadySaved: true });
     }
     next(err);
   }
@@ -440,6 +536,18 @@ router.patch('/moderation/:type/:id', authenticateToken, requireAdmin, async (re
       ...(patch.moderatorNotes !== undefined ? { moderator_notes: patch.moderatorNotes } : {}),
       ...(removed ? { removedAt: new Date().toISOString(), removedBy: req.userId } : {}),
     };
+
+    // A moderator explicitly making a gated resource public is a publish
+    // transition through a non-entity route — run it through the SAME exposure
+    // gate so unverified Scripture can't be surfaced this way either. Only the
+    // explicit visibility:'public' transition is gated; hide/remove/status
+    // actions (the normal moderation path) are never blocked by this.
+    if (patch.visibility === 'public' && SCRIPTURE_GATED_TYPES.has(existing.type)) {
+      const denom = existing.data?.denomination
+        || (await prisma.user.findUnique({ where: { id: existing.userId }, select: { profile: true } }))?.profile?.denomination
+        || '';
+      assertGatedResourceExposable({ type: existing.type, resourceData: data, denomination: denom });
+    }
 
     const updated = await prisma.entity.update({
       where: { id: existing.id },

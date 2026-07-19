@@ -11,6 +11,10 @@
 export {
   CANONS,
   extractScriptureRefs,
+  extractScriptureRefsDeep,
+  extractScriptureRefsJoined,
   validateScriptureRefs,
   validateAiSermon,
+  validateAiContent,
+  __citationFoldSurfaces,
 } from '@sermonsmith/shared/scripture';

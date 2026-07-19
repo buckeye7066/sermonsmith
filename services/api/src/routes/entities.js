@@ -3,6 +3,12 @@ import { z } from 'zod';
 import { prisma, authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { validateAiSermon } from '@sermonsmith/shared/scripture';
 import { canonForDenomination } from '@sermonsmith/shared/denominations';
+import {
+  SCRIPTURE_GATED_TYPES,
+  REVIEWABLE_TYPES,
+  gateEntityWrite,
+  assertAiReplyExposable,
+} from '../services/scriptureGate.js';
 
 // Tenant-isolated entity API.
 //
@@ -302,18 +308,23 @@ const ENTITY_SCHEMAS = {
 // Canon: references are validated against the canon of the record's
 // denomination (payload → stored record → user profile), so a Catholic
 // sermon citing Wisdom is honestly `chapter_checked`, not "invalid book".
+//
+// Extended (2026-07-18) beyond `Sermon` to EVERY persisted AI-generated type
+// that can carry Scripture references. Sermons keep the sermon-shaped
+// validator (unchanged); the other types are swept with the shape-agnostic
+// `validateAiContent`, which deep-walks the whole record — so the Bible-study
+// `study_sections[].scripture`/`key_verses[]`, quiz
+// `questions[].scripture_reference`, reading-plan `daily_readings[].passages[]`,
+// and the double-nested EthicsAnalysis `data.result…key_scriptures[].reference`
+// are all revalidated server-side at the durable write. The forged-blob and
+// review-field-stripping guarantees now cover these types too; a UI shape
+// change can't quietly drop a field out of validation.
 // ---------------------------------------------------------------------------
-const SCRIPTURE_GATED_TYPES = new Set(['Sermon']);
-
-// Trust-state fields that only a human review flow may set. No current UI
-// writes these; stripping them closes the forgery path before one exists.
-const REVIEW_ONLY_FIELDS = [
-  'pastor_reviewed',
-  'ready_to_present',
-  'reviewed_by',
-  'reviewed_at',
-  'verified',
-];
+// Gate constants + core (SCRIPTURE_GATED_TYPES, STATUS_WORKFLOW_TYPES,
+// REVIEWABLE_TYPES, REVIEW_ONLY_FIELDS, isPublicOrPublished, gateEntityWrite)
+// live in ../services/scriptureGate.js so the entity save gate, the share-link
+// routes, and the community routes all share ONE implementation and cannot
+// drift. See that module.
 
 async function denominationForRequest(req, ...candidates) {
   for (const c of candidates) {
@@ -328,58 +339,37 @@ async function denominationForRequest(req, ...candidates) {
 }
 
 /**
- * Apply the Scripture/quality-state gate to an incoming create/update for a
- * gated type. Mutates and returns a copy of `incoming` with trust fields
- * stripped, `scripture_validation` recomputed over the full merged record,
- * and `status` honestly downgraded. Throws 422 on an attempt to publish a
- * record whose references do not all verify.
+ * Thin request-shaped wrapper around the centralized gate core. Resolves the
+ * denomination string (payload → stored record → user profile — the one part
+ * that needs the DB) and delegates every gate decision to `gateEntityWrite` in
+ * ../services/scriptureGate.js, which the share-link and community routes also
+ * call. Throws 422 on an attempt to publish OR publicly share a record whose
+ * references do not all verify.
  */
 async function applyScriptureGate(req, type, incoming, existingData = null) {
+  // AI-generated community replies are gated even though CommunityReply is not a
+  // first-class gated entity type. The dedicated /community/posts/:id/reply route
+  // gates is_ai_response replies, but the generic entity API would otherwise
+  // persist one straight from client content — so re-run the same reply gate
+  // here (fabricated Scripture rejected, validated refs stored). User-authored
+  // replies pass through untouched.
+  if (type === 'CommunityReply' && (incoming?.is_ai_response === true || existingData?.is_ai_response === true)) {
+    const denomination = await denominationForRequest(
+      req,
+      incoming?.denomination,
+      existingData?.denomination,
+    );
+    const merged = { ...(existingData || {}), ...incoming };
+    const refs = assertAiReplyExposable({ content: merged.content, denomination });
+    return { ...incoming, scripture_validation: refs };
+  }
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
-
-  const data = { ...incoming };
-  for (const field of REVIEW_ONLY_FIELDS) delete data[field];
-  // The client's validation blob is advisory UI state at best; the stored
-  // record carries only the server-computed result.
-  delete data.scripture_validation;
-
-  const merged = { ...(existingData || {}), ...data };
   const denomination = await denominationForRequest(
     req,
-    merged.denomination,
+    incoming?.denomination,
+    existingData?.denomination,
   );
-  const validation = validateAiSermon(merged, {
-    canon: canonForDenomination(denomination),
-  });
-  data.scripture_validation = validation.refs;
-
-  const requestedStatus = data.status ?? existingData?.status;
-  if (!validation.allValid) {
-    if (requestedStatus === 'published') {
-      throw Object.assign(
-        new Error(
-          `Cannot publish: ${validation.summary}. Fix the flagged references (or keep the record as a draft) and try again.`,
-        ),
-        { status: 422, scripture_validation: validation.refs },
-      );
-    }
-    if (requestedStatus === 'draft' || requestedStatus == null) {
-      data.status = 'needs_review';
-    }
-  }
-
-  // Stale-review rule: a pastor's acknowledgment covers the content they
-  // actually read. If this write changes content fields on a record that was
-  // previously marked reviewed, the review is reset — the pastor re-reviews
-  // the edited draft via the explicit /review acknowledgment endpoint.
-  const CONTENT_FIELDS = ['title', 'topic', 'anchor_passage', 'big_idea', 'points', 'conclusion', 'theological_notes'];
-  if (existingData?.pastor_reviewed && CONTENT_FIELDS.some((f) => f in data)) {
-    data.pastor_reviewed = false;
-    data.reviewed_at = null;
-    data.reviewed_by = null;
-  }
-
-  return data;
+  return gateEntityWrite({ type, incoming, existingData, denomination });
 }
 
 function validateEntityPayload(type, body) {
@@ -629,6 +619,18 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
     });
     if (!existing) return res.status(404).json({ message: 'Not found' });
 
+    // Reject a type/id mismatch BEFORE any validation. Previously the handler
+    // fetched by id and then validated + gated using the URL's `:type`. A caller
+    // could PUT /api/entities/<non-gated-type>/<gatedRowId> so the gated row was
+    // validated with a permissive schema and skipped the Scripture gate
+    // entirely, then merged the patch into the gated record. The stored type is
+    // authoritative: the URL type must match it, and ALL downstream validation
+    // and gating is driven from `existing.type`, never `req.params.type`.
+    if (existing.type !== req.params.type) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+    const storedType = existing.type;
+
     if (existing.userId !== req.userId && !isAdmin(req)) {
       return res.status(403).json({ message: 'You can only update your own items' });
     }
@@ -640,21 +642,21 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
     // updates by validating ONLY the keys the caller is sending against a
     // `.partial()` version of the schema. The full record on disk remains
     // valid because we already validated it on create.
-    const schema = ENTITY_SCHEMAS[req.params.type];
+    const schema = ENTITY_SCHEMAS[storedType];
     let patch = rawPatch;
     if (schema) {
       const partial = schema.partial();
       const parsed = partial.safeParse(rawPatch);
       if (!parsed.success) {
         return res.status(400).json({
-          message: `Invalid ${req.params.type} update: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          message: `Invalid ${storedType} update: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
           issues: parsed.error.issues,
         });
       }
       patch = parsed.data;
     }
 
-    patch = await applyScriptureGate(req, req.params.type, patch, existing.data);
+    patch = await applyScriptureGate(req, storedType, patch, existing.data);
 
     const entity = await prisma.entity.update({
       where: { id: req.params.id },
@@ -680,7 +682,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
 // the references are fixed. `acknowledged: false` withdraws a review.
 router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
   try {
-    if (!SCRIPTURE_GATED_TYPES.has(req.params.type)) {
+    if (!REVIEWABLE_TYPES.has(req.params.type)) {
       return res.status(400).json({ message: `'${req.params.type}' does not support review acknowledgment.` });
     }
     const { acknowledged } = req.body || {};

@@ -132,7 +132,7 @@ describe('server-owned AI invariants', () => {
     const res = await request(app)
       .post('/api/ai/stream')
       .set('Cookie', [`ss_token=${tokenFor('u-i')}`])
-      .send({ prompt: 'p', system_prompt: 'You are Arlynn.' });
+      .send({ prompt: 'p', system_prompt: 'You are Arlynn.', stream_result: true });
     expect(res.status).toBe(200);
     const { messages } = createCalls[0];
     expect(messages[0]).toEqual({ role: 'system', content: SERVER_AI_INVARIANTS });

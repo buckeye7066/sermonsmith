@@ -85,6 +85,20 @@ function buildApp() {
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 const tokenFor = (id) => jwt.sign({ userId: id }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
 const RS = String.fromCharCode(0x1e);
+// The authentic trailer after the RS is prefixed with the per-stream nonce from
+// the X-Stream-Trailer-Nonce response header; strip it to read the JSON.
+const trailerJson = (res) => {
+  const nonce = res.headers['x-stream-trailer-nonce'];
+  if (!nonce) throw new Error('missing trailer nonce header');
+  const i = res.text.lastIndexOf(RS);
+  if (i === -1) throw new Error('missing trailer separator');
+  const after = res.text.slice(i + 1);
+  if (!after.startsWith(nonce)) throw new Error('trailer nonce mismatch');
+  return JSON.parse(after.slice(nonce.length));
+};
+// The result trailer now also carries a canon-independent Scripture screen.
+// The payloads in this suite contain no references, so it is always clean.
+const CLEAN_SCRIPTURE = { ok: true, checked: 0, fabricated: 0 };
 
 function textChunks(text, finishReason = 'stop') {
   const mid = Math.ceil(text.length / 2);
@@ -116,9 +130,9 @@ describe('/api/ai/stream — final validator parity', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(res.status).toBe(200);
-    const [text, trailer] = res.text.split(RS);
+    const text = res.text.split(RS)[0];
     expect(text.trimEnd()).toBe(payload);
-    expect(JSON.parse(trailer)).toEqual({ ok: true, truncated: false });
+    expect(trailerJson(res)).toEqual({ ok: true, truncated: false, scripture: CLEAN_SCRIPTURE });
     const audit = auditRows().at(-1);
     expect(audit.status).toBe('success');
   });
@@ -130,8 +144,7 @@ describe('/api/ai/stream — final validator parity', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(res.status).toBe(200);
-    const [, trailer] = res.text.split(RS);
-    expect(JSON.parse(trailer)).toEqual({ ok: false, truncated: true });
+    expect(trailerJson(res)).toEqual({ ok: false, truncated: true, scripture: CLEAN_SCRIPTURE });
     const audit = auditRows().at(-1);
     expect(audit.status).toBe('invalid_json');
     expect(audit.failureType).toBe('truncated');
@@ -143,24 +156,23 @@ describe('/api/ai/stream — final validator parity', () => {
       .post('/api/ai/stream')
       .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
-    const [, trailer] = res.text.split(RS);
-    expect(JSON.parse(trailer)).toEqual({ ok: false, truncated: false });
+    expect(trailerJson(res)).toEqual({ ok: false, truncated: false, scripture: CLEAN_SCRIPTURE });
     const audit = auditRows().at(-1);
     expect(audit.status).toBe('invalid_json');
     expect(audit.failureType).toBe('invalid_json');
   });
 
-  it('legacy clients (no stream_result) get the raw bytes with NO trailer — but the audit is still honest', async () => {
+  it('rejects a stream request that OMITS stream_result (fail closed — no unvalidated 200)', async () => {
+    // Previously such a request got 200 + raw bytes with no validation trailer,
+    // so a stale/old/direct client could receive an unvalidated stream (incl.
+    // fabricated Scripture) as success. The route now requires stream_result.
     nextStreamChunks = textChunks('{"broken": [', 'length');
     const res = await request(app)
       .post('/api/ai/stream')
       .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
       .send({ prompt: 'p', response_json_schema: { type: 'object' } });
-    expect(res.status).toBe(200);
-    expect(res.text).toBe('{"broken": [');
-    expect(res.text.includes(RS)).toBe(false);
-    const audit = auditRows().at(-1);
-    expect(audit.status).toBe('invalid_json');
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/stream_result/);
   });
 
   it('plain-text streams (no schema) stay success and are never flagged', async () => {
@@ -169,8 +181,7 @@ describe('/api/ai/stream — final validator parity', () => {
       .post('/api/ai/stream')
       .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
       .send({ prompt: 'p', stream_result: true });
-    const [, trailer] = res.text.split(RS);
-    expect(JSON.parse(trailer)).toEqual({ ok: true, truncated: false });
+    expect(trailerJson(res)).toEqual({ ok: true, truncated: false, scripture: CLEAN_SCRIPTURE });
     expect(auditRows().at(-1).status).toBe('success');
   });
 });

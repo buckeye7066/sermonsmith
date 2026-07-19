@@ -339,6 +339,90 @@ const auth = {
 // STREAM_RESULT_SEPARATOR in services/api/src/routes/ai.js.
 const STREAM_RESULT_SEPARATOR = String.fromCharCode(0x1e);
 
+// The authentic trailer is prefixed with a PER-STREAM crypto-random nonce the
+// server delivers OUT OF BAND in this response header (before any model bytes).
+// The model never sees it and it changes every stream, so a static value echoed
+// from model output or a prior stream is useless. The client requires this exact
+// nonce immediately after the LAST RS before parsing the trailer JSON; combined
+// with the server's RS-strip of model deltas, the frame is unforgeable. Header
+// name kept in sync with STREAM_TRAILER_NONCE_HEADER in services/api/src/routes/ai.js.
+const STREAM_TRAILER_NONCE_HEADER = 'X-Stream-Trailer-Nonce';
+
+// Duplicate-key detector for a small JSON trailer. JSON.parse silently keeps the
+// LAST value for a repeated key, so a tampered `{"ok":false,"ok":true}` (or its
+// unicode-escaped spelling `{"ok":false,"ok":true}`) would otherwise parse
+// to ok:true. We scan the raw text, tracking one key-set per open object (arrays
+// have no keys), and report a repeat AT A GIVEN LEVEL. Each key token is DECODED
+// with JSON.parse before the Set lookup so the detector normalizes escapes
+// EXACTLY as the value parser does — an escaped duplicate collides and can never
+// slip past while last-wins keeps its later value.
+function trailerHasDuplicateKeys(text) {
+  const stack = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === '{') { stack.push(new Set()); i++; continue; }
+    if (ch === '}') { stack.pop(); i++; continue; }
+    if (ch === '[') { stack.push(null); i++; continue; } // array level: no keys
+    if (ch === ']') { stack.pop(); i++; continue; }
+    if (ch === '"') {
+      // Find the end of the quoted string, respecting \\ and \" escapes.
+      let j = i + 1;
+      while (j < n) {
+        if (text[j] === '\\') { j += 2; continue; }
+        if (text[j] === '"') break;
+        j += 1;
+      }
+      let k = j + 1;
+      while (k < n && /\s/.test(text[k])) k += 1;
+      if (text[k] === ':') { // this string is an object KEY
+        const top = stack[stack.length - 1];
+        if (top instanceof Set) {
+          // Decode via JSON.parse so escaped spellings normalize like the value
+          // parser (e.g. "ok" -> "ok"); on a malformed token treat the raw
+          // slice as the key (the overall JSON.parse fails anyway → rejected).
+          let key;
+          try { key = JSON.parse(text.slice(i, j + 1)); } catch { key = text.slice(i, j + 1); }
+          if (top.has(key)) return true;
+          top.add(key);
+        }
+        i = k + 1; continue;
+      }
+      i = j + 1; continue; // it was a string VALUE
+    }
+    i += 1;
+  }
+  return false;
+}
+
+// EXACT, consistent, positive success-trailer check. Resolve ONLY on a clean,
+// well-formed success trailer: no unknown keys, no duplicate keys, verdict
+// fields strictly boolean and present, and evidence CONSISTENT with the verdict
+// (scripture.ok:true requires fabricated:0 and numeric, non-negative counts).
+// Anything else fails closed.
+const TRAILER_TOP_KEYS = new Set(['ok', 'truncated', 'scripture']);
+const TRAILER_SCRIPTURE_KEYS = new Set(['ok', 'checked', 'fabricated']);
+function isFullyValidSuccessTrailer(result, rawText) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
+  if (trailerHasDuplicateKeys(rawText)) return false;
+  if (Object.keys(result).some((key) => !TRAILER_TOP_KEYS.has(key))) return false;
+  if (result.ok !== true || result.truncated !== false) return false;
+
+  const s = result.scripture;
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return false;
+  if (Object.keys(s).some((key) => !TRAILER_SCRIPTURE_KEYS.has(key))) return false;
+  if (s.ok !== true) return false;
+  // The server's screen ALWAYS emits {ok, checked, fabricated}, so a success
+  // trailer MUST carry consistent numeric evidence — no evidence-stripping
+  // downgrade (a bare {ok:true} that skips the fabricated===0 check is rejected).
+  if (!Object.prototype.hasOwnProperty.call(s, 'checked')
+      || !Object.prototype.hasOwnProperty.call(s, 'fabricated')) return false;
+  if (!Number.isSafeInteger(s.checked) || s.checked < 0) return false;
+  if (!Number.isSafeInteger(s.fabricated) || s.fabricated !== 0) return false;
+  return true;
+}
+
 const integrations = {
   Core: {
     // When the caller declares a `response_json_schema`, coerce the response to
@@ -408,6 +492,9 @@ const integrations = {
         throw error;
       }
 
+      // Per-stream nonce delivered out of band in the response header — the model
+      // never sees it, so it authenticates the trailer as server-produced.
+      const trailerNonce = res.headers.get(STREAM_TRAILER_NONCE_HEADER);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let full = '';
@@ -433,23 +520,70 @@ const integrations = {
         clearTimeout(idleTimer);
       }
 
-      // Split off the server's result trailer (new servers only — old servers
-      // stream the legacy raw text and we return it unchanged).
-      const sepIdx = full.indexOf(STREAM_RESULT_SEPARATOR);
-      if (sepIdx === -1) return full;
-      const text = full.slice(0, sepIdx).replace(/\n$/, '');
+      // We ALWAYS request stream_result:true, so the server MUST append a
+      // validation trailer (RS char + JSON). A MISSING trailer means the stream
+      // ended before it could be validated — e.g. a mid-stream upstream error
+      // that dropped the mandatory trailer, or an out-of-date server. Treat it
+      // as a PROTOCOL FAILURE, never as a completed answer: an unscreened /
+      // partial preview (which may already contain fabricated Scripture) must
+      // not be kept as the result.
+      // Locate the trailer at the LAST RS (the server writes exactly one, right
+      // before the marker+JSON; content RS bytes were replaced with spaces
+      // server-side). A missing separator → interrupted/unvalidated stream.
+      const sepIdx = full.lastIndexOf(STREAM_RESULT_SEPARATOR);
+      if (sepIdx === -1) {
+        const error = new Error('The AI stream ended before it could be validated. Please retry.');
+        error.status = 502;
+        error.streamTextPreview = full.replace(/\n$/, '').slice(0, 500);
+        error.streamIncomplete = true;
+        throw error;
+      }
+      const content = full.slice(0, sepIdx);
+      const afterSep = full.slice(sepIdx + 1);
+      // Frame integrity: we must have received the out-of-band nonce header;
+      // content must contain NO RS (a model-injected RS is stripped server-side,
+      // so one here signals tampering); and the authentic trailer MUST begin with
+      // the exact per-stream nonce. Any failure → forged/absent frame → fail
+      // closed, never accept as success.
+      if (!trailerNonce
+          || content.indexOf(STREAM_RESULT_SEPARATOR) !== -1
+          || !afterSep.startsWith(trailerNonce)) {
+        const error = new Error('The AI stream validation frame was invalid. Please retry.');
+        error.status = 502;
+        error.streamTextPreview = content.replace(/\n$/, '').slice(0, 500);
+        error.streamIncomplete = true;
+        throw error;
+      }
+      const text = content.replace(/\n$/, '');
+      const rawTrailer = afterSep.slice(trailerNonce.length);
       let result = null;
-      try { result = JSON.parse(full.slice(sepIdx + 1)); } catch { /* malformed trailer — treat as absent */ }
-      if (result && result.ok === false) {
-        // Same contract as /invoke's 502: fail honestly so the caller's
-        // fallback path runs instead of a partial preview being kept as the
-        // completed result.
-        const error = new Error(result.truncated
-          ? 'The AI response was too long and was cut off before it finished.'
-          : 'AI stream returned invalid JSON.');
+      try { result = JSON.parse(rawTrailer); } catch { /* malformed trailer */ }
+      // POSITIVE + STRICT validation: resolve ONLY on an exact, consistent,
+      // fully-valid success trailer (see isFullyValidSuccessTrailer) — the right
+      // keys and nothing more, no duplicate keys (JSON.parse's last-wins can't
+      // overwrite a failure with success), verdict fields strictly boolean and
+      // present, and evidence CONSISTENT with the verdict (scripture.ok:true
+      // requires fabricated:0). Anything else — missing/malformed/contradictory
+      // trailer — is FAILURE. Absence of explicit, coherent success is never
+      // success: a streamed preview can carry fabricated Scripture the server
+      // only confirms clean in the trailer, so the UI must never mark it
+      // validated without a clean one.
+      const fullyValid = isFullyValidSuccessTrailer(result, rawTrailer);
+      if (!fullyValid) {
+        const scriptureFailed = !!(result && result.scripture && result.scripture.ok === false);
+        const error = new Error(
+          !result
+            ? 'The AI stream result could not be validated. Please retry.'
+            : result.truncated === true
+              ? 'The AI response was too long and was cut off before it finished.'
+              : scriptureFailed
+                ? 'The AI draft contained Scripture references that could not be verified. Regenerating.'
+                : 'The AI stream could not be confirmed as validated. Please retry.',
+        );
         error.status = 502;
         error.streamTextPreview = text.slice(0, 500);
-        error.truncated = !!result.truncated;
+        error.truncated = !!(result && result.truncated);
+        error.scriptureUnverified = scriptureFailed;
         throw error;
       }
       return text;

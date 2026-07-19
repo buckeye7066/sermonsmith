@@ -3,8 +3,87 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
 import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
+import { extractScriptureRefsDeep, extractScriptureRefsJoined, validateScriptureRefs, CANONS } from '@sermonsmith/shared/scripture';
+
+// Canon-agnostic Scripture screen for AI output (both the streamed trailer and
+// the /invoke response). A completion is shown to the user BEFORE any entity
+// save gate runs, so the UI would otherwise render fabricated references (e.g.
+// "Hezekiah 4:5", or an out-of-range deuterocanonical "Wisdom 99:1") as a
+// finished, trusted result. Because the AI request does not carry the reader's
+// denomination, we validate each extracted reference against EVERY supported
+// canon and treat it as fabricated only when NO canon can place it — i.e. it is
+// never 'valid' and never 'chapter_checked' in Protestant, Catholic, OR
+// Orthodox. This correctly:
+//   - passes a real Protestant ref (valid in the base canon),
+//   - passes a real deuterocanonical ref (chapter_checked under Catholic/Orthodox),
+//   - REJECTS a fabricated book (invalid in all canons),
+//   - REJECTS an out-of-range deuterocanonical ref like "Wisdom 99:1".
+//
+// Screens EVERY passed input with the shared DEEP extractor (the same one the
+// persist gates use). Callers pass BOTH the raw completion text AND, for
+// structured responses, the PARSED/DECODED JSON value — because the model can
+// JSON-escape a citation ({"note":"Hezekiah 4:5"}) so the raw text has no
+// literal space and the regex misses it, yet the decoded string the client
+// receives is a real fabricated reference. Deep-scanning the parsed object
+// (recursively, incl. nested/array values) catches the escaped form; scanning
+// the raw text catches the plain form. Any hit → not ok.
+export function screenStreamedScripture(...values) {
+  // Deep sweep of every string, PLUS the join of each array's string elements
+  // (so a citation split across array items — "Hezekiah","4:5" — that the
+  // client would recombine for display is caught here first).
+  // screenReservedKeys: this is LIVE, untrusted model output — there is no
+  // trusted server-generated `scripture_validation` blob to skip, so the reserved
+  // subtree is screened like any other user-visible content (no blind spot).
+  const screenOpts = { screenReservedKeys: true };
+  const refs = values.flatMap((v) => [...extractScriptureRefsDeep(v, screenOpts), ...extractScriptureRefsJoined(v, screenOpts)]);
+  const fabricated = refs.filter((ref) => {
+    // "Placeable" in a canon = fully verse-verified OR a real book+chapter
+    // (chapter_checked). Anything else in ALL canons is a fabrication.
+    const placeable = CANONS.some((canon) => {
+      const [checked] = validateScriptureRefs([ref], { canon });
+      return checked && (checked.status === 'valid' || checked.status === 'chapter_checked');
+    });
+    return !placeable;
+  });
+  return { ok: fabricated.length === 0, checked: refs.length, fabricated: fabricated.length };
+}
+
+// Schema-type enforcement: a client should NEVER have to coerce a wrong-typed
+// value into display text (which is how a split citation like
+// ["Hezekiah","4:5"] becomes a visible reference the screen/persist gate may
+// not see). If the response_json_schema declares a field as a STRING and the
+// model returned an array/object there, the response is malformed at the type
+// level — reject it. Recurses into object `properties` and array `items`.
+export function violatesStringSchema(schema, value) {
+  if (!schema || typeof schema !== 'object') return false;
+  const types = Array.isArray(schema.type) ? schema.type : (schema.type ? [schema.type] : []);
+  const isArr = Array.isArray(value);
+  const isObj = value !== null && typeof value === 'object' && !isArr;
+  if (types.includes('string') && !types.includes('array') && !types.includes('object') && (isArr || isObj)) {
+    return true;
+  }
+  if (isObj && schema.properties) {
+    for (const [key, sub] of Object.entries(schema.properties)) {
+      if (key in value && violatesStringSchema(sub, value[key])) return true;
+    }
+  }
+  if (isArr && schema.items) {
+    for (const item of value) if (violatesStringSchema(schema.items, item)) return true;
+  }
+  return false;
+}
 
 const router = Router();
+
+// The validation trailer is authenticated by a PER-STREAM crypto-random nonce
+// (see /stream). The nonce is generated per request, delivered OUT OF BAND in
+// the `X-Stream-Trailer-Nonce` response header BEFORE any model bytes, and
+// written immediately after the RS separator, before the trailer JSON. The
+// model never sees it (not in any prompt/header it can read) and it changes
+// every stream, so an echoed value from model output or a prior stream is
+// useless — combined with the RS-strip of model deltas, the frame is
+// unforgeable. Header name kept in sync with apiClient.js.
+const STREAM_TRAILER_NONCE_HEADER = 'X-Stream-Trailer-Nonce';
 
 // Production-readiness fix: lazy-load OpenAI so the API can boot without
 // the SDK installed (e.g., in CI or in a deployment that has DISABLE_AI=1).
@@ -395,16 +474,35 @@ export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500
 // fence, or (b) get cut off by the token ceiling mid-object. We strip fences
 // and, as a last resort, slice the outermost {...}/[...] block before giving
 // up — so a stray fence never turns a perfectly good response into a 502.
+// Returns { ok, value, rest }. `rest` is the RAW text OUTSIDE the parsed JSON
+// object/fence (leading/trailing prose, the bytes salvage discarded) — the screen
+// must scan it too, because a fabricated reference in trailing prose after a
+// salvaged object ('{"text":"safe"}\nHezekiah 4:5') is real emitted output. `rest`
+// is raw (not inside a JSON string literal), so it has no JSON escaping — scanning
+// it does NOT re-introduce the escaped-newline fabrication (that lives INSIDE a
+// string value, which we screen via the decoded `value`).
 export function extractJson(raw) {
   if (typeof raw !== 'string') return { ok: false };
   let text = raw.trim();
+  let outerPrefix = '';
+  let outerSuffix = '';
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fence) text = fence[1].trim();
-  try { return { ok: true, value: JSON.parse(text) }; } catch { /* try salvage */ }
+  if (fence) {
+    outerPrefix = text.slice(0, fence.index);
+    outerSuffix = text.slice(fence.index + fence[0].length);
+    text = fence[1].trim();
+  }
+  try {
+    return { ok: true, value: JSON.parse(text), rest: `${outerPrefix} ${outerSuffix}` };
+  } catch { /* try salvage */ }
   const first = text.search(/[{[]/);
   const last = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'));
   if (first !== -1 && last > first) {
-    try { return { ok: true, value: JSON.parse(text.slice(first, last + 1)) }; } catch { /* fall through */ }
+    try {
+      const value = JSON.parse(text.slice(first, last + 1));
+      const rest = `${outerPrefix} ${text.slice(0, first)} ${text.slice(last + 1)} ${outerSuffix}`;
+      return { ok: true, value, rest };
+    } catch { /* fall through */ }
   }
   return { ok: false };
 }
@@ -598,6 +696,39 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
       }
 
       if (parsed.ok) {
+        // Scripture parity with /stream: screen the response for references
+        // that are fabricated in EVERY canon and fail closed (422) so the
+        // client cannot render/save the draft as a clean, completed result
+        // before the durable entity save gate ever runs. Screen the DECODED
+        // value (authoritative, incl. keys) AND the RAW leftover prose OUTSIDE
+        // the JSON (`parsed.rest`). We do NOT scan the raw JSON string bytes:
+        // there an escape is literal, so a real newline ("John 3:16\nMark 1:1")
+        // fabricates a bogus "Nmark 1:1", falsely rejecting valid output — while
+        // a fabricated ref in trailing prose or an object KEY is still caught
+        // (rest is scanned raw; keys are scanned by the deep walker).
+        const scripture = screenStreamedScripture(parsed.value, parsed.rest);
+        const typeViolation = response_json_schema
+          ? violatesStringSchema(response_json_schema, parsed.value)
+          : false;
+        if (!scripture.ok || typeViolation) {
+          await auditAiCall({
+            ...auditBase,
+            response: content,
+            status: 'unverified_scripture',
+            failureType: typeViolation ? 'schema_type' : 'unverified_scripture',
+            tokenEstimate: estimateTokenCount(auditBase.prompt, content),
+          });
+          audited = true;
+          return res.status(422).json({
+            message: typeViolation
+              ? 'The AI response returned an array/object where a text field was required. Please retry.'
+              : 'The AI draft contained Scripture references that could not be verified. Please retry.',
+            scripture_unverified: !scripture.ok,
+            schema_type_violation: typeViolation,
+            scripture,
+            responsePreview: content.slice(0, 500),
+          });
+        }
         await auditAiCall({
           ...auditBase,
           response: content,
@@ -627,6 +758,24 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
           ? 'The AI response was too long and was cut off before it finished. Please try a narrower or more specific request.'
           : 'AI returned invalid JSON. Please retry.',
         truncated: finishReason === 'length',
+        responsePreview: content.slice(0, 500),
+      });
+    }
+    // Same fabricated-Scripture screen for plain-text (non-schema) completions.
+    const scripture = screenStreamedScripture(content);
+    if (!scripture.ok) {
+      await auditAiCall({
+        ...auditBase,
+        response: content,
+        status: 'unverified_scripture',
+        failureType: 'unverified_scripture',
+        tokenEstimate: estimateTokenCount(auditBase.prompt, content),
+      });
+      audited = true;
+      return res.status(422).json({
+        message: 'The AI draft contained Scripture references that could not be verified. Please retry.',
+        scripture_unverified: true,
+        scripture,
         responsePreview: content.slice(0, 500),
       });
     }
@@ -669,12 +818,57 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
   let usageConsumed = false;
   let started = false;
   let auditBase = null;
+  // Hoisted so the catch path can screen the already-emitted text and still
+  // write the MANDATORY validation trailer. `writeTrailerOnce` guards against a
+  // success + error double-write, so EVERY started exit emits exactly one
+  // trailer.
+  let full = '';
+  let trailerWritten = false;
+  let responseSchema; // hoisted so the catch path can parse + screen like success
+  // Per-stream nonce; sent in the X-Stream-Trailer-Nonce header before any body
+  // bytes and required by the client immediately after the RS before the JSON.
+  const streamNonce = crypto.randomBytes(16).toString('hex');
+  const writeTrailerOnce = (payload) => {
+    if (trailerWritten) return;
+    trailerWritten = true;
+    // Frame = separator + per-stream nonce + trailer JSON. The nonce (delivered
+    // out of band in a header) authenticates the trailer as server-produced.
+    try { res.write(`\n${STREAM_RESULT_SEPARATOR}${streamNonce}${JSON.stringify(payload)}`); } catch { /* socket closed */ }
+  };
+  // The SAME Scripture screen success uses. When the completion is complete JSON,
+  // the DECODED value is authoritative — screen ONLY it (never union the raw JSON
+  // text, whose literal escapes fabricate refs and falsely reject valid output).
+  // Only when there is no parseable JSON do we fall back to scanning the raw text.
+  const screenAccumulated = () => {
+    if (responseSchema) {
+      const parsed = extractJson(full);
+      if (parsed.ok) return screenStreamedScripture(parsed.value, parsed.rest);
+    }
+    return screenStreamedScripture(full);
+  };
   try {
     const parsed = invokeRequestSchema.safeParse(req.body || {});
     if (!parsed.success) {
       return res.status(400).json({ message: 'Invalid AI request', issues: parsed.error.issues });
     }
     const { prompt, system_prompt, response_json_schema, feature, model, max_tokens, temperature, stream_result } = parsed.data;
+    responseSchema = response_json_schema;
+
+    // Fail closed: the streaming path writes raw model tokens to the client
+    // BEFORE Scripture/JSON validation, so the ONLY signal that the final
+    // payload was unverified is the result trailer — which is opt-in. A client
+    // that omits `stream_result` would receive HTTP 200 and unvalidated bytes
+    // with no failure signal even for a fabricated reference. Require the flag
+    // so a caller can never receive an unvalidated stream as success; the flag
+    // is the client's acknowledgment that it will honor the trailer (and fall
+    // back to the fully-validated /invoke on `ok:false`). Non-opting callers
+    // must use /invoke, which validates before returning.
+    if (stream_result !== true) {
+      return res.status(400).json({
+        message: 'Streaming requires "stream_result": true so the client receives and honors the Scripture/JSON validation trailer. Use /api/ai/invoke for a non-streaming, fully-validated response.',
+      });
+    }
+
     const resolvedModel = resolveModel(model, req.userPremium);
     const clampedTokens = clampTokens(max_tokens, req.userPremium);
     const clampedTemperature = clampTemperature(temperature);
@@ -724,15 +918,24 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('X-Accel-Buffering', 'no'); // ask proxies not to buffer the stream
+    // Deliver the trailer nonce OUT OF BAND, before any model bytes, so the model
+    // can never see or echo it and the client can authenticate the trailer.
+    res.setHeader(STREAM_TRAILER_NONCE_HEADER, streamNonce);
     started = true;
 
-    let full = '';
     let finishReason = null;
     for await (const chunk of completion) {
       const delta = chunk?.choices?.[0]?.delta?.content || '';
       if (delta) {
-        full += delta;
-        res.write(delta);
+        // Replace any RS byte the MODEL emits with a space BEFORE forwarding, so
+        // the only RS in the stream is the server's trailer separator (a model
+        // can't inject its own frame). Space (not deletion) also keeps a citation
+        // the model tried to hide with an RS ("John<RS>3:16") detectable by the
+        // screen. `full` accumulates exactly what the client sees, so the screen
+        // and the client's reconstructed text agree.
+        const safeDelta = delta.split(STREAM_RESULT_SEPARATOR).join(' ');
+        full += safeDelta;
+        res.write(safeDelta);
       }
       if (chunk?.choices?.[0]?.finish_reason) {
         finishReason = chunk.choices[0].finish_reason;
@@ -748,6 +951,8 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     // as a "completed" sermon.
     const truncated = finishReason === 'length';
     let outcome = { status: 'success', failureType: null, ok: true };
+    let parsedValue;
+    let parsedRest;
     if (response_json_schema) {
       const finalParse = extractJson(full);
       if (!finalParse.ok) {
@@ -756,11 +961,36 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
           failureType: truncated ? 'truncated' : 'invalid_json',
           ok: false,
         };
+      } else {
+        parsedValue = finalParse.value;
+        parsedRest = finalParse.rest;
       }
     }
-    if (stream_result) {
-      res.write(`\n${STREAM_RESULT_SEPARATOR}${JSON.stringify({ ok: outcome.ok, truncated })}`);
+    // Screen for fabricated Scripture regardless of schema — the tokens are
+    // already on the wire, so the trailer is how the client learns the preview
+    // must not be kept/marked as validated. When the completion parsed as JSON,
+    // screen the DECODED value (authoritative, incl. keys) AND the RAW leftover
+    // prose OUTSIDE the JSON (parsedRest) — covering the FULL emitted byte range
+    // before ok:true — without scanning the raw JSON string bytes (whose literal
+    // escapes fabricate refs like "Nmark" and would falsely fail a valid multiline
+    // reference). Only non-JSON output falls back to scanning the raw text.
+    const scripture = parsedValue !== undefined
+      ? screenStreamedScripture(parsedValue, parsedRest)
+      : screenStreamedScripture(full);
+    if (!scripture.ok && outcome.ok) {
+      outcome = { status: 'unverified_scripture', failureType: 'unverified_scripture', ok: false };
     }
+    // Reject an array/object returned where the schema required a string, so a
+    // client can't coerce a split citation into visible text past the screen.
+    if (outcome.ok && parsedValue !== undefined && response_json_schema
+        && violatesStringSchema(response_json_schema, parsedValue)) {
+      outcome = { status: 'schema_type', failureType: 'schema_type', ok: false };
+    }
+    // The trailer is MANDATORY (stream_result was required above), so a streamed
+    // response can never reach a client as success without its validation
+    // outcome. Written exactly once (writeTrailerOnce) so the error path can't
+    // double-write.
+    writeTrailerOnce({ ok: outcome.ok, truncated, scripture });
     res.end();
 
     await auditAiCall({
@@ -771,17 +1001,27 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
       tokenEstimate: estimateTokenCount(auditBase.prompt, full),
     });
   } catch (err) {
-    // Quota was counted but nothing streamed → give it back (transient upstream
-    // failure, not the user's fault).
-    if (usageConsumed && !started) await refundUsageDb(req.userId);
-    if (auditBase && started) {
-      await auditAiCall({ ...auditBase, status: 'failure', failureType: classifyAiFailure(err) });
-    }
     if (started) {
-      // Headers already sent — just end the partial stream.
+      // Headers already sent, so we can't change the status — but the trailer is
+      // MANDATORY. Write it and END the response BEFORE any awaited observability
+      // work: a stalled Prisma pool / network partition during audit must never
+      // prevent the failure trailer from reaching the client (which would leave
+      // it with partial rendered text and no RS/trailer, treated as legacy
+      // success). The screen is the SAME raw+parsed scan success uses, so an
+      // already-emitted split/escaped citation in complete JSON is still flagged.
+      // writeTrailerOnce is a no-op if the success path already wrote one.
+      writeTrailerOnce({ ok: false, truncated: true, scripture: screenAccumulated() });
       try { res.end(); } catch { /* already closed */ }
+      // Best-effort audit AFTER the response is closed — fire-and-forget so
+      // degraded audit storage can never block the stream protocol.
+      if (auditBase) {
+        auditAiCall({ ...auditBase, status: 'failure', failureType: classifyAiFailure(err) }).catch(() => {});
+      }
       return;
     }
+    // Pre-stream failure: nothing was sent, so it's safe to refund and error out
+    // normally (the global handler returns JSON).
+    if (usageConsumed) await refundUsageDb(req.userId);
     next(err);
   }
 });
@@ -976,6 +1216,8 @@ export const __test = {
   EMAIL_TEMPLATES,
   isModelMissingError,
   imageSrcFromResponse,
+  screenStreamedScripture,
+  violatesStringSchema,
 };
 
 export default router;

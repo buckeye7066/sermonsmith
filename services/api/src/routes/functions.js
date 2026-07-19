@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
 import { FREE_PERIOD_DAYS, grantFreePeriodToUser } from '../lib/premiumGrant.js';
+import { assertGatedResourceExposable } from '../services/scriptureGate.js';
 import {
   BIBLE_TRANSLATIONS,
   BIBLE_TRANSLATION_IDS,
@@ -832,6 +833,22 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
     if (resource.userId !== req.userId) {
       return res.status(403).json({ message: 'You can only share your own content' });
     }
+    // The stored type is authoritative — a client-supplied resourceType that
+    // disagrees with it must not decide how (or whether) the resource is gated.
+    if (resourceType !== resource.type) {
+      return res.status(400).json({ message: 'resourceType does not match the resource.' });
+    }
+
+    // Scripture gate for the exposure surface: a share link makes the resource
+    // publicly readable via /api/community/share/:slug WITHOUT going through the
+    // entity save gate. Re-validate the resource's CURRENT stored content and
+    // refuse to mint a link for a gated resource whose references do not all
+    // verify (the serve path re-checks too, so an edit-to-invalid after link
+    // creation is also caught). Owner denomination drives the canon.
+    const shareDenomination = resource.data?.denomination
+      || (await prisma.user.findUnique({ where: { id: resource.userId }, select: { profile: true } }))?.profile?.denomination
+      || '';
+    assertGatedResourceExposable({ type: resource.type, resourceData: resource.data, denomination: shareDenomination });
 
     const slug = `${resourceType.toLowerCase()}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';

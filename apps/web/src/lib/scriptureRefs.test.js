@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractScriptureRefs,
+  extractScriptureRefsDeep,
+  extractScriptureRefsJoined,
   validateScriptureRefs,
   validateAiSermon,
+  validateAiContent,
+  __citationFoldSurfaces,
 } from '@/lib/scriptureRefs';
 import { VERSE_COUNTS, versesInChapter } from '@/lib/bibleVerseCounts';
 
@@ -198,6 +202,1309 @@ describe('validateAiSermon', () => {
     expect(out.summary).toMatch(/need attention/);
   });
 
+  it('extracts references case-insensitively (lowercase/UPPER/mixed) — the foundational bypass', () => {
+    for (const text of ['hezekiah 4:5', 'HEZEKIAH 4:5', 'Hezekiah 4:5', 'as hezekiah 4:5 shows us']) {
+      expect(extractScriptureRefs(text).some((r) => /hezekiah\s+4:5/i.test(r))).toBe(true);
+    }
+    // A lowercase fabricated ref is now flagged, not silently dropped.
+    expect(validateAiSermon({ big_idea: 'as hezekiah 4:5 reminds us' }).allValid).toBe(false);
+    // Lowercase REAL refs validate correctly too.
+    expect(validateScriptureRefs(extractScriptureRefs('see john 3:16'))[0].status).toBe('valid');
+  });
+
+  it('parses formatting variants: spaced colons, abbreviations, roman/worded prefixes, unicode', () => {
+    const canon = (t) => extractScriptureRefs(t);
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t))[0]?.status;
+    // Fabricated variants must be CAUGHT (invalid / out_of_range).
+    expect(stat('hezekiah 4 : 5')).toBe('invalid_book');       // spaces around colon
+    expect(stat('Hez. 4:5')).toBe('invalid_book');             // abbreviation + period
+    expect(stat('II Hezekiah 4:5')).toBe('invalid_book');      // roman prefix + fabricated book
+    expect(stat('II John 1:20')).toBe('out_of_range');         // BOUND to 2 John (no v20), not John
+    expect(canon('II John 1:20')).toEqual(['2 John 1:20']);    // prefix bound to the right book
+    expect(stat('hezekiah 4：5')).toBe('invalid_book');         // fullwidth colon
+    expect(stat('hezekiah ４：５')).toBe('invalid_book');        // fullwidth digits
+    // Legit variants must VALIDATE.
+    expect(stat('Gen. 1:1')).toBe('valid');
+    expect(stat('1 Cor 13:4')).toBe('valid');
+    expect(stat('II Tim 1:7')).toBe('valid');
+    expect(stat('First John 3:16')).toBe('valid');
+    expect(canon('II Tim 1:7')).toEqual(['2 Timothy 1:7']);
+  });
+
+  it('normalizes the full INVISIBLE separator set (controls / format / default-ignorable / combining marks)', () => {
+    // Truly-invisible chars (Cc/Cf/DI) are replaced globally, so they also bind a
+    // numeric prefix through the separator.
+    const invisibleSeps = [
+      0x01, 0x1c, 0x1d, 0x1e, 0x1f,
+      0x7f, 0x80, 0x85, 0x9f,
+      0x200b, 0x200c, 0x200d,
+      0x2060, 0xfeff, 0x00ad,
+      0x034f, 0xfe00, 0xfe0f,
+      0x180b, 0x3164, 0xe0100,
+    ];
+    for (const code of invisibleSeps) {
+      const sep = String.fromCodePoint(code);
+      expect(extractScriptureRefs(`Hezekiah${sep}4:5`), `U+${code.toString(16)}`).toContain('Hezekiah 4:5');
+      expect(validateScriptureRefs(extractScriptureRefs(`John${sep}3:16`))[0].status).toBe('valid');
+      expect(extractScriptureRefs(`II${sep}John 1:1`)).toEqual(['2 John 1:1']);
+    }
+    // Combining marks (M, non-DI) are boundary-aware: a mark at the book-chapter
+    // (letter-digit) boundary that has no precomposed form (h + these marks does
+    // not compose) is caught as a hidden separator → fabricated book flagged.
+    for (const code of [0x0300, 0x0301, 0x20dd, 0x20e3]) {
+      const sep = String.fromCodePoint(code);
+      expect(extractScriptureRefs(`Hezekiah${sep}4:5`), `U+${code.toString(16)}`).toContain('Hezekiah 4:5');
+      expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${sep}4:5`))[0].status).toBe('invalid_book');
+    }
+    expect(extractScriptureRefs('See John 3:16')).toContain('John 3:16');
+    expect(extractScriptureRefs('an ordinary sentence with no reference')).toEqual([]);
+  });
+
+  it('mark-hidden book name is caught regardless of mark position / NFC composition; accented prose is not', () => {
+    const grave = String.fromCodePoint(0x0300); // h+grave: no precomposed form
+    const dot = String.fromCodePoint(0x0307);   // h+dot: NFC COMPOSES to ḣ (U+1E23)
+    // The fabricated biblical-book-shaped name is caught however the mark hides it:
+    // before a space, before a digit, and whether or not NFC composed the mark.
+    for (const attack of [
+      `Hezekiah${grave} 4:5`,   // mark then space (letter↔space)
+      `Hezekiah${dot} 4:5`,     // NFC-composed (ḣ), then space
+      `Hezekiah${dot}4:5`,      // NFC-composed (ḣ), then digit (no space)
+      'Hezekiah 4:5',           // plain (normal-space fabricated book)
+    ]) {
+      expect(validateScriptureRefs(extractScriptureRefs(attack))[0]?.status, JSON.stringify([...attack]))
+        .toBe('invalid_book');
+    }
+    // ...but a legit accented common word + a ratio-like N:N is NOT a citation:
+    // NFC keeps the accent as a letter, and the mark-stripped base (cafe/resume)
+    // is not book-shaped, so it is never flagged.
+    const acute = String.fromCodePoint(0x0301);
+    for (const text of [
+      `cafe${acute} 4:5`,       // café 4:5 (decomposed)
+      'café 4:5',               // café 4:5 (NFC-composed)
+      `re${acute}sume${acute} 4:5`, // résumé 4:5 (decomposed)
+      'cafe 4:5',               // plain ASCII common word + ratio
+      `a decomposed accent cafe${acute} sits at 2:1 in prose`,
+    ]) {
+      expect(extractScriptureRefs(text), JSON.stringify([...text])).toEqual([]);
+    }
+    // Real refs and roman-numeral books still validate.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('II John 1:1')).toEqual(['2 John 1:1']);
+  });
+
+  it('a WORD-INTERNAL mark is deleted (token rejoins) so a mark-hidden KNOWN book out of range is caught', () => {
+    const acute = String.fromCodePoint(0x0301);
+    const dot = String.fromCodePoint(0x0307); // composes h+dot -> ḣ
+    // Internal mark inside a known book, out-of-range chapter → caught.
+    expect(validateScriptureRefs(extractScriptureRefs(`Joh${acute}n 99:1`))[0]?.status).toBe('out_of_range');
+    expect(validateScriptureRefs(extractScriptureRefs(`Joh${dot}n 99:1`))[0]?.status).toBe('out_of_range');
+    // Numbered book, internal mark, out of range → bound to 2 John and caught.
+    expect(extractScriptureRefs(`II Joh${dot}n 99:1`)).toEqual(['2 John 99:1']);
+    expect(validateScriptureRefs(extractScriptureRefs(`II Joh${dot}n 99:1`))[0].status).toBe('out_of_range');
+    // A boundary mark (letter↔digit) still becomes a space, not deleted.
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${dot}4:5`))[0].status).toBe('invalid_book');
+    // No mark present → the token is never mangled by deletion.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+  });
+
+  it('folds NFKC compatibility characters (roman numerals, math/fullwidth digits) in the detection shadow', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t))
+      .map((r) => r.status);
+    // U+2161 ROMAN NUMERAL TWO folds to "II" → bound to 2 John (13 verses) → v20 out of range.
+    expect(extractScriptureRefs('Ⅱ John 1:20')).toContain('2 John 1:20');
+    expect(stat('Ⅱ John 1:20')).toContain('out_of_range');
+    // Mathematical bold digits (U+1D7D7 = 9, U+1D7CF = 1) fold to ASCII → "John 99:1" out of range.
+    expect(extractScriptureRefs('John \u{1D7D7}\u{1D7D7}:\u{1D7CF}')).toContain('John 99:1');
+    expect(stat('John \u{1D7D7}\u{1D7D7}:\u{1D7CF}')[0]).toBe('out_of_range');
+    // NFKC is detection-only: legit refs are unaffected.
+    expect(validateScriptureRefs(extractScriptureRefs('II John 1:1'))[0].status).toBe('valid');
+  });
+
+  it('deletes a zero-width char INSIDE a digit run so the true (out-of-range) verse is seen', () => {
+    const zwsp = '​';
+    // ZWSP between the two verse digits: rendered "John 3:99" (John 3 has 36 verses),
+    // not the truncated in-range "John 3:9". The full number must be reconstructed
+    // by the shadow so the union contains an out-of-range ref (→ content fails the
+    // all-valid screen), even though the normal pass also sees the truncated "3:9".
+    expect(extractScriptureRefs(`John 3:9${zwsp}9`)).toContain('John 3:99');
+    const digitSplit = validateScriptureRefs(extractScriptureRefs(`John 3:9${zwsp}9`));
+    expect(digitSplit.some((r) => r.ref === 'John 3:99' && r.status === 'out_of_range')).toBe(true);
+    // ZWSP inside the BOOK token: rejoins to the known book, out-of-range chapter caught.
+    expect(validateScriptureRefs(extractScriptureRefs(`Joh${zwsp}n 99:1`))[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekia${zwsp}h 4:5`))[0].status).toBe('invalid_book');
+  });
+
+  it('a compatibility numeral prefix fused to a book by an invisible seam is bound to the numbered book', () => {
+    const zwsp = '​';
+    // "Ⅱ" + zero-width-space + "John 1:20": NFKC folds Ⅱ (U+2161) to "II", and
+    // the NFKC+global pass keeps the prefix a separate token → 2 John 1:20
+    // (2 John has 13 verses in ch.1 → verse 20 is out of range).
+    expect(extractScriptureRefs(`Ⅱ${zwsp}John 1:20`)).toContain('2 John 1:20');
+    expect(validateScriptureRefs([...extractScriptureRefs(`Ⅱ${zwsp}John 1:20`)])
+      .some((r) => r.ref === '2 John 1:20' && r.status === 'out_of_range')).toBe(true);
+    expect(extractScriptureRefs(`Ⅲ${zwsp}John 1:20`)).toContain('3 John 1:20');
+    // A genuine numbered reference is unaffected.
+    expect(extractScriptureRefs('II John 1:1')).toEqual(['2 John 1:1']);
+  });
+
+  it('normalizes non-ASCII decimal digits (Arabic-Indic, Devanagari) so out-of-range refs are caught', () => {
+    const ai = (v) => String.fromCodePoint(0x0660 + v);   // Arabic-Indic 0-9
+    const dv = (v) => String.fromCodePoint(0x0966 + v);   // Devanagari 0-9
+    // "John 3:٣٧" renders John 3:37 (John 3 has 36 verses) → out of range.
+    expect(extractScriptureRefs(`John 3:${ai(3)}${ai(7)}`)).toContain('John 3:37');
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${ai(3)}${ai(7)}`))[0].status).toBe('out_of_range');
+    // "John ٩٩:١" renders John 99:1 → out of range (no chapter 99).
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${ai(9)}${ai(9)}:${ai(1)}`))[0].status).toBe('out_of_range');
+    // Devanagari digits fold too.
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${dv(3)}:${dv(3)}${dv(7)}`))[0].status).toBe('out_of_range');
+    // A non-ASCII-digit numbered-book prefix binds correctly.
+    expect(extractScriptureRefs(`${ai(2)} John 1:20`)).toContain('2 John 1:20');
+    // A VALID reference written with non-ASCII digits still validates (no false positive).
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${dv(3)}:${dv(1)}${dv(6)}`))[0].status).toBe('valid');
+    // ASCII digits and accented prose are untouched.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('café 4:5')).toEqual([]);
+  });
+
+  it('a citation cannot START mid-word after a Unicode letter / apostrophe (accented-prose false positive)', () => {
+    // The ASCII book regex must not begin inside a non-ASCII word: "naïve 4:5" once
+    // yielded "ve 4:5" and "L'Oréal 4:5" yielded "al 4:5", both screened as fabricated.
+    expect(extractScriptureRefs('naïve 4:5')).toEqual([]);
+    expect(extractScriptureRefs("L'Oréal 4:5")).toEqual([]);
+    expect(extractScriptureRefs('résumé 4:5')).toEqual([]);
+    // Genuine refs immediately after an apostrophe boundary still parse.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+  });
+
+  it('folds EVERY Unicode decimal-digit code point to its ASCII value (property sweep)', () => {
+    const ndRe = /\p{Nd}/u;
+    let tested = 0;
+    for (let cp = 0x0600; cp <= 0x1FBFF; cp += 1) {
+      const ch = String.fromCodePoint(cp);
+      if (!ndRe.test(ch) || (cp >= 0x30 && cp <= 0x39)) continue;
+      tested += 1;
+      // Expected value via the same contiguous-run rule the extractor uses:
+      // walk to the start of the MAXIMAL \p{Nd} run (no cap — adjacent styled
+      // blocks are back-to-back) and take the offset MOD 10.
+      let start = cp;
+      while (start > 0 && ndRe.test(String.fromCodePoint(start - 1))) start -= 1;
+      const expected = (cp - start) % 10;
+      // Put the exotic digit in the chapter position; the extracted chapter must be its ASCII value.
+      const out = extractScriptureRefs(`Genesis ${ch}:1`);
+      const m = out[0] && /Genesis (\d+):1/.exec(out[0]);
+      expect(m && m[1], `U+${cp.toString(16)} → ${expected}`).toBe(String(expected));
+    }
+    // Includes Kawi (U+11F50) and Nag Mundari (U+1E4F0), which have no NFKC folding.
+    expect(tested).toBeGreaterThan(500);
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${String.fromCodePoint(0x11F53)}:${String.fromCodePoint(0x11F53)}${String.fromCodePoint(0x11F57)}`))[0].status).toBe('out_of_range'); // Kawi John 3:37
+  });
+
+  it('parses Roman-numeral chapter / verse / range-end and range-checks the converted number', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t)).map((r) => r.status);
+    // Roman CHAPTER: "John III:37" → John 3:37 (John 3 has 36 verses) → out of range.
+    expect(extractScriptureRefs('John III:37')).toContain('John 3:37');
+    expect(stat('John III:37')).toContain('out_of_range');
+    // Roman VERSE: "John 3:XXXVII" → John 3:37 → out of range.
+    expect(extractScriptureRefs('John 3:XXXVII')).toContain('John 3:37');
+    // Unicode Roman numeral (U+2162 = Ⅲ) folds via NFKC → chapter 3.
+    expect(extractScriptureRefs('John Ⅲ:37')).toContain('John 3:37');
+    // Numbered book + Roman chapter AND verse: "II John I:XX" → 2 John 1:20 (oor).
+    expect(validateScriptureRefs(extractScriptureRefs('II John I:XX'))[0].status).toBe('out_of_range');
+    // A legit ASCII reference is unaffected, and a Roman token that heads a longer
+    // word is NOT parsed as a verse ("Luke 2:live" → no ref, not verse "liv"=54).
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('Luke 2:live')).toEqual([]);
+  });
+
+  it('binds compact / hyphen / dot numbered-book prefixes to the numbered book', () => {
+    // "2John"/"2-John"/"2.John"/"IIJohn" all → 2 John 1:20 (2 John ch.1 has 13 verses → oor).
+    for (const form of ['2John 1:20', '2-John 1:20', '2.John 1:20', 'IIJohn 1:20']) {
+      expect(extractScriptureRefs(form), form).toContain('2 John 1:20');
+      expect(validateScriptureRefs(extractScriptureRefs(form))[0].status, form).toBe('out_of_range');
+    }
+    // A hyphenated NON-book is not mis-bound to a numbered book (stays plain John).
+    const pseudo = extractScriptureRefs('pseudo-John 4:5');
+    expect(pseudo.some((r) => /^[123] /.test(r))).toBe(false);
+    expect(pseudo).toContain('John 4:5');
+    // A real book that merely STARTS with a numeral-prefix letter is never split.
+    expect(extractScriptureRefs('Isaiah 3:1')).toEqual(['Isaiah 3:1']);
+    // Genuine spaced forms still correct.
+    expect(extractScriptureRefs('II John 1:1')).toEqual(['2 John 1:1']);
+    expect(validateScriptureRefs(extractScriptureRefs('1 John 1:1'))[0].status).toBe('valid');
+  });
+
+  it('binds a book GLUED to chapter:verse with no space, gated by book-shape', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t)).map((r) => r.status);
+    // Known book / abbreviation / book-shaped name glued to the numbers → bound.
+    expect(extractScriptureRefs('John3:37')).toContain('John 3:37'); // John 3 has 36 verses
+    expect(stat('John3:37')).toContain('out_of_range');
+    expect(stat('Jn3:37')).toContain('out_of_range');
+    expect(validateScriptureRefs(extractScriptureRefs('Hezekiah4:5'))[0].status).toBe('invalid_book');
+    expect(stat('John3:XXXVII')).toContain('out_of_range'); // glued + Roman verse
+    // A glued VALID reference is still valid; a non-book word touching digits is NOT bound.
+    expect(validateScriptureRefs(extractScriptureRefs('John3:16'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('cafe4:5')).toEqual([]);
+    expect(extractScriptureRefs('size10:30')).toEqual([]);
+  });
+
+  it('binds a compact numeric/Roman prefix to a FABRICATED book-shaped name (flagged), never splitting a real book', () => {
+    const kawi2 = String.fromCodePoint(0x11F52); // Kawi digit 2
+    // Fabricated compact numbered refs are bound and flagged invalid_book (not dropped).
+    for (const form of ['2Hezekiah 4:5', '2-Hezekiah 4:5', '2.Hezekiah 4:5', 'IIHezekiah 4:5', `${kawi2}Hezekiah 4:5`]) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.some((r) => /^2 Hezekiah/.test(r.ref) && r.status === 'invalid_book'), form).toBe(true);
+    }
+    // A KNOWN compact numbered ref binds to the numbered book (out of range).
+    expect(extractScriptureRefs('2John 1:20')).toContain('2 John 1:20');
+    // A real book that starts with a numeral-prefix letter is NEVER split.
+    expect(extractScriptureRefs('Isaiah 5:1')).toEqual(['Isaiah 5:1']);
+    // A hyphenated non-book is not mis-bound to a numbered book (stays plain Hezekiah).
+    const pseudo = extractScriptureRefs('pseudo-Hezekiah 4:5');
+    expect(pseudo.some((r) => /^[123] /.test(r))).toBe(false);
+    expect(pseudo).toContain('Hezekiah 4:5');
+  });
+
+  it('rejects NON-canonical Roman numerals instead of coercing them to a valid ref', () => {
+    // "IIV" is not a well-formed Roman numeral → must NOT validate as John 5:1.
+    expect(validateScriptureRefs(extractScriptureRefs('John IIV:1')).every((r) => r.status !== 'valid')).toBe(true);
+    // Unicode Roman that folds to the same non-canonical "IIV".
+    expect(validateScriptureRefs(extractScriptureRefs('John ⅠⅠⅤ:1')).every((r) => r.status !== 'valid')).toBe(true);
+    // A malformed Roman RANGE end must not be silently dropped (→ leaving a clean "3:1").
+    const rng = validateScriptureRefs(extractScriptureRefs('John 3:1-IIV'));
+    expect(rng.length).toBeGreaterThan(0);
+    expect(rng.every((r) => r.status !== 'valid')).toBe(true);
+    // Canonical Roman still parses: III → 3 (out of range here), IV → 4 (valid).
+    expect(extractScriptureRefs('John III:37')).toContain('John 3:37');
+    expect(validateScriptureRefs(extractScriptureRefs('John IV:2'))[0].status).toBe('valid');
+    // Direct validator: a malformed range is out_of_range, a good one is valid.
+    expect(validateScriptureRefs(['John 3:1-IIV'])[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(['John 3:1-5'])[0].status).toBe('valid');
+  });
+
+  it('never DROPS an overlong numeric / Roman token — validation classifies the failure', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t)).map((r) => r.status);
+    // A 4+-digit chapter/verse is captured in full and range-checked (not truncated / dropped).
+    expect(extractScriptureRefs('John 1000:1')).toContain('John 1000:1');
+    expect(stat('John 1000:1')).toContain('out_of_range');
+    expect(stat('John 99999:1')).toContain('out_of_range');
+    expect(stat('John 3:99999')).toContain('out_of_range');
+    // An overlong (16-I) Roman range end is preserved and flagged, not silently trimmed to a valid "3:1".
+    const longI = 'I'.repeat(16);
+    const rng = validateScriptureRefs(extractScriptureRefs(`John 3:1-${longI}`));
+    expect(rng.length).toBeGreaterThan(0);
+    expect(rng.every((r) => r.status !== 'valid')).toBe(true);
+    // An overlong Roman chapter is likewise captured and flagged.
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${longI}:1`)).every((r) => r.status !== 'valid')).toBe(true);
+    // Legit references are unaffected.
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:16'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('John 3:1-5'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(['Psalms 119:176'])[0].status).toBe('valid'); // 3-digit chapter+verse still valid
+  });
+
+  it('binds WORDED (first/second/third) compact / hyphen / dot numbered-book prefixes', () => {
+    // Worded prefix + no-space / hyphen / dot → numbered book, out of range (2 John ch.1 has 13 verses).
+    for (const form of ['Second-John 1:20', 'Third.John 1:20', 'SecondJohn 1:20', 'ThirdJohn 1:20']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.some((r) => /^[23] John 1:20$/.test(r)), form).toBe(true);
+      expect(refs.includes('John 1:20'), `${form} must not extract bare John`).toBe(false);
+    }
+    expect(validateScriptureRefs(extractScriptureRefs('First-John 5:22'))[0].status).toBe('out_of_range'); // 1 John has 5 ch
+    // Deep + joined-array paths (schema-coercion recombination) catch it too.
+    expect(extractScriptureRefsDeep({ note: 'Second-John 1:20' })).toContain('2 John 1:20');
+    const joined = extractScriptureRefsJoined(['Second-John', '1:20']);
+    expect(joined).toContain('2 John 1:20');
+    expect(joined.includes('John 1:20')).toBe(false);
+    // Spaced worded forms still validate correctly (2/1 John 1:1 exist).
+    expect(validateScriptureRefs(extractScriptureRefs('Second John 1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('First John 1:1'))[0].status).toBe('valid');
+    // A real book that starts with a prefix-like word fragment is never split.
+    expect(extractScriptureRefs('Isaiah 5:1')).toEqual(['Isaiah 5:1']);
+  });
+
+  it('flags an UNSUPPORTED numbered-book prefix (never reinterprets it as the bare valid book)', () => {
+    const CANONS = ['protestant', 'catholic', 'orthodox'];
+    // The reference is CAUGHT: some extracted ref is a fabricated numbered book
+    // (invalid in every canon), so the all-valid screen fails.
+    const isCaught = (t) => {
+      const refs = extractScriptureRefs(t);
+      const fabricated = refs.filter((ref) => !CANONS.some((canon) => {
+        const [r] = validateScriptureRefs([ref], { canon });
+        return r && (r.status === 'valid' || r.status === 'chapter_checked');
+      }));
+      return fabricated.some((ref) => /^\d+ John/.test(ref));
+    };
+    for (const form of ['4 John 1:1', 'Ⅳ John 1:1', 'IV John 1:1', 'Fourth-John 1:1', 'IIII-John 1:1', '4John 1:1', `${String.fromCodePoint(0x0664)} John 1:1`]) {
+      expect(isCaught(form), form).toBe(true);
+    }
+    // For pure-ASCII forms the prefix is consumed by the match, so it does NOT
+    // additionally reinterpret as a bare valid "John 1:1".
+    for (const form of ['4 John 1:1', 'IV John 1:1', '4John 1:1', 'Fourth-John 1:1']) {
+      expect(extractScriptureRefs(form).includes('John 1:1'), form).toBe(false);
+    }
+    // "5 Corinthians" (a numbered stem, unsupported number) is likewise invalid.
+    expect(validateScriptureRefs(extractScriptureRefs('5 Corinthians 1:1'))[0].status).toBe('invalid_book');
+    // Deep + joined-array paths.
+    expect(extractScriptureRefsDeep({ note: '4 John 1:1' })).toContain('4 John 1:1');
+    const joined = extractScriptureRefsJoined(['4 John', '1:1']);
+    expect(joined).toContain('4 John 1:1');
+    expect(joined.includes('John 1:1')).toBe(false);
+    // SUPPORTED prefixes and the bare Gospel stay correct.
+    expect(validateScriptureRefs(extractScriptureRefs('John 1:1'))[0].status).toBe('valid'); // bare Gospel
+    expect(validateScriptureRefs(extractScriptureRefs('2 John 1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('3 John 1:1'))[0].status).toBe('valid');
+    // A spurious number on a NON-numbered book is dropped → the bare book validates.
+    expect(validateScriptureRefs(extractScriptureRefs('5 Psalms 119:1'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('5 Psalms 119:1')).toContain('Psalms 119:1');
+  });
+
+  it('flags a numeric token with trailing letters as malformed (no truncate-to-valid)', () => {
+    const stat = (t) => validateScriptureRefs(extractScriptureRefs(t)).map((r) => r.status);
+    // Trailing garbage after a chapter/verse/range number → whole ref malformed.
+    for (const form of ['John 3:16I', 'Psalms 119:176I', 'John 3:1-5I', 'John 3:1-5abc']) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.length, form).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid'), form).toBe(true);
+    }
+    // Direct validator: trailing letters make the token malformed → out_of_range.
+    expect(validateScriptureRefs(['John 3:16I'])[0].status).toBe('out_of_range');
+    expect(validateScriptureRefs(['John 3:1-5abc'])[0].status).toBe('out_of_range');
+    // Clean references (incl. the longest chapter) are unaffected, and a real word
+    // after a real space is NOT swallowed / flagged.
+    expect(stat('John 3:16')).toEqual(['valid']);
+    expect(stat('John 3:1-5')).toEqual(['valid']);
+    expect(validateScriptureRefs(['Psalms 119:176'])[0].status).toBe('valid');
+    expect(extractScriptureRefs('John 3:16 is a great verse')).toEqual(['John 3:16']);
+  });
+
+  it('applies the malformed-suffix rule UNIFORMLY to Roman chapter/verse/range tokens', () => {
+    // A trailing NON-ASCII letter/mark after a Roman token is malformed, not truncated to valid.
+    for (const form of ['John 3:XЖ', 'John 3:Xé', 'John 3:IVé', 'John 3:I-Vabc']) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.length, form).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked'), form).toBe(true);
+    }
+    // A clean canonical Roman still validates; an ASCII word after a colon is prose (no match).
+    expect(validateScriptureRefs(extractScriptureRefs('John IV:2'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('John 2:live your faith')).toEqual([]);
+  });
+
+  it('reads a SPACED-separator prefix as an OUTLINE marker → bare book (documented trade-off, no list false-positive)', () => {
+    // A numbered-list / outline item ("2 - John 3:16", "1 - John 3:16", "2. John 3:16")
+    // must read as the VALID bare Gospel John — NOT be rejected as a numbered book,
+    // and NOT emit a spurious numbered ref. (This is the r30 reversal of the r29
+    // spaced-separator over-binding, which wrongly rejected valid outline refs.)
+    for (const form of ['2 - John 3:16', '1 - John 3:16', '2. John 3:16', '2 . John 3:16']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs, form).toEqual(['John 3:16']);
+      expect(validateScriptureRefs(refs)[0].status, form).toBe('valid');
+    }
+    expect(extractScriptureRefs('3 - John 1:1')).toEqual(['John 1:1']);
+    // DOCUMENTED TRADE-OFF: a fabricated numbered book with a SPACED separator
+    // ("4 - John 1:1") reads as the valid bare "John 1:1" — accepted residual.
+    expect(extractScriptureRefs('4 - John 1:1')).toEqual(['John 1:1']);
+    // The UNAMBIGUOUS compact forms (no space / single space) still trap unsupported prefixes.
+    expect(validateScriptureRefs(extractScriptureRefs('4John 1:1'))[0].status).toBe('invalid_book');
+    expect(validateScriptureRefs(extractScriptureRefs('4-John 1:1'))[0].status).toBe('invalid_book');
+    expect(validateScriptureRefs(extractScriptureRefs('Fourth John 1:1'))[0].status).toBe('invalid_book');
+    // Supported ref still valid; hyphenated prose not mis-bound.
+    expect(validateScriptureRefs(extractScriptureRefs('2 John 1:1'))[0].status).toBe('valid');
+    expect(extractScriptureRefs('well - John 3:16').some((r) => /^[123] /.test(r))).toBe(false);
+  });
+
+  it('folds a Unicode-Roman prefix in EVERY pass so no spurious bare valid ref is emitted', () => {
+    // "Ⅳ John 1:1" and the UNAMBIGUOUS compact forms produce ONLY the invalid
+    // "4 John", never a bare valid "John 1:1" in the extractor / audit output.
+    for (const form of ['Ⅳ John 1:1', 'ⅣJohn 1:1', 'Ⅳ-John 1:1', 'Ⅳ.John 1:1']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs, form).toContain('4 John 1:1');
+      expect(refs.includes('John 1:1'), form).toBe(false);
+    }
+    // A supported Unicode-Roman prefix still binds to the real numbered book.
+    expect(validateScriptureRefs(extractScriptureRefs('Ⅱ John 1:1'))[0].status).toBe('valid'); // 2 John
+    expect(extractScriptureRefs('Ⅱ John 1:1')).toEqual(['2 John 1:1']);
+  });
+
+  it('flags a Roman chapter/verse with an ASCII suffix (malformed) while keeping Roman-looking prose clean', () => {
+    // Roman token + ASCII letters is a deliberate malformed numeral → caught.
+    for (const form of ['John 3:Xabc', 'John IVabc:2', 'John 3:IVabc']) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.length, form).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked'), form).toBe(true);
+    }
+    // A lowercase Roman-looking WORD is prose, not a citation (dropped, not flagged).
+    expect(extractScriptureRefs('John 2:live your faith')).toEqual([]);
+    expect(extractScriptureRefs('John 3:ivy grows')).toEqual([]);
+    // Clean Roman (any case) still validates.
+    expect(validateScriptureRefs(extractScriptureRefs('John iv:2'))[0].status).toBe('valid'); // John 4:2
+    expect(extractScriptureRefs('John III:37')).toContain('John 3:37');
+  });
+
+  it('folds EVERY Unicode Roman numeral (U+2160–U+2188, incl. archaic) — no bare-book leak', () => {
+    // Sweep the whole block in the PREFIX position: 1/2/3 → valid numbered book,
+    // everything else → fabricated numbered book — NONE leaks a spurious bare "John 1:1".
+    for (let cp = 0x2160; cp <= 0x2188; cp += 1) {
+      const refs = extractScriptureRefs(`${String.fromCodePoint(cp)} John 1:1`);
+      expect(refs.includes('John 1:1'), `U+${cp.toString(16)} prefix must not leak bare John`).toBe(false);
+      expect(refs.length, `U+${cp.toString(16)} must bind a numbered ref`).toBeGreaterThan(0);
+    }
+    // Archaic apostrophus forms that do NOT NFKC-fold are handled explicitly.
+    expect(validateScriptureRefs(extractScriptureRefs('ↁ John 1:1'))[0].status).toBe('invalid_book'); // 5000 John
+    expect(validateScriptureRefs(extractScriptureRefs('John ↁ:1'))[0].status).toBe('out_of_range');    // chapter 5000
+    expect(validateScriptureRefs(extractScriptureRefs('John ↅ:1'))[0].status).toBe('valid');           // ↅ = 6 → John 6:1
+    // Supported forms still valid.
+    expect(extractScriptureRefs('Ⅱ John 1:1')).toEqual(['2 John 1:1']);
+  });
+
+  it('binds a compact numbered book with the chapter GLUED to the stem (never rebinds to bare John)', () => {
+    // Legit compact numbered-book citations (chapter digit glued to the stem) bind correctly.
+    expect(validateScriptureRefs(extractScriptureRefs('2John1:1'))[0].status).toBe('valid'); // 2 John 1:1
+    expect(validateScriptureRefs(extractScriptureRefs('2-John1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('SecondJohn1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('1Cor13:4'))[0].status).toBe('valid'); // 1 Corinthians 13:4
+    // Fabricated / unsupported glued forms are invalid_book — NOT rebound to a bare valid John.
+    for (const form of ['4John1:1', '4-John1:1', 'Ⅳ-John1:1', 'ↀJohn1:1']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${form} must not rebind to bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book'), form).toBe(true);
+    }
+    // Deep + joined-array.
+    expect(validateScriptureRefs(extractScriptureRefsDeep({ note: '2John1:1' }))[0].status).toBe('valid');
+    expect(extractScriptureRefsJoined(['4John', '1:1']).some((r) => /^4 John/.test(r))).toBe(true);
+    // The r30 SPACED-separator OUTLINE behavior is intact (not re-broken).
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+    expect(validateScriptureRefs(extractScriptureRefs('2John 1:1'))[0].status).toBe('valid'); // single-space still 2 John
+  });
+
+  it('routes a lowercase NON-canonical all-Roman token to the strict validator (not dropped as prose)', () => {
+    // Lowercased malformed Roman numerals must reach the validator (malformed / out_of_range),
+    // NOT be silently dropped as prose.
+    for (const form of ['John iiii:2', 'John vv:2', 'John iiv:2', 'John 3:iiii']) {
+      const v = validateScriptureRefs(extractScriptureRefs(form));
+      expect(v.length, form).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked'), form).toBe(true);
+    }
+    // A clean canonical lowercase Roman still validates.
+    expect(validateScriptureRefs(extractScriptureRefs('John iv:2'))[0].status).toBe('valid'); // John 4:2
+    // A lowercase word with a NON-Roman letter stays prose (clean, dropped).
+    expect(extractScriptureRefs('John 2:live your faith')).toEqual([]);
+    expect(extractScriptureRefs('John 3:ivy grows tall')).toEqual([]);
+  });
+
+  it('binds NUMERIC ORDINAL-SUFFIX prefixes (1st/2nd/3rd/4th/11th) to the numbered book', () => {
+    // Supported ordinals bind to the correct numbered book.
+    expect(validateScriptureRefs(extractScriptureRefs('1st John 1:1'))[0].ref).toBe('1 John 1:1');
+    expect(validateScriptureRefs(extractScriptureRefs('1st John 1:1'))[0].status).toBe('valid');
+    expect(validateScriptureRefs(extractScriptureRefs('2nd John 1:1'))[0].ref).toBe('2 John 1:1');
+    expect(validateScriptureRefs(extractScriptureRefs('3rd John 1:1'))[0].ref).toBe('3 John 1:1');
+    expect(validateScriptureRefs(extractScriptureRefs('1ST John 1:1'))[0].status).toBe('valid'); // suffix case-insensitive
+    // Unsupported ordinals bind as INVALID — never a bare valid Gospel John.
+    for (const form of ['4th John 1:1', '5th John 1:1', '11th John 1:1', '4thJohn1:1', '4th-John1:1']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${form} must not rebind to bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book'), form).toBe(true);
+    }
+    // Glued / hyphen / dot supported forms bind to the numbered book (valid).
+    expect(validateScriptureRefs(extractScriptureRefs('2ndJohn1:1'))[0].ref).toBe('2 John 1:1');
+    expect(validateScriptureRefs(extractScriptureRefs('2nd.John1:1'))[0].ref).toBe('2 John 1:1');
+    // Deep + joined-array.
+    expect(validateScriptureRefs(extractScriptureRefsDeep({ note: '1st John 1:1' }))[0].ref).toBe('1 John 1:1');
+    expect(extractScriptureRefsJoined(['4th John', '1:1']).some((r) => /^4 John/.test(r))).toBe(true);
+    // A bare ordinal not bound to a book name stays clean prose (no citation).
+    expect(extractScriptureRefs('the 1st chapter of this book')).toEqual([]);
+    expect(extractScriptureRefs('read the 2nd verse today')).toEqual([]);
+    // r30 outline + r31 glued behaviors intact.
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+    expect(validateScriptureRefs(extractScriptureRefs('2John1:1'))[0].status).toBe('valid');
+  });
+
+  it('binds SUPERSCRIPT / NFKC ordinal-suffix prefixes with NO bare-John leak (folded in pass 1)', () => {
+    const sup = { s: 'ˢ', t: 'ᵗ', n: 'ⁿ', d: 'ᵈ', r: 'ʳ', h: 'ʰ' };
+    const forms = {
+      '1st': `1${sup.s}${sup.t}`, '2nd': `2${sup.n}${sup.d}`,
+      '3rd': `3${sup.r}${sup.d}`, '4th': `4${sup.t}${sup.h}`,
+    };
+    // Supported superscript ordinals → the numbered book; NO bare John in the output.
+    expect(extractScriptureRefs(`${forms['1st']} John 1:1`)).toEqual(['1 John 1:1']);
+    expect(extractScriptureRefs(`${forms['2nd']} John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`${forms['3rd']} John 1:1`)).toEqual(['3 John 1:1']);
+    // Unsupported superscript ordinal → invalid_book, NO bare John.
+    const four = extractScriptureRefs(`${forms['4th']} John 1:1`);
+    expect(four.includes('John 1:1')).toBe(false);
+    expect(validateScriptureRefs(four).some((r) => r.status === 'invalid_book')).toBe(true);
+    // Superscript DIGIT + suffix folds too ("²ⁿᵈ").
+    expect(extractScriptureRefs('²ⁿᵈ John 1:1')).toEqual(['2 John 1:1']);
+    // (B) span-suppression must NOT drop a genuinely un-prefixed bare citation that co-occurs.
+    const mixed = extractScriptureRefs(`John 1:1 and ${forms['2nd']} John 1:1`);
+    expect(mixed).toContain('John 1:1');
+    expect(mixed).toContain('2 John 1:1');
+  });
+
+  it('binds an ordinal-suffix prefix across a SPACED punctuation separator (never bare John); bare-numeric outline preserved', () => {
+    // Ordinal suffix is NEVER an outline marker → binds across spaced dot/hyphen.
+    expect(extractScriptureRefs('1st. John 1:1')).toEqual(['1 John 1:1']);
+    expect(extractScriptureRefs('2nd- John 1:1')).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs('2nd - John 1:1')).toEqual(['2 John 1:1']);
+    for (const form of ['4th. John 1:1', '4th- John 1:1', '4th . John 1:1']) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${form} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book'), form).toBe(true);
+    }
+    // r30 BARE-NUMERIC outline behavior intact: a spaced separator without an
+    // ordinal suffix is still an outline marker → valid bare John.
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+    expect(extractScriptureRefs('2. John 3:16')).toEqual(['John 3:16']);
+    // Ordinal prose not followed by a book stays clean.
+    expect(extractScriptureRefs('the 1st chapter of this book')).toEqual([]);
+    expect(extractScriptureRefs('won the 3rd race yesterday')).toEqual([]);
+  });
+
+  it('binds an ordinal prefix with HIDDEN/combining chars at the digit↔suffix seam (no bare-John leak)', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const ZWSP = cp(0x200B);
+    const CGJ = cp(0x034F);   // combining grapheme joiner (default-ignorable)
+    const ACUTE = cp(0x0301); // combining mark
+    const Th = cp(0x1D57) + cp(0x02B0); // superscript ᵗʰ
+    const SUP4 = cp(0x2074);            // superscript ⁴
+    // A hidden/combining char inside the ordinal is deleted BEFORE the boundary
+    // pass, so the ordinal binds as one token (never split into a bare John).
+    expect(extractScriptureRefs(`2${ZWSP}nd John 1:1`)).toEqual(['2 John 1:1']);
+    for (const form of [`4${ZWSP}th John 1:1`, `4${CGJ}th. John 1:1`, `4${ACUTE}th- John 1:1`, `${SUP4}${ZWSP}${Th} John 1:1`]) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${JSON.stringify([...form])} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book')).toBe(true);
+    }
+  });
+
+  it('folds a SUPERSCRIPT ordinal only in ordinal-prefix position; a superscript FOOTNOTE marker is left alone', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP1 = cp(0xB9), SUP2 = cp(0xB2);
+    const Nd = cp(0x207F) + cp(0x1D48); // superscript ⁿᵈ
+    const Th = cp(0x1D57) + cp(0x02B0); // superscript ᵗʰ
+    // Ordinal-prefix superscript before a numbered stem → numbered book.
+    expect(extractScriptureRefs(`2${Nd} John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`${SUP2}${Nd} John 1:1`)).toEqual(['2 John 1:1']);
+    const four = extractScriptureRefs(`4${Th} John 1:1`);
+    expect(four.includes('John 1:1')).toBe(false);
+    expect(validateScriptureRefs(four).some((r) => r.status === 'invalid_book')).toBe(true);
+    // A TRAILING superscript after a complete ASCII number is AMBIGUOUS (footnote
+    // vs number data give different values) → FAIL CLOSED (r36): flagged, never a
+    // silently-valid ref that differs from the visible text.
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:16${SUP1}`)).every((r) => r.status !== 'valid' && r.status !== 'chapter_checked')).toBe(true);
+    // A superscript filling an EMPTY chapter slot (no ASCII digit) is NUMBER DATA
+    // → folded as the user sees it (r35 principled rule): "John²:1" → John 2:1.
+    expect(extractScriptureRefs(`John${SUP2}:1`)).toEqual(['John 2:1']);
+    expect(extractScriptureRefs(`Rev${SUP2}:1`)).toEqual(['Revelation 2:1']);
+    // A superscript filling an empty VERSE slot is folded, not dropped.
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${cp(0xB9)}${cp(0x2076)}`))[0].status).toBe('valid'); // John 3:¹⁶ → 3:16
+    // (B) span-suppression still preserves a genuinely un-prefixed bare John that co-occurs.
+    const mixed = extractScriptureRefs(`John 1:1 and 2${Nd} John 1:1`);
+    expect(mixed).toContain('John 1:1');
+    expect(mixed).toContain('2 John 1:1');
+    // r30 bare-numeric outline intact.
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+  });
+
+  it('binds UNICODE-DIGIT ordinals (fullwidth/Arabic/math) incl. hidden seams; folds digits with no phantom zeros', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const ZWSP = cp(0x200B);
+    const FW4 = cp(0xFF14), AI4 = cp(0x0664), MATH2 = cp(0x1D7DA);
+    const MATH3 = cp(0x1D7DB), MATH1 = cp(0x1D7D9), MATH6 = cp(0x1D7DE);
+    // Unicode-digit ordinals with a hidden seam bind numbered, never bare John.
+    for (const form of [`${FW4}${ZWSP}th John 1:1`, `${AI4}${ZWSP}th John 1:1`]) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${JSON.stringify([...form])} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book')).toBe(true);
+    }
+    expect(extractScriptureRefs(`${MATH2}${ZWSP}nd John 1:1`)).toEqual(['2 John 1:1']);
+    // Finding 3: adjacent Unicode decimal blocks no longer corrupt into phantom zeros.
+    expect(extractScriptureRefs(`John ${MATH3}:${MATH1}${MATH6}`)).toEqual(['John 3:16']);
+    expect(extractScriptureRefs(`${MATH2} John 1:1`)).toEqual(['2 John 1:1']);
+    // Positive Unicode-digit citations extract the correct single ref (no phantom).
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${cp(0x0663)}:${cp(0x0661)}${cp(0x0666)}`))[0].status).toBe('valid'); // Arabic John 3:16
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${cp(0xFF13)}:${cp(0xFF11)}${cp(0xFF16)}`))[0].status).toBe('valid'); // fullwidth John 3:16
+  });
+
+  it('folds an EMPTY-slot superscript number (unambiguous data) but FAILS CLOSED on an ASCII-adjacent superscript', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP1 = cp(0xB9), SUP5 = cp(0x2075), SUP6 = cp(0x2076), SUP7 = cp(0x2077);
+    // Empty verse slot filled ENTIRELY by superscript → folded to the real verse (unambiguous data).
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${SUP1}${SUP6}`))[0].status).toBe('valid'); // John 3:16
+    // A real but invalid ref written with an all-superscript verse is CAUGHT, not silently dropped.
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah 4:${SUP5}`))[0].status).toBe('invalid_book');
+    // A superscript ADJACENT to ASCII digits (trailing/between) is AMBIGUOUS → FAIL CLOSED:
+    // the ref is flagged, never silently emitted as a valid number differing from the visible text.
+    const failClosed = (t) => {
+      const v = validateScriptureRefs(extractScriptureRefs(t));
+      return v.length > 0 && v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked')
+        && !v.some((r) => /^John 3:(3|1|16)$/.test(r.ref) && r.status === 'valid');
+    };
+    expect(failClosed(`John 3:3${SUP7}`), 'John 3:3⁷').toBe(true);  // not silently John 3:3
+    expect(failClosed(`John 3:1${SUP6}`), 'John 3:1⁶').toBe(true);  // not silently John 3:1
+    expect(failClosed(`John 3:16${SUP1}`), 'John 3:16¹').toBe(true); // documented fail-closed
+    expect(failClosed(`John 3:1${SUP6}5`), 'John 3:1⁶5').toBe(true); // between digits
+  });
+
+  it('folds an ordinal across a CONTROL-CHARACTER (Cc) seam — one shared hidden class, no bare-John leak', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const NUL = cp(0x00), SOH = cp(0x01), C1 = cp(0x9D); // C0 (non-whitespace) + C1 controls
+    // A C0/C1 control wedged in the ordinal is deleted (same shared hidden class as
+    // the rest of the extractor) → the ordinal binds numbered, never bare John.
+    expect(extractScriptureRefs(`2${C1}nd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`${cp(0x1D7DA)}${NUL}nd John 1:1`)).toEqual(['2 John 1:1']); // math digit + control seam
+    for (const form of [`4${NUL}th John 1:1`, `11${SOH}th John 1:1`]) {
+      const refs = extractScriptureRefs(form);
+      expect(refs.includes('John 1:1'), `${JSON.stringify([...form])} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book' || r.status === 'out_of_range')).toBe(true);
+    }
+  });
+
+  it('folds an ordinal across a UNICODE-SEPARATOR seam (one complete shared seam class), no bare-John leak', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const HAIR = cp(0x200A), NBSP = cp(0x00A0), NNBSP = cp(0x202F), THIN = cp(0x2009), ZL = cp(0x2028), ZP = cp(0x2029);
+    // A Unicode separator (Zs/Zl/Zp) wedged in the ordinal is consumed by the fold
+    // BEFORE it is normalized to an ASCII space → the ordinal binds numbered.
+    expect(extractScriptureRefs(`2${NBSP}nd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`2${THIN}nd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`${cp(0x1D7DA)}${HAIR}nd John 1:1`)).toEqual(['2 John 1:1']); // math digit + hair-space seam
+    for (const seam of [HAIR, NNBSP, ZL, ZP]) {
+      const refs = extractScriptureRefs(`4${seam}th John 1:1`);
+      expect(refs.includes('John 1:1'), `U+${seam.codePointAt(0).toString(16)} seam must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book' || r.status === 'out_of_range')).toBe(true);
+    }
+  });
+
+  it('fails closed on a superscript number joined to an ASCII digit by ANY seam (hidden or separator)', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const ZWSP = cp(0x200B), NBSP = cp(0x00A0), CGJ = cp(0x034F), VS = cp(0xFE0F);
+    const SUP1 = cp(0xB9), SUP6 = cp(0x2076);
+    // A seam between the ASCII digit and the superscript can no longer smuggle the
+    // shortened/extended reading past the fail-closed rule.
+    const failClosed = (t) => {
+      const v = validateScriptureRefs(extractScriptureRefs(t));
+      return v.length > 0 && v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked')
+        && !v.some((r) => /^John 3:(1|16|1-3|1-36)$/.test(r.ref) && r.status === 'valid');
+    };
+    for (const seam of [ZWSP, NBSP, CGJ, VS]) {
+      expect(failClosed(`John 3:1${seam}${SUP6}`), `verse seam U+${seam.codePointAt(0).toString(16)}`).toBe(true);
+    }
+    // Range-end seam is covered too.
+    expect(failClosed(`John 3:1-3${ZWSP}${SUP6}`), 'range-end seam').toBe(true);
+    expect(failClosed(`John 3:16${ZWSP}${SUP1}`), 'trailing seam').toBe(true);
+    // Empty-slot superscript still folds as data (unchanged).
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${SUP1}${SUP6}`))[0].status).toBe('valid'); // John 3:16
+    expect(extractScriptureRefs(`John${cp(0xB2)}:1`)).toEqual(['John 2:1']);
+  });
+
+  it('consumes ASCII/whitespace seams (tab/LF/CR/FF/VT/NEL) in both bounded contexts — verified BY CONSTRUCTION', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const TAB = '\t', LF = '\n', CR = '\r', FF = cp(0x0C), NEL = cp(0x85);
+    const SUP6 = cp(0x2076);
+    // Whitespace ordinal seams bind numbered, never bare John.
+    expect(extractScriptureRefs(`2${LF}nd John 1:1`)).toEqual(['2 John 1:1']);
+    for (const seam of [TAB, CR, FF, NEL]) {
+      const refs = extractScriptureRefs(`4${seam}th John 1:1`);
+      expect(refs.includes('John 1:1'), `seam U+${seam.codePointAt(0).toString(16)} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book' || r.status === 'out_of_range')).toBe(true);
+    }
+    // Whitespace superscript seams fail closed (never a silently-valid shortened ref).
+    for (const seam of [TAB, LF, CR]) {
+      const v = validateScriptureRefs(extractScriptureRefs(`John 3:1${seam}${SUP6}`));
+      expect(v.length, `sup seam U+${seam.codePointAt(0).toString(16)}`).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked'), `sup seam U+${seam.codePointAt(0).toString(16)}`).toBe(true);
+    }
+    // BY-CONSTRUCTION SUPERSET GUARD: every char the matcher counts as \s (plus NEL)
+    // is consumed inside BOTH bounded contexts — so the seam class can never be
+    // incomplete relative to the tokenizer's separator set.
+    const wsRe = /\s/;
+    let tested = 0;
+    for (let c = 0; c <= 0x3001; c += 1) {
+      const ch = cp(c);
+      if (!(wsRe.test(ch) || c === 0x85)) continue;
+      tested += 1;
+      // Ordinal context: must not leak bare John.
+      expect(extractScriptureRefs(`4${ch}th John 1:1`).includes('John 1:1'), `ordinal seam U+${c.toString(16)}`).toBe(false);
+      // Superscript context: must not silently emit a valid John 3:1 / John 3:16.
+      const sup = validateScriptureRefs(extractScriptureRefs(`John 3:1${ch}${SUP6}`));
+      expect(sup.some((r) => (r.ref === 'John 3:1' || r.ref === 'John 3:16') && r.status === 'valid'), `sup seam U+${c.toString(16)}`).toBe(false);
+    }
+    expect(tested).toBeGreaterThan(10);
+  });
+
+  it('preserves multi-line references and the r30 outline across whitespace', () => {
+    // A newline between a complete ref and the NEXT book (a letter, not a digit↔suffix
+    // or digit↔superscript context) is untouched → both refs extract.
+    expect(extractScriptureRefs('John 3:16\nMark 1:1')).toEqual(['John 3:16', 'Mark 1:1']);
+    expect(extractScriptureRefs('1 John 5:4\nRevelation 3:20')).toEqual(['1 John 5:4', 'Revelation 3:20']);
+    // r30 bare-numeric outline (no st/nd/rd/th suffix → not an ordinal) unchanged.
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+    expect(extractScriptureRefs('2. John 3:16')).toEqual(['John 3:16']);
+  });
+
+  it('neutralizes LITERAL backslash-escape seams in the bounded contexts, without mangling prose backslashes', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const BS = '\\'; // one literal backslash
+    const SUP6 = cp(0x2076);
+    // A literal JSON-style escape (backslash+n/t/r/v/f) between the digit and the
+    // ordinal suffix is a seam → the ordinal binds numbered, never bare John.
+    expect(extractScriptureRefs(`2${BS}nnd John 1:1`)).toEqual(['2 John 1:1']);
+    for (const esc of ['n', 't', 'r', 'v', 'f']) {
+      const refs = extractScriptureRefs(`4${BS}${esc}th John 1:1`);
+      expect(refs.includes('John 1:1'), `\\${esc} seam must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book')).toBe(true);
+    }
+    // Double-escaped (two backslashes) and \u/\x control forms too.
+    expect(extractScriptureRefs(`2${BS}${BS}nnd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`4${BS}u000ath John 1:1`).includes('John 1:1')).toBe(false);
+    // A literal escape seam before a superscript number fails closed.
+    const v = validateScriptureRefs(extractScriptureRefs(`John 3:1${BS}n${SUP6}`));
+    expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked')).toBe(true);
+    expect(v.some((r) => r.ref === 'John 3:1' && r.status === 'valid')).toBe(false);
+    // A legitimate literal backslash in PROSE (no digit↔suffix / digit↔superscript
+    // context) is NOT mangled — no spurious ref.
+    expect(extractScriptureRefs(`the file C:${BS}name is here`)).toEqual([]);
+    expect(extractScriptureRefs(`John 3:16 and C:${BS}nope`)).toEqual(['John 3:16']);
+  });
+
+  it('treats an escaped seam BY CONSTRUCTION (escaped ASCII space bound; escaped non-seam like \\u0041 NOT a seam)', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    // Escaped ASCII space (  / \x20) is a seam → ordinal binds, superscript fails closed.
+    expect(extractScriptureRefs(`2${BS}u0020nd John 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`4${BS}u0020th John 1:1`).includes('John 1:1')).toBe(false);
+    expect(validateScriptureRefs(extractScriptureRefs(`4${BS}x20th John 1:1`)).some((r) => r.status === 'invalid_book')).toBe(true);
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${BS}u0020${SUP6}`)).every((r) => r.status !== 'valid')).toBe(true);
+    // A backslash-escape that decodes to a NON-seam ("A" = "A") is NOT a seam:
+    // "4Ath John" is not an ordinal → bare valid John, no spurious "4 John".
+    const nonSeam = extractScriptureRefs(`4${BS}u0041th John 1:1`);
+    expect(nonSeam.some((r) => /^4 John/.test(r))).toBe(false);
+    expect(nonSeam).toContain('John 1:1');
+    // The dual: a NON-seam escape between the verse digit and a superscript leaves
+    // a real character between them, so the superscript is an unambiguous footnote
+    // (NOT a verse-shortening seam) — "John 3:1" therefore stays VALID. This is the
+    // by-construction asymmetry vs. the escaped-space seam case above (which fails closed).
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${BS}u0041${SUP6}`)).some((r) => r.ref === 'John 3:1' && r.status === 'valid')).toBe(true);
+    // A by-construction guard: for a sample of seam vs non-seam codepoints, the
+    // escaped form matches the real-char behaviour (seam consumed, non-seam not).
+    for (const seamCp of [0x20, 0x09, 0x0A, 0xA0, 0x2028, 0x200B]) {
+      const hex = seamCp.toString(16).padStart(4, '0');
+      expect(extractScriptureRefs(`4${BS}u${hex}th John 1:1`).includes('John 1:1'), `\\u${hex} seam`).toBe(false);
+    }
+    for (const nonSeamCp of [0x41, 0x35, 0x7A]) { // A, 5, z — not seams
+      const hex = nonSeamCp.toString(16).padStart(4, '0');
+      expect(extractScriptureRefs(`4${BS}u${hex}th John 1:1`).some((r) => /^4 John/.test(r)), `\\u${hex} non-seam`).toBe(false);
+    }
+  });
+
+  it('the deep scanner covers object KEYS, not just values (a fabricated ref in a key is caught)', () => {
+    expect(extractScriptureRefsDeep({ 'Hezekiah 4:5': 'safe' })).toContain('Hezekiah 4:5');
+    expect(extractScriptureRefsDeep({ note: { 'John 99:1': 'x' } })).toContain('John 99:1');
+    expect(validateAiContent({ 'Hezekiah 4:5': 'ok' }).allValid).toBe(false);
+    // A normal object with a valid ref in a key is fine.
+    expect(validateAiContent({ 'John 3:16': 'anchor' }).allValid).toBe(true);
+  });
+
+  it('screens the reserved scripture_validation subtree on the LIVE path but skips it on the PERSIST path', () => {
+    const hidden = { scripture_validation: { 'Hezekiah 4:5': 'safe', note: ['see', '4 John 1:1'] } };
+    // Persist path (default): reserved SERVER blob is skipped (no double-count).
+    expect(extractScriptureRefsDeep(hidden)).toEqual([]);
+    expect(extractScriptureRefsJoined(hidden)).toEqual([]);
+    // Live path (untrusted model output): the reserved subtree IS screened —
+    // value, key, and split-array recombination are all caught.
+    const live = extractScriptureRefsDeep(hidden, { screenReservedKeys: true });
+    expect(live).toContain('Hezekiah 4:5');
+    expect(live.some((r) => /^4 John/.test(r))).toBe(true);
+    expect(extractScriptureRefsJoined({ scripture_validation: { refs: ['Hezekiah', '4:5'] } }, { screenReservedKeys: true })).toContain('Hezekiah 4:5');
+    // The persist-path contract (ignore a stored valid blob, no double-flag) holds.
+    expect(validateAiContent({ key_verses: ['John 3:16'], scripture_validation: [{ ref: 'Genesis 1:1', status: 'valid' }] }).refs).toHaveLength(1);
+  });
+
+  it('decodes escape RUNS as full codepoints: escaped SUPPLEMENTARY seam chars are seams BY CONSTRUCTION', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    // A representative supplementary SEAM codepoint: U+E0100 (variation selector,
+    // \p{Mn} + Default_Ignorable). Assert its literal form, its surrogate-PAIR
+    // \uXXXX\uXXXX escaped form, and its \u{...} form are ALL consumed in BOTH
+    // bounded contexts (ordinal binds → no bare John; superscript → fail closed).
+    const hi = 0xDB40, lo = 0xDD00; // UTF-16 surrogate halves of U+E0100
+    const seamForms = [
+      cp(0xE0100),                              // literal astral char
+      `${BS}uDB40${BS}uDD00`,                   // surrogate-pair \uXXXX\uXXXX
+      `${BS}u{E0100}`,                          // ES6 code-point escape
+      `${BS}u{2028}`,                           // braced LINE SEPARATOR (Zl)
+    ];
+    for (const seam of seamForms) {
+      expect(extractScriptureRefs(`4${seam}th John 1:1`).includes('John 1:1'), `ordinal seam ${JSON.stringify(seam)}`).toBe(false);
+      expect(validateScriptureRefs(extractScriptureRefs(`4${seam}th John 1:1`)).some((r) => r.status === 'invalid_book'), `ordinal invalid ${JSON.stringify(seam)}`).toBe(true);
+      expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${seam}${SUP6}`)).every((r) => r.status !== 'valid'), `superscript fail-closed ${JSON.stringify(seam)}`).toBe(true);
+    }
+    // A NON-seam supplementary codepoint (emoji U+1F600), in both escaped forms,
+    // is NOT a seam → bare valid John, no spurious "4 John", superscript stays a
+    // valid footnote.
+    for (const nonSeam of [cp(0x1F600), `${BS}u{1F600}`, `${BS}uD83D${BS}uDE00`]) {
+      const refs = extractScriptureRefs(`4${nonSeam}th John 1:1`);
+      expect(refs.some((r) => /^4 John/.test(r)), `non-seam no 4John ${JSON.stringify(nonSeam)}`).toBe(false);
+      expect(refs, `non-seam bare John ${JSON.stringify(nonSeam)}`).toContain('John 1:1');
+      expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${nonSeam}${SUP6}`)).some((r) => r.ref === 'John 3:1' && r.status === 'valid'), `non-seam footnote ${JSON.stringify(nonSeam)}`).toBe(true);
+    }
+    // A malformed escape (out-of-range \u{110000}, lone surrogate) never throws
+    // and is treated as a non-seam.
+    expect(() => extractScriptureRefs(`4${BS}u{110000}th John 1:1`)).not.toThrow();
+    expect(extractScriptureRefs(`4${BS}u{110000}th John 1:1`)).toContain('John 1:1');
+    expect(extractScriptureRefs(`4${BS}uD800th John 1:1`)).toContain('John 1:1');
+    // Reference hi/lo (silence unused-var lint while documenting the pair).
+    expect(String.fromCharCode(hi, lo)).toBe(cp(0xE0100));
+  });
+
+  it('recombines MIXED literal/escaped surrogate halves (both orders) via one decode-then-check', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const HI = String.fromCharCode(0xDB40); // literal high half of U+E0100
+    const LO = String.fromCharCode(0xDD00); // literal low  half of U+E0100
+    const EHI = `${BS}uDB40`;
+    const ELO = `${BS}uDD00`;
+    // A representative supplementary SEAM codepoint (U+E0100) in EVERY
+    // representation — literal pair, fully-escaped pair, \u{...}, high-escaped +
+    // low-literal, high-literal + low-escaped — is consumed identically in BOTH
+    // bounded contexts (ordinal → invalid_book, no bare John; superscript → fail
+    // closed). No representation is special: all decode to the same codepoint.
+    const seamForms = [HI + LO, EHI + ELO, `${BS}u{E0100}`, EHI + LO, HI + ELO];
+    for (const seam of seamForms) {
+      const label = JSON.stringify(seam);
+      expect(extractScriptureRefs(`4${seam}th John 1:1`).includes('John 1:1'), `ordinal ${label}`).toBe(false);
+      expect(validateScriptureRefs(extractScriptureRefs(`4${seam}th John 1:1`)).some((r) => r.status === 'invalid_book'), `ordinal invalid ${label}`).toBe(true);
+      expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${seam}${SUP6}`)).every((r) => r.status !== 'valid'), `superscript ${label}`).toBe(true);
+      // Under the reserved key on the LIVE screen path, the mixed seam is still caught.
+      expect(extractScriptureRefsDeep({ scripture_validation: { note: `4${seam}th John 1:1` } }, { screenReservedKeys: true }).some((r) => /^4 John/.test(r)), `reserved ${label}`).toBe(true);
+    }
+    // A NON-seam supplementary codepoint (emoji U+1F600) in the SAME mixed forms
+    // is NOT a seam → bare valid John, no spurious "4 John".
+    const EMHI = String.fromCharCode(0xD83D), EMLO = String.fromCharCode(0xDE00);
+    for (const seam of [EMHI + EMLO, `${BS}uD83D${BS}uDE00`, `${BS}u{1F600}`, `${BS}uD83D` + EMLO, EMHI + `${BS}uDE00`]) {
+      const refs = extractScriptureRefs(`4${seam}th John 1:1`);
+      expect(refs.some((r) => /^4 John/.test(r)), `emoji non-seam ${JSON.stringify(seam)}`).toBe(false);
+      expect(refs, `emoji bare John ${JSON.stringify(seam)}`).toContain('John 1:1');
+    }
+    // A legit SUPPLEMENTARY DIGIT ordinal (𝟚nd, U+1D7DA \p{Nd}) still folds via the
+    // digit path — never swallowed as a seam, never dropped.
+    expect(extractScriptureRefs(`${cp(0x1D7DA)}nd John 1:1`)).toEqual(['2 John 1:1']);
+    // Lone / reversed / malformed surrogates are non-seams and never throw.
+    expect(() => extractScriptureRefs(`4${LO}${HI}th John 1:1`)).not.toThrow();
+    expect(extractScriptureRefs(`4${LO}th John 1:1`)).toContain('John 1:1');
+    expect(extractScriptureRefs(`4${LO}${HI}th John 1:1`)).toContain('John 1:1');
+  });
+
+  it('decodes an escaped seam GLOBALLY: every seam POSITION behaves like a real seam, by construction', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const ZWSP = cp(0x200B), E0100 = cp(0xE0100);
+    const HI = String.fromCharCode(0xDB40), LO = String.fromCharCode(0xDD00);
+    const EHI = `${BS}uDB40`, ELO = `${BS}uDD00`;
+    const is4John = (s) => {
+      const r = extractScriptureRefs(s);
+      return r.some((x) => /^4 John/.test(x)) && !r.includes('John 1:1') &&
+        validateScriptureRefs(r).some((v) => v.status === 'invalid_book');
+    };
+    const failsClosed = (s) => validateScriptureRefs(extractScriptureRefs(s)).some((v) => v.status === 'out_of_range');
+    // A representative BMP seam (U+200B) and supplementary seam (U+E0100) in EVERY
+    // representation — literal, fully-escaped \uXXXX, \u{...}, mixed surrogate
+    // halves (both orders) — are consumed IDENTICALLY at every seam POSITION.
+    const seamForms = [
+      ZWSP, `${BS}u200B`, `${BS}u{200B}`,
+      E0100, EHI + ELO, `${BS}u{E0100}`, EHI + LO, HI + ELO,
+    ];
+    for (const seam of seamForms) {
+      const label = JSON.stringify(seam);
+      // digit↔suffix, suffix↔book, digit↔superscript, book↔chapter
+      expect(is4John(`4${seam}th John 1:1`), `digit-suffix ${label}`).toBe(true);
+      expect(is4John(`4th${seam}John 1:1`), `suffix-book ${label}`).toBe(true);
+      expect(failsClosed(`John 3:1${seam}${SUP6}`), `digit-superscript ${label}`).toBe(true);
+      expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${seam}4:5`)).some((v) => v.status === 'invalid_book'), `book-chapter ${label}`).toBe(true);
+      // reserved-key live scan (suffix↔book, the r43 position)
+      expect(extractScriptureRefsDeep({ scripture_validation: { note: `4th${seam}John 1:1` } }, { screenReservedKeys: true }).some((r) => /^4 John/.test(r)), `reserved ${label}`).toBe(true);
+    }
+    // Escaped seam == REAL seam at suffix↔book.
+    expect(extractScriptureRefs(`4th${BS}u200BJohn 1:1`)).toEqual(extractScriptureRefs(`4th${ZWSP}John 1:1`));
+    expect(extractScriptureRefs(`4th${BS}u{E0100}John 1:1`)).toEqual(extractScriptureRefs(`4th${E0100}John 1:1`));
+    // Non-seam escapes at those positions never fabricate a numbered book, and
+    // behave like the literal codepoint.
+    for (const ns of [`${BS}u0041`, `${BS}u{1F600}`, `${BS}uD83D${BS}uDE00`]) {
+      expect(extractScriptureRefs(`4th${ns}John 1:1`).some((r) => /^4 John/.test(r)), `non-seam suffix-book ${JSON.stringify(ns)}`).toBe(false);
+      expect(extractScriptureRefs(`4${ns}th John 1:1`).some((r) => /^4 John/.test(r)), `non-seam digit-suffix ${JSON.stringify(ns)}`).toBe(false);
+    }
+    expect(extractScriptureRefs(`4th${BS}u0041John 1:1`)).toEqual(extractScriptureRefs('4thAJohn 1:1'));
+    // Prose backslash / Windows path and short named escapes are untouched (never
+    // decoded globally): no false ref, valid refs beside them still extract.
+    expect(extractScriptureRefs(`the path C:${BS}name here`)).toEqual([]);
+    expect(extractScriptureRefs(`open C:${BS}new folder`)).toEqual([]);
+    expect(extractScriptureRefs(`John 3:16 and C:${BS}nope`)).toEqual(['John 3:16']);
+    // Malformed escape at a seam position never throws.
+    expect(() => extractScriptureRefs(`4th${BS}u{110000}John 1:1`)).not.toThrow();
+  });
+
+  it('one citation-scoped seam decoder: EVERY representation (incl. named escapes) is consistent at EVERY position', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const HI = String.fromCharCode(0xDB40), LO = String.fromCharCode(0xDD00);
+    const EHI = `${BS}uDB40`, ELO = `${BS}uDD00`;
+    const is4John = (s) => {
+      const r = extractScriptureRefs(s);
+      return r.some((x) => /^4 John/.test(x)) && !r.includes('John 1:1') &&
+        validateScriptureRefs(r).some((v) => v.status === 'invalid_book');
+    };
+    const isHez = (s) => validateScriptureRefs(extractScriptureRefs(s)).some((v) => v.status === 'invalid_book') &&
+      extractScriptureRefs(s).some((r) => /^Hezekiah 4:5$/.test(r));
+    const failsClosed = (s) => validateScriptureRefs(extractScriptureRefs(s)).some((v) => v.status === 'out_of_range');
+    // Real, code-point-escaped, braced, mixed-surrogate (both orders), AND short
+    // NAMED escapes — all decode to the same seam and behave IDENTICALLY at
+    // digit↔suffix, suffix↔book, book↔chapter, and digit↔superscript.
+    const seamForms = [
+      cp(0x200B), `${BS}u200B`, `${BS}u{200B}`,
+      cp(0xE0100), EHI + ELO, `${BS}u{E0100}`, EHI + LO, HI + ELO,
+      cp(0x0A), `${BS}n`, cp(0x09), `${BS}t`,
+    ];
+    for (const seam of seamForms) {
+      const label = JSON.stringify(seam);
+      expect(is4John(`4${seam}th John 1:1`), `digit-suffix ${label}`).toBe(true);
+      expect(is4John(`4th${seam}John 1:1`), `suffix-book ${label}`).toBe(true);
+      expect(isHez(`Hezekiah${seam}4:5`), `book-chapter ${label}`).toBe(true);
+      expect(failsClosed(`John 3:1${seam}${SUP6}`), `digit-superscript ${label}`).toBe(true);
+      expect(extractScriptureRefsDeep({ scripture_validation: { note: `Hezekiah${seam}4:5` } }, { screenReservedKeys: true }).some((r) => /^Hezekiah 4:5$/.test(r)), `reserved ${label}`).toBe(true);
+    }
+    // FINDING #1 closed: a named-escape book↔chapter seam is no longer a zero-ref bypass.
+    expect(validateAiContent({ content: `Hezekiah${BS}n4:5` }).allValid).toBe(false);
+    expect(validateAiContent({ content: `John${BS}n3:16` }).allValid).toBe(true); // valid ref via \n stays valid
+    // Non-seam escapes never fabricate at any position.
+    for (const ns of [`${BS}u0041`, `${BS}u{1F600}`, `${BS}uD83D${BS}uDE00`]) {
+      expect(extractScriptureRefs(`4th${ns}John 1:1`).some((r) => /^4 John/.test(r)), `non-seam suffix-book ${JSON.stringify(ns)}`).toBe(false);
+      expect(extractScriptureRefs(`Hezekiah${ns}4:5`).some((r) => /^Hezekiah 4:5$/.test(r)), `non-seam book-chapter ${JSON.stringify(ns)}`).toBe(false);
+    }
+  });
+
+  it('citation-scoped seam decoding is PROSE-SAFE: escapes not between two word chars are untouched', () => {
+    const BS = '\\';
+    // A seam whose neighbor is a NON-word char (":" in a path, a quote, string edge)
+    // is not a citation candidate → not decoded → no fabricated ref, not rejected.
+    expect(extractScriptureRefs(`C:${BS}name`)).toEqual([]);
+    expect(extractScriptureRefs(`open C:${BS}new folder`)).toEqual([]);
+    expect(extractScriptureRefs(`John 3:16 and C:${BS}nope`)).toEqual(['John 3:16']);
+    expect(extractScriptureRefs(`${BS}u002050`)).toEqual([]);          // standalone value, no book
+    expect(extractScriptureRefs(`${BS}d+${BS}s*`)).toEqual([]);        // regex literal
+    expect(validateAiContent({ width: `${BS}u002050px` }).allValid).toBe(true); // JSON style value
+    expect(validateAiContent({ path: `C:${BS}new${BS}temp` }).allValid).toBe(true);
+    // DOCUMENTED RESIDUAL (r25 fail-safe over-flag): a book+chapter shape WITH an
+    // escaped seam BETWEEN two word chars IS a citation candidate and is flagged —
+    // required so a real space, a zero-width, and a \n reach the same verdict.
+    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah${BS}u00204:5`)).some((v) => v.status === 'invalid_book')).toBe(true);
+    // Malformed escape at a candidate position never throws.
+    expect(() => extractScriptureRefs(`Hezekiah${BS}u{110000}4:5`)).not.toThrow();
+  });
+
+  it('covers DELIMITER-adjacent seams (: and -): every representation reaches the real-seam verdict', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const hasStatus = (s, st) => validateScriptureRefs(extractScriptureRefs(s)).some((x) => x.status === st);
+    // Real seam, named escapes (\n \t), a BMP code-point escape, and a supplementary
+    // escape must ALL reach the same verdict at every citation seam position.
+    const reps = [cp(0x200B), `${BS}n`, `${BS}t`, `${BS}u200B`, `${BS}u{E0100}`];
+    const positions = [
+      [(s) => `Hezekiah${s}4:5`, 'invalid_book'],         // book↔number
+      [(s) => `Hezekiah 4${s}:5`, 'invalid_book'],        // number↔':'
+      [(s) => `Hezekiah 4:${s}5`, 'invalid_book'],        // ':'↔number
+      [(s) => `John 999${s}:16`, 'out_of_range'],         // out-of-range chapter across ':'
+      [(s) => `John 3:1${s}-999`, 'out_of_range'],        // range: number↔'-'
+      [(s) => `John 3:1-${s}999`, 'out_of_range'],        // range: '-'↔number
+      [(s) => `4${s}th John 1:1`, 'invalid_book'],        // digit↔suffix
+      [(s) => `4th${s}John 1:1`, 'invalid_book'],         // suffix↔book
+      [(s) => `John 3:1${s}${SUP6}`, 'out_of_range'],     // digit↔superscript (bounded scrub)
+    ];
+    for (const [mk, want] of positions) {
+      for (const seam of reps) {
+        expect(hasStatus(mk(seam), want), `${want} @ ${JSON.stringify(mk(seam))}`).toBe(true);
+      }
+    }
+    // A bad range-end is PRESERVED (never silently truncated to a valid ref).
+    expect(extractScriptureRefs(`John 3:1${BS}n-999`).some((r) => r === 'John 3:1')).toBe(false);
+    expect(extractScriptureRefs(`John 3:1-${BS}n999`).some((r) => r === 'John 3:1')).toBe(false);
+    // Reserved-key live scan + validateAiContent parity for the named delimiter seam.
+    expect(validateAiContent({ content: `Hezekiah 4${BS}n:5` }).allValid).toBe(false);
+    expect(extractScriptureRefsDeep({ scripture_validation: { x: `Hezekiah 4${BS}n:5` } }, { screenReservedKeys: true }).some((r) => /^Hezekiah 4:5$/.test(r))).toBe(true);
+    // Prose-safety preserved: numeric strings with escaped seams but NO book → no ref.
+    expect(extractScriptureRefs(`1${BS}n.2.3`)).toEqual([]);      // version
+    expect(extractScriptureRefs(`555${BS}n-1234`)).toEqual([]);   // phone
+    expect(validateAiContent({ width: `${BS}u002050px` }).allValid).toBe(true);
+    // Valid citations with escaped delimiter seams stay valid (consistency).
+    expect(extractScriptureRefs(`John 3${BS}n:16`)).toEqual(['John 3:16']);
+    expect(extractScriptureRefs(`John 3:1${BS}n-5`)).toEqual(['John 3:1-5']);
+    expect(() => extractScriptureRefs(`John 3:1${BS}u{110000}-999`)).not.toThrow();
+  });
+
+  // THE LOCK (2-D: position × TOKEN SURFACE × representation). For EVERY
+  // whitespace-tolerant position in CITATION_RE + the compact/ordinal/abbreviation
+  // sub-grammars (P1–P10), for EVERY token-surface variant the grammar accepts
+  // (decimal, ASCII Roman, Unicode Roman, fullwidth digit), and for EVERY seam
+  // representation, the seam must reach the IDENTICAL verdict — REFS AND STATUSES —
+  // as a real space. Asserting the refs array (not statuses alone) catches a
+  // dropped/truncated ref. A boundary or token the matcher tolerates but the
+  // decoder misses FAILS here — so a future narrow-token or narrow-position gap
+  // cannot ship.
+  it('grammar parity: every position × token surface × representation == a real space (refs+statuses)', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const LO = String.fromCharCode(0xDD00);
+    const reps = [
+      cp(0x200B),                // real BMP seam
+      cp(0x0A),                  // real newline
+      `${BS}n`, `${BS}t`,        // named escapes
+      `${BS}u200B`,              // BMP code-point escape
+      `${BS}u{E0100}`,           // supplementary escape
+      `${BS}uDB40${LO}`,         // mixed escaped-high + literal-low surrogate
+    ];
+    // Full REFS + STATUSES signature (not statuses alone) so a dropped/truncated
+    // ref is caught.
+    const verdict = (s) => JSON.stringify(validateScriptureRefs(extractScriptureRefs(s)).map((v) => [v.ref, v.status]).sort());
+    // Each entry: [label, seam→string]. Baseline is taken with a real ASCII space.
+    const positions = [
+      // --- decimal token surface (r46) ---
+      ['P1 prefix↔book', (s) => `4${s}John 1:1`],
+      ['P2 book-internal of', (s) => `Song of${s}Solomon 3:1`],
+      ['P3 book↔chapter', (s) => `Hezekiah${s}4:5`],
+      ['P4 abbrev-dot↔chapter (Gen.)', (s) => `Gen.${s}999:1`],
+      ['P4 abbrev-dot↔chapter (Jn.)', (s) => `Jn.${s}999:1`],
+      ['P4 abbrev-dot↔chapter (Hez.)', (s) => `Hez.${s}4:5`],
+      ['P5 chapter↔:↔verse (before)', (s) => `John 999${s}:16`],
+      ['P5 chapter↔:↔verse (after)', (s) => `John 3:${s}16`],
+      ['P6 range↔- (before)', (s) => `John 3:1${s}-999`],
+      ['P6 range↔- (after)', (s) => `John 3:1-${s}999`],
+      ['P7 ordinal-sep (4th._John)', (s) => `4th.${s}John 1:1`],
+      ['P7 ordinal-sep (4th_.John)', (s) => `4th${s}.John 1:1`],
+      ['P7 ordinal-sep (4th-_John)', (s) => `4th-${s}John 1:1`],
+      ['P8 digit↔suffix', (s) => `4${s}th John 1:1`],
+      ['P9 suffix↔book', (s) => `4th${s}John 1:1`],
+      ['P10 digit↔superscript', (s) => `John 3:1${s}${SUP6}`],
+      // --- ROMAN token surface (r47 HIGH): delimiter positions ---
+      ['P5 roman chapter (XCIX:I)', (s) => `John XCIX${s}:I`],
+      ['P5 roman verse (III:XVI)', (s) => `John III:${s}XVI`],
+      ['P6 roman range before -', (s) => `John III:XVI${s}-CM`],
+      ['P6 roman range after -', (s) => `John III:XVI-${s}CM`],
+      ['P4 abbrev-dot roman chapter', (s) => `Gen.${s}III:16`],
+      // --- Unicode-Roman + fullwidth prefix surface (r47 MEDIUM) ---
+      ['P1 Unicode-Roman prefix (Ⅱ)', (s) => `Ⅱ${s}John 1:1`],
+      ['P1 Unicode-Roman prefix (Ⅳ)', (s) => `Ⅳ${s}John 1:1`],
+      ['P1 ASCII-Roman prefix (IV)', (s) => `IV${s}John 1:1`],
+      ['P7 fullwidth ordinal-sep (２nd._John)', (s) => `２nd.${s}John 1:1`],
+      ['P7 fullwidth ordinal-sep (２nd_.John)', (s) => `２nd${s}.John 1:1`],
+    ];
+    for (const [label, mk] of positions) {
+      const want = verdict(mk(' ')); // real-space baseline for this position
+      for (const seam of reps) {
+        expect(verdict(mk(seam)), `${label} | ${JSON.stringify(seam)} must match real-space verdict "${want}"`).toBe(want);
+      }
+    }
+    // The HIGH (abbrev-dot): no longer a zero-ref bypass; reserved-key parity.
+    expect(validateAiContent({ content: `Jn.${BS}n999:1` }).allValid).toBe(false);
+    expect(extractScriptureRefsDeep({ scripture_validation: { x: `Hez.${BS}n4:5` } }, { screenReservedKeys: true }).some((r) => /^Hez 4:5$/.test(r))).toBe(true);
+    // Prose-safety: a real sentence (period + newline + capitalized NON-number word)
+    // and single-letter abbreviations ("e.g.") are NOT fabricated into references.
+    expect(extractScriptureRefs(`I read Gen.${BS}nThen we prayed.`)).toEqual([]);
+    expect(extractScriptureRefs(`I read Gen.${cp(0x0A)}Then we prayed.`)).toEqual([]); // real-newline twin
+    expect(extractScriptureRefs(`e.g.${BS}n4 apples`)).toEqual([]);
+    // Out-of-range / bad range preserved (never truncated to a valid ref).
+    expect(extractScriptureRefs(`Gen.${BS}n999:1`).some((r) => r === 'Genesis 999:1')).toBe(true);
+    expect(extractScriptureRefs(`John 3:1${BS}n-999`).some((r) => r === 'John 3:1')).toBe(false);
+    // Valid citations with escaped seams stay valid.
+    expect(extractScriptureRefs(`Gen.${BS}n3:16`)).toEqual(['Genesis 3:16']);
+    expect(extractScriptureRefs(`Song of${BS}nSolomon 3:1`)).toEqual(['Song of Solomon 3:1']);
+    expect(() => extractScriptureRefs(`Gen.${BS}u{110000}999:1`)).not.toThrow();
+    // --- r47 token-surface findings (refs asserted, not just statuses) ---
+    // HIGH: ROMAN delimiter seams — the Roman ref is SEEN (not dropped), the invalid
+    // range is PRESERVED (not truncated to a valid ref).
+    expect(extractScriptureRefs(`John XCIX${BS}n:I`)).toEqual(['John 99:1']);
+    expect(validateScriptureRefs(extractScriptureRefs(`John XCIX${BS}n:I`))[0].status).toBe('out_of_range');
+    expect(extractScriptureRefs(`John III:XVI${BS}n-CM`).some((r) => r === 'John 3:16')).toBe(false); // NOT truncated
+    expect(validateScriptureRefs(extractScriptureRefs(`John III:XVI${BS}n-CM`)).some((v) => v.status === 'out_of_range')).toBe(true);
+    // MEDIUM: fullwidth-digit ordinal and Unicode-Roman prefix are NOT false-rejected.
+    expect(extractScriptureRefs(`２nd.${BS}nJohn 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`Ⅱ${BS}nJohn 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`Ⅱ${BS}nJohn 1:1`).some((r) => /Njohn/i.test(r))).toBe(false);
+    // Roman validator classification unchanged (r31): fabricated/malformed Roman still flagged.
+    expect(validateScriptureRefs(extractScriptureRefs('John MMMM:1')).every((v) => v.status !== 'valid')).toBe(true);
+    expect(validateScriptureRefs(extractScriptureRefs('John iiii:2')).every((v) => v.status !== 'valid')).toBe(true);
+    // Prose-safety with the broadened Roman token surface: roman-letter words + ':'
+    // WITHOUT a book are not fabricated.
+    expect(extractScriptureRefs(`the mix${BS}n:iv`)).toEqual([]);
+    expect(extractScriptureRefs('did:mix')).toEqual([]);
+  });
+
+  // THE EXHAUSTIVE LOCK (FULL-SCAN DERIVED). `__citationFoldSurfaces()` is the reverse
+  // of the decoder's FULL-Unicode-scan flank derivation: for each ASCII token char,
+  // EVERY code point that normalizes to it. The lock iterates EVERY discovered source
+  // × seam representation, asserting the escaped-seam verdict (refs+statuses) equals
+  // the real-space verdict. Because decoder and lock share the one full-domain scan,
+  // any code point the grammar accepts — including U+1D9C ᶜ, U+2C7D ⱽ, U+1F132 🄲, and
+  // any future NFKC entry — is covered by the decoder AND exercised here automatically.
+  it('exhaustive grammar parity: EVERY full-scan-derived token source × representation (refs+statuses)', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const LO = String.fromCharCode(0xDD00);
+    const foldMap = __citationFoldSurfaces(); // Map<asciiChar, sourceChar[]>
+    const reps = [cp(0x0A), `${BS}n`, `${BS}t`, `${BS}u200B`, `${BS}u{E0100}`, `${BS}uDB40${LO}`];
+    const verdict = (s) => JSON.stringify(validateScriptureRefs(extractScriptureRefs(s)).map((v) => [v.ref, v.status]).sort());
+    const DIGIT_OR_ROMAN = new Set('0123456789ivxlcdmIVXLCDM');
+    const SUFFIX = new Set('stndrhSTNDRH');
+    // (a) EVERY discovered NUMBER/ROMAN source at the chapter-delimiter position: a
+    // seam of any representation must reach the real-space verdict (Hezekiah is a
+    // fabricated book, so any chapter → invalid_book regardless of the token value).
+    let numSources = 0;
+    for (const [ascii, sources] of foldMap) {
+      if (!DIGIT_OR_ROMAN.has(ascii)) continue;
+      for (const src of sources) {
+        numSources += 1;
+        const base = verdict(`Hezekiah ${src} :5`);
+        for (const seam of reps) {
+          expect(verdict(`Hezekiah ${src}${seam}:5`), `num src U+${src.codePointAt(0).toString(16)} | ${JSON.stringify(seam)}`).toBe(base);
+        }
+      }
+    }
+    expect(numSources).toBeGreaterThan(200); // the full scan discovered a broad surface
+    // (b) EVERY discovered ORDINAL-SUFFIX source, placed at its letter position in a
+    // valid two-letter suffix [digit, c1, c2], with a seam at P8 (digit↔suffix),
+    // P9 (suffix↔book), AND suffix-internal (between the two suffix letters).
+    const suffixParts = {
+      s: (x) => ['1', x, 't'], // 1 + [s] + t = 1st
+      t: (x) => ['4', x, 'h'], // 4 + [t] + h = 4th
+      n: (x) => ['2', x, 'd'], // 2 + [n] + d = 2nd
+      d: (x) => ['2', 'n', x], // 2 + n + [d] = 2nd
+      r: (x) => ['3', x, 'd'], // 3 + [r] + d = 3rd
+      h: (x) => ['4', 't', x], // 4 + t + [h] = 4th
+    };
+    let sufSources = 0;
+    for (const [ascii, sources] of foldMap) {
+      const low = ascii.toLowerCase();
+      if (!SUFFIX.has(ascii) || !suffixParts[low]) continue;
+      for (const src of sources) {
+        sufSources += 1;
+        const [d, c1, c2] = suffixParts[low](src);
+        // P8 digit↔suffix, P9 suffix↔book, suffix-internal
+        const p8 = (s) => `${d}${s}${c1}${c2} John 1:1`;
+        const p9 = (s) => `${d}${c1}${c2}${s}John 1:1`;
+        const pi = (s) => `${d}${c1}${s}${c2} John 1:1`;
+        for (const [name, mk] of [['P8', p8], ['P9', p9], ['internal', pi]]) {
+          const base = verdict(mk(' '));
+          for (const seam of reps) {
+            expect(verdict(mk(seam)), `suffix src U+${src.codePointAt(0).toString(16)} @${name} | ${JSON.stringify(seam)}`).toBe(base);
+          }
+        }
+      }
+    }
+    expect(sufSources).toBeGreaterThan(50);
+    // (c) EVERY discovered WHOLE-SUFFIX source (one glyph normalizing to "st"/"nd"/
+    // "rd"/"th", e.g. U+FB05/U+FB06 → "st") at P8 (digit↔suffix) and P9 (suffix↔book).
+    const wholeDigit = { st: '1', nd: '2', rd: '3', th: '4' };
+    let wholeSources = 0;
+    for (const [key, digit] of Object.entries(wholeDigit)) {
+      for (const src of (foldMap.get(key) || [])) {
+        wholeSources += 1;
+        const p8 = (s) => `${digit}${s}${src} John 1:1`;
+        const p9 = (s) => `${digit}${src}${s}John 1:1`;
+        for (const [name, mk] of [['P8', p8], ['P9', p9]]) {
+          const base = verdict(mk(' '));
+          for (const seam of reps) {
+            expect(verdict(mk(seam)), `whole-suffix src U+${src.codePointAt(0).toString(16)} @${name} | ${JSON.stringify(seam)}`).toBe(base);
+          }
+        }
+      }
+    }
+    expect(wholeSources).toBeGreaterThan(0); // at least the ﬅ/ﬆ ligatures
+    // The r52 repros: a single-glyph whole "st" (ﬆ) with a seam binds the numbered
+    // book (1ﬆ → "1 John", out of range for 6:1), never bare John.
+    const ST6 = cp(0xFB06);
+    const is1JohnOor = (s) => extractScriptureRefs(s).includes('1 John 6:1') && !extractScriptureRefs(s).includes('John 6:1');
+    expect(is1JohnOor(`1${cp(0x200B)}${ST6} John 6:1`)).toBe(true);   // 1<ZWSP>ﬆ (real seam)
+    expect(is1JohnOor(`1${BS}u200B${ST6} John 6:1`)).toBe(true);       // 1 + escaped-ZWSP + ﬆ
+    expect(is1JohnOor(`1${cp(0xFB05)} John 6:1`)).toBe(true);          // 1ﬅ (FB05, no seam)
+    expect(extractScriptureRefs(`1${ST6} John 1:1`)).toEqual(['1 John 1:1']); // supported 1ﬆ → 1 John valid
+    // (d) P10 digit↔superscript: EVERY discovered NON-superscript digit source before
+    // a superscript must FAIL-CLOSED exactly like its ASCII digit — with AND without a
+    // seam, across every representation — while the all-superscript EMPTY SLOT stays
+    // number data (r35). The superscript digit codepoints (the empty-slot case) are
+    // excluded from the left-source loop.
+    const SUP6 = cp(0x2076);
+    const DIGITS = new Set('0123456789');
+    const SUPERSCRIPT_DIGITS = new Set([0x2070, 0xB9, 0xB2, 0xB3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079].map((c) => cp(c)));
+    let p10Sources = 0;
+    for (const [ascii, sources] of foldMap) {
+      if (!DIGITS.has(ascii)) continue;
+      for (const src of sources) {
+        if (SUPERSCRIPT_DIGITS.has(src)) continue; // superscript-before-superscript = empty slot (data)
+        p10Sources += 1;
+        // No-seam adjacency AND seamed forms must match the ASCII-digit verdict
+        // (fail-closed), so a compat digit before a superscript can't read as valid.
+        expect(verdict(`John 3:${src}${SUP6}`), `P10 src U+${src.codePointAt(0).toString(16)} no-seam`).toBe(verdict(`John 3:${ascii}${SUP6}`));
+        for (const seam of reps) {
+          expect(verdict(`John 3:${src}${seam}${SUP6}`), `P10 src U+${src.codePointAt(0).toString(16)} | ${JSON.stringify(seam)}`).toBe(verdict(`John 3:${ascii}${seam}${SUP6}`));
+        }
+        // The ASCII baseline is genuinely fail-closed (no valid John 3:16).
+        expect(validateScriptureRefs(extractScriptureRefs(`John 3:${src}${SUP6}`)).every((v) => v.status !== 'valid'), `P10 src U+${src.codePointAt(0).toString(16)} fail-closed`).toBe(true);
+      }
+    }
+    expect(p10Sources).toBeGreaterThan(0); // at least subscript/circled digit sources
+    // Explicit P10 repros + the r35 empty-slot invariant preserved.
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${cp(0x2460)}${SUP6}`)).every((v) => v.status !== 'valid')).toBe(true); // circled ①⁶ fail-closed
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${cp(0x2460)}${cp(0x200B)}${SUP6}`)).every((v) => v.status !== 'valid')).toBe(true); // ①<ZWSP>⁶
+    expect(validateScriptureRefs(extractScriptureRefs(`John 3:${cp(0x2081)}${SUP6}`)).every((v) => v.status !== 'valid')).toBe(true); // subscript ₁⁶ fail-closed
+    expect(extractScriptureRefs(`John 3:${cp(0xB9)}${SUP6}`)).toEqual(['John 3:16']); // empty-slot ¹⁶ → data (r35 preserved)
+    // The r51 repros: circled ⓣⓗ ordinal at digit↔suffix / suffix-internal binds the
+    // fabricated numbered book (never bare John), across real + escaped seams.
+    const CT = cp(0x24E3), CH = cp(0x24D7);
+    const is4John = (s) => extractScriptureRefs(s).some((r) => /^4 John/.test(r)) && !extractScriptureRefs(s).includes('John 1:1');
+    expect(is4John(`4${cp(0x200B)}${CT}${CH} John 1:1`)).toBe(true);   // 4<ZWSP>ⓣⓗ (real seam)
+    expect(is4John(`4${BS}u200B${CT}${CH} John 1:1`)).toBe(true);       // 4 + escaped-ZWSP + circled th
+    expect(is4John(`4${CT}${cp(0x200B)}${CH} John 1:1`)).toBe(true);    // 4ⓣ<ZWSP>ⓗ (suffix-internal)
+    expect(extractScriptureRefs(`2${cp(0x24DD)}${cp(0x24D3)} John 1:1`)).toEqual(['2 John 1:1']); // supported 2ⓝⓓ → 2 John valid
+    // RED-ABLE: parity is achieved by the DECODER, not trivially — an un-decoded escape
+    // (a literal, non-seam char) at the same position gives a DIFFERENT verdict.
+    expect(verdict(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`)).not.toBe(verdict(`Hezekiah ${cp(0x2084)}X:${cp(0x2085)}`));
+    // The exact r50 missed repros — the ref is SEEN (not dropped), status preserved.
+    expect(extractScriptureRefs(`John ${cp(0x1D9C)}${BS}n:I`)).toEqual(['John 100:1']);       // U+1D9C ᶜ → c → 100
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${cp(0x1D9C)}${BS}n:I`))[0].status).toBe('out_of_range');
+    expect(verdict(`John ${cp(0x2C7D)}${BS}n:I`)).toBe(verdict(`John ${cp(0x2C7D)} :I`));      // U+2C7D ⱽ → V
+    expect(verdict(`Hezekiah ${cp(0x1F132)}${BS}n:I`)).toBe(verdict(`Hezekiah ${cp(0x1F132)} :I`)); // U+1F132 🄲 → C
+    // Prior NFKC surfaces still SEEN (subscript / mathematical / circled / fullwidth).
+    expect(extractScriptureRefs(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`)).toEqual(['Hezekiah 4:5']);       // subscript ₄:₅
+    expect(extractScriptureRefs(`Hezekiah ${cp(0x1D408)}${cp(0x1D415)}${BS}n:${cp(0x1D415)}`)).toEqual(['Hezekiah 4:5']); // math 𝐈𝐕:𝐕
+    expect(extractScriptureRefs(`Hezekiah ${cp(0x2463)}${BS}n:${cp(0x2464)}`)).toEqual(['Hezekiah 4:5']);       // circled ④:⑤
+    expect(extractScriptureRefs(`John ＸＣＩＸ${BS}n:Ｉ`)).toEqual(['John 99:1']);                              // fullwidth Roman
+    expect(extractScriptureRefs(`John ＩＩＩ:ＸＶＩ${BS}n-ＣＭ`).some((r) => r === 'John 3:16')).toBe(false);      // range NOT truncated
+  });
+
+  it('does not false-positive on ordinary prose that is not a reference pattern', () => {
+    expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
+    expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);
+    expect(extractScriptureRefs('the score 24:10 at halftime')).toEqual([]);
+    expect(validateAiSermon({ theological_notes: 'the meeting at 10:45 went long' }).allValid).toBe(true);
+  });
+
+  it('catches a fabricated reference in big_idea / theological_notes / a point field', () => {
+    for (const sermon of [
+      { anchor_passage: 'John 3:16', big_idea: 'As Hezekiah 4:5 shows...' },
+      { anchor_passage: 'John 3:16', theological_notes: 'See Hezekiah 4:5.' },
+      { anchor_passage: 'John 3:16', points: [{ exegesis: 'Rooted in Hezekiah 4:5.' }] },
+      { anchor_passage: 'John 3:16', points: [{ application: 'Live out Hezekiah 4:5.' }] },
+      { anchor_passage: 'John 3:16', points: [{ illustration: 'Like Hezekiah 4:5 teaches.' }] },
+    ]) {
+      const out = validateAiSermon(sermon);
+      expect(out.allValid).toBe(false);
+      expect(out.refs.some((r) => r.ref === 'Hezekiah 4:5' && r.status === 'invalid_book')).toBe(true);
+    }
+  });
+
   it('keeps a Catholic sermon with a deuterocanon anchor in review (chapter_checked, not invalid)', () => {
     const out = validateAiSermon(
       {
@@ -215,6 +1522,53 @@ describe('validateAiSermon', () => {
     expect(out.refs.find((r) => r.ref === 'Wisdom 3:1-9').status).toBe('chapter_checked');
     expect(out.counts.chapter_checked).toBe(1);
     expect(out.counts.valid).toBe(1);
+  });
+});
+
+describe('extractScriptureRefsDeep / validateAiContent (shape-agnostic sweep)', () => {
+  it('collects references from arbitrarily nested strings and arrays', () => {
+    const refs = extractScriptureRefsDeep({
+      overview: 'Grounded in Ephesians 2:8.',
+      key_verses: ['Romans 8:28', 'John 3:16'],
+      study_sections: [{ scripture: 'Psalm 23:1', questions: ['See Isaiah 40:31'] }],
+    }).sort();
+    // The extractor canonicalizes: "Psalm" → "Psalms" (both are valid aliases).
+    expect(refs).toEqual(['Ephesians 2:8', 'Isaiah 40:31', 'John 3:16', 'Psalms 23:1', 'Romans 8:28']);
+  });
+
+  it('reaches into the double-nested ethics-analysis result shape', () => {
+    const out = validateAiContent({
+      data: {
+        result: {
+          biblical_foundation: {
+            key_scriptures: [
+              { reference: 'Ephesians 4:25' },
+              { reference: 'Deuteronomy 99:1' },
+            ],
+          },
+        },
+      },
+    });
+    const statuses = out.refs.map((r) => r.status).sort();
+    expect(statuses).toContain('valid');
+    expect(statuses).toContain('out_of_range');
+    expect(out.allValid).toBe(false);
+  });
+
+  it('does not re-sweep a previously-stored scripture_validation array', () => {
+    const out = validateAiContent({
+      key_verses: ['John 3:16'],
+      // A prior validation blob whose ref would be double-counted if walked.
+      scripture_validation: [{ ref: 'Genesis 1:1', status: 'valid' }],
+    });
+    expect(out.refs).toHaveLength(1);
+    expect(out.refs[0].ref).toBe('John 3:16');
+  });
+
+  it('is canon-aware just like validateAiSermon', () => {
+    const out = validateAiContent({ key_verses: ['Wisdom 3:1'] }, { canon: 'catholic' });
+    expect(out.refs[0].status).toBe('chapter_checked');
+    expect(out.allValid).toBe(false);
   });
 });
 

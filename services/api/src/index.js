@@ -90,7 +90,9 @@ export function buildApp(opts = {}) {
   app.use('/api/functions/getPassageMultiSource', publicFunctionLimiter);
   app.use('/api/report-client-error', clientErrorLimiter);
 
-  app.use(cors({ origin: allowedOrigins, credentials: true }));
+  // Expose the per-stream trailer nonce so a cross-origin (Railway/Electron)
+  // web client can read it to authenticate the /api/ai/stream validation trailer.
+  app.use(cors({ origin: allowedOrigins, credentials: true, exposedHeaders: ['X-Stream-Trailer-Nonce'] }));
   app.use(cookieParser(process.env.COOKIE_SECRET));
 
   // Origin-based CSRF guard for cookie-authenticated, state-changing
