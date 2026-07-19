@@ -344,56 +344,10 @@ function decodeSeamRun(run) {
 // is anchored to a citation shape (a number-delimited span, a book/abbrev/ordinal
 // token adjacent to a number/stem), so a lone escaped seam in a path/regex/version/
 // phone/non-citation literal is not a candidate and is left untouched.
-// TOKEN SURFACE aligned with the grammar. The seam decoder's flanking classes must
-// MATCH what the citation grammar accepts on each side of a seam, or an escaped seam
-// around a grammar-accepted-but-decoder-unknown token is missed (false-accept) and a
-// valid ref written with such a token is dropped (false-reject).
-//   • WORDISH — a book/prefix token char: letters (incl. superscript-letter Lm, and
-//     ASCII Roman which are letters), decimal digits (ASCII / fullwidth / Arabic /
-//     …), and Unicode Roman-numeral characters (Nl, U+2160–2188) that the prefix
-//     normalization folds. So "Ⅱ\nJohn" (Unicode Roman prefix) is word-flanked.
-//   • NUMROMAN — a chapter/verse/range NUMBER token char, matching NUM_TOKEN's
-//     surface: decimal digits, ASCII Roman (i v x l c d m, either case), and Unicode
-//     Roman. So an escaped seam around a ROMAN ':' / '-' delimiter ("John XCIX\n:I",
-//     "John III:XVI\n-CM") decodes and the Roman ref/range is seen.
-const WORDISH = '[\\p{L}\\p{Nd}\\u2160-\\u2188]';
-const NUMROMAN_CH = '\\p{Nd}ivxlcdmIVXLCDM\\u2160-\\u2188';
-const CITATION_SEAM_RUN_RE = new RegExp(`(?<=${WORDISH})(${CONTEXT_SEAM}+)(?=${WORDISH})`, 'gu');
-// The chapter:verse and range delimiters, including the Unicode colon/dash variants
-// normalizeCitationText later folds to ASCII ':' / '-'.
-const CITE_DELIM = '(?::|-|[\\uFF1A\\u2236\\u02D0\\uA789\\u2010-\\u2015\\u2212\\uFF0D])';
-// P5/P6 — a numeric citation span: a NUMBER (decimal OR Roman) token joined to
-// further number tokens by a chapter:verse / range delimiter, with seam runs (any
-// representation) as the connective tissue. Anchored by an ACTUAL
-// number-delimiter-number shape, so a lone escaped seam in prose/code is not matched.
-const NUMERIC_CITATION_SPAN_RE = new RegExp(`[${NUMROMAN_CH}]+(?:${CONTEXT_SEAM}*${CITE_DELIM}${CONTEXT_SEAM}*[${NUMROMAN_CH}]+)+`, 'gu');
-// P4 — abbreviation-dot↔chapter: a seam between a BOOK-SHAPED word + trailing '.'
-// and a chapter NUMBER (decimal OR Roman) ("Gen.\n999:1", "Jn.\n4:5", "Gen.\nIII:16").
-// Anchored to two+ letters then a dot then a number, so a sentence period before a
-// non-number word ("Gen.\nThen") is NOT matched, and a digit-dot ("4.\n5") is NOT
-// matched. Escaped==real (a real "book.\n number:number" already binds).
-const ABBREV_DOT_SEAM_RE = new RegExp(`(?<=\\p{L}\\p{L}\\.)(${CONTEXT_SEAM}+)(?=[${NUMROMAN_CH}])`, 'gu');
-// P7 — ordinal-suffix prefix ↔ book stem, across the optional '.'/'-' separator
-// with surrounding whitespace ("4th.\nJohn", "4th\n-John", fullwidth "２nd.\nJohn").
-// Decode the seam runs in the connector, KEEPING the '.'/'-', so ORDINAL_NUMBERED_RE
-// binds it like a real space. The digit uses \p{Nd} (ASCII AND fullwidth/Arabic),
-// so a fullwidth-digit ordinal reaches parity with its real-space form.
-const ORDINAL_SEP_SPAN_RE = new RegExp(`(\\p{Nd}+(?:st|nd|rd|th))((?:${CONTEXT_SEAM}|[.\\-])+)(?=\\p{L})`, 'giu');
-const SEAM_RUN_ONLY_RE = new RegExp(`${CONTEXT_SEAM}+`, 'gu');
-function decodeCitationSeams(text) {
-  let out = String(text);
-  // P1/P2/P3/P8/P9 — WORD↔WORD seams (book↔number, prefix/ordinal↔book, "of",
-  // digit↔suffix, digit↔digit).
-  out = out.replace(CITATION_SEAM_RUN_RE, decodeSeamRun);
-  // P4 — abbreviation-dot↔chapter.
-  out = out.replace(ABBREV_DOT_SEAM_RE, decodeSeamRun);
-  // P7 — ordinal-suffix separator: decode the seam runs in the connector, keep '.'/'-'.
-  out = out.replace(ORDINAL_SEP_SPAN_RE, (m, g1, g2) => g1 + g2.replace(SEAM_RUN_ONLY_RE, decodeSeamRun));
-  // P5/P6 — NUMBER↔':'/'-'↔NUMBER: within each numeric citation span, decode every
-  // seam run, so a seam adjacent to ':' / '-' behaves identically to a real space.
-  out = out.replace(NUMERIC_CITATION_SPAN_RE, (span) => span.replace(SEAM_RUN_ONLY_RE, decodeSeamRun));
-  return out;
-}
+// The seam decoder's flank TOKEN classes are DERIVED from the same fold tables the
+// grammar uses, and `decodeCitationSeams` is therefore defined LATER — right after
+// `SUPERSCRIPT_FOLD` / the fold tables it derives from (see "TOKEN SURFACE DERIVED
+// FROM THE FOLD TABLES"). `decodeSeamRun` above is the shared per-run primitive.
 
 // Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
 // NOT match the matcher's ASCII `\d`, and NFKC does not fold most of them
@@ -461,6 +415,104 @@ const SUPERSCRIPT_FOLD = {
   '¹': '1', '²': '2', '³': '3', '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
   'ˢ': 's', 'ᵗ': 't', 'ⁿ': 'n', 'ᵈ': 'd', 'ʳ': 'r', 'ʰ': 'h',
 };
+
+// ── TOKEN SURFACE DERIVED FROM THE FOLD TABLES ────────────────────────────────
+// The recurring r45/r46/r47 root cause was the seam decoder's flank token classes
+// HAND-REPLICATING the grammar's fold surface and always missing one (fullwidth
+// Latin Roman, fullwidth/superscript ordinal suffixes, …). DEFINITIVE FIX: BUILD the
+// flank classes from the SAME folds `normalizeCitationText` applies — fullwidth-
+// Latin→ASCII, Unicode-Roman→ASCII (ROMAN_NUMERAL_FOLD), superscript→ASCII
+// (SUPERSCRIPT_FOLD), \p{Nd}→ASCII (decimalDigitToAscii). A char is a NUMBER/ROMAN/
+// ORDINAL-SUFFIX token char IFF, after those folds, it canonicalizes to a decimal
+// digit / ASCII Roman [ivxlcdm] / ordinal-suffix letter. So decoder surface ⊇
+// grammar surface BY CONSTRUCTION — a FUTURE fold entry is inherited automatically,
+// with no hand-kept list to fall behind. The decoder only NORMALIZES the seam; the
+// validator still classifies the canonical token (an overlarge/malformed Roman like
+// MMMM / iiii is still flagged, r31), and the position-aware superscript handling
+// (r35/r36 footnote-vs-data-vs-fail-close via the bounded scrub) is untouched.
+const clsEsc = (ch) => `\\u${ch.codePointAt(0).toString(16).padStart(4, '0')}`;
+function foldCitationChar(ch) {
+  const code = ch.codePointAt(0);
+  if ((code >= 0xFF21 && code <= 0xFF3A) || (code >= 0xFF41 && code <= 0xFF5A)) return String.fromCharCode(code - 0xFEE0); // fullwidth Latin A–Z a–z → ASCII
+  if (ROMAN_NUMERAL_FOLD.has(ch)) return ROMAN_NUMERAL_FOLD.get(ch); // Unicode Roman → ASCII roman / decimal
+  if (Object.prototype.hasOwnProperty.call(SUPERSCRIPT_FOLD, ch)) return SUPERSCRIPT_FOLD[ch]; // superscript → ASCII digit/letter
+  if (ND_ONE_RE.test(ch)) return decimalDigitToAscii(ch); // any Unicode decimal digit → ASCII
+  return ch;
+}
+// The FINITE pool of fold-SOURCE code points (the fold tables' keys + the fullwidth
+// Latin ranges). `\p{Nd}` decimals are covered by the class directly, not enumerated.
+const FOLD_SOURCE_POOL = [...ROMAN_NUMERAL_FOLD.keys(), ...Object.keys(SUPERSCRIPT_FOLD)];
+for (let c = 0xFF21; c <= 0xFF3A; c += 1) FOLD_SOURCE_POOL.push(String.fromCharCode(c));
+for (let c = 0xFF41; c <= 0xFF5A; c += 1) FOLD_SOURCE_POOL.push(String.fromCharCode(c));
+// Every source whose fold target is ENTIRELY within `targetSet`, escaped for a class.
+const derivedClassChars = (targetSet) => FOLD_SOURCE_POOL
+  .filter((src) => { const f = foldCitationChar(src); return f.length > 0 && [...f].every((c) => targetSet.has(c)); })
+  .map(clsEsc).join('');
+const ASCII_DIGITS = new Set('0123456789');
+const ASCII_ROMAN = new Set('ivxlcdmIVXLCDM');
+const DIGIT_OR_ROMAN = new Set([...ASCII_DIGITS, ...ASCII_ROMAN]);
+// NUMBER/ROMAN token char = \p{Nd} (all decimal) + ASCII Roman + every folded form
+// canonicalizing to a decimal digit or ASCII Roman (Unicode Roman, fullwidth Latin
+// Roman, superscript digits, archaic Roman that folds to a decimal string).
+const NUMROMAN_CH = `\\p{Nd}ivxlcdmIVXLCDM${derivedClassChars(DIGIT_OR_ROMAN)}`;
+// Ordinal-prefix DIGIT = \p{Nd} + every folded form canonicalizing to a digit
+// (superscript digits, archaic Roman → decimal string).
+const ORD_PREFIX_DIGIT = `[\\p{Nd}${derivedClassChars(ASCII_DIGITS)}]`;
+// Each ordinal-suffix LETTER class = ASCII (both cases) + every folded source for it
+// (superscript ˢᵗⁿᵈʳʰ, fullwidth ｓｔｎｄｒｈ).
+const ordLetterClass = (letter) => {
+  const target = new Set([letter, letter.toUpperCase()]);
+  return `[${letter}${letter.toUpperCase()}${derivedClassChars(target)}]`;
+};
+const ORD_SUFFIX_DERIVED = `(?:${ordLetterClass('s')}${ordLetterClass('t')}|${ordLetterClass('n')}${ordLetterClass('d')}|${ordLetterClass('r')}${ordLetterClass('d')}|${ordLetterClass('t')}${ordLetterClass('h')})`;
+// WORDISH — book/prefix token char: any letter (ASCII / fullwidth Latin / superscript
+// letter are all \p{L}), decimal digit, or a derived NUMBER/ROMAN char (Unicode Roman
+// Nl, superscript digit No — not otherwise \p{L}/\p{Nd}).
+const WORDISH = `[\\p{L}\\p{Nd}${derivedClassChars(DIGIT_OR_ROMAN)}]`;
+const CITATION_SEAM_RUN_RE = new RegExp(`(?<=${WORDISH})(${CONTEXT_SEAM}+)(?=${WORDISH})`, 'gu');
+// The chapter:verse and range delimiters, incl. the Unicode colon/dash variants
+// normalizeCitationText folds to ASCII ':' / '-'.
+const CITE_DELIM = '(?::|-|[\\uFF1A\\u2236\\u02D0\\uA789\\u2010-\\u2015\\u2212\\uFF0D])';
+// P5/P6 — numeric citation span: NUMBER/ROMAN token joined to further tokens by a
+// ':' / '-' delimiter with seam runs (any representation) as connective tissue.
+const NUMERIC_CITATION_SPAN_RE = new RegExp(`[${NUMROMAN_CH}]+(?:${CONTEXT_SEAM}*${CITE_DELIM}${CONTEXT_SEAM}*[${NUMROMAN_CH}]+)+`, 'gu');
+// P4 — abbreviation-dot↔chapter: seam between a 2+letter word + '.' and a chapter
+// NUMBER/ROMAN. Anchored so a sentence period before a non-number word and a
+// digit-dot are NOT matched.
+const ABBREV_DOT_SEAM_RE = new RegExp(`(?<=\\p{L}\\p{L}\\.)(${CONTEXT_SEAM}+)(?=[${NUMROMAN_CH}])`, 'gu');
+// P7 — ordinal-suffix prefix ↔ book stem across the optional '.'/'-' separator. Both
+// the prefix DIGIT and the SUFFIX letters use the DERIVED classes, so ASCII, fullwidth
+// ("２ｔｈ"), and superscript ("⁴ᵗʰ") ordinals all reach parity with a real space.
+const ORDINAL_SEP_SPAN_RE = new RegExp(`(${ORD_PREFIX_DIGIT}+${ORD_SUFFIX_DERIVED})((?:${CONTEXT_SEAM}|[.\\-])+)(?=\\p{L})`, 'giu');
+const SEAM_RUN_ONLY_RE = new RegExp(`${CONTEXT_SEAM}+`, 'gu');
+function decodeCitationSeams(text) {
+  let out = String(text);
+  // P1/P2/P3/P8/P9 — WORD↔WORD seams.
+  out = out.replace(CITATION_SEAM_RUN_RE, decodeSeamRun);
+  // P4 — abbreviation-dot↔chapter.
+  out = out.replace(ABBREV_DOT_SEAM_RE, decodeSeamRun);
+  // P7 — ordinal-suffix separator: decode the seam runs in the connector, keep '.'/'-'.
+  out = out.replace(ORDINAL_SEP_SPAN_RE, (m, g1, g2) => g1 + g2.replace(SEAM_RUN_ONLY_RE, decodeSeamRun));
+  // P5/P6 — NUMBER↔':'/'-'↔NUMBER: decode every seam run inside each numeric span.
+  out = out.replace(NUMERIC_CITATION_SPAN_RE, (span) => span.replace(SEAM_RUN_ONLY_RE, decodeSeamRun));
+  return out;
+}
+
+// TEST SUPPORT: the reverse of the citation fold tables — ASCII target char →
+// { fullwidth, superscript, unicodeRoman } source chars — DERIVED from the SAME
+// tables the decoder derives from. The grammar-parity lock uses this to render each
+// ASCII token in every folded surface, so a NEW fold entry is covered by the decoder
+// AND exercised by the lock automatically (no hand-kept variant list).
+export function __citationFoldSurfaces() {
+  const m = new Map();
+  const ensure = (t) => { if (!m.has(t)) m.set(t, {}); return m.get(t); };
+  for (const [src, tgt] of ROMAN_NUMERAL_FOLD) if (tgt.length === 1) ensure(tgt).unicodeRoman = src;
+  for (const [src, tgt] of Object.entries(SUPERSCRIPT_FOLD)) ensure(tgt).superscript = src;
+  for (let c = 0xFF21; c <= 0xFF3A; c += 1) ensure(String.fromCharCode(c - 0xFEE0)).fullwidth = String.fromCharCode(c);
+  for (let c = 0xFF41; c <= 0xFF5A; c += 1) ensure(String.fromCharCode(c - 0xFEE0)).fullwidth = String.fromCharCode(c);
+  for (let c = 0xFF10; c <= 0xFF19; c += 1) ensure(String.fromCharCode(c - 0xFEE0)).fullwidth = String.fromCharCode(c);
+  return m;
+}
 
 function normalizeCitationText(text) {
   return String(text)

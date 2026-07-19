@@ -16,4 +16,5 @@ export {
   validateScriptureRefs,
   validateAiSermon,
   validateAiContent,
+  __citationFoldSurfaces,
 } from '@sermonsmith/shared/scripture';

@@ -1448,4 +1448,38 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream roman-delimiter seam under reserved key').toBe(false);
   });
+
+  // --- Round-48: the seam decoder's token surface is DERIVED from the fold tables —
+  // FULLWIDTH LATIN ROMAN delimiters and FULLWIDTH / SUPERSCRIPT ordinal suffixes
+  // now reach grammar parity (were a bypass / false-reject) — through the real
+  // transport. ---
+  it('/invoke + /stream: fullwidth-Latin-Roman delimiters and fullwidth/superscript ordinals reach parity', async () => {
+    const BS = String.fromCharCode(92);
+    await runR25(app, [
+      [`fullwidth-Roman John ＸＣＩＸ${BS}n:Ｉ → out_of_range`, `John ＸＣＩＸ${BS}n:Ｉ`, true],
+      [`fullwidth-Roman range John ＩＩＩ:ＸＶＩ${BS}n-ＣＭ → out_of_range (not truncated)`, `John ＩＩＩ:ＸＶＩ${BS}n-ＣＭ`, true],
+      [`fullwidth ordinal ４ｔｈ.${BS}nJohn 1:1 → invalid_book`, `４ｔｈ.${BS}nJohn 1:1`, true],
+      [`superscript ordinal ⁴ᵗʰ.${BS}nJohn 1:1 → invalid_book`, `⁴ᵗʰ.${BS}nJohn 1:1`, true],
+      [`valid fullwidth ordinal ２ｎｄ.${BS}nJohn 1:1 → 2 John`, `２ｎｄ.${BS}nJohn 1:1`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a fullwidth-Roman-delimiter fabrication under scripture_validation', async () => {
+    const BS = String.fromCharCode(92);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `John ＸＣＩＸ${BS}n:Ｉ` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke fullwidth-roman seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream fullwidth-roman seam under reserved key').toBe(false);
+  });
 });

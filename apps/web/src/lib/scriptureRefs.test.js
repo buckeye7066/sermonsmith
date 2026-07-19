@@ -6,6 +6,7 @@ import {
   validateScriptureRefs,
   validateAiSermon,
   validateAiContent,
+  __citationFoldSurfaces,
 } from '@/lib/scriptureRefs';
 import { VERSE_COUNTS, versesInChapter } from '@/lib/bibleVerseCounts';
 
@@ -1339,6 +1340,83 @@ describe('validateAiSermon', () => {
     // WITHOUT a book are not fabricated.
     expect(extractScriptureRefs(`the mix${BS}n:iv`)).toEqual([]);
     expect(extractScriptureRefs('did:mix')).toEqual([]);
+  });
+
+  // THE EXHAUSTIVE LOCK (DERIVED). The token-surface axis is DERIVED from the SAME
+  // fold tables the decoder derives from (`__citationFoldSurfaces`): each ASCII token
+  // is rendered in every folded surface (fullwidth digits, fullwidth Latin Roman,
+  // Unicode Roman, superscript ordinal suffixes), then × positions × seam
+  // representations, asserting refs+statuses == the real-space/real-token baseline.
+  // A NEW fold entry is covered by the decoder AND exercised here automatically.
+  it('exhaustive grammar parity: position × DERIVED token surface × representation (refs+statuses)', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const LO = String.fromCharCode(0xDD00);
+    const surfaces = __citationFoldSurfaces();
+    // Render an ASCII token in a named fold surface; null if any char lacks it.
+    const render = (tok, surf) => {
+      if (surf === 'ascii') return tok;
+      let out = '';
+      for (const ch of tok) {
+        const info = surfaces.get(ch);
+        if (!info || !info[surf]) return null;
+        out += info[surf];
+      }
+      return out;
+    };
+    const reps = [cp(0x0A), `${BS}n`, `${BS}t`, `${BS}u200B`, `${BS}u{E0100}`, `${BS}uDB40${LO}`];
+    const verdict = (s) => JSON.stringify(validateScriptureRefs(extractScriptureRefs(s)).map((v) => [v.ref, v.status]).sort());
+    // A citation template with a NUMBER/ROMAN token slot {t} rendered per surface, and
+    // a seam slot {s}. Each entry: [label, asciiToken, surfaces[], build(renderedToken, seam)].
+    const templates = [
+      // P5 chapter↔':' — decimal + fullwidth-decimal
+      ['P5 chapter (decimal)', '999', ['ascii', 'fullwidth'], (t, s) => `John ${t}${s}:16`],
+      // P5 chapter↔':' — ASCII Roman + Unicode Roman + fullwidth Latin Roman
+      ['P5 chapter (roman)', 'XCIX', ['ascii', 'unicodeRoman', 'fullwidth'], (t, s) => `John ${t}${s}:I`],
+      // P6 range↔'-' — roman range end (invalid range must be preserved)
+      ['P6 range-end (roman)', 'CM', ['ascii', 'unicodeRoman', 'fullwidth'], (t, s) => `John III:XVI${s}-${t}`],
+      // P4 abbrev-dot↔chapter — roman chapter across the dot
+      ['P4 abbrev-dot (roman)', 'III', ['ascii', 'unicodeRoman', 'fullwidth'], (t, s) => `Gen.${s}${t}:16`],
+      // P1 prefix↔book — roman prefix (unsupported IV → invalid_book)
+      ['P1 prefix (roman)', 'IV', ['ascii', 'unicodeRoman', 'fullwidth'], (t, s) => `${t}${s}John 1:1`],
+    ];
+    for (const [label, asciiTok, surfList, build] of templates) {
+      for (const surf of surfList) {
+        const t = render(asciiTok, surf);
+        if (t === null) continue;
+        const baseline = verdict(build(t, ' ')); // real-space baseline for this rendered token
+        for (const seam of reps) {
+          expect(verdict(build(t, seam)), `${label} [${surf}] | ${JSON.stringify(seam)} must match real-space "${baseline}"`).toBe(baseline);
+        }
+      }
+    }
+    // P7 ordinal suffix rendered per surface (ascii "th", fullwidth "ｔｈ", superscript
+    // "ᵗʰ") with a fullwidth/superscript-or-ascii digit — seam across the '.' separator.
+    const ordTemplates = [
+      ['4', 'th'], // 4th → 4 John invalid_book
+    ];
+    for (const [dAscii, sfxAscii] of ordTemplates) {
+      for (const surf of ['ascii', 'fullwidth', 'superscript']) {
+        const d = render(dAscii, surf) ?? render(dAscii, 'ascii');
+        const sfx = render(sfxAscii, surf);
+        if (sfx === null) continue;
+        const ord = d + sfx;
+        const baseline = verdict(`${ord}. John 1:1`); // real-space baseline
+        for (const seam of reps) {
+          expect(verdict(`${ord}.${seam}John 1:1`), `P7 ordinal [${surf}] | ${JSON.stringify(seam)} must match "${baseline}"`).toBe(baseline);
+        }
+      }
+    }
+    // MEANINGFUL / RED-ABLE: the surfaces are non-trivial (an un-decoded literal escape
+    // and a non-seam letter both DIFFER from a real space here — parity is achieved by
+    // the DECODER, not because the strings are trivially equal). Also confirm the key
+    // findings resolve to real refs (so a trivial [] == [] pass can't hide a bug).
+    expect(verdict(`John ＸＣＩＸ${BS}n:Ｉ`)).toBe(verdict('John ＸＣＩＸ :Ｉ'));       // decoder → parity
+    expect(verdict(`John ＸＣＩＸX:Ｉ`)).not.toBe(verdict('John ＸＣＩＸ :Ｉ'));         // non-seam → discriminates
+    expect(extractScriptureRefs(`John ＸＣＩＸ${BS}n:Ｉ`)).toEqual(['John 99:1']);      // fullwidth Roman ref SEEN
+    expect(extractScriptureRefs(`John ＩＩＩ:ＸＶＩ${BS}n-ＣＭ`).some((r) => r === 'John 3:16')).toBe(false); // range NOT truncated
+    expect(extractScriptureRefs(`４ｔｈ${BS}n.John 1:1`).some((r) => /^4 John/.test(r))).toBe(true);       // fullwidth ordinal bound
+    expect(extractScriptureRefs(`⁴ᵗʰ${BS}n.John 1:1`).some((r) => /^4 John/.test(r))).toBe(true);          // superscript ordinal bound
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
