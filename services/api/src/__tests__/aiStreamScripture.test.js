@@ -1587,4 +1587,38 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream circled-ordinal seam under reserved key').toBe(false);
   });
+
+  // --- Round-52: a single glyph normalizing to a WHOLE two-letter suffix
+  // (U+FB05/U+FB06 ﬅ/ﬆ → "st") with a seam binds the numbered book — through the
+  // real transport. ---
+  it('/invoke + /stream: a whole-suffix ligature (ﬆ → "st") with a seam binds the numbered book', async () => {
+    const BS = String.fromCharCode(92);
+    const c = (x) => String.fromCodePoint(x);
+    const ST6 = c(0xFB06), ST5 = c(0xFB05), ZWSP = c(0x200B);
+    await runR25(app, [
+      [`1${ZWSP}ﬆ John 6:1 (real seam) → 1 John 6:1 out_of_range`, `1${ZWSP}${ST6} John 6:1`, true],
+      [`1${BS}u200Bﬆ John 6:1 (escaped) → out_of_range`, `1${BS}u200B${ST6} John 6:1`, true],
+      [`1ﬅ${ZWSP}John 6:1 (P9 suffix↔book) → out_of_range`, `1${ST5}${ZWSP}John 6:1`, true],
+      [`supported 1ﬆ John 1:1 → 1 John (valid)`, `1${ST6} John 1:1`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a whole-suffix-ligature fabrication under scripture_validation', async () => {
+    const c = (x) => String.fromCodePoint(x);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `1${c(0x200B)}${c(0xFB06)} John 6:1` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke ligature-ordinal seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream ligature-ordinal seam under reserved key').toBe(false);
+  });
 });

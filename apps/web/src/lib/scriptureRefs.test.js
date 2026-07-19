@@ -1404,6 +1404,32 @@ describe('validateAiSermon', () => {
       }
     }
     expect(sufSources).toBeGreaterThan(50);
+    // (c) EVERY discovered WHOLE-SUFFIX source (one glyph normalizing to "st"/"nd"/
+    // "rd"/"th", e.g. U+FB05/U+FB06 → "st") at P8 (digit↔suffix) and P9 (suffix↔book).
+    const wholeDigit = { st: '1', nd: '2', rd: '3', th: '4' };
+    let wholeSources = 0;
+    for (const [key, digit] of Object.entries(wholeDigit)) {
+      for (const src of (foldMap.get(key) || [])) {
+        wholeSources += 1;
+        const p8 = (s) => `${digit}${s}${src} John 1:1`;
+        const p9 = (s) => `${digit}${src}${s}John 1:1`;
+        for (const [name, mk] of [['P8', p8], ['P9', p9]]) {
+          const base = verdict(mk(' '));
+          for (const seam of reps) {
+            expect(verdict(mk(seam)), `whole-suffix src U+${src.codePointAt(0).toString(16)} @${name} | ${JSON.stringify(seam)}`).toBe(base);
+          }
+        }
+      }
+    }
+    expect(wholeSources).toBeGreaterThan(0); // at least the ﬅ/ﬆ ligatures
+    // The r52 repros: a single-glyph whole "st" (ﬆ) with a seam binds the numbered
+    // book (1ﬆ → "1 John", out of range for 6:1), never bare John.
+    const ST6 = cp(0xFB06);
+    const is1JohnOor = (s) => extractScriptureRefs(s).includes('1 John 6:1') && !extractScriptureRefs(s).includes('John 6:1');
+    expect(is1JohnOor(`1${cp(0x200B)}${ST6} John 6:1`)).toBe(true);   // 1<ZWSP>ﬆ (real seam)
+    expect(is1JohnOor(`1${BS}u200B${ST6} John 6:1`)).toBe(true);       // 1 + escaped-ZWSP + ﬆ
+    expect(is1JohnOor(`1${cp(0xFB05)} John 6:1`)).toBe(true);          // 1ﬅ (FB05, no seam)
+    expect(extractScriptureRefs(`1${ST6} John 1:1`)).toEqual(['1 John 1:1']); // supported 1ﬆ → 1 John valid
     // The r51 repros: circled ⓣⓗ ordinal at digit↔suffix / suffix-internal binds the
     // fabricated numbered book (never bare John), across real + escaped seams.
     const CT = cp(0x24E3), CH = cp(0x24D7);

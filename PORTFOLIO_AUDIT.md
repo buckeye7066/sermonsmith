@@ -1199,3 +1199,32 @@ The scrub still only NORMALIZES the seam/ordinal; the validator classifies the c
 - **Representation** — every seam is decoded by the one by-construction `decodeSeamRun` / `seamRunIsAllSeam` (real / code-point escapes incl. surrogate pairs + mixed literal-escaped / short named escapes), with non-seam escapes, malformed/lone surrogates, and prose backslashes left untouched.
 
 The only accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag — both deliberate, both consistent across all representations.
+
+---
+
+## Round-52 pass (re-review of r51) — a single codepoint that NFKC-normalizes to a WHOLE two-letter suffix bypassed — FIXED
+
+### R52-1 — [HIGH] Multi-character ordinal-suffix source bypasses the P8 digit↔suffix seam — FIXED
+r51 drove the ordinal-suffix scrub from the full scan, but built `ORD_SUFFIX` ONLY from per-LETTER classes (each source → a single suffix letter s/t/n/d/r/h). A single glyph whose `normalizeTokenChar` is a WHOLE 2-char suffix — U+FB05/U+FB06 (ﬅ/ﬆ → "st") — was therefore missed. Confirmed: `1​ﬆ John 6:1` (and escaped `1​ﬆ John 6:1`) → `John 6:1` (valid), while the ASCII baseline `1st John 6:1` → `1 John 6:1` out_of_range. The exhaustive lock also skipped these because `__citationFoldSurfaces()` dropped normalized strings of length ≠ 1 — so "every source covered" excluded the whole-suffix source class.
+
+**Fix — extend the derivation to WHOLE-suffix (multi-char) sources, from the same full scan** (`packages/shared/scripture/index.js`), not a hand-list:
+- `WHOLE_SUFFIX_CLASS` = the full-scan sources whose `normalizeTokenChar` equals a whole valid ordinal suffix ("st"/"nd"/"rd"/"th"), derived by filtering `COMPAT_TOKEN_SOURCES`.
+- Both `ORD_SUFFIX_DERIVED` (the decodeCitationSeams ordinal-separator pass) and the bounded `ORD_SUFFIX` now match EITHER the per-letter class sequence OR a single whole-suffix glyph (an appended `|[WHOLE_SUFFIX_CLASS]` alternative), with `ORD_HIDDEN*`/`decodeSeamRun` seam-consumption still around the ordinal, so `1ﬆ` / `1​ﬆ` (real + escaped, at P8 digit↔suffix and P9 suffix↔book) binds the numbered book.
+- `foldOrdinalPrefix` already folds the captured suffix via `normalizeTokenChar` (r51), so a whole-suffix glyph canonicalizes to its ASCII "st"/etc. and the validator classifies it (a fabricated `1st John`/`4th John` → out_of_range/invalid, never bare John; a supported `1ﬆ John 1:1` → `1 John 1:1` valid).
+
+**The lock now covers whole-suffix sources.** `__citationFoldSurfaces()` no longer drops length-2 normalizations: a single code point whose canonical is a valid 2-char ordinal suffix is included, keyed by the lowercased suffix string ("st"/…). The exhaustive lock iterates every whole-suffix source at P8 (digit↔suffix) and P9 (suffix↔book) × every representation, asserting `[ref, status]` == the real-space baseline. The exact repros (`1​ﬆ`/`1​ﬆ`/`1ﬅ` → `1 John 6:1` out_of_range, never bare `John 6:1`; supported `1ﬆ John 1:1` → `1 John 1:1` valid) are asserted explicitly.
+
+**Preserved:** the r51 per-letter suffix sources; r50 number/delimiter full scan; the r35/r36 superscript rules; the r31 Roman classifier; prose-safety; out-of-range/bad-range preservation; the r30 outline + r44 code-literal residuals; and r30–r51 (full suites green).
+
+**Tests** (literals via `String.fromCodePoint`/explicit escapes; API through the REAL JSON transport):
+- `apps/web/src/lib/scriptureRefs.test.js` — the exhaustive lock now iterates every whole-suffix source at P8/P9 × representation (refs+statuses, red-able) alongside the r51 per-letter loop and the r50 number/delimiter loop; the ﬅ/ﬆ repros asserted.
+- `services/api/src/__tests__/aiStreamScripture.test.js` — whole-suffix ligature (ﬆ/ﬅ) seams at digit↔suffix / suffix↔book (real + escaped; supported `1ﬆ`→1 John valid) over `/invoke` + `/stream`, plus a ligature-ordinal fabrication under `scripture_validation`.
+
+**Confirmed (round-52):** whole-suffix (multi-char) NFKC sources are covered at P8/P9 across real + escaped seams (the ordinal-suffix regexes match EITHER a per-letter sequence OR a single whole-suffix glyph, both folded via `normalizeTokenChar`), and the lock iterates every length-2 suffix source. r51, r50, r49, r48, r47, r46, r45, r44, r43, r42, r41, r40, r39, and r30–r38 are all preserved, on per-string / deep / joined-array / `/invoke` / `/stream` (success + error).
+
+### The seam class is now fully closed BY CONSTRUCTION — all axes, all sub-positions, single- AND multi-char sources
+- **Position** — every whitespace-tolerant grammar position (P1–P10, incl. ordinal-suffix P8/P9/suffix-internal) is covered and locked.
+- **Token** — every flank/scrub class (number, roman, delimiter, ordinal DIGIT, ordinal SUFFIX per-letter AND whole-suffix) is derived from the grammar's actual normalization via the FULL-Unicode-scan set — no allowlist, provably complete, now including single code points whose canonical is a length-≥1 token string; the lock reverses the same full scan.
+- **Representation** — every seam is handled by the one by-construction `decodeSeamRun` / `seamRunIsAllSeam` (real / code-point escapes incl. surrogate pairs + mixed literal-escaped / short named escapes), with non-seam escapes, malformed/lone surrogates, and prose backslashes left untouched.
+
+The only accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag — both deliberate, both consistent across all representations.

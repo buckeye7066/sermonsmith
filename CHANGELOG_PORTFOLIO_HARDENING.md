@@ -238,6 +238,12 @@ Branch `claude/portfolio-hardening-2026-07-18`. Local commit only — not pushed
 - **The lock test now also checks every ending-letter form at those spots.** The regression lock iterates every ending-letter character the full scan discovers, placed at each spot, across every way of writing an invisible, comparing the full result — so an ending written in a rare form can never bypass again.
 - Ordinary text (like "the 4th quarter") is still left alone, supported numbered books still validate, out-of-range and bad ranges are preserved, and every earlier round's behavior is intact. The invisible-character handling is now complete by construction across all three axes AND every sub-position, including the ordinal ending.
 
+## Round-52 pass — a single character standing for a whole "st" ending is now handled too (2026-07-18)
+- **One glyph that spells out an entire two-letter ending (like the "st" ligature ﬅ/ﬆ) could still slip a fabricated numbered book through.** The previous round matched the ending letter-by-letter, so a single character that means "st" on its own wasn't recognized. "1[invisible]ﬆ John 6:1" read as a bare "John 6:1" instead of an out-of-range "1 John 6:1".
+- **Fixed by also deriving whole-ending characters from the full scan.** Any single character whose normalization is a complete ordinal ending ("st"/"nd"/"rd"/"th") is now recognized as an ending — found by the same full-Unicode scan, not a hand-written list — so it binds the numbered book, with the invisible removed, at both spots around it.
+- **The lock test now includes these whole-ending characters too.** The regression lock had been skipping characters that normalize to two letters; it now includes them and checks each at both spots across every way of writing an invisible, so a whole-ending character can never bypass again.
+- Ordinary text is still left alone, supported numbered books still validate, out-of-range references are preserved, and every earlier round's behavior is intact. The invisible-character handling is now complete by construction across all axes and sub-positions, for both single-letter and whole-ending character forms.
+
 ## Rollback
 - Revert the branch (or the single commit `fix: harden sermonsmith against confirmed contract violations`). No data backfill or migration to undo.
 - To restore the previous chunking, re-add `vendor-charts`/`vendor-pdf`/`vendor-maps` to `manualChunks` in `apps/web/vite.config.js`.

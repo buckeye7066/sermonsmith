@@ -495,7 +495,18 @@ const ordLetterClass = (letter) => {
   const target = new Set([letter, letter.toUpperCase()]);
   return `[${letter}${letter.toUpperCase()}${derivedClassChars(target)}]`;
 };
-const ORD_SUFFIX_DERIVED = `(?:${ordLetterClass('s')}${ordLetterClass('t')}|${ordLetterClass('n')}${ordLetterClass('d')}|${ordLetterClass('r')}${ordLetterClass('d')}|${ordLetterClass('t')}${ordLetterClass('h')})`;
+// WHOLE-suffix sources: a SINGLE code point whose normalization is an ENTIRE ordinal
+// suffix string ("st"/"nd"/"rd"/"th") — e.g. U+FB05/U+FB06 (ﬅ/ﬆ → "st"). Derived
+// from the full scan (not hand-listed): the per-LETTER classes miss these because
+// one glyph carries two letters. `WHOLE_SUFFIX_ALT` is a class alternative appended
+// to the suffix regexes so a whole-suffix glyph matches, and foldOrdinalPrefix folds
+// it via normalizeTokenChar to the ASCII "st" so the validator classifies it.
+const ORD_SUFFIX_STRINGS = new Set(['st', 'nd', 'rd', 'th']);
+const WHOLE_SUFFIX_CLASS = COMPAT_TOKEN_SOURCES
+  .filter(([, norm]) => ORD_SUFFIX_STRINGS.has(norm.toLowerCase()))
+  .map(([src]) => clsEsc(src)).join('');
+const WHOLE_SUFFIX_ALT = WHOLE_SUFFIX_CLASS ? `|[${WHOLE_SUFFIX_CLASS}]` : '';
+const ORD_SUFFIX_DERIVED = `(?:${ordLetterClass('s')}${ordLetterClass('t')}|${ordLetterClass('n')}${ordLetterClass('d')}|${ordLetterClass('r')}${ordLetterClass('d')}|${ordLetterClass('t')}${ordLetterClass('h')}${WHOLE_SUFFIX_ALT})`;
 // The ASCII ordinal-suffix letters (of st/nd/rd/th) and the full token-char set.
 const ASCII_ORD_SUFFIX = new Set('stndrhSTNDRH');
 const TOKEN_CHARS = new Set([...DIGIT_OR_ROMAN, ...ASCII_ORD_SUFFIX]);
@@ -544,9 +555,15 @@ function decodeCitationSeams(text) {
 export function __citationFoldSurfaces() {
   const m = new Map();
   for (const [src, norm] of COMPAT_TOKEN_SOURCES) {
-    if (norm.length !== 1) continue;
-    if (!m.has(norm)) m.set(norm, []);
-    m.get(norm).push(src);
+    // Single-char token canonicals, PLUS single code points whose canonical is a
+    // WHOLE ordinal suffix ("st"/"nd"/"rd"/"th") — e.g. U+FB05/U+FB06 → "st" — keyed
+    // by the lowercased suffix string so the lock iterates whole-suffix sources too.
+    let key = null;
+    if (norm.length === 1) key = norm;
+    else if (ORD_SUFFIX_STRINGS.has(norm.toLowerCase())) key = norm.toLowerCase();
+    if (key == null) continue;
+    if (!m.has(key)) m.set(key, []);
+    m.get(key).push(src);
   }
   return m;
 }
@@ -777,7 +794,9 @@ const ORD_HIDDEN = CONTEXT_SEAM;
 // suffix letters consumes a SUFFIX-INTERNAL seam ("4ⓣ​ⓗ") too.
 const ORD_DIGIT = ORD_PREFIX_DIGIT;
 const sfx = (a, b) => `${ordLetterClass(a)}${ORD_HIDDEN}*${ordLetterClass(b)}`;
-const ORD_SUFFIX = `(?:${sfx('s', 't')}|${sfx('n', 'd')}|${sfx('r', 'd')}|${sfx('t', 'h')})`;
+// EITHER a two-letter suffix (per-letter classes, seam-tolerant between them) OR a
+// single WHOLE-suffix glyph (U+FB05/U+FB06 …). foldOrdinalPrefix folds both to ASCII.
+const ORD_SUFFIX = `(?:${sfx('s', 't')}|${sfx('n', 'd')}|${sfx('r', 'd')}|${sfx('t', 'h')}${WHOLE_SUFFIX_ALT})`;
 const ORD_SEP = `(?:[\\s.\\-]|${ORD_HIDDEN})`;
 // Start boundary is a Unicode-aware negative lookbehind (NOT `\b`, which does not
 // fire before a SUPERSCRIPT digit — category No, not a word char — so "⁴ᵗʰ" would
