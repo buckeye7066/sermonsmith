@@ -344,28 +344,41 @@ function decodeSeamRun(run) {
 // is anchored to a citation shape (a number-delimited span, a book/abbrev/ordinal
 // token adjacent to a number/stem), so a lone escaped seam in a path/regex/version/
 // phone/non-citation literal is not a candidate and is left untouched.
-const WORDISH = '[\\p{L}\\p{Nd}]';
+// TOKEN SURFACE aligned with the grammar. The seam decoder's flanking classes must
+// MATCH what the citation grammar accepts on each side of a seam, or an escaped seam
+// around a grammar-accepted-but-decoder-unknown token is missed (false-accept) and a
+// valid ref written with such a token is dropped (false-reject).
+//   • WORDISH — a book/prefix token char: letters (incl. superscript-letter Lm, and
+//     ASCII Roman which are letters), decimal digits (ASCII / fullwidth / Arabic /
+//     …), and Unicode Roman-numeral characters (Nl, U+2160–2188) that the prefix
+//     normalization folds. So "Ⅱ\nJohn" (Unicode Roman prefix) is word-flanked.
+//   • NUMROMAN — a chapter/verse/range NUMBER token char, matching NUM_TOKEN's
+//     surface: decimal digits, ASCII Roman (i v x l c d m, either case), and Unicode
+//     Roman. So an escaped seam around a ROMAN ':' / '-' delimiter ("John XCIX\n:I",
+//     "John III:XVI\n-CM") decodes and the Roman ref/range is seen.
+const WORDISH = '[\\p{L}\\p{Nd}\\u2160-\\u2188]';
+const NUMROMAN_CH = '\\p{Nd}ivxlcdmIVXLCDM\\u2160-\\u2188';
 const CITATION_SEAM_RUN_RE = new RegExp(`(?<=${WORDISH})(${CONTEXT_SEAM}+)(?=${WORDISH})`, 'gu');
 // The chapter:verse and range delimiters, including the Unicode colon/dash variants
 // normalizeCitationText later folds to ASCII ':' / '-'.
 const CITE_DELIM = '(?::|-|[\\uFF1A\\u2236\\u02D0\\uA789\\u2010-\\u2015\\u2212\\uFF0D])';
-// P5/P6 — a numeric citation span: a digit run joined to further digit runs by a
-// chapter:verse / range delimiter, with seam runs (any representation) as the
-// connective tissue. Anchored by an ACTUAL number-delimiter-number shape, so a
-// lone escaped seam in prose/code (no numeric-delimited neighbours) is not matched.
-const NUMERIC_CITATION_SPAN_RE = new RegExp(`\\p{Nd}+(?:${CONTEXT_SEAM}*${CITE_DELIM}${CONTEXT_SEAM}*\\p{Nd}+)+`, 'gu');
+// P5/P6 — a numeric citation span: a NUMBER (decimal OR Roman) token joined to
+// further number tokens by a chapter:verse / range delimiter, with seam runs (any
+// representation) as the connective tissue. Anchored by an ACTUAL
+// number-delimiter-number shape, so a lone escaped seam in prose/code is not matched.
+const NUMERIC_CITATION_SPAN_RE = new RegExp(`[${NUMROMAN_CH}]+(?:${CONTEXT_SEAM}*${CITE_DELIM}${CONTEXT_SEAM}*[${NUMROMAN_CH}]+)+`, 'gu');
 // P4 — abbreviation-dot↔chapter: a seam between a BOOK-SHAPED word + trailing '.'
-// and a chapter DIGIT ("Gen.\n999:1", "Jn.\n4:5"). Anchored to two+ letters then a
-// dot then a digit, so a sentence period before a non-number word ("Gen.\nThen")
-// is NOT matched, and a digit-dot ("4.\n5") is NOT matched. Escaped==real (a real
-// "book.\n number:number" already binds), so no NEW over-flag beyond the r44 class.
-const ABBREV_DOT_SEAM_RE = new RegExp(`(?<=\\p{L}\\p{L}\\.)(${CONTEXT_SEAM}+)(?=\\p{Nd})`, 'gu');
+// and a chapter NUMBER (decimal OR Roman) ("Gen.\n999:1", "Jn.\n4:5", "Gen.\nIII:16").
+// Anchored to two+ letters then a dot then a number, so a sentence period before a
+// non-number word ("Gen.\nThen") is NOT matched, and a digit-dot ("4.\n5") is NOT
+// matched. Escaped==real (a real "book.\n number:number" already binds).
+const ABBREV_DOT_SEAM_RE = new RegExp(`(?<=\\p{L}\\p{L}\\.)(${CONTEXT_SEAM}+)(?=[${NUMROMAN_CH}])`, 'gu');
 // P7 — ordinal-suffix prefix ↔ book stem, across the optional '.'/'-' separator
-// with surrounding whitespace ("4th.\nJohn", "4th\n-John"). Decode the seam runs in
-// the connector, KEEPING the '.'/'-', so ORDINAL_NUMBERED_RE binds it like a real
-// space. Anchored to `\d(st|nd|rd|th)` + a following letter, so it only fires on an
-// ordinal-suffix → word shape.
-const ORDINAL_SEP_SPAN_RE = new RegExp(`(\\d+(?:st|nd|rd|th))((?:${CONTEXT_SEAM}|[.\\-])+)(?=\\p{L})`, 'giu');
+// with surrounding whitespace ("4th.\nJohn", "4th\n-John", fullwidth "２nd.\nJohn").
+// Decode the seam runs in the connector, KEEPING the '.'/'-', so ORDINAL_NUMBERED_RE
+// binds it like a real space. The digit uses \p{Nd} (ASCII AND fullwidth/Arabic),
+// so a fullwidth-digit ordinal reaches parity with its real-space form.
+const ORDINAL_SEP_SPAN_RE = new RegExp(`(\\p{Nd}+(?:st|nd|rd|th))((?:${CONTEXT_SEAM}|[.\\-])+)(?=\\p{L})`, 'giu');
 const SEAM_RUN_ONLY_RE = new RegExp(`${CONTEXT_SEAM}+`, 'gu');
 function decodeCitationSeams(text) {
   let out = String(text);

@@ -1414,4 +1414,38 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream abbrev-dot seam under reserved key').toBe(false);
   });
+
+  // --- Round-47: the seam decoder's TOKEN SURFACE now matches the grammar —
+  // escaped seams around ROMAN chapter/verse/range delimiters are decoded (was a
+  // bypass/truncation), and Unicode-Roman / fullwidth-digit prefixes are no longer
+  // false-rejected — through the real transport. ---
+  it('/invoke + /stream: escaped seams around ROMAN delimiters and Roman/fullwidth prefixes reach grammar parity', async () => {
+    const BS = String.fromCharCode(92);
+    await runR25(app, [
+      [`Roman John XCIX${BS}n:I → out_of_range`, `John XCIX${BS}n:I`, true],
+      [`Roman range John III:XVI${BS}n-CM → out_of_range (not truncated)`, `John III:XVI${BS}n-CM`, true],
+      [`Unicode-Roman prefix IV John (ASCII) → invalid_book`, `IV${BS}nJohn 1:1`, true],
+      [`fullwidth ordinal ２nd.${BS}nJohn 1:1 → valid 2 John`, `２nd.${BS}nJohn 1:1`, false],
+      [`Unicode-Roman Ⅱ${BS}nJohn 1:1 → valid 2 John`, `Ⅱ${BS}nJohn 1:1`, false],
+      ['valid John IV:2', 'John IV:2', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a Roman-delimiter escaped-seam fabrication under scripture_validation', async () => {
+    const BS = String.fromCharCode(92);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `John XCIX${BS}n:I` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke roman-delimiter seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream roman-delimiter seam under reserved key').toBe(false);
+  });
 });

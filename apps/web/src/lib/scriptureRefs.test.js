@@ -1243,11 +1243,16 @@ describe('validateAiSermon', () => {
     expect(() => extractScriptureRefs(`John 3:1${BS}u{110000}-999`)).not.toThrow();
   });
 
-  // THE LOCK: a grammar-derived parity test. For EVERY whitespace-tolerant position
-  // in CITATION_RE + the compact/ordinal/abbreviation sub-grammars (P1–P10), and for
-  // EVERY seam representation, the seam must reach the IDENTICAL verdict as a real
-  // space. A future boundary the matcher tolerates but the decoder misses FAILS here.
-  it('grammar parity: every whitespace-tolerant position × every representation == a real space', () => {
+  // THE LOCK (2-D: position × TOKEN SURFACE × representation). For EVERY
+  // whitespace-tolerant position in CITATION_RE + the compact/ordinal/abbreviation
+  // sub-grammars (P1–P10), for EVERY token-surface variant the grammar accepts
+  // (decimal, ASCII Roman, Unicode Roman, fullwidth digit), and for EVERY seam
+  // representation, the seam must reach the IDENTICAL verdict — REFS AND STATUSES —
+  // as a real space. Asserting the refs array (not statuses alone) catches a
+  // dropped/truncated ref. A boundary or token the matcher tolerates but the
+  // decoder misses FAILS here — so a future narrow-token or narrow-position gap
+  // cannot ship.
+  it('grammar parity: every position × token surface × representation == a real space (refs+statuses)', () => {
     const BS = '\\';
     const cp = (x) => String.fromCodePoint(x);
     const SUP6 = cp(0x2076);
@@ -1260,9 +1265,12 @@ describe('validateAiSermon', () => {
       `${BS}u{E0100}`,           // supplementary escape
       `${BS}uDB40${LO}`,         // mixed escaped-high + literal-low surrogate
     ];
-    const verdict = (s) => validateScriptureRefs(extractScriptureRefs(s)).map((v) => v.status).sort().join(',');
-    // Each entry: [label, seam→string]. Baseline verdict is taken with a real ASCII space.
+    // Full REFS + STATUSES signature (not statuses alone) so a dropped/truncated
+    // ref is caught.
+    const verdict = (s) => JSON.stringify(validateScriptureRefs(extractScriptureRefs(s)).map((v) => [v.ref, v.status]).sort());
+    // Each entry: [label, seam→string]. Baseline is taken with a real ASCII space.
     const positions = [
+      // --- decimal token surface (r46) ---
       ['P1 prefix↔book', (s) => `4${s}John 1:1`],
       ['P2 book-internal of', (s) => `Song of${s}Solomon 3:1`],
       ['P3 book↔chapter', (s) => `Hezekiah${s}4:5`],
@@ -1279,6 +1287,18 @@ describe('validateAiSermon', () => {
       ['P8 digit↔suffix', (s) => `4${s}th John 1:1`],
       ['P9 suffix↔book', (s) => `4th${s}John 1:1`],
       ['P10 digit↔superscript', (s) => `John 3:1${s}${SUP6}`],
+      // --- ROMAN token surface (r47 HIGH): delimiter positions ---
+      ['P5 roman chapter (XCIX:I)', (s) => `John XCIX${s}:I`],
+      ['P5 roman verse (III:XVI)', (s) => `John III:${s}XVI`],
+      ['P6 roman range before -', (s) => `John III:XVI${s}-CM`],
+      ['P6 roman range after -', (s) => `John III:XVI-${s}CM`],
+      ['P4 abbrev-dot roman chapter', (s) => `Gen.${s}III:16`],
+      // --- Unicode-Roman + fullwidth prefix surface (r47 MEDIUM) ---
+      ['P1 Unicode-Roman prefix (Ⅱ)', (s) => `Ⅱ${s}John 1:1`],
+      ['P1 Unicode-Roman prefix (Ⅳ)', (s) => `Ⅳ${s}John 1:1`],
+      ['P1 ASCII-Roman prefix (IV)', (s) => `IV${s}John 1:1`],
+      ['P7 fullwidth ordinal-sep (２nd._John)', (s) => `２nd.${s}John 1:1`],
+      ['P7 fullwidth ordinal-sep (２nd_.John)', (s) => `２nd${s}.John 1:1`],
     ];
     for (const [label, mk] of positions) {
       const want = verdict(mk(' ')); // real-space baseline for this position
@@ -1301,6 +1321,24 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs(`Gen.${BS}n3:16`)).toEqual(['Genesis 3:16']);
     expect(extractScriptureRefs(`Song of${BS}nSolomon 3:1`)).toEqual(['Song of Solomon 3:1']);
     expect(() => extractScriptureRefs(`Gen.${BS}u{110000}999:1`)).not.toThrow();
+    // --- r47 token-surface findings (refs asserted, not just statuses) ---
+    // HIGH: ROMAN delimiter seams — the Roman ref is SEEN (not dropped), the invalid
+    // range is PRESERVED (not truncated to a valid ref).
+    expect(extractScriptureRefs(`John XCIX${BS}n:I`)).toEqual(['John 99:1']);
+    expect(validateScriptureRefs(extractScriptureRefs(`John XCIX${BS}n:I`))[0].status).toBe('out_of_range');
+    expect(extractScriptureRefs(`John III:XVI${BS}n-CM`).some((r) => r === 'John 3:16')).toBe(false); // NOT truncated
+    expect(validateScriptureRefs(extractScriptureRefs(`John III:XVI${BS}n-CM`)).some((v) => v.status === 'out_of_range')).toBe(true);
+    // MEDIUM: fullwidth-digit ordinal and Unicode-Roman prefix are NOT false-rejected.
+    expect(extractScriptureRefs(`２nd.${BS}nJohn 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`Ⅱ${BS}nJohn 1:1`)).toEqual(['2 John 1:1']);
+    expect(extractScriptureRefs(`Ⅱ${BS}nJohn 1:1`).some((r) => /Njohn/i.test(r))).toBe(false);
+    // Roman validator classification unchanged (r31): fabricated/malformed Roman still flagged.
+    expect(validateScriptureRefs(extractScriptureRefs('John MMMM:1')).every((v) => v.status !== 'valid')).toBe(true);
+    expect(validateScriptureRefs(extractScriptureRefs('John iiii:2')).every((v) => v.status !== 'valid')).toBe(true);
+    // Prose-safety with the broadened Roman token surface: roman-letter words + ':'
+    // WITHOUT a book are not fabricated.
+    expect(extractScriptureRefs(`the mix${BS}n:iv`)).toEqual([]);
+    expect(extractScriptureRefs('did:mix')).toEqual([]);
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
