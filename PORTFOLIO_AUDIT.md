@@ -1137,3 +1137,34 @@ The decoder only NORMALIZES the seam; the validator still classifies the canonic
 - **Representation** — every seam is decoded by the one by-construction `decodeSeamRun` (real / code-point escapes incl. surrogate pairs + mixed literal-escaped / short named escapes), with non-seam escapes, malformed/lone surrogates, and prose backslashes left untouched.
 
 The only accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag — both deliberate, both consistent across all representations.
+
+---
+
+## Round-50 pass (re-review of r49) — the derivation was right but its IMPLEMENTATION still enumerated (a range allowlist); replaced with a FULL Unicode scan — CLOSED BY CONSTRUCTION
+
+### R50-1 — [HIGH] The generated token scan used a finite range ALLOWLIST that misses NFKC sources — FIXED
+r49 derived the flank classes from the ACTUAL normalization (NFKC + explicit folds) — the right predicate — but its class GENERATION scanned a hand-listed `COMPAT_SCAN_RANGES` allowlist, which is not the predicate and omits sources like U+1D9C ᶜ→c, U+2C7D ⱽ→V, U+1F132 🄲→C. Confirmed: `John ᶜ\n:I` → [] while real-space `John ᶜ :I` → `John 100:1` out_of_range — a model hides an out-of-range citation behind a literal escaped seam. The derived lock missed it too (it reversed the same allowlist).
+
+**DEFINITIVE FIX — build the flank classes AND the lock's surface generator by scanning the ENTIRE Unicode scalar space** (`packages/shared/scripture/index.js`). No range allowlist remains:
+- The scan iterates every code point U+0000..U+10FFFF EXCLUDING surrogates, applies the ACTUAL predicate `normalizeTokenChar` (NFKC + the explicit folds), and buckets a code point as a token source when its full normalized form differs from itself (decimal digits are matched by `\p{Nd}` directly, so skipped). `derivedClassChars(targetSet)` then keeps sources whose FULL normalized form is WHOLLY in the target set — handling multi-codepoint NFKC expansions correctly (a source → 'IV' counts as roman; a source → '1⁄2' does NOT, since ⁄ is not a token char). The derived class is therefore EXACTLY `{ c : normalizeTokenChar(c) ⊆ tokenset }` — provably complete, no range to omit.
+- The scan is memoized on `globalThis` so it runs ONCE per process (a ~150ms NFKC-dominated one-time cost; a second same-process import measured 13ms), keeping the gate fast under per-file test isolation while remaining a full-domain scan.
+- `__citationFoldSurfaces()` (the lock's surface generator) is the reverse of the SAME full scan — for each ASCII token char, EVERY code point that normalizes to it — so decoder and lock share the one complete source of truth and neither can miss a code point.
+
+`normalizeTokenChar` is the single predicate both the decoder flank test and the class generation use, so decoder surface ≡ grammar surface ≡ `{c: normalizeTokenChar(c) ⊆ tokenset}`, exactly. Over-inclusion is bounded (only sources whose canonical is WHOLLY token chars are added, and the passes stay anchored to a citation shape) — prose-safety tests confirm no fabrication from non-citation text. The decoder only NORMALIZES the seam; the validator still classifies the canonical token (`MMMM`/`iiii` still flagged, r31), and the r35/r36 position-aware superscript handling is untouched.
+
+**The lock is exhaustive over the FULL scan.** It iterates EVERY discovered number/roman source (293+) at the chapter-delimiter position and EVERY discovered ordinal-suffix source at the ordinal separator × every seam representation, asserting the `[ref, status]` array equals the real-space verdict. Because the class IS the full scan, the lock samples every surface bucket the scan produces. The exact missed repros (ᶜ→`John 100:1` out_of_range, ⱽ, 🄲) are asserted explicitly, along with red-ability (a non-seam char at the same position yields a different verdict) — demonstrated by the pre-fix probe.
+
+**Preserved:** prose-safety (roman-letter words + `:` without a book, times, versions, phones, paths, sentence periods); out-of-range / bad-range preservation (asserted on refs); r30 outline + r44 code-literal residuals; digit↔superscript parity; the r31 Roman classifier; and r30–r49 (full suites green).
+
+**Tests** (literals via `String.fromCodePoint`/`String.fromCharCode`/explicit escapes; API through the REAL JSON transport):
+- `apps/web/src/lib/scriptureRefs.test.js` — the full-scan-derived exhaustive lock (every discovered number/roman source and ordinal-suffix source × representation, refs+statuses, red-able); the exact repros ᶜ/ⱽ/🄲 asserted; the prior NFKC/fullwidth/roman surfaces retained; the r46/r47 enumerated-position lock retained.
+- `services/api/src/__tests__/aiStreamScripture.test.js` — ᶜ / 🄲 / ⱽ token seams over `/invoke` + `/stream` and a ᶜ fabrication under `scripture_validation`.
+
+**Confirmed (round-50):** the flank classes are derived from a FULL Unicode scan through `normalizeTokenChar` (no range allowlist, the exact set `{c: normalizeTokenChar(c) ⊆ tokenset}`, provably complete), memoized per process for speed, and the lock samples every discovered surface. r49, r48, r47, r46, r45, r44, r43, r42, r41, r40, r39, and r30–r38 are all preserved, on per-string / deep / joined-array / `/invoke` / `/stream` (success + error).
+
+### The token axis — and thus the whole seam class — is now closed BY CONSTRUCTION
+- **Position** — every whitespace-tolerant grammar position is enumerated (P1–P10) and locked by the grammar-derived parity test.
+- **Token** — the flank predicate IS the grammar's actual normalization (`normalizeTokenChar` = NFKC ∪ explicit folds), and the classes are the EXACT full-Unicode-scan set `{c: normalizeTokenChar(c) ⊆ tokenset}` — no allowlist, provably complete; the lock reverses the same full scan, so any code point the grammar accepts (fullwidth, subscript, superscript, mathematical, circled, Roman, archaic, modifier-letter, squared, any `\p{Nd}` script, any future NFKC entry) is inherited by the decoder and exercised by the lock automatically.
+- **Representation** — every seam is decoded by the one by-construction `decodeSeamRun` (real / code-point escapes incl. surrogate pairs + mixed literal-escaped / short named escapes), with non-seam escapes, malformed/lone surrogates, and prose backslashes left untouched.
+
+The only accepted, documented residuals remain the r30 spaced-separator BARE-NUMERIC outline and the r44 book+chapter-in-a-code-literal fail-safe over-flag — both deliberate, both consistent across all representations.

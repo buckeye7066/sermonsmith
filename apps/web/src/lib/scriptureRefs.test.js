@@ -1342,84 +1342,68 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs('did:mix')).toEqual([]);
   });
 
-  // THE EXHAUSTIVE LOCK (DERIVED). The token-surface axis is DERIVED from the SAME
-  // fold tables the decoder derives from (`__citationFoldSurfaces`): each ASCII token
-  // is rendered in every folded surface (fullwidth digits, fullwidth Latin Roman,
-  // Unicode Roman, superscript ordinal suffixes), then × positions × seam
-  // representations, asserting refs+statuses == the real-space/real-token baseline.
-  // A NEW fold entry is covered by the decoder AND exercised here automatically.
-  it('exhaustive grammar parity: position × DERIVED token surface × representation (refs+statuses)', () => {
+  // THE EXHAUSTIVE LOCK (FULL-SCAN DERIVED). `__citationFoldSurfaces()` is the reverse
+  // of the decoder's FULL-Unicode-scan flank derivation: for each ASCII token char,
+  // EVERY code point that normalizes to it. The lock iterates EVERY discovered source
+  // × seam representation, asserting the escaped-seam verdict (refs+statuses) equals
+  // the real-space verdict. Because decoder and lock share the one full-domain scan,
+  // any code point the grammar accepts — including U+1D9C ᶜ, U+2C7D ⱽ, U+1F132 🄲, and
+  // any future NFKC entry — is covered by the decoder AND exercised here automatically.
+  it('exhaustive grammar parity: EVERY full-scan-derived token source × representation (refs+statuses)', () => {
     const BS = '\\';
     const cp = (x) => String.fromCodePoint(x);
     const LO = String.fromCharCode(0xDD00);
-    const surfaces = __citationFoldSurfaces();
-    // Render an ASCII token in a named fold surface; null if any char lacks it.
-    const render = (tok, surf) => {
-      if (surf === 'ascii') return tok;
-      let out = '';
-      for (const ch of tok) {
-        const info = surfaces.get(ch);
-        if (!info || !info[surf]) return null;
-        out += info[surf];
-      }
-      return out;
-    };
+    const foldMap = __citationFoldSurfaces(); // Map<asciiChar, sourceChar[]>
     const reps = [cp(0x0A), `${BS}n`, `${BS}t`, `${BS}u200B`, `${BS}u{E0100}`, `${BS}uDB40${LO}`];
     const verdict = (s) => JSON.stringify(validateScriptureRefs(extractScriptureRefs(s)).map((v) => [v.ref, v.status]).sort());
-    // Every NFKC surface the module actually exposes — subscript, superscript,
-    // fullwidth, mathematical, romanNumeral, circled — DERIVED from the same tables,
-    // so a new compatibility form appears here automatically.
-    const ALL_SURFACES = ['ascii', ...new Set([...surfaces.values()].flatMap((o) => Object.keys(o)))];
-    // A citation template with a NUMBER/ROMAN token slot {t} rendered per surface, and
-    // a seam slot {s}. Each token is tried in EVERY surface; render() skips a surface
-    // whose glyphs don't exist for that token.
-    const templates = [
-      ['P5 chapter (decimal)', '999', (t, s) => `John ${t}${s}:16`],
-      ['P5 chapter (roman)', 'XCIX', (t, s) => `John ${t}${s}:I`],
-      ['P6 range-end (roman)', 'CM', (t, s) => `John III:XVI${s}-${t}`],
-      ['P4 abbrev-dot (decimal)', '999', (t, s) => `Gen.${s}${t}:1`],
-      ['P4 abbrev-dot (roman)', 'III', (t, s) => `Gen.${s}${t}:16`],
-      ['P1 prefix (roman)', 'IV', (t, s) => `${t}${s}John 1:1`],
-    ];
-    for (const [label, asciiTok, build] of templates) {
-      for (const surf of ALL_SURFACES) {
-        const t = render(asciiTok, surf);
-        if (t === null) continue;
-        const baseline = verdict(build(t, ' ')); // real-space baseline for this rendered token
+    const DIGIT_OR_ROMAN = new Set('0123456789ivxlcdmIVXLCDM');
+    const SUFFIX = new Set('stndrhSTNDRH');
+    // (a) EVERY discovered NUMBER/ROMAN source at the chapter-delimiter position: a
+    // seam of any representation must reach the real-space verdict (Hezekiah is a
+    // fabricated book, so any chapter → invalid_book regardless of the token value).
+    let numSources = 0;
+    for (const [ascii, sources] of foldMap) {
+      if (!DIGIT_OR_ROMAN.has(ascii)) continue;
+      for (const src of sources) {
+        numSources += 1;
+        const base = verdict(`Hezekiah ${src} :5`);
         for (const seam of reps) {
-          expect(verdict(build(t, seam)), `${label} [${surf}] | ${JSON.stringify(seam)} must match real-space "${baseline}"`).toBe(baseline);
+          expect(verdict(`Hezekiah ${src}${seam}:5`), `num src U+${src.codePointAt(0).toString(16)} | ${JSON.stringify(seam)}`).toBe(base);
         }
       }
     }
-    // P7 ordinal — the DIGIT and the "th" suffix rendered in every surface that has
-    // both, with a seam across the '.' separator.
-    for (const surf of ALL_SURFACES) {
-      const d = render('4', surf);
-      const sfx = render('th', surf);
-      if (d === null || sfx === null) continue;
-      const ord = d + sfx;
-      const baseline = verdict(`${ord}. John 1:1`); // real-space baseline
-      for (const seam of reps) {
-        expect(verdict(`${ord}.${seam}John 1:1`), `P7 ordinal [${surf}] | ${JSON.stringify(seam)} must match "${baseline}"`).toBe(baseline);
+    expect(numSources).toBeGreaterThan(200); // the full scan discovered a broad surface
+    // (b) EVERY discovered ORDINAL-SUFFIX source at the ordinal separator, placed in a
+    // valid two-letter suffix with the matching position filled by the source.
+    const suffixTpl = { s: (x) => `1${x}t`, t: (x) => `4${x}h`, n: (x) => `2${x}d`, d: (x) => `2n${x}`, r: (x) => `3${x}d`, h: (x) => `4t${x}` };
+    let sufSources = 0;
+    for (const [ascii, sources] of foldMap) {
+      const low = ascii.toLowerCase();
+      if (!SUFFIX.has(ascii) || !suffixTpl[low]) continue;
+      for (const src of sources) {
+        sufSources += 1;
+        const ord = suffixTpl[low](src);
+        const base = verdict(`${ord}. John 1:1`);
+        for (const seam of reps) {
+          expect(verdict(`${ord}.${seam}John 1:1`), `suffix src U+${src.codePointAt(0).toString(16)} | ${JSON.stringify(seam)}`).toBe(base);
+        }
       }
     }
-    // MEANINGFUL / RED-ABLE: the surfaces are non-trivial (an un-decoded literal escape
-    // and a non-seam letter both DIFFER from a real space here — parity is achieved by
-    // the DECODER, not because the strings are trivially equal). Also confirm the key
-    // findings resolve to real refs (so a trivial [] == [] pass can't hide a bug).
-    expect(verdict(`John ＸＣＩＸ${BS}n:Ｉ`)).toBe(verdict('John ＸＣＩＸ :Ｉ'));       // decoder → parity
-    expect(verdict(`John ＸＣＩＸX:Ｉ`)).not.toBe(verdict('John ＸＣＩＸ :Ｉ'));         // non-seam → discriminates
-    expect(extractScriptureRefs(`John ＸＣＩＸ${BS}n:Ｉ`)).toEqual(['John 99:1']);      // fullwidth Roman ref SEEN
-    expect(extractScriptureRefs(`John ＩＩＩ:ＸＶＩ${BS}n-ＣＭ`).some((r) => r === 'John 3:16')).toBe(false); // range NOT truncated
-    expect(extractScriptureRefs(`４ｔｈ${BS}n.John 1:1`).some((r) => /^4 John/.test(r))).toBe(true);       // fullwidth ordinal bound
-    expect(extractScriptureRefs(`⁴ᵗʰ${BS}n.John 1:1`).some((r) => /^4 John/.test(r))).toBe(true);          // superscript ordinal bound
-    // --- r49 NFKC-only surfaces (subscript, mathematical, circled) ---
-    expect(extractScriptureRefs(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`)).toEqual(['Hezekiah 4:5']);  // subscript ₄:₅ SEEN (invalid_book)
-    expect(validateScriptureRefs(extractScriptureRefs(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`))[0].status).toBe('invalid_book');
-    expect(extractScriptureRefs(`Hezekiah ${cp(0x1D408)}${cp(0x1D415)}${BS}n:${cp(0x1D415)}`)).toEqual(['Hezekiah 4:5']); // mathematical 𝐈𝐕:𝐕
-    expect(extractScriptureRefs(`Hezekiah ${cp(0x2463)}${BS}n:${cp(0x2464)}`)).toEqual(['Hezekiah 4:5']);  // circled ④:⑤
-    // ...and the un-decoded literal escape at a subscript delimiter DIFFERS (red-able).
+    expect(sufSources).toBeGreaterThan(5);
+    // RED-ABLE: parity is achieved by the DECODER, not trivially — an un-decoded escape
+    // (a literal, non-seam char) at the same position gives a DIFFERENT verdict.
     expect(verdict(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`)).not.toBe(verdict(`Hezekiah ${cp(0x2084)}X:${cp(0x2085)}`));
+    // The exact r50 missed repros — the ref is SEEN (not dropped), status preserved.
+    expect(extractScriptureRefs(`John ${cp(0x1D9C)}${BS}n:I`)).toEqual(['John 100:1']);       // U+1D9C ᶜ → c → 100
+    expect(validateScriptureRefs(extractScriptureRefs(`John ${cp(0x1D9C)}${BS}n:I`))[0].status).toBe('out_of_range');
+    expect(verdict(`John ${cp(0x2C7D)}${BS}n:I`)).toBe(verdict(`John ${cp(0x2C7D)} :I`));      // U+2C7D ⱽ → V
+    expect(verdict(`Hezekiah ${cp(0x1F132)}${BS}n:I`)).toBe(verdict(`Hezekiah ${cp(0x1F132)} :I`)); // U+1F132 🄲 → C
+    // Prior NFKC surfaces still SEEN (subscript / mathematical / circled / fullwidth).
+    expect(extractScriptureRefs(`Hezekiah ${cp(0x2084)}${BS}n:${cp(0x2085)}`)).toEqual(['Hezekiah 4:5']);       // subscript ₄:₅
+    expect(extractScriptureRefs(`Hezekiah ${cp(0x1D408)}${cp(0x1D415)}${BS}n:${cp(0x1D415)}`)).toEqual(['Hezekiah 4:5']); // math 𝐈𝐕:𝐕
+    expect(extractScriptureRefs(`Hezekiah ${cp(0x2463)}${BS}n:${cp(0x2464)}`)).toEqual(['Hezekiah 4:5']);       // circled ④:⑤
+    expect(extractScriptureRefs(`John ＸＣＩＸ${BS}n:Ｉ`)).toEqual(['John 99:1']);                              // fullwidth Roman
+    expect(extractScriptureRefs(`John ＩＩＩ:ＸＶＩ${BS}n-ＣＭ`).some((r) => r === 'John 3:16')).toBe(false);      // range NOT truncated
   });
 
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {

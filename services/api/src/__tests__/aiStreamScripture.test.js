@@ -1519,4 +1519,37 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
     expect(parseTrailer(str).scripture.ok, '/stream subscript seam under reserved key').toBe(false);
   });
+
+  // --- Round-50: the token surface is now a FULL Unicode scan through the actual
+  // normalization (no range allowlist), so the exact sources a range allowlist missed
+  // — U+1D9C ᶜ→c, U+2C7D ⱽ→V, U+1F132 🄲→C — reach grammar parity through the
+  // transport. ---
+  it('/invoke + /stream: full-scan token sources (ᶜ, ⱽ, 🄲) reach grammar parity', async () => {
+    const BS = String.fromCharCode(92);
+    const c = (x) => String.fromCodePoint(x);
+    await runR25(app, [
+      [`ᶜ (U+1D9C) John ${c(0x1D9C)}${BS}n:I → John 100:1 out_of_range`, `John ${c(0x1D9C)}${BS}n:I`, true],
+      [`🄲 (U+1F132) Hezekiah ${c(0x1F132)}${BS}n:I → invalid_book`, `Hezekiah ${c(0x1F132)}${BS}n:I`, true],
+      [`ⱽ (U+2C7D) valid John ${c(0x2C7D)}${BS}n:I → John 5:1`, `John ${c(0x2C7D)}${BS}n:I`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a full-scan-source (ᶜ) fabrication under scripture_validation', async () => {
+    const BS = String.fromCharCode(92);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `John ${String.fromCodePoint(0x1D9C)}${BS}n:I` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke ᶜ seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream ᶜ seam under reserved key').toBe(false);
+  });
 });
