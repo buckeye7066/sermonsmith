@@ -205,7 +205,17 @@ const SEAM_CHAR_RE = new RegExp(`^[${SEAM_CHARS}]$`, 'u');
 //   \<char>     a named/simple escape (\n \t …) or a literal letter/digit
 // The forms are ordered longest-first so \u{…} wins over \uHHHH.
 const ESCAPE_SEAM = '\\\\+(?:u\\{[0-9a-fA-F]{1,6}\\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[a-zA-Z0-9])';
-const CONTEXT_SEAM = `(?:[${SEAM_CHARS}]|${ESCAPE_SEAM})`;
+// A LONE surrogate code UNIT (U+D800–DFFF). Under the `u` flag this range matches
+// ONLY an UNPAIRED surrogate in the subject — a valid astral char is read as its
+// combined codepoint (never as halves). Adding it to the seam-run class lets a
+// LITERAL surrogate half be CAPTURED into the run so it can recombine, in the
+// decode-then-check, with an ESCAPED half of the other representation. This is the
+// structural close for the whole surrogate-REPRESENTATION class: real-codepoint,
+// escaped-BMP, escaped-pair, and MIXED literal/escaped halves (either order) all
+// decode to the SAME codepoint and hit the SAME seam test — no representation is
+// special. A genuinely lone surrogate stays non-seam (seamRunIsAllSeam rejects it).
+const LONE_SURROGATE = '\\uD800-\\uDFFF';
+const CONTEXT_SEAM = `(?:[${SEAM_CHARS}${LONE_SURROGATE}]|${ESCAPE_SEAM})`;
 const NAMED_ESCAPE_CP = { n: 0x0A, r: 0x0D, t: 0x09, v: 0x0B, f: 0x0C, b: 0x08, 0: 0x00 };
 // Decode ONE escape token to the raw string fragment it represents: a single
 // UTF-16 code unit for \uHHHH (which may be a lone surrogate half), or a full
@@ -225,15 +235,19 @@ function escapeToChars(esc) {
   return null; // \A / \5 → a literal letter/digit, NOT a control
 }
 const ESCAPE_TOKEN_RE = new RegExp(ESCAPE_SEAM, 'gu');
-// Is a captured seam RUN entirely seam? Real chars in the run already matched the
-// SEAM_CHARS class (always seams). We DECODE the run in place — each escape token
-// → the char(s) it stands for, real chars kept as-is — then iterate the decoded
-// string BY CODEPOINT, so a truly-adjacent escaped surrogate PAIR
-// (\uD800-\uDBFF then \uDC00-\uDFFF) recombines into its one supplementary
-// codepoint BEFORE the seam-membership test. An escaped astral seam char
-// (U+E0100 variation selector, U+E0000 tag, …) is thus recognised by
-// construction; a non-seam codepoint (emoji \u{1F600}, "A"), a lone/unpaired
-// surrogate, or a malformed escape is NOT a seam. Never throws.
+// Is a captured seam RUN entirely seam? The run may contain real SEAM_CHARS
+// chars, LITERAL surrogate code units (captured via LONE_SURROGATE), and escape
+// tokens. We DECODE the run in place — each escape token → the char(s) it stands
+// for (a single UTF-16 unit for \uHHHH, which may itself be a surrogate half),
+// real chars kept as-is — then iterate the decoded string BY CODEPOINT, so a
+// truly-adjacent surrogate PAIR (high U+D800-DBFF then low U+DC00-DFFF)
+// recombines into its one supplementary codepoint BEFORE the seam-membership test
+// REGARDLESS of whether each half came from an escape or a literal. So an astral
+// seam char (U+E0100 variation selector, U+E0000 tag, …) written literally,
+// fully-escaped, or as MIXED literal/escaped halves (either order) all decode to
+// the same codepoint and hit the same test; a non-seam codepoint (emoji
+// \u{1F600}, "A"), a lone/unpaired surrogate, or a malformed escape is NOT a
+// seam. Never throws.
 function seamRunIsAllSeam(run) {
   let bad = false;
   const decoded = run.replace(ESCAPE_TOKEN_RE, (esc) => {

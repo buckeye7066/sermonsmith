@@ -1216,4 +1216,42 @@ describe('/stream fabricated-Scripture screen', () => {
       ['valid John 3:16', 'John 3:16', false],
     ]);
   });
+
+  // --- Round-42: MIXED literal/escaped surrogate seams (one half a literal code
+  // unit, the other an escape token — BOTH orders) decode to the same codepoint
+  // and hit the same seam test, through the real transport. ---
+  it('/invoke + /stream: MIXED literal/escaped surrogate seams (both orders) bind/fail-closed', async () => {
+    const BS = String.fromCharCode(92);
+    const SUP6 = String.fromCodePoint(0x2076);
+    const HI = String.fromCharCode(0xDB40), LO = String.fromCharCode(0xDD00); // literal halves of U+E0100
+    const EHI = `${BS}uDB40`, ELO = `${BS}uDD00`;                              // escaped halves
+    const EMLO = String.fromCharCode(0xDE00);                                 // literal low half of emoji U+1F600
+    await runR25(app, [
+      [`high-esc+low-lit E0100 ordinal → invalid_book`, `4${EHI}${LO}th John 1:1`, true],
+      [`high-lit+low-esc E0100 ordinal → invalid_book`, `4${HI}${ELO}th John 1:1`, true],
+      [`high-esc+low-lit E0100 superscript → FAIL CLOSED`, `John 3:1${EHI}${LO}${SUP6}`, true],
+      [`high-lit+low-esc E0100 superscript → FAIL CLOSED`, `John 3:1${HI}${ELO}${SUP6}`, true],
+      [`non-seam mixed emoji ${BS}uD83D+low-lit → bare valid John`, `4${BS}uD83D${EMLO}th John 1:1`, false],
+      ['valid John 3:16', 'John 3:16', false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a MIXED-surrogate fabricated seam hidden under scripture_validation', async () => {
+    const BS = String.fromCharCode(92);
+    const HI = String.fromCharCode(0xDB40), ELO = `${BS}uDD00`; // high-literal + low-escaped E0100
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `4${HI}${ELO}th John 1:1` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke mixed-surrogate under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream mixed-surrogate under reserved key').toBe(false);
+  });
 });

@@ -1056,6 +1056,45 @@ describe('validateAiSermon', () => {
     expect(String.fromCharCode(hi, lo)).toBe(cp(0xE0100));
   });
 
+  it('recombines MIXED literal/escaped surrogate halves (both orders) via one decode-then-check', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const HI = String.fromCharCode(0xDB40); // literal high half of U+E0100
+    const LO = String.fromCharCode(0xDD00); // literal low  half of U+E0100
+    const EHI = `${BS}uDB40`;
+    const ELO = `${BS}uDD00`;
+    // A representative supplementary SEAM codepoint (U+E0100) in EVERY
+    // representation — literal pair, fully-escaped pair, \u{...}, high-escaped +
+    // low-literal, high-literal + low-escaped — is consumed identically in BOTH
+    // bounded contexts (ordinal → invalid_book, no bare John; superscript → fail
+    // closed). No representation is special: all decode to the same codepoint.
+    const seamForms = [HI + LO, EHI + ELO, `${BS}u{E0100}`, EHI + LO, HI + ELO];
+    for (const seam of seamForms) {
+      const label = JSON.stringify(seam);
+      expect(extractScriptureRefs(`4${seam}th John 1:1`).includes('John 1:1'), `ordinal ${label}`).toBe(false);
+      expect(validateScriptureRefs(extractScriptureRefs(`4${seam}th John 1:1`)).some((r) => r.status === 'invalid_book'), `ordinal invalid ${label}`).toBe(true);
+      expect(validateScriptureRefs(extractScriptureRefs(`John 3:1${seam}${SUP6}`)).every((r) => r.status !== 'valid'), `superscript ${label}`).toBe(true);
+      // Under the reserved key on the LIVE screen path, the mixed seam is still caught.
+      expect(extractScriptureRefsDeep({ scripture_validation: { note: `4${seam}th John 1:1` } }, { screenReservedKeys: true }).some((r) => /^4 John/.test(r)), `reserved ${label}`).toBe(true);
+    }
+    // A NON-seam supplementary codepoint (emoji U+1F600) in the SAME mixed forms
+    // is NOT a seam → bare valid John, no spurious "4 John".
+    const EMHI = String.fromCharCode(0xD83D), EMLO = String.fromCharCode(0xDE00);
+    for (const seam of [EMHI + EMLO, `${BS}uD83D${BS}uDE00`, `${BS}u{1F600}`, `${BS}uD83D` + EMLO, EMHI + `${BS}uDE00`]) {
+      const refs = extractScriptureRefs(`4${seam}th John 1:1`);
+      expect(refs.some((r) => /^4 John/.test(r)), `emoji non-seam ${JSON.stringify(seam)}`).toBe(false);
+      expect(refs, `emoji bare John ${JSON.stringify(seam)}`).toContain('John 1:1');
+    }
+    // A legit SUPPLEMENTARY DIGIT ordinal (𝟚nd, U+1D7DA \p{Nd}) still folds via the
+    // digit path — never swallowed as a seam, never dropped.
+    expect(extractScriptureRefs(`${cp(0x1D7DA)}nd John 1:1`)).toEqual(['2 John 1:1']);
+    // Lone / reversed / malformed surrogates are non-seams and never throw.
+    expect(() => extractScriptureRefs(`4${LO}${HI}th John 1:1`)).not.toThrow();
+    expect(extractScriptureRefs(`4${LO}th John 1:1`)).toContain('John 1:1');
+    expect(extractScriptureRefs(`4${LO}${HI}th John 1:1`)).toContain('John 1:1');
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);
