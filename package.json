@@ -51,6 +51,7 @@
     "node": ">=20 <25",
     "npm": ">=10 <12"
   },
+  "devDependencies": {},
   "allowScripts": {
     "@prisma/client@6.19.2": true,
     "@prisma/engines@6.19.3": true,

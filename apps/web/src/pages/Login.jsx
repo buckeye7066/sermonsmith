@@ -137,6 +137,16 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full">
+        {/* Temporary maintenance notice — hide by setting VITE_MAINTENANCE_BANNER=off */}
+        {import.meta.env.VITE_MAINTENANCE_BANNER !== 'off' && (
+          <div
+            role="status"
+            className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 text-center"
+          >
+            SermonSmith is currently being updated. You can still sign in, but some
+            features may be briefly unavailable. Thanks for your patience.
+          </div>
+        )}
         <div className="text-center mb-8">
           <div className="w-20 h-20 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg">
             <svg viewBox="0 0 24 24" className="w-10 h-10 text-white" fill="currentColor">
