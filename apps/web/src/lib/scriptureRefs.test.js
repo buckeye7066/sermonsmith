@@ -1203,6 +1203,46 @@ describe('validateAiSermon', () => {
     expect(() => extractScriptureRefs(`Hezekiah${BS}u{110000}4:5`)).not.toThrow();
   });
 
+  it('covers DELIMITER-adjacent seams (: and -): every representation reaches the real-seam verdict', () => {
+    const BS = '\\';
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    const hasStatus = (s, st) => validateScriptureRefs(extractScriptureRefs(s)).some((x) => x.status === st);
+    // Real seam, named escapes (\n \t), a BMP code-point escape, and a supplementary
+    // escape must ALL reach the same verdict at every citation seam position.
+    const reps = [cp(0x200B), `${BS}n`, `${BS}t`, `${BS}u200B`, `${BS}u{E0100}`];
+    const positions = [
+      [(s) => `Hezekiah${s}4:5`, 'invalid_book'],         // book↔number
+      [(s) => `Hezekiah 4${s}:5`, 'invalid_book'],        // number↔':'
+      [(s) => `Hezekiah 4:${s}5`, 'invalid_book'],        // ':'↔number
+      [(s) => `John 999${s}:16`, 'out_of_range'],         // out-of-range chapter across ':'
+      [(s) => `John 3:1${s}-999`, 'out_of_range'],        // range: number↔'-'
+      [(s) => `John 3:1-${s}999`, 'out_of_range'],        // range: '-'↔number
+      [(s) => `4${s}th John 1:1`, 'invalid_book'],        // digit↔suffix
+      [(s) => `4th${s}John 1:1`, 'invalid_book'],         // suffix↔book
+      [(s) => `John 3:1${s}${SUP6}`, 'out_of_range'],     // digit↔superscript (bounded scrub)
+    ];
+    for (const [mk, want] of positions) {
+      for (const seam of reps) {
+        expect(hasStatus(mk(seam), want), `${want} @ ${JSON.stringify(mk(seam))}`).toBe(true);
+      }
+    }
+    // A bad range-end is PRESERVED (never silently truncated to a valid ref).
+    expect(extractScriptureRefs(`John 3:1${BS}n-999`).some((r) => r === 'John 3:1')).toBe(false);
+    expect(extractScriptureRefs(`John 3:1-${BS}n999`).some((r) => r === 'John 3:1')).toBe(false);
+    // Reserved-key live scan + validateAiContent parity for the named delimiter seam.
+    expect(validateAiContent({ content: `Hezekiah 4${BS}n:5` }).allValid).toBe(false);
+    expect(extractScriptureRefsDeep({ scripture_validation: { x: `Hezekiah 4${BS}n:5` } }, { screenReservedKeys: true }).some((r) => /^Hezekiah 4:5$/.test(r))).toBe(true);
+    // Prose-safety preserved: numeric strings with escaped seams but NO book → no ref.
+    expect(extractScriptureRefs(`1${BS}n.2.3`)).toEqual([]);      // version
+    expect(extractScriptureRefs(`555${BS}n-1234`)).toEqual([]);   // phone
+    expect(validateAiContent({ width: `${BS}u002050px` }).allValid).toBe(true);
+    // Valid citations with escaped delimiter seams stay valid (consistency).
+    expect(extractScriptureRefs(`John 3${BS}n:16`)).toEqual(['John 3:16']);
+    expect(extractScriptureRefs(`John 3:1${BS}n-5`)).toEqual(['John 3:1-5']);
+    expect(() => extractScriptureRefs(`John 3:1${BS}u{110000}-999`)).not.toThrow();
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

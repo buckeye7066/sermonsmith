@@ -1335,4 +1335,38 @@ describe('/stream fabricated-Scripture screen', () => {
       .send({ prompt: 'p', response_json_schema: { type: 'object' } });
     expect(res.status, 'non-citation escapes must NOT 422').toBe(200);
   });
+
+  // --- Round-45: seams adjacent to the ':' (chapter:verse) and '-' (range)
+  // delimiters are now decoded inside the numeric citation span, so a named/
+  // code-point escape there reaches the same verdict as a real seam (was a bypass
+  // / silent truncation) — through the real transport. ---
+  it('/invoke + /stream: seams next to ":" / "-" bind the fabricated/out-of-range/invalid-range ref', async () => {
+    const BS = String.fromCharCode(92);
+    await runR25(app, [
+      [`Hezekiah 4${BS}n:5 → invalid_book`, `Hezekiah 4${BS}n:5`, true],
+      [`Hezekiah 4:${BS}n5 → invalid_book`, `Hezekiah 4:${BS}n5`, true],
+      [`John 999${BS}n:16 → out_of_range`, `John 999${BS}n:16`, true],
+      [`John 3:1${BS}n-999 → out_of_range (range end preserved)`, `John 3:1${BS}n-999`, true],
+      [`John 3:1-${BS}n999 → out_of_range`, `John 3:1-${BS}n999`, true],
+      [`valid John 3${BS}n:16 stays valid`, `John 3${BS}n:16`, false],
+    ]);
+  });
+
+  it('/invoke + /stream catch a delimiter-adjacent escaped-seam fabrication under scripture_validation', async () => {
+    const BS = String.fromCharCode(92);
+    STREAM_TEXT = JSON.stringify({ scripture_validation: { note: `Hezekiah 4${BS}n:5` } });
+    STREAM_THROW = false;
+    const inv = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' } });
+    expect(inv.status, '/invoke delimiter seam under reserved key').toBe(422);
+    expect(inv.body.scripture_unverified).toBe(true);
+
+    const str = await request(app)
+      .post('/api/ai/stream')
+      .set('Cookie', [`ss_token=${tokenFor('u-s')}`])
+      .send({ prompt: 'p', response_json_schema: { type: 'object' }, stream_result: true });
+    expect(parseTrailer(str).scripture.ok, '/stream delimiter seam under reserved key').toBe(false);
+  });
 });

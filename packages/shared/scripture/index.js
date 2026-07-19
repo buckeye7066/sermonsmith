@@ -270,9 +270,11 @@ function seamRunIsAllSeam(run) {
 // suffix, digit↔superscript, suffix↔book, book↔chapter, chapter↔verse, …) to see
 // through escapes — always one behind — a single pre-pass canonicalizes seams
 // UNIFORMLY across EVERY representation, scoped to CITATION-CANDIDATE spans. A
-// candidate seam is one that sits BETWEEN TWO WORD CHARACTERS (`\p{L}`/`\p{Nd}`) —
-// the intra-citation position where a book/prefix/number token meets the next
-// citation token. Within such a run, ALL escape representations are decoded via the
+// candidate seam is one at an INTERNAL position of a citation shape: either BETWEEN
+// TWO WORD CHARACTERS (`\p{L}`/`\p{Nd}` — book↔number, prefix/ordinal↔book, digit↔
+// suffix), OR inside a NUMBER↔delimiter↔NUMBER span around the chapter:verse ':'
+// and range '-' (the positions CITATION_RE puts `\s*` around). Within such a run,
+// ALL escape representations are decoded via the
 // SAME by-construction decode-then-check as `seamRunIsAllSeam`: real seam
 // codepoints, EXPLICIT code-point escapes (\uXXXX / \u{…} / \xHH, incl. surrogate
 // pairs and MIXED literal/escaped halves, both orders), AND short NAMED escapes
@@ -298,27 +300,59 @@ function seamRunIsAllSeam(run) {
 // ENCODING of a seam decide whether a smuggled reference is checked. Shape cannot
 // soundly tell a smuggled citation from a code-literal one, so the screen prefers
 // to flag. Content whose escapes do NOT form a book↔number shape is unaffected.
+// Decode ONE captured seam run: return the real seam codepoint(s) it denotes when
+// EVERY decoded codepoint is a seam, else the run UNCHANGED. Escapes decode via the
+// by-construction escapeToChars (surrogate pairs recombine when iterated by
+// codepoint); a decoded non-seam codepoint, a lone/reversed surrogate, or a
+// malformed escape leaves the run literal. Never throws.
+function decodeSeamRun(run) {
+  if (run.indexOf('\\') === -1) return run; // pure real-seam run → already real; downstream handles it
+  let bad = false;
+  const decoded = run.replace(ESCAPE_TOKEN_RE, (esc) => {
+    const frag = escapeToChars(esc);
+    if (frag == null) { bad = true; return esc; }
+    return frag;
+  });
+  if (bad) return run;
+  for (const ch of decoded) {
+    if (ch.length === 1) {
+      const u = ch.charCodeAt(0);
+      if (u >= 0xD800 && u <= 0xDFFF) return run; // lone/unpaired surrogate → non-seam
+    }
+    if (!SEAM_CHAR_RE.test(ch)) return run; // any non-seam codepoint → run stays literal
+  }
+  return decoded;
+}
+// Citation-candidate contexts where a seam is canonicalized. The citation matcher
+// (CITATION_RE) tolerates whitespace at exactly these internal positions:
+//   • WORD↔WORD  — book↔number, prefix/ordinal↔book, digit↔suffix, digit↔digit.
+//   • NUMBER↔delimiter↔NUMBER — chapter ':' verse, and range '-' — the ONLY
+//     delimiters CITATION_RE puts `\s*` around. A seam next to ':' or '-' is NOT
+//     word-flanked (the delimiter is not \p{L}/\p{Nd}), so the word↔word rule alone
+//     missed it and an escaped seam there (`4\n:5`, `1\n-999`) bypassed the screen
+//     while a real newline flagged. Covering the numeric span closes that class.
+// Digit↔SUPERSCRIPT stays with the bounded AMBIGUOUS_SUPERSCRIPT scrub (the
+// superscript is \p{No}, not \p{Nd}); parity there is asserted by tests.
 const WORDISH = '[\\p{L}\\p{Nd}]';
 const CITATION_SEAM_RUN_RE = new RegExp(`(?<=${WORDISH})(${CONTEXT_SEAM}+)(?=${WORDISH})`, 'gu');
+// The chapter:verse and range delimiters, including the Unicode colon/dash variants
+// normalizeCitationText later folds to ASCII ':' / '-'.
+const CITE_DELIM = '(?::|-|[\\uFF1A\\u2236\\u02D0\\uA789\\u2010-\\u2015\\u2212\\uFF0D])';
+// A numeric citation span: a digit run joined to further digit runs by a
+// chapter:verse / range delimiter, with seam runs (any representation) as the
+// connective tissue. Anchored by an ACTUAL number-delimiter-number shape, so a
+// lone escaped seam in prose/code (no numeric-delimited neighbours) is not matched.
+const NUMERIC_CITATION_SPAN_RE = new RegExp(`\\p{Nd}+(?:${CONTEXT_SEAM}*${CITE_DELIM}${CONTEXT_SEAM}*\\p{Nd}+)+`, 'gu');
+const SEAM_RUN_ONLY_RE = new RegExp(`${CONTEXT_SEAM}+`, 'gu');
 function decodeCitationSeams(text) {
-  return String(text).replace(CITATION_SEAM_RUN_RE, (run) => {
-    if (run.indexOf('\\') === -1) return run; // pure real-seam run → already real; downstream handles it
-    let bad = false;
-    const decoded = run.replace(ESCAPE_TOKEN_RE, (esc) => {
-      const frag = escapeToChars(esc);
-      if (frag == null) { bad = true; return esc; }
-      return frag;
-    });
-    if (bad) return run; // an escape that doesn't decode to a codepoint → leave literal (non-seam)
-    for (const ch of decoded) {
-      if (ch.length === 1) {
-        const u = ch.charCodeAt(0);
-        if (u >= 0xD800 && u <= 0xDFFF) return run; // lone/unpaired surrogate → non-seam
-      }
-      if (!SEAM_CHAR_RE.test(ch)) return run; // any non-seam codepoint → leave the run untouched
-    }
-    return decoded; // every decoded codepoint is a real seam → escaped seam becomes real
-  });
+  let out = String(text);
+  // (1) WORD↔WORD seams (book↔number, prefix/ordinal↔book, digit↔suffix, digit↔digit).
+  out = out.replace(CITATION_SEAM_RUN_RE, decodeSeamRun);
+  // (2) NUMBER↔':'/'-'↔NUMBER: within each numeric citation span, decode every seam
+  // run (real, code-point escapes, surrogate pairs incl. mixed, AND named escapes),
+  // so a seam adjacent to ':' / '-' behaves identically to a real space there.
+  out = out.replace(NUMERIC_CITATION_SPAN_RE, (span) => span.replace(SEAM_RUN_ONLY_RE, decodeSeamRun));
+  return out;
 }
 
 // Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
