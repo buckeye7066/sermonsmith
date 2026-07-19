@@ -822,6 +822,23 @@ describe('/stream fabricated-Scripture screen', () => {
     ]);
   });
 
+  // --- Round-38: ASCII/whitespace seams (tab/LF/CR) in both bounded contexts,
+  // and multi-line refs preserved. ---
+  it('/invoke + /stream: whitespace ordinal seams bind, whitespace superscript seams fail closed, multi-line refs intact', async () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const SUP6 = cp(0x2076);
+    await runR25(app, [
+      ['tab-seam 2\tnd John 1:1 → 2 John (valid)', '2\tnd John 1:1', false],
+      ['tab-seam 4\tth John 1:1 → invalid_book (no bare John)', '4\tth John 1:1', true],
+      [`tab superscript John 3:1\t${SUP6} → FAIL CLOSED`, `John 3:1\t${SUP6}`, true],
+      [`range-end seam John 3:1-3\r${SUP6} → FAIL CLOSED`, `John 3:1-3\r${SUP6}`, true],
+      ['outline 2 - John 3:16 → valid bare John', '2 - John 3:16', false],
+      ['ascii 4th John 1:1 → invalid_book', '4th John 1:1', true],
+      ['valid 1 John 5:4', '1 John 5:4', false],
+      ['empty-slot John 3:16 valid', 'John 3:16', false],
+    ]);
+  });
+
   it('a hanging audit store cannot block the mandatory failure trailer (written before audit)', async () => {
     const spy = vi.spyOn(prisma.aiAuditLog, 'create').mockImplementation(() => new Promise(() => {})); // never resolves
     try {

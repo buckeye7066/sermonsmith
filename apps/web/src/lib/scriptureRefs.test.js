@@ -894,6 +894,51 @@ describe('validateAiSermon', () => {
     expect(extractScriptureRefs(`John${cp(0xB2)}:1`)).toEqual(['John 2:1']);
   });
 
+  it('consumes ASCII/whitespace seams (tab/LF/CR/FF/VT/NEL) in both bounded contexts — verified BY CONSTRUCTION', () => {
+    const cp = (x) => String.fromCodePoint(x);
+    const TAB = '\t', LF = '\n', CR = '\r', FF = cp(0x0C), NEL = cp(0x85);
+    const SUP6 = cp(0x2076);
+    // Whitespace ordinal seams bind numbered, never bare John.
+    expect(extractScriptureRefs(`2${LF}nd John 1:1`)).toEqual(['2 John 1:1']);
+    for (const seam of [TAB, CR, FF, NEL]) {
+      const refs = extractScriptureRefs(`4${seam}th John 1:1`);
+      expect(refs.includes('John 1:1'), `seam U+${seam.codePointAt(0).toString(16)} must not leak bare John`).toBe(false);
+      expect(validateScriptureRefs(refs).some((r) => r.status === 'invalid_book' || r.status === 'out_of_range')).toBe(true);
+    }
+    // Whitespace superscript seams fail closed (never a silently-valid shortened ref).
+    for (const seam of [TAB, LF, CR]) {
+      const v = validateScriptureRefs(extractScriptureRefs(`John 3:1${seam}${SUP6}`));
+      expect(v.length, `sup seam U+${seam.codePointAt(0).toString(16)}`).toBeGreaterThan(0);
+      expect(v.every((r) => r.status !== 'valid' && r.status !== 'chapter_checked'), `sup seam U+${seam.codePointAt(0).toString(16)}`).toBe(true);
+    }
+    // BY-CONSTRUCTION SUPERSET GUARD: every char the matcher counts as \s (plus NEL)
+    // is consumed inside BOTH bounded contexts — so the seam class can never be
+    // incomplete relative to the tokenizer's separator set.
+    const wsRe = /\s/;
+    let tested = 0;
+    for (let c = 0; c <= 0x3001; c += 1) {
+      const ch = cp(c);
+      if (!(wsRe.test(ch) || c === 0x85)) continue;
+      tested += 1;
+      // Ordinal context: must not leak bare John.
+      expect(extractScriptureRefs(`4${ch}th John 1:1`).includes('John 1:1'), `ordinal seam U+${c.toString(16)}`).toBe(false);
+      // Superscript context: must not silently emit a valid John 3:1 / John 3:16.
+      const sup = validateScriptureRefs(extractScriptureRefs(`John 3:1${ch}${SUP6}`));
+      expect(sup.some((r) => (r.ref === 'John 3:1' || r.ref === 'John 3:16') && r.status === 'valid'), `sup seam U+${c.toString(16)}`).toBe(false);
+    }
+    expect(tested).toBeGreaterThan(10);
+  });
+
+  it('preserves multi-line references and the r30 outline across whitespace', () => {
+    // A newline between a complete ref and the NEXT book (a letter, not a digit↔suffix
+    // or digit↔superscript context) is untouched → both refs extract.
+    expect(extractScriptureRefs('John 3:16\nMark 1:1')).toEqual(['John 3:16', 'Mark 1:1']);
+    expect(extractScriptureRefs('1 John 5:4\nRevelation 3:20')).toEqual(['1 John 5:4', 'Revelation 3:20']);
+    // r30 bare-numeric outline (no st/nd/rd/th suffix → not an ordinal) unchanged.
+    expect(extractScriptureRefs('2 - John 3:16')).toEqual(['John 3:16']);
+    expect(extractScriptureRefs('2. John 3:16')).toEqual(['John 3:16']);
+  });
+
   it('does not false-positive on ordinary prose that is not a reference pattern', () => {
     expect(extractScriptureRefs('we met at 3:30 today')).toEqual([]);
     expect(extractScriptureRefs('the ratio was 2:1 in our favor')).toEqual([]);

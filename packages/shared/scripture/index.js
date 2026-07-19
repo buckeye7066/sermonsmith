@@ -163,18 +163,26 @@ const SHADOW_HIDDEN = `(?:${ZERO_WIDTH}|\\p{M})`;
 const SHADOW_AT_BOOK_CHAPTER = new RegExp(`(?<=\\p{L})${SHADOW_HIDDEN}+(?=\\p{Nd})`, 'gu');
 const SHADOW_AT_CHAPTER_BOOK = new RegExp(`(?<=\\p{Nd})${SHADOW_HIDDEN}+(?=\\p{L})`, 'gu');
 const SHADOW_HIDDEN_ANY = new RegExp(`${SHADOW_HIDDEN}+`, 'gu');
-// The COMPLETE seam class = the hidden class (non-whitespace \p{Cc} C0/C1 + \p{Cf}
-// + \p{Default_Ignorable_Code_Point} [incl. variation selectors + tag chars] +
-// \p{M}) PLUS Unicode SEPARATORS (\p{Zs} — space/NBSP/hair/narrow/thin/… — and
-// the line/paragraph separators \p{Zl} U+2028 / \p{Zp} U+2029). It is the single
-// source of truth for a seam wedged BETWEEN two citation-significant tokens that
-// must be consumed BEFORE normalization collapses it: normalizeCitationText
-// turns every Unicode separator into an ASCII space and every hidden char into a
-// space, so a context-scrub (ordinal digit↔suffix, decimal-digit↔superscript)
-// must strip the WHOLE class first, or the collapsed space splits the token. Used
-// ONLY inside those bounded contexts — never treats a normal inter-word space as
-// a seam elsewhere. tab/nl/cr stay real whitespace (excluded).
-const COMPLETE_SEAM = '(?:(?![\\t\\n\\r])[\\p{Cc}\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}\\p{Zs}\\p{Zl}\\p{Zp}])';
+// The CONTEXT seam class — a single char class used ONLY inside the two BOUNDED
+// context-scrubs (ordinal digit↔suffix, decimal-digit↔superscript). It must be a
+// TRUE SUPERSET of everything the tokenizer treats as a separator, so no seam can
+// survive the scrub and then be collapsed into a token separator downstream:
+//   • CITATION_RE separators = JS `\s` (the `u` flag does NOT change `\s`): TAB,
+//     LF, VT, FF, CR, SPACE, NBSP, all \p{Zs}, LS (U+2028), PS (U+2029), BOM.
+//   • normalizeCitationText collapses every \p{Cc}, \p{Cf}, \p{Default_Ignorable}
+//     and Unicode separator to a space.
+// CONTEXT_SEAM = \p{Cc} (ALL C0/C1 controls incl. TAB/LF/CR/VT/FF + NEL — NOT
+// excluded here, unlike the global hidden class, because inside these bounded
+// digit↔suffix / digit↔superscript patterns a control IS a seam) + \p{Cf}
+// + \p{Default_Ignorable_Code_Point} (variation selectors + tag chars) + \p{M}
+// + \p{Zs} + \p{Zl} + \p{Zp}. By construction this ⊇ JS `\s` (proven by the
+// superset guard test) — closing the seam class BY CONSTRUCTION, not one char at
+// a time. It is contextual: only between two citation tokens, never a general
+// inter-word separator; the superscript scrub additionally requires a SUPERSCRIPT
+// digit after the seam, so a newline between two real refs ("…3:16\nMark 1:1") is
+// untouched, and a bare numeric with no st/nd/rd/th suffix ("2\tJohn") is not an
+// ordinal → the r30 outline and multi-line refs are preserved.
+const CONTEXT_SEAM = '(?:[\\p{Cc}\\p{Cf}\\p{Default_Ignorable_Code_Point}\\p{M}\\p{Zs}\\p{Zl}\\p{Zp}])';
 
 // Non-ASCII DECIMAL digits (Unicode \p{Nd}) render as ordinary numerals but do
 // NOT match the matcher's ASCII `\d`, and NFKC does not fold most of them
@@ -459,9 +467,9 @@ const SUP_LETTERS = Object.keys(SUPERSCRIPT_FOLD).filter((c) => /[a-z]/.test(SUP
 // separators). SHADOW_HIDDEN alone (hidden only) missed \p{Zs}/\p{Zl}/\p{Zp},
 // which normalizeCitationText turns into an ASCII space LATER — so a Unicode-
 // space seam ("4<U+200A>th", "2<U+00A0>nd") split the ordinal → bare John. Using
-// COMPLETE_SEAM here (a superset of the shadow's hidden class) closes the whole
+// CONTEXT_SEAM here (a superset of the shadow's hidden class) closes the whole
 // seam-class gap at once and keeps the two paths from drifting.
-const ORD_HIDDEN = COMPLETE_SEAM;
+const ORD_HIDDEN = CONTEXT_SEAM;
 // Ordinal DIGIT: any Unicode decimal digit (\p{Nd} — ASCII, fullwidth,
 // Arabic-Indic, mathematical, …) PLUS superscript digits (\p{No}, not Nd). The
 // leading digits fold to ASCII in foldOrdinalPrefix regardless of script.
@@ -494,14 +502,16 @@ function foldOrdinalPrefix(_m, digits, suffix) {
 // NEVER silently emitting a valid ref that DIFFERS from the visible text.
 // Applies to trailing ("3:16¹"→"3:16z", "3:3⁷"→"3:3z"), between-digit
 // ("3:1⁶5"→"3:1z5"), and range-end ("3:1-3⁶") superscripts — INCLUDING when a
-// COMPLETE_SEAM (hidden OR Unicode separator) is wedged between the decimal digit
-// and the superscript ("3:1<U+200B>⁶", "3:1<U+00A0>⁶"): the seam is consumed and
-// the superscript run replaced with the marker, so no inserted seam can smuggle
-// the shortened/extended reading past the fail-closed rule. A superscript filling
-// an EMPTY chapter/verse slot (NOT preceded by a digit — "John 3:¹⁶", "John²:1")
-// is UNAMBIGUOUS number data → LEFT for NFKC to fold (r35 rule, unchanged).
+// CONTEXT_SEAM (hidden OR Unicode separator OR ASCII whitespace incl. tab/LF/CR)
+// is wedged between the decimal digit and the superscript ("3:1<U+200B>⁶",
+// "3:1<TAB>⁶"): the seam is consumed and the superscript run replaced with the
+// marker, so no inserted seam can smuggle the shortened/extended reading past the
+// fail-closed rule. A superscript filling an EMPTY chapter/verse slot (NOT
+// preceded by a digit — "John 3:¹⁶", "John²:1") is UNAMBIGUOUS number data →
+// LEFT for NFKC to fold (r35 rule, unchanged). The required SUPERSCRIPT digit
+// after the seam keeps a newline between two real refs ("…3:16\nMark 1:1") safe.
 const SUP_AMBIG_MARK = 'z'; // a letter → NUM_TOKEN captures it as a trailing char → malformedToken flags
-const AMBIGUOUS_SUPERSCRIPT_RE = new RegExp(`(\\p{Nd})${COMPLETE_SEAM}*[${SUP_DIGITS}]+`, 'gu');
+const AMBIGUOUS_SUPERSCRIPT_RE = new RegExp(`(\\p{Nd})${CONTEXT_SEAM}*[${SUP_DIGITS}]+`, 'gu');
 // A superscript ORDINAL LETTER not consumed by the ordinal-prefix fold is never
 // number data → delete.
 const STRAY_SUP_LETTER_RE = new RegExp(`[${SUP_LETTERS}]`, 'gu');
