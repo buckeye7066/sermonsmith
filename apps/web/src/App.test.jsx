@@ -32,6 +32,13 @@ vi.mock('@/components/UserNotRegisteredError', () => ({
   default: () => <div data-testid="user-not-registered">User not registered</div>,
 }));
 
+// Route-gating assertions look for the Login page's "Sign In" heading, which
+// the maintenance banner replaces while the upgrade flag is on — pin it off
+// here; the banner itself is covered in Login.test.jsx.
+vi.mock('@/lib/maintenance', () => ({
+  LOGIN_MAINTENANCE: { active: false, title: '', message: '', etaText: '' },
+}));
+
 import { AuthenticatedApp } from './App.jsx';
 
 function LocationProbe() {
