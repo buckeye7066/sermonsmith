@@ -21,9 +21,11 @@ test('app boots and renders the shell', async ({ page }) => {
 
 test('unauthenticated user reaches an auth surface', async ({ page }) => {
   await page.goto('/');
-  // Either an email field (login) or a visible sign-in/get-started affordance.
+  // Either an email field (login), a visible sign-in/get-started affordance,
+  // or — while login maintenance mode is on (apps/web/src/lib/maintenance.js)
+  // — the upgrade banner that replaces the sign-in form.
   const authSurface = page.locator(
-    'input[type="email"], a:has-text("Login"), a:has-text("Sign"), button:has-text("Sign"), button:has-text("Get Started")',
+    'input[type="email"], a:has-text("Login"), a:has-text("Sign"), button:has-text("Sign"), button:has-text("Get Started"), [role="status"]:has-text("upgraded")',
   );
   await expect(authSurface.first()).toBeVisible({ timeout: 15_000 });
 });
