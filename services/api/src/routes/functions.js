@@ -13,7 +13,6 @@ import {
 import {
   premiumProvider,
   isPremiumTranslationId,
-  listPremiumTranslations,
   listPremiumTranslationsDetailed,
   fetchPremiumChapter,
   sliceVerses,

@@ -60,7 +60,6 @@ export function reportClientError(error, info = {}) {
     const classification = classifyClientError(message);
     if (classification) {
       // Diagnostic breadcrumb (no secrets): what we matched and what we did.
-      // eslint-disable-next-line no-console
       const where = typeof window !== 'undefined' ? window.location.pathname : '?';
       console.info(`[reportClientError] classified "${message.slice(0, 80)}" as ${classification} on ${where} — reported for server-side logging only`);
     }

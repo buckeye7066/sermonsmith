@@ -513,6 +513,10 @@ export default function Reader() {
         console.error('Failed to parse shared content');
       }
     }
+    // Intentional mount-only effect: deep-link params and shared content are
+    // one-time entry actions. handleJumpToVerse is not memoized, so listing it
+    // would re-run this on every render and re-fire the jump/toast.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
