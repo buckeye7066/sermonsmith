@@ -25,6 +25,29 @@ export function isAdminEmail(email) {
 
 const router = Router();
 
+// LOGIN MAINTENANCE MODE — while active, /login and /register return 503 so
+// no new sessions can be created during the upgrade. Everything else on this
+// router (logout, /me, password reset) stays open so already-signed-in users
+// are not kicked out. Frontend twin: apps/web/src/lib/maintenance.js (the
+// banner). Flip to false (one commit) when the upgrade finishes, or set
+// LOGIN_MAINTENANCE=0 for an env kill switch without a code change.
+const LOGIN_MAINTENANCE_ACTIVE = true;
+const LOGIN_MAINTENANCE_MESSAGE =
+  'SermonSmith is being upgraded and sign-in is temporarily disabled. ' +
+  'Expected back online by 8:00 PM Eastern tonight (Monday, July 21).';
+
+function isLoginMaintenanceActive() {
+  if (process.env.LOGIN_MAINTENANCE === '0') return false;
+  // Tests exercise the normal auth flows; maintenance is a production posture.
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST) return false;
+  return LOGIN_MAINTENANCE_ACTIVE;
+}
+
+function loginMaintenanceGuard(_req, res, next) {
+  if (!isLoginMaintenanceActive()) return next();
+  return res.status(503).json({ message: LOGIN_MAINTENANCE_MESSAGE });
+}
+
 // ---------------------------------------------------------------------------
 // Profile sanitisation.
 //
@@ -124,7 +147,7 @@ async function recordAudit(action, userId, metadata = {}) {
   }
 }
 
-router.post('/register', async (req, res, next) => {
+router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
   try {
     const { email, password, name } = req.body;
     if (!email || !password) {
@@ -180,7 +203,7 @@ router.post('/register', async (req, res, next) => {
   }
 });
 
-router.post('/login', async (req, res, next) => {
+router.post('/login', loginMaintenanceGuard, async (req, res, next) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {

@@ -4,7 +4,8 @@ import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Loader2, ArrowLeft, Mail, KeyRound } from 'lucide-react';
+import { Loader2, ArrowLeft, Mail, KeyRound, Wrench } from 'lucide-react';
+import { LOGIN_MAINTENANCE } from '@/lib/maintenance';
 
 // Same-origin redirect guard.
 //
@@ -133,6 +134,44 @@ export default function Login() {
       setLoading(false);
     }
   };
+
+  if (LOGIN_MAINTENANCE.active) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg">
+              <svg viewBox="0 0 24 24" className="w-10 h-10 text-white" fill="currentColor">
+                <path d="M11 2v8H3v2h8v8h2v-8h8v-2h-8V2z" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900">SermonSmith</h1>
+            <p className="text-gray-500 mt-1">AI-Powered Bible Study &amp; Sermon Builder</p>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <div
+              role="status"
+              className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+            >
+              <div className="flex items-start gap-3">
+                <Wrench className="w-5 h-5 mt-0.5 shrink-0 text-amber-600" aria-hidden="true" />
+                <div>
+                  <p className="font-semibold">{LOGIN_MAINTENANCE.title}</p>
+                  <p className="mt-1">{LOGIN_MAINTENANCE.message}</p>
+                  <p className="mt-2 font-medium">{LOGIN_MAINTENANCE.etaText}</p>
+                  <p className="mt-2 text-amber-800">
+                    Sign-in and registration are disabled until the upgrade completes. No action
+                    is needed on your part.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-50 flex items-center justify-center p-4">

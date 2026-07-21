@@ -35,6 +35,20 @@ vi.mock('@/lib/AuthContext', () => ({
   useAuth: () => ({ checkAppState: vi.fn() }),
 }));
 
+// These tests exercise the normal (non-maintenance) login flows; the
+// maintenance banner has its own test below using the real module shape.
+const maintenanceState = { active: false };
+vi.mock('@/lib/maintenance', () => ({
+  LOGIN_MAINTENANCE: {
+    get active() {
+      return maintenanceState.active;
+    },
+    title: 'SermonSmith is being upgraded',
+    message: 'Upgrade in progress.',
+    etaText: 'Expected back online soon.',
+  },
+}));
+
 import Login, { getSafeReturnUrl } from './Login.jsx';
 
 function LocationProbe() {
@@ -96,5 +110,28 @@ describe('Login routing', () => {
 
   it('normalizes same-origin hash-router returns to router paths', () => {
     expect(getSafeReturnUrl(`${window.location.origin}/#/SermonBuilder`)).toBe('/SermonBuilder');
+  });
+});
+
+describe('Login maintenance mode', () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('replaces the sign-in form with the upgrade banner and blocks login', () => {
+    maintenanceState.active = true;
+    try {
+      renderLogin();
+
+      expect(screen.getByRole('status')).toHaveTextContent(/being upgraded/i);
+      expect(screen.getByRole('status')).toHaveTextContent(/back online/i);
+      // No form fields, no submit — nothing to log in with.
+      expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
+      expect(login).not.toHaveBeenCalled();
+    } finally {
+      maintenanceState.active = false;
+    }
   });
 });
