@@ -9,6 +9,10 @@ const login = vi.fn();
 const register = vi.fn();
 const forgotPassword = vi.fn();
 const resetPassword = vi.fn();
+// Runtime maintenance probe (GET /api/auth/maintenance). Default: never
+// resolves, so tests of the static states see no mid-test flip; the runtime
+// toggle tests override it per-test with mockResolvedValueOnce.
+const maintenanceProbe = vi.fn(() => new Promise(() => {}));
 
 vi.mock('@/api/apiClient', () => ({
   api: {
@@ -17,6 +21,7 @@ vi.mock('@/api/apiClient', () => ({
       register: (...args) => register(...args),
       forgotPassword: (...args) => forgotPassword(...args),
       resetPassword: (...args) => resetPassword(...args),
+      maintenance: (...args) => maintenanceProbe(...args),
     },
   },
 }));
@@ -133,5 +138,38 @@ describe('Login maintenance mode', () => {
     } finally {
       maintenanceState.active = false;
     }
+  });
+
+  it('follows the server toggle OFF: static banner yields to the live form', async () => {
+    maintenanceState.active = true;
+    try {
+      maintenanceProbe.mockResolvedValueOnce({ active: false });
+      renderLogin();
+
+      // Static fallback shows the banner first…
+      expect(screen.getByRole('status')).toHaveTextContent(/being upgraded/i);
+      // …then the server's answer (maintenance off) restores the form.
+      await waitFor(() =>
+        expect(screen.queryByRole('status')).not.toBeInTheDocument(),
+      );
+      expect(screen.getByPlaceholderText(/you@example.com/i)).toBeInTheDocument();
+    } finally {
+      maintenanceState.active = false;
+    }
+  });
+
+  it('follows the server toggle ON: banner appears even when the bundle says off', async () => {
+    maintenanceProbe.mockResolvedValueOnce({
+      active: true,
+      title: 'SermonSmith is being upgraded',
+      message: 'Upgrade in progress.',
+      etaText: 'Expected back online soon.',
+    });
+    renderLogin();
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/being upgraded/i),
+    );
+    expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
   });
 });

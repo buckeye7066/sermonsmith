@@ -28,16 +28,28 @@ const router = Router();
 // LOGIN MAINTENANCE MODE — while active, /login and /register return 503 so
 // no new sessions can be created during the upgrade. Everything else on this
 // router (logout, /me, password reset) stays open so already-signed-in users
-// are not kicked out. Frontend twin: apps/web/src/lib/maintenance.js (the
-// banner). Flip to false (one commit) when the upgrade finishes, or set
-// LOGIN_MAINTENANCE=0 for an env kill switch without a code change.
+// are not kicked out. Frontend twin: apps/web/src/lib/maintenance.js (fallback
+// banner copy); the Login page asks GET /api/auth/maintenance at runtime, so
+// this switch is the single source of truth.
+//
+// TOGGLE (no code change, no rebuild): set LOGIN_MAINTENANCE on the API
+// service (Railway) — '0' forces OFF, '1' forces ON; unset falls back to the
+// code default below.
 const LOGIN_MAINTENANCE_ACTIVE = true;
 const LOGIN_MAINTENANCE_MESSAGE =
   'SermonSmith is being upgraded and sign-in is temporarily disabled. ' +
   'Expected back online by 8:00 PM Eastern tonight (Monday, July 21).';
+const LOGIN_MAINTENANCE_COPY = {
+  title: 'SermonSmith is being upgraded',
+  message:
+    'We are performing a scheduled upgrade. Sign-in and registration are temporarily disabled while we finish.',
+  etaText: 'Expected back online by 8:00 PM Eastern tonight (Monday, July 21).',
+};
 
 function isLoginMaintenanceActive() {
+  // Explicit env override wins in both directions.
   if (process.env.LOGIN_MAINTENANCE === '0') return false;
+  if (process.env.LOGIN_MAINTENANCE === '1') return true;
   // Tests exercise the normal auth flows; maintenance is a production posture.
   if (process.env.NODE_ENV === 'test' || process.env.VITEST) return false;
   return LOGIN_MAINTENANCE_ACTIVE;
@@ -47,6 +59,12 @@ function loginMaintenanceGuard(_req, res, next) {
   if (!isLoginMaintenanceActive()) return next();
   return res.status(503).json({ message: LOGIN_MAINTENANCE_MESSAGE });
 }
+
+// Public status probe: the Login page asks this at runtime so the banner
+// follows the server-side switch without a frontend rebuild. Never guarded.
+router.get('/maintenance', (_req, res) => {
+  res.json({ active: isLoginMaintenanceActive(), ...LOGIN_MAINTENANCE_COPY });
+});
 
 // ---------------------------------------------------------------------------
 // Profile sanitisation.
