@@ -277,6 +277,8 @@ const entitiesProxy = new Proxy({}, {
 
 const auth = {
   me:       ()            => apiFetch('/api/auth/me'),
+  // Public login-maintenance status probe (no auth required).
+  maintenance: ()         => apiFetch('/api/auth/maintenance'),
   updateMe: (data)        => apiFetch('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
   exportData: ()          => apiFetch('/api/auth/export'),
   deleteAccount: ()       => apiFetch('/api/auth/me', { method: 'DELETE' }),

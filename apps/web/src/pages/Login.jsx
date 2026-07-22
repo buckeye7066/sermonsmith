@@ -46,6 +46,24 @@ export default function Login() {
   // means it shows up in screenshots, browser history, and shareable URLs.
   const [resetTokenState, setResetTokenState] = useState(null);
 
+  // Runtime maintenance status. Render the static fallback immediately (no
+  // flash of the wrong state), then follow the server's answer — the switch
+  // is the API's LOGIN_MAINTENANCE env var, so flipping it needs no frontend
+  // rebuild. If the probe fails the fallback stands: with the API down,
+  // sign-in couldn't succeed anyway.
+  const [maintenance, setMaintenance] = useState(LOGIN_MAINTENANCE);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => api.auth.maintenance?.())
+      .then((status) => {
+        if (cancelled || !status || typeof status.active !== 'boolean') return;
+        setMaintenance({ ...LOGIN_MAINTENANCE, ...status });
+      })
+      .catch(() => { /* keep the static fallback */ });
+    return () => { cancelled = true; };
+  }, []);
+
   // Auto-switch to reset mode when a reset token is in the URL and scrub
   // the token from the address bar.
   useEffect(() => {
@@ -135,7 +153,7 @@ export default function Login() {
     }
   };
 
-  if (LOGIN_MAINTENANCE.active) {
+  if (maintenance.active) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full">
@@ -157,9 +175,9 @@ export default function Login() {
               <div className="flex items-start gap-3">
                 <Wrench className="w-5 h-5 mt-0.5 shrink-0 text-amber-600" aria-hidden="true" />
                 <div>
-                  <p className="font-semibold">{LOGIN_MAINTENANCE.title}</p>
-                  <p className="mt-1">{LOGIN_MAINTENANCE.message}</p>
-                  <p className="mt-2 font-medium">{LOGIN_MAINTENANCE.etaText}</p>
+                  <p className="font-semibold">{maintenance.title}</p>
+                  <p className="mt-1">{maintenance.message}</p>
+                  <p className="mt-2 font-medium">{maintenance.etaText}</p>
                   <p className="mt-2 text-amber-800">
                     Sign-in and registration are disabled until the upgrade completes. No action
                     is needed on your part.
