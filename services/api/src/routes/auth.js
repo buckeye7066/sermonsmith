@@ -40,12 +40,12 @@ const router = Router();
 const LOGIN_MAINTENANCE_ACTIVE = false;
 const LOGIN_MAINTENANCE_MESSAGE =
   'SermonSmith is being upgraded and sign-in is temporarily disabled. ' +
-  'Expected back online by 8:00 PM Eastern tonight (Monday, July 21).';
+  'We expect to be back online shortly.';
 const LOGIN_MAINTENANCE_COPY = {
   title: 'SermonSmith is being upgraded',
   message:
     'We are performing a scheduled upgrade. Sign-in and registration are temporarily disabled while we finish.',
-  etaText: 'Expected back online by 8:00 PM Eastern tonight (Monday, July 21).',
+  etaText: 'We expect to be back online shortly.',
 };
 
 function isLoginMaintenanceActive() {
