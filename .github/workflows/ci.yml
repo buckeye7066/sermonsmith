@@ -136,4 +136,9 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Production dependency audit
-        run: npm audit --omit=dev --audit-level=high
+        # Allowlist wrapper around `npm audit --omit=dev` (high/critical):
+        # bare npm audit has no ignore mechanism, so one unfixable advisory
+        # blocks every PR (2026-07-25: react-router RSC CSRF, fixed only in
+        # 8.3.0 which peer-requires React 19). Entries live in the script with
+        # reason + review-by date; expired or unlisted advisories still fail.
+        run: node scripts/security-audit.mjs

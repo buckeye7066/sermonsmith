@@ -12,5 +12,5 @@ export const LOGIN_MAINTENANCE = {
   title: 'SermonSmith is being upgraded',
   message:
     'We are performing a scheduled upgrade. Sign-in and registration are temporarily disabled while we finish.',
-  etaText: 'Expected back online by 8:00 PM Eastern tonight (Monday, July 21).',
+  etaText: 'We expect to be back online shortly.',
 };
