@@ -188,6 +188,8 @@ export function createPrismaMock() {
     studyGroup: makeModel('studyGroup'),
     communityLike: makeModel('communityLike'),
     savedContent: makeModel('savedContent'),
+    agentMessage: makeModel('agentMessage'),
+    agentLesson: makeModel('agentLesson'),
     $transaction: vi.fn(async (ops) => Promise.all(ops)),
     $queryRaw: vi.fn(async () => [{ ok: 1 }]),
     _store: store,
@@ -223,6 +225,8 @@ export function createPrismaMock() {
     'studyGroup',
     'communityLike',
     'savedContent',
+    'agentMessage',
+    'agentLesson',
   ].forEach((m) => getStore(m));
 
   return prisma;

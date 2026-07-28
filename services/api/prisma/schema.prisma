@@ -423,6 +423,55 @@ model AiAuditLog {
   @@map("ai_audit_logs")
 }
 
+// Agent-mesh communication: operational notes one assistant persona leaves for
+// another (or broadcasts). `toAgent` is a registered agent id from
+// @sermonsmith/shared/agents, or the literal 'broadcast'. `readBy` is a JSON
+// map of agentId -> ISO timestamp recording which agents have consumed the
+// message. PRIVACY: `body` and `metadata` carry ONLY operational metadata
+// (feature ids, failure types, model names, counts) — never user prompts or
+// generated content; the service layer (agentMesh.js) enforces this by
+// composing bodies itself and capping length. Retention is bounded on write
+// (30 days / newest 200 rows).
+model AgentMessage {
+  id        String   @id @default(uuid())
+  fromAgent String   @map("from_agent")
+  toAgent   String   @map("to_agent")
+  kind      String
+  body      String
+  metadata  Json?
+  readBy    Json     @default("{}") @map("read_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([toAgent, createdAt])
+  @@map("agent_messages")
+}
+
+// Agent-mesh learning: a deduplicated operational lesson an agent has derived
+// from its own telemetry (e.g. "model X failing repeatedly"). The compound
+// unique (authorAgent, topic, claim) makes recordAgentLesson an upsert: a
+// repeat observation refreshes updatedAt/evidence and bumps timesSeen instead
+// of duplicating rows. `consumedBy` maps agentId -> ISO timestamp of when a
+// peer agent had the lesson injected into one of its runs (the visible
+// cross-agent teaching). Same privacy rule as agent_messages: operational
+// metadata only, never user content.
+model AgentLesson {
+  id            String   @id @default(uuid())
+  authorAgent   String   @map("author_agent")
+  topic         String
+  claim         String
+  evidence      Json?
+  timesSeen     Int      @default(1) @map("times_seen")
+  confirmations Json     @default("[]")
+  refutations   Json     @default("[]")
+  consumedBy    Json     @default("{}") @map("consumed_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([authorAgent, topic, claim])
+  @@index([topic, updatedAt])
+  @@map("agent_lessons")
+}
+
 model BibleTranslation {
   id              String   @id
   name            String
