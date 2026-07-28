@@ -9,6 +9,7 @@
     "./scripture": "./scripture/index.js",
     "./denominations": "./denominations/index.js",
     "./aiFeatures": "./aiFeatures/index.js",
+    "./agents": "./agents/index.js",
     "./benchmark": "./benchmark/scenarios.js",
     "./prompts": "./prompts/index.js"
   },

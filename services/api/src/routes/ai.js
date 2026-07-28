@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
-import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
+import { SERVER_AI_INVARIANTS, AI_FEATURES } from '@sermonsmith/shared/aiFeatures';
+import { composePeerNotesForAgent, deriveLessonsFromAudit } from '../services/agentMesh.js';
 import { extractScriptureRefsDeep, extractScriptureRefsJoined, validateScriptureRefs, CANONS } from '@sermonsmith/shared/scripture';
 
 // Canon-agnostic Scripture screen for AI output (both the streamed trailer and
@@ -266,6 +267,53 @@ export function estimateTokenCount(...parts) {
     .join('\n')
     .length;
   return Math.max(1, Math.ceil(chars / 4));
+}
+
+// ---------------------------------------------------------------------------
+// Agent mesh wiring (shared by /invoke and /stream).
+//
+// The acting agent is resolved SERVER-SIDE from the request's `feature` id via
+// the shared AI_FEATURES registry — the client cannot claim to be an agent the
+// feature doesn't front (an unregistered feature simply has no persona, so the
+// mesh stays out of the call entirely).
+//
+// appendAgentPeerNotes is the run-START hook: it appends ONE server-composed
+// system message with unread peer messages + fresh unconsumed lessons for the
+// acting agent, AFTER the server invariants (which stay first and
+// undisplaceable — see aiInvariants.test.js) and after the client's system
+// prompt, BEFORE the user message. Marking those notes acked/consumed inside
+// composePeerNotesForAgent is the visible cross-agent learning event.
+// FAIL-OPEN: any mesh error means the call proceeds without peer notes — the
+// mesh is observability/coordination plumbing and must never block a
+// generation.
+//
+// teachFromAuditedFailure is the run-END hook: fired-and-forgotten after a
+// failure audit row is written. When the same model has failed provider-side
+// repeatedly in the recent window, the acting agent records a lesson and
+// messages its peer — closing the loop (e.g. Larry's sermon failures teach
+// Arlynn's series builder before her next call).
+// ---------------------------------------------------------------------------
+function resolveActingAgent(feature) {
+  return AI_FEATURES[feature || 'general']?.persona || null;
+}
+
+async function appendAgentPeerNotes(messages, feature) {
+  try {
+    const agentId = resolveActingAgent(feature);
+    if (!agentId) return;
+    const notes = await composePeerNotesForAgent(agentId);
+    if (notes) messages.push({ role: 'system', content: notes });
+  } catch {
+    // Fail-open: proceed without peer notes.
+  }
+}
+
+function teachFromAuditedFailure({ feature, model, failureType }) {
+  const actingAgent = resolveActingAgent(feature);
+  if (!actingAgent) return;
+  deriveLessonsFromAudit({ actingAgent, model, failureType }).catch(() => {
+    // Fire-and-forget: teaching must never block or fail the response path.
+  });
 }
 
 function classifyAiFailure(err) {
@@ -563,6 +611,38 @@ function summarizeAiAudits(rows, { days, since }) {
   };
 }
 
+// Agent-mesh section of the admin audit summary. Same conventions as
+// summarizeAiAudits: bounded row counts, operational metadata only (agent ids,
+// topics, claims, counts — never user content, which the mesh tables cannot
+// contain by design). Fail-open: a mesh-table problem degrades the section,
+// never the whole summary.
+async function summarizeAgentMesh() {
+  const empty = { messagesLast7d: 0, lessons: [], lessonsConsumedCount: 0 };
+  try {
+    if (!prisma.agentMessage?.count || !prisma.agentLesson?.findMany) return empty;
+    const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const [messagesLast7d, lessonRows] = await Promise.all([
+      prisma.agentMessage.count({ where: { createdAt: { gte: since7 } } }),
+      prisma.agentLesson.findMany({ orderBy: { updatedAt: 'desc' }, take: 25 }),
+    ]);
+    return {
+      messagesLast7d,
+      lessons: lessonRows.map((l) => ({
+        author: l.authorAgent,
+        topic: l.topic,
+        claim: l.claim,
+        timesSeen: l.timesSeen,
+        consumedBy: l.consumedBy || {},
+      })),
+      lessonsConsumedCount: lessonRows
+        .filter((l) => l.consumedBy && typeof l.consumedBy === 'object' && Object.keys(l.consumedBy).length > 0)
+        .length,
+    };
+  } catch {
+    return { ...empty, degraded: true };
+  }
+}
+
 router.get('/audit/summary', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
     const parsed = auditSummarySchema.safeParse(req.query || {});
@@ -578,7 +658,10 @@ router.get('/audit/summary', authenticateToken, requireAdmin, async (req, res, n
       take: 10_000,
     });
 
-    res.json(summarizeAiAudits(rows, { days, since }));
+    res.json({
+      ...summarizeAiAudits(rows, { days, since }),
+      agentMesh: await summarizeAgentMesh(),
+    });
   } catch (err) {
     next(err);
   }
@@ -632,6 +715,10 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
     // system message and cannot remove or outrank the server policy.
     const messages = [{ role: 'system', content: SERVER_AI_INVARIANTS }];
     if (system_prompt) messages.push({ role: 'system', content: system_prompt });
+    // Agent-mesh run-start hook: one optional server-composed system message
+    // AFTER the invariants and client prompt, BEFORE the user message.
+    // Fail-open; never displaces the invariants from slot 0.
+    await appendAgentPeerNotes(messages, feature);
     messages.push({ role: 'user', content: prompt });
 
     const params = {
@@ -793,11 +880,16 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
     // flaky upstream doesn't eat the user's daily allowance.
     if (usageConsumed) await refundUsageDb(req.userId);
     if (auditBase && !audited) {
+      const failureType = classifyAiFailure(err);
       await auditAiCall({
         ...auditBase,
         status: 'failure',
-        failureType: classifyAiFailure(err),
+        failureType,
       });
+      // Agent-mesh run-end hook: after the failure is audited, let the acting
+      // agent derive a lesson from repeated provider-side failures and teach
+      // its peer. Fire-and-forget — never delays or alters the error response.
+      teachFromAuditedFailure({ feature: auditBase.feature, model: auditBase.model, failureType });
     }
     next(err);
   }
@@ -885,6 +977,9 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     // system message and cannot remove or outrank the server policy.
     const messages = [{ role: 'system', content: SERVER_AI_INVARIANTS }];
     if (system_prompt) messages.push({ role: 'system', content: system_prompt });
+    // Agent-mesh run-start hook (same contract as /invoke): fail-open, after
+    // the invariants and client prompt, before the user message.
+    await appendAgentPeerNotes(messages, feature);
     messages.push({ role: 'user', content: prompt });
 
     const params = {
@@ -1015,7 +1110,12 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
       // Best-effort audit AFTER the response is closed — fire-and-forget so
       // degraded audit storage can never block the stream protocol.
       if (auditBase) {
-        auditAiCall({ ...auditBase, status: 'failure', failureType: classifyAiFailure(err) }).catch(() => {});
+        const failureType = classifyAiFailure(err);
+        auditAiCall({ ...auditBase, status: 'failure', failureType })
+          // Teach only AFTER the audit row lands — deriveLessonsFromAudit
+          // counts audit rows, so ordering keeps the threshold honest.
+          .then(() => teachFromAuditedFailure({ feature: auditBase.feature, model: auditBase.model, failureType }))
+          .catch(() => {});
       }
       return;
     }
