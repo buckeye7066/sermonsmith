@@ -30,6 +30,62 @@ test('unauthenticated user reaches an auth surface', async ({ page }) => {
   await expect(authSurface.first()).toBeVisible({ timeout: 15_000 });
 });
 
+// Regression guard for the 2026-08-02 "Bible reader is a broken link" report:
+// the sidebar link must navigate to /Reader and the Reader page chunk must
+// load and render scripture. (The production failure mode was a stale lazy
+// chunk after a deploy — see apps/web/src/lib/lazyWithReload.js — but this
+// journey also catches the simpler regressions: route renamed/removed, nav
+// link pointing elsewhere, Reader chunk failing to build or throwing on mount.)
+test('Bible Reader sidebar link opens the reader and renders scripture', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', (err) => pageErrors.push(err.message));
+
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'user-1',
+        email: 'john@example.com',
+        full_name: 'John White',
+        role: 'user',
+        onboarding_completed: true,
+        last_seen_version: 'test-version',
+        study_preferences: {},
+        content_preferences: {},
+      }),
+    });
+  });
+  // Verse of the Day devotional — not under test; fail it fast and quietly.
+  await page.route('**/api/ai/invoke', (route) => route.fulfill({ status: 503, body: '{}' }));
+  await page.route('**/api/entities/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route('**/api/functions/biblePassage', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        verses: [
+          { verse: 1, text: 'In the beginning God created the heaven and the earth.' },
+          { verse: 2, text: 'And the earth was without form, and void.' },
+        ],
+      }),
+    });
+  });
+
+  await page.goto('/Home');
+  const readerLink = page.locator('a[href="/Reader"]', { hasText: 'Bible Reader' }).first();
+  await expect(readerLink).toBeVisible();
+  await readerLink.click();
+
+  await expect(page).toHaveURL(/\/Reader/);
+  await expect(page.getByText('In the beginning God created', { exact: false }).first()).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
 test('authenticated desktop shell fills the viewport without sidebar clipping', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
