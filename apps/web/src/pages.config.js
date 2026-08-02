@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import { lazyWithReload as lazy } from './lib/lazyWithReload';
 
 const Reader = lazy(() => import('./pages/Reader'));
 const SermonBuilder = lazy(() => import('./pages/SermonBuilder'));
