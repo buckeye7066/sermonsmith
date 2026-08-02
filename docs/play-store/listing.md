@@ -1,11 +1,13 @@
 # Google Play store listing — SermonSmith (`com.sermonsmith.app`)
 
-Prepared 2026-07-13. Ready-to-paste copy plus final graphics for the Play
-Console store listing. The publisher service account currently has release
-permissions only — committing listing changes via the API returns 403 until
-the account is granted **"Manage store presence"** in Play Console → Users
-and permissions. Until then, paste these by hand (Grow → Store presence →
-Main store listing).
+Prepared 2026-07-13. **LIVE in Play Console as of 2026-08-02** — this copy and
+these graphics were published to the Main store listing and verified after
+reload, so treat this file as the record of what is live, not a to-do.
+
+The publisher service account still has release permissions only: the
+"Manage store presence" grant is set in Console but the API returns 403 anyway
+(Google-side defect — see `app-store-publisher/PUBLISHING.md`). The listing was
+therefore published by driving the Console UI, not via the Publisher API.
 
 ## App details
 
@@ -14,9 +16,13 @@ Main store listing).
 | App name | SermonSmith |
 | Default language | en-US |
 | Contact email | dr.johnwhite@axiombiolabs.org |
-| Contact website | https://sermonsmith.vercel.app |
-| Privacy policy URL | https://sermonsmith.vercel.app/privacy |
-| Category | Books & Reference (or Lifestyle) |
+| Contact website | https://sermonsmith.axiombiolabs.org |
+| Privacy policy URL | https://sermonsmith.axiombiolabs.org/privacy |
+| Category | Books & Reference |
+
+Both URLs use the branded domain (the canonical public home since 2026-08-02);
+the `sermonsmith.vercel.app` equivalents still resolve but are no longer used
+in the store listing.
 
 ## Short description (80 chars max)
 
