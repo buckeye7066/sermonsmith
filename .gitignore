@@ -52,3 +52,6 @@ test-results/
 
 .vercel
 benchmark-reports/
+
+# Nightly agent sweep artifacts
+tools/agents/reports/

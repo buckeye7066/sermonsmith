@@ -30,6 +30,16 @@ test('unauthenticated user reaches an auth surface', async ({ page }) => {
   await expect(authSurface.first()).toBeVisible({ timeout: 15_000 });
 });
 
+test('registration form is reachable from the login page', async ({ page }) => {
+  await page.goto('/Login');
+  await page.getByText(/don't have an account\? register/i).click();
+  // The register mode shows a name field alongside email/password and a
+  // create-account submit.
+  await expect(page.locator('input[type="email"]')).toBeVisible();
+  await expect(page.locator('input[type="password"]').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /create account|register|sign up/i }).first()).toBeVisible();
+});
+
 // Regression guard for the 2026-08-02 "Bible reader is a broken link" report:
 // the sidebar link must navigate to /Reader and the Reader page chunk must
 // load and render scripture. (The production failure mode was a stale lazy
