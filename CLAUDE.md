@@ -63,3 +63,13 @@ Engines: node >=20, npm >=10 (root `engines`).
 - **Feature flags** `DISABLE_AI`/`DISABLE_BILLING`/`DISABLE_PASSWORD_RESET` skip env validation of their secrets in dev/test.
 - **CORS** `CORS_ORIGIN` allowlist + `COOKIE_SAMESITE` ("none" cross-domain Railway/Vercel, "lax" same-domain); `COOKIE_DOMAIN` for subdomain sharing.
 - Entity table = JSON blobs keyed by `(type, userId)`.
+
+## Nightly self-test sweep (agents)
+
+GrantFlow-style self-testing, right-sized for this repo (added 2026-08-02):
+
+- `node tools/agents/sweep.mjs` runs the REAL gates — config:verify, typecheck, lint, api+web vitest, production web build, Playwright journeys (login loads, register reachable, **Bible Reader link renders scripture** — regression guard for the 2026-08-02 stale-chunk bug, sermon builder core+warning flows), security audit — then writes a health-score findings report to `tools/agents/reports/` (gitignored). `--no-fix` = observe only; `--email` sends the report via Resend when `RESEND_API_KEY` is configured.
+- **Auto-fix lane** (safe classes only): `eslint --fix` on a clean tree; commits land on a fresh `agents/autofix-*` branch ONLY if the full gate re-passes (otherwise every edit is reverted). It never pushes — review and merge the branch yourself.
+- Scheduled: Windows task **"SermonSmith Nightly Sweep"** daily 03:30 → `tools/agents/sweep.cmd` (logs to `tools/agents/reports/last-run.log`). The task runs whatever branch is checked out — it exists outside git.
+- **Stale-chunk self-heal**: every lazy route goes through `apps/web/src/lib/lazyWithReload.js`. A deploy that rotates asset hashes used to leave open tabs/PWAs on an ErrorBoundary ("Bible reader is a broken link"); now a chunk-load failure triggers exactly one guarded reload. Don't switch pages.config.js back to bare `lazy()`.
+- EVA (GrantFlow's portfolio QA runner) can now reach this app: user-scope `EVA_APP_ENV` carries a `sermonsmith` DATABASE_URL pointing at the throwaway local DB `sermonsmith_eva` (migrated). If Prisma migrations change shape, re-run `npm run db:migrate:deploy` against that DB or EVA's journeys will hit drift.

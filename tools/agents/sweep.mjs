@@ -113,7 +113,9 @@ if (!doFix) {
     autofix.outcome = 'nothing to fix';
     console.log('  no fixable issues.');
   } else {
-    autofix.changedFiles = changed.split(/\r?\n/).map((l) => l.slice(3));
+    // Porcelain lines are "XY path"; the surrounding .trim() may have eaten a
+    // leading status char, so strip the status column by pattern, not offset.
+    autofix.changedFiles = changed.split(/\r?\n/).map((l) => l.trim().replace(/^[A-Z?!]{1,2}\s+/i, ''));
     console.log(`  eslint --fix changed ${autofix.changedFiles.length} file(s); re-running full gate...`);
     const regate = runGates('post-autofix');
     if (regate.every((g) => g.ok)) {
