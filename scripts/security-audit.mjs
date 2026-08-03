@@ -21,7 +21,10 @@ const ALLOWLIST = [
       'React Router RSC-mode CSRF. SermonSmith is a classic BrowserRouter SPA — ' +
       'no RSC, no server actions, no framework-mode server runtime — so the ' +
       'vulnerable code path is never reachable. Real fix: react-router@8.3.0, ' +
-      'which peer-requires react>=19.2.7 (a React 18→19 migration).',
+      'which peer-requires react>=19.2.7 (a React 18→19 migration). ' +
+      'Mirrored on GitHub: Dependabot alert #176 dismissed 2026-08-02 as ' +
+      'not_used — when this entry is reviewed, re-assess that dismissal too, ' +
+      'and drop BOTH the moment RSC/data routers or React 19 land.',
     reviewBy: '2026-10-01',
   },
 ];
