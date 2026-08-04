@@ -27,6 +27,24 @@ const ALLOWLIST = [
       'and drop BOTH the moment RSC/data routers or React 19 land.',
     reviewBy: '2026-10-01',
   },
+  {
+    id: 'GHSA-7p8r-x3mc-p8w7',
+    reason:
+      'fast-uri host confusion via a backslash authority introducer. It is not a ' +
+      'direct dependency: the only production path is @sermonsmith/desktop -> ' +
+      'electron-store -> conf -> ajv (verified with `npm ls fast-uri --omit=dev`; ' +
+      'the web app and the API never ship it). There ajv uses fast-uri to resolve ' +
+      'JSON Schema $ref/$id URIs while electron-store validates the desktop app ' +
+      "against a schema we author ourselves. The flaw matters where a parsed " +
+      'host drives a security decision (origin allowlists, SSRF filters); no such ' +
+      'decision exists on this path, and no attacker-controlled URL reaches it. ' +
+      'Real fix: fast-uri >= 3.1.5 — an npm `overrides` pin is the intended route, ' +
+      'but npm 11.16.0 did not apply it to the nested ajv copy (the lock kept ' +
+      '3.1.4, and a from-scratch regeneration also kept 3.1.4 while churning 76 ' +
+      'unrelated entries). Prefer an upstream ajv bump from conf/electron-store; ' +
+      're-try the override at review time and drop this entry the moment either lands.',
+    reviewBy: '2026-09-15',
+  },
 ];
 
 let raw;

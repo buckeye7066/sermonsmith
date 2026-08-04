@@ -11,7 +11,6 @@ import { toast } from "sonner";
 import { api } from "@/api/apiClient";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { apiBinaryCall } from "@/components/utils/apiCall";
 import SermonAdaptation from "./SermonAdaptation";
 import PresentationMode from "./PresentationMode";
 import TheologicalExplorer from "./TheologicalExplorer";
@@ -55,7 +54,7 @@ export default function SermonEditor({
   const handleExport = async (format) => {
     if (!isPremium) {
       toast.error("Export is a Premium feature", {
-        description: "Upgrade to export your sermons to PDF and PPTX"
+        description: "Upgrade to export your sermons to PDF"
       });
       return;
     }
@@ -67,28 +66,26 @@ export default function SermonEditor({
       return;
     }
 
+    if (format !== 'pdf') {
+      toast.error(`${String(format).toUpperCase()} export isn't available yet`, {
+        description: "PDF export is ready now — slide export is still in progress."
+      });
+      return;
+    }
+
     setIsExporting(true);
     try {
-      const functionName = format === 'pdf' ? 'exportToPDF' : 'exportToPPTX';
-      const { blob, filename } = await apiBinaryCall(functionName, {
-        resourceType: 'sermon',
-        resourceId: sermonData.id
+      // Built in the browser from the sermon currently on screen, so the export
+      // reflects unsaved edits and works without a round trip.
+      const { exportSermonToPdf } = await import('@/lib/sermonPdf');
+      const filename = await exportSermonToPdf({
+        ...currentSermon,
+        title: editedTitle || currentSermon?.title,
       });
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-      toast.success(`Sermon exported to ${format.toUpperCase()}!`);
+      toast.success("Sermon exported to PDF", { description: filename });
     } catch (error) {
       console.error(`Error exporting to ${format}:`, error);
-      toast.error(`Failed to export to ${format.toUpperCase()}`, {
+      toast.error("Failed to export to PDF", {
         description: error.message
       });
     } finally {
@@ -511,9 +508,9 @@ export default function SermonEditor({
                 <FileText className="w-4 h-4 mr-2" />
                 Export to PDF
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport('pptx')}>
+              <DropdownMenuItem disabled className="opacity-60">
                 <FileText className="w-4 h-4 mr-2" />
-                Export to PPTX
+                Export to PPTX (coming soon)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
