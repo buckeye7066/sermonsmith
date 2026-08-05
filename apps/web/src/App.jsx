@@ -248,6 +248,7 @@ export const AuthenticatedApp = () => {
           <Route
             key={path}
             path={`/${path}`}
+            caseSensitive={false}
             element={
               <LayoutWrapper currentPageName={path}>
                 {ADMIN_PAGES.has(path) ? (
