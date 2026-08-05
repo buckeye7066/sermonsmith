@@ -28,6 +28,7 @@ const ADMIN_PAGES = new Set([
 
 
 const SITE_ORIGIN = 'https://sermonsmith.axiombiolabs.org';
+const SOCIAL_IMAGE = `${SITE_ORIGIN}/icon.png`;
 
 const HOME_METADATA = {
   title: 'SermonSmith | AI-Assisted Sermon Builder & Bible Study Tools',
@@ -112,8 +113,9 @@ function updateStructuredData(metadata, canonicalUrl) {
   );
 }
 
-function RouteMetadata() {
-  const { pathname } = useLocation();
+export function RouteMetadata() {
+  const location = useLocation();
+  const { pathname } = location;
 
   useEffect(() => {
     const metadata = metadataForPath(pathname);
@@ -125,6 +127,9 @@ function RouteMetadata() {
       setMeta('meta[name="robots"]', 'content', 'noindex,nofollow,noarchive');
       canonical?.remove();
       document.head.querySelector('meta[property="og:url"]')?.remove();
+      document.head.querySelector('meta[property="og:image"]')?.remove();
+      document.head.querySelector('meta[property="og:image:alt"]')?.remove();
+      document.head.querySelector('meta[name="twitter:image"]')?.remove();
       updateStructuredData(null, null);
       setMeta('meta[property="og:title"]', 'content', 'SermonSmith Application');
       setMeta('meta[property="og:description"]', 'content', 'Signed-in SermonSmith application.');
@@ -140,15 +145,18 @@ function RouteMetadata() {
     setMeta('meta[property="og:title"]', 'content', metadata.title);
     setMeta('meta[property="og:description"]', 'content', metadata.description);
     setMeta('meta[property="og:url"]', 'content', canonicalUrl);
+    setMeta('meta[property="og:image"]', 'content', SOCIAL_IMAGE);
+    setMeta('meta[property="og:image:alt"]', 'content', 'SermonSmith application icon');
     setMeta('meta[name="twitter:title"]', 'content', metadata.title);
     setMeta('meta[name="twitter:description"]', 'content', metadata.description);
+    setMeta('meta[name="twitter:image"]', 'content', SOCIAL_IMAGE);
     updateStructuredData(metadata, canonicalUrl);
 
     const canonicalLink = canonical || document.createElement('link');
     canonicalLink.setAttribute('rel', 'canonical');
     canonicalLink.setAttribute('href', canonicalUrl);
     if (!canonical) document.head.appendChild(canonicalLink);
-  }, [pathname]);
+  }, [location]);
 
   return null;
 }
