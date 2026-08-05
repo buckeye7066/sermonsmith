@@ -77,6 +77,10 @@ export const AuthProvider = ({ children }) => {
         setAuthSessionHint(false);
         primeCachedUser(null);
       } else {
+        // If the current session cannot be verified, clear the returning-user
+        // hint as well. Otherwise every public reload would repeat a neutral
+        // loader even though this render has fallen back to signed-out state.
+        setAuthSessionHint(false);
         logError('Auth check failed', error);
         const errType = error.data?.type;
         setAuthError(errType ? { type: errType } : null);
