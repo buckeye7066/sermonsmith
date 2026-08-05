@@ -2,14 +2,16 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 let authState;
+let authSessionHint;
 
 vi.mock('@/lib/AuthContext', () => ({
   AuthProvider: ({ children }) => <>{children}</>,
   useAuth: () => authState,
+  hasAuthSessionHint: () => authSessionHint,
 }));
 
 vi.mock('./pages.config', () => {
@@ -42,11 +44,33 @@ vi.mock('@/lib/maintenance', () => ({
   LOGIN_MAINTENANCE: { active: false, title: '', message: '', etaText: '' },
 }));
 
-import { AuthenticatedApp, metadataForPath } from './App.jsx';
+import { AuthenticatedApp, metadataForPath, RouteMetadata } from './App.jsx';
 
 function LocationProbe() {
   const location = useLocation();
   return <div data-testid="location">{`${location.pathname}${location.search}${location.hash}`}</div>;
+}
+
+function MetadataNavigationProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  return (
+    <>
+      <div data-testid="metadata-location">{`${location.pathname}${location.search}${location.hash}`}</div>
+      <button
+        type="button"
+        onClick={() => {
+          document.title = 'Login | SermonSmith';
+          navigate('/Login?mode=register');
+        }}
+      >
+        Add register query
+      </button>
+      <button type="button" onClick={() => navigate('/Reader')}>Open protected route</button>
+      <button type="button" onClick={() => navigate('/')}>Return home</button>
+    </>
+  );
 }
 
 function renderWithRoute(route) {
@@ -61,6 +85,8 @@ function renderWithRoute(route) {
 describe('AuthenticatedApp route gating', () => {
   beforeEach(() => {
     cleanup();
+    authSessionHint = false;
+    document.head.innerHTML = '<title></title>';
     authState = {
       isAuthenticated: false,
       isLoadingAuth: false,
@@ -76,6 +102,31 @@ describe('AuthenticatedApp route gating', () => {
     expect(screen.getByRole('heading', { name: /sermonsmith home/i })).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/$/);
     expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+  });
+
+  it('uses a neutral loader for a known returning session while auth resolves', () => {
+    authSessionHint = true;
+    authState.isLoadingAuth = true;
+    const view = renderWithRoute('/Home');
+
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /sermonsmith home/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+
+    authState = {
+      ...authState,
+      isAuthenticated: true,
+      isLoadingAuth: false,
+    };
+    view.rerender(
+      <MemoryRouter initialEntries={['/Home']}>
+        <LocationProbe />
+        <AuthenticatedApp />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('heading', { name: /sermonsmith home/i })).toBeInTheDocument();
+    expect(screen.getByTestId('layout')).toBeInTheDocument();
   });
 
   it.each(['/Pricing', '/pricing'])('keeps %s public for logged-out visitors', (route) => {
@@ -148,6 +199,68 @@ describe('AuthenticatedApp route gating', () => {
 
     expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
     expect(screen.getByTestId('layout')).toBeInTheDocument();
+  });
+
+  it('reapplies protected metadata after query-only navigation', async () => {
+    render(
+      <MemoryRouter initialEntries={['/Login']}>
+        <RouteMetadata />
+        <MetadataNavigationProbe />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(document.title).toBe('SermonSmith Application'));
+    fireEvent.click(screen.getByRole('button', { name: /add register query/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('metadata-location')).toHaveTextContent('/Login?mode=register');
+      expect(document.title).toBe('SermonSmith Application');
+    });
+    expect(document.head.querySelector('meta[name="robots"]')?.content).toBe(
+      'noindex,nofollow,noarchive',
+    );
+  });
+
+  it('clears public share images on protected navigation and restores them on return', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <RouteMetadata />
+        <MetadataNavigationProbe />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(document.head.querySelector('meta[property="og:image"]')?.content).toBe(
+        'https://sermonsmith.axiombiolabs.org/icon.png',
+      );
+      expect(document.head.querySelector('meta[name="twitter:image"]')?.content).toBe(
+        'https://sermonsmith.axiombiolabs.org/icon.png',
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /open protected route/i }));
+    await waitFor(() => {
+      expect(document.head.querySelector('meta[name="robots"]')?.content).toBe(
+        'noindex,nofollow,noarchive',
+      );
+      expect(document.head.querySelector('meta[property="og:image"]')).toBeNull();
+      expect(document.head.querySelector('meta[property="og:image:alt"]')).toBeNull();
+      expect(document.head.querySelector('meta[name="twitter:image"]')).toBeNull();
+      expect(document.head.querySelector('link[rel="canonical"]')).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /return home/i }));
+    await waitFor(() => {
+      expect(document.head.querySelector('meta[property="og:image"]')?.content).toBe(
+        'https://sermonsmith.axiombiolabs.org/icon.png',
+      );
+      expect(document.head.querySelector('meta[name="twitter:image"]')?.content).toBe(
+        'https://sermonsmith.axiombiolabs.org/icon.png',
+      );
+      expect(document.head.querySelector('link[rel="canonical"]')?.href).toBe(
+        'https://sermonsmith.axiombiolabs.org/',
+      );
+    });
   });
 
   it('publishes metadata only for intentionally crawlable routes', () => {
