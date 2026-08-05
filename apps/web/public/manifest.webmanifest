@@ -1,7 +1,7 @@
 {
-  "name": "SermonSmith - AI Bible Study & Sermon Builder",
+  "name": "SermonSmith - AI-Assisted Sermon & Bible Study Drafts",
   "short_name": "SermonSmith",
-  "description": "AI-Powered Bible Study, Sermon Builder, and Scripture Reader",
+  "description": "Create editable sermon and Bible-study drafts, then verify Scripture references and theological claims before teaching.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
@@ -25,14 +25,14 @@
     {
       "name": "Sermon Builder",
       "short_name": "New Sermon",
-      "description": "Create new sermon",
+      "description": "Create a new sermon draft",
       "url": "/SermonBuilder?source=shortcut",
       "icons": [{ "src": "/icon.png", "sizes": "1024x1024", "type": "image/png" }]
     },
     {
       "name": "Bible Study",
       "short_name": "Study",
-      "description": "Create Bible study",
+      "description": "Create a Bible study draft",
       "url": "/BibleStudy?source=shortcut",
       "icons": [{ "src": "/icon.png", "sizes": "1024x1024", "type": "image/png" }]
     }
