@@ -13,25 +13,22 @@ import { isNativeApp } from '../lib/platform';
 const freeFeatures = [
     "KJV Bible Reader",
     "Highlighting & Notes",
-    "Denomination-Specific AI Content",
-    "AI Sermon Builder",
-    "AI Bible Study Generator",
-    "AI Quiz Generator",
-    "Save Unlimited Sermons & Studies"
+    "Tradition-aware drafting prompts",
+    "Sermon, Bible-study & quiz draft builders",
+    "Save and revise your sermon and study drafts"
 ];
 
 const premiumFeatures = [
     "All Free features, plus:",
-    "Access to All Bible Translations",
-    "Multi-Perspective Bible Study (Catholic, Orthodox, Reformed, etc.)",
-    "Multi-Language Verse Translation (50+ Languages)",
-    "Worldview Explorer (50+ Belief Systems)",
-    "Export Sermons to PDF & PPTX",
-    "Interactive Bible Maps & Journeys",
-    "Teaching Context Adaptation (VBS, Sunday School, Youth, etc.)",
-    "Advanced AI Study Tools",
-    "Priority Support",
-    "Cloud Sync Across All Devices (iOS, Android, Windows, Mac)"
+    "Additional Bible translations when available from configured sources",
+    "Multi-perspective study prompts for comparison and review",
+    "AI-assisted language adaptation that requires human review",
+    "Worldview and ethics study tools",
+    "Export sermons to PDF",
+    "Interactive Bible maps and journeys",
+    "Teaching-context adaptation (VBS, Sunday School, youth, and more)",
+    "Advanced drafting and study tools",
+    "Account sync on supported signed-in clients"
 ];
 
 export default function Pricing() {
@@ -170,7 +167,7 @@ export default function Pricing() {
                         Choose Your Plan
                     </h1>
                     <p className="text-xl text-gray-600 dark:text-gray-400">
-                        Unlock the full power of SermonSmith for your ministry
+                        Compare the SermonSmith tools available for study and sermon preparation
                     </p>
                     {devOverride && (
                         <div className="mt-4 inline-flex items-center gap-2 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-lg">
@@ -198,7 +195,13 @@ export default function Pricing() {
                     />
                 </div>
             
-                <div className="text-center mt-12">
+                <div className="text-center mt-12 space-y-2">
+                    <p className="text-sm text-gray-500">
+                        Translation availability, display, export, and offline use depend on the configured source and its license.
+                    </p>
+                    <p className="text-sm text-gray-500">
+                        AI output is a draft aid. Verify Scripture wording, context, citations, and theological claims before teaching.
+                    </p>
                     <p className="text-sm text-gray-500">
                         Created by Dr. John White
                     </p>

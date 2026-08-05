@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /$
+Allow: /Home$
+Allow: /home$
+Allow: /Pricing$
+Allow: /pricing$
+Allow: /Downloads$
+Allow: /downloads$
+Allow: /privacy$
+Allow: /Privacy$
+Allow: /assets/
+Allow: /icon.svg
+Allow: /icon.png
+Allow: /manifest.webmanifest
+Disallow: /
+
+Sitemap: https://sermonsmith.axiombiolabs.org/sitemap.xml

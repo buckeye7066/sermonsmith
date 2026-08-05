@@ -1,19 +1,12 @@
 // Public privacy policy page.
 //
-// IMPORTANT: this page is mounted OUTSIDE the authentication gate (see the
-// short-circuit at the top of AuthenticatedApp in App.jsx). Legal/store pages
-// must be readable by anyone — app-store reviewers and logged-out visitors —
-// without an account, and without the app shell/navigation (which assumes an
-// authenticated user). Keep this component self-contained: no auth hooks, no
-// API calls, no Layout wrapper.
-//
-// Content reflects the app's ACTUAL data practices as of the effective date
-// below. If you change what data is collected or which processors are used,
-// update this page (Google Play's Data safety form must stay consistent with it).
+// This page is mounted outside the authentication gate. Keep it self-contained:
+// no auth hooks, API calls, or authenticated Layout wrapper. Update this text
+// whenever collection, retention, processors, or deletion behavior changes.
 
 import React from 'react';
 
-const EFFECTIVE_DATE = 'July 13, 2026';
+const EFFECTIVE_DATE = 'August 5, 2026';
 
 function Section({ title, children }) {
   return (
@@ -31,8 +24,11 @@ export default function PrivacyPolicy() {
     <main className="min-h-screen bg-gray-50 dark:bg-gray-900 px-4 py-12">
       <article className="mx-auto max-w-3xl">
         <header className="border-b border-gray-200 dark:border-gray-700 pb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-            Sermon Smith — Privacy Policy
+          <a className="text-sm text-indigo-600 dark:text-indigo-400 underline" href="/">
+            Return to SermonSmith
+          </a>
+          <h1 className="mt-3 text-3xl font-bold text-gray-900 dark:text-gray-100">
+            SermonSmith Privacy Policy
           </h1>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             Effective {EFFECTIVE_DATE}
@@ -40,103 +36,132 @@ export default function PrivacyPolicy() {
         </header>
 
         <p className="mt-6 text-gray-700 dark:text-gray-300 leading-relaxed">
-          This Privacy Policy explains how Sermon Smith (&ldquo;Sermon Smith,&rdquo;
-          &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) collects, uses, and protects
-          your information when you use our website and mobile application (together, the
-          &ldquo;Service&rdquo;). By using the Service, you agree to the practices described here.
+          This policy explains how SermonSmith (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or
+          &ldquo;our&rdquo;) handles information when you use its website and installed
+          applications (the &ldquo;Service&rdquo;).
         </p>
 
         <Section title="Information We Collect">
-          <p>We collect only what we need to provide the Service:</p>
           <ul className="list-disc pl-6 space-y-2">
             <li>
-              <strong>Account information</strong> — your email address, the name you choose to
-              display, and an optional profile photo. You provide these when you register.
+              <strong>Account information</strong> — email address, the display name and profile
+              details you provide, subscription state, settings, and security/account status.
             </li>
             <li>
-              <strong>Content you create</strong> — the sermons, Bible studies, quizzes, prayers,
-              notes, and community posts you generate or save in the Service. This content is
-              stored so we can show it back to you across your devices.
+              <strong>Content you create</strong> — sermons, studies, quizzes, prayers, notes,
+              highlights, messages, community posts, uploads, and other material you submit or save.
+              Material you choose to share through a community or sharing feature can be visible to
+              the audience indicated by that feature.
             </li>
             <li>
-              <strong>Payment information</strong> — if you purchase a subscription on our website,
-              payment is processed by our payment provider (Stripe). We do not receive or store your
-              full card number. Purchases are not offered inside the mobile app.
+              <strong>AI requests and results</strong> — prompts and relevant content sent to an AI
+              feature, plus the generated response.
             </li>
             <li>
-              <strong>Basic technical data</strong> — standard server logs (such as timestamps and
-              error information) used to keep the Service secure and reliable. We do not use
-              third-party advertising or tracking/analytics SDKs.
+              <strong>Payments</strong> — our payment provider processes website subscription
+              payments. We receive transaction and subscription status but do not receive or store
+              your full card number.
+            </li>
+            <li>
+              <strong>First-party operational activity</strong> — for signed-in accounts we record
+              a server-attached account ID, a coarse action type, page name, optional resource type,
+              event time, and success/failure outcome. New activity events do not include prompt or
+              sermon content, resource IDs, email addresses, full URLs, URL queries or fragments,
+              screen size, or detailed error text. Logged-out public-page visits do not create these
+              first-party UserActivity records or trigger an additional account lookup, although
+              hosting and security logs can still be created as described below. Older operational
+              records may contain an account email and are handled under the retention and deletion
+              practices below.
+            </li>
+            <li>
+              <strong>Technical and security data</strong> — server and hosting logs can include IP
+              address, user agent, request time, route, response status, and fault or security
+              information needed to operate and protect the Service.
             </li>
           </ul>
         </Section>
 
-        <Section title="How We Use Your Information">
+        <Section title="How We Use Information">
           <ul className="list-disc pl-6 space-y-2">
-            <li>To create your account and sign you in securely.</li>
-            <li>To generate, save, and display the content you create.</li>
-            <li>To process subscription payments made on our website.</li>
-            <li>To send you essential account and service email (for example, password resets).</li>
-            <li>To protect the Service against abuse, fraud, and technical faults.</li>
+            <li>Authenticate accounts and provide requested features.</li>
+            <li>Generate, save, synchronize, display, export, and share content at your direction.</li>
+            <li>Process subscriptions and send essential account or service messages.</li>
+            <li>Diagnose faults, measure coarse feature use, prevent abuse, and secure the Service.</li>
+            <li>Comply with law and enforce applicable agreements.</li>
           </ul>
-          <p>We do not sell your personal information, and we do not use it for advertising.</p>
+          <p>We do not sell personal information or use it for third-party advertising.</p>
         </Section>
 
-        <Section title="AI-Generated Content">
+        <Section title="AI and Scripture">
           <p>
-            Some features let you generate sermons, studies, and related content with the help of
-            artificial intelligence. When you use these features, the text you submit as a prompt is
-            sent to our AI provider (OpenAI) solely to produce your result and return it to you.
-            Please avoid submitting sensitive personal information in these prompts that you would
-            not want processed by a third-party AI service.
+            Text submitted to an AI feature and relevant saved content needed for that request may
+            be sent to the configured AI provider, including OpenAI, to generate a response. Do not
+            submit confidential counseling details, health information, children&apos;s information,
+            or other sensitive personal data unless you are authorized to do so and accept that
+            processing.
+          </p>
+          <p>
+            AI output can be incomplete or wrong. Scripture references, quotations, translations,
+            historical claims, citations, and theological interpretations must be checked against
+            an authorized translation, surrounding context, and trusted sources before use.
           </p>
         </Section>
 
-        <Section title="How We Share Information">
-          <p>
-            We share information only with the service providers that help us operate the Service,
-            and only to the extent needed to provide it:
-          </p>
+        <Section title="Service Providers and Sharing">
+          <p>We use providers only as needed to operate the Service, including:</p>
           <ul className="list-disc pl-6 space-y-2">
-            <li><strong>OpenAI</strong> — processes prompts to generate AI content.</li>
+            <li><strong>OpenAI or the configured AI provider</strong> — processes AI requests.</li>
             <li><strong>Stripe</strong> — processes website subscription payments.</li>
-            <li><strong>Resend</strong> — delivers transactional email (e.g. password resets).</li>
-            <li><strong>Vercel and Railway</strong> — host the application and database.</li>
+            <li><strong>Resend</strong> — delivers transactional email such as password resets.</li>
+            <li><strong>Vercel and Railway</strong> — host application, API, logs, and data services.</li>
+            <li>
+              <strong>Configured Scripture-data providers</strong> — receive the passage or source
+              request needed to retrieve text when that source is used.
+            </li>
           </ul>
           <p>
-            We do not sell your data or share it with third parties for their own marketing or
-            advertising. We may disclose information if required by law or to protect the rights,
-            safety, and security of our users and the Service.
+            We may also disclose information when required by law, to protect users or the Service,
+            or in connection with a business transfer subject to appropriate safeguards.
           </p>
         </Section>
 
-        <Section title="Cookies">
+        <Section title="Cookies, Local Storage, and Offline Data">
           <p>
-            We use a single essential, secure (httpOnly) cookie to keep you signed in. We do not use
-            advertising or third-party tracking cookies.
+            We use essential authentication cookies and local device storage or caches for login,
+            settings, performance, and supported offline behavior. We do not use third-party
+            advertising cookies or a third-party behavioral analytics SDK.
           </p>
-        </Section>
-
-        <Section title="Data Security">
           <p>
-            We protect your account with industry-standard measures: passwords are stored using
-            one-way hashing (bcrypt) and are never stored in plain text, and data is encrypted in
-            transit using HTTPS. No method of transmission or storage is perfectly secure, but we
-            work to safeguard your information.
+            Browser and operating-system caches can be cleared outside our control. Verify important
+            passages and keep your own copy of important work before clearing app data or relying on
+            offline access.
           </p>
         </Section>
 
-        <Section title="Your Choices and Data Retention">
+        <Section title="Security">
+          <p>
+            Passwords are stored with one-way hashing, and supported network traffic is encrypted
+            with HTTPS. Access controls, server-side authorization, and operational monitoring are
+            used to protect the Service. No storage or transmission method is perfectly secure.
+          </p>
+        </Section>
+
+        <Section title="Retention, Account Deactivation, and Deletion">
           <ul className="list-disc pl-6 space-y-2">
-            <li>You can review and update your account details in the app&rsquo;s Settings.</li>
             <li>
-              You can delete your account, which revokes access and begins removal of your personal
-              account data. Some records may be retained where required for legal, security, or
-              audit purposes.
+              The in-app account-deletion action immediately revokes access and marks the account
+              deleted. It is a soft deletion and does not by itself immediately erase every database
+              row, shared copy, operational record, or backup.
             </li>
             <li>
-              You may request a copy of your personal information, or ask us to delete it, by
-              contacting us using the details below.
+              To request hard deletion or a copy/correction of personal information, email the
+              address below. We will verify the request and delete or de-identify applicable account
+              data from active systems, subject to legal, security, fraud-prevention, transaction,
+              shared-content, and backup exceptions.
+            </li>
+            <li>
+              Content you shared with others may persist in their copies or where removal would
+              affect the integrity of a conversation; we may de-identify it where appropriate.
             </li>
           </ul>
         </Section>
@@ -144,23 +169,21 @@ export default function PrivacyPolicy() {
         <Section title="Children&rsquo;s Privacy">
           <p>
             The Service is not directed to children under 13, and we do not knowingly collect
-            personal information from children under 13. If you believe a child has provided us
-            personal information, please contact us and we will delete it.
+            personal information from children under 13. Contact us if you believe a child has
+            provided personal information so we can investigate and remove it where required.
           </p>
         </Section>
 
         <Section title="Changes to This Policy">
           <p>
-            We may update this Privacy Policy from time to time. When we do, we will revise the
-            &ldquo;Effective&rdquo; date at the top of this page. Your continued use of the Service
-            after changes take effect constitutes acceptance of the updated policy.
+            We may update this policy as the Service changes. We will revise the effective date and,
+            when appropriate, provide additional notice.
           </p>
         </Section>
 
         <Section title="Contact Us">
           <p>
-            If you have questions about this Privacy Policy or your data, contact us through the
-            in-app <strong>Contact Support</strong> page, or by email at{' '}
+            For privacy questions or data access, correction, or deletion requests, email{' '}
             <a
               className="text-indigo-600 dark:text-indigo-400 underline"
               href="mailto:dr.johnwhite@axiombiolabs.org"
@@ -172,7 +195,7 @@ export default function PrivacyPolicy() {
         </Section>
 
         <footer className="mt-12 border-t border-gray-200 dark:border-gray-700 pt-6 text-sm text-gray-500 dark:text-gray-400">
-          &copy; {new Date().getFullYear()} Sermon Smith. All rights reserved.
+          &copy; {new Date().getFullYear()} SermonSmith. All rights reserved.
         </footer>
       </article>
     </main>

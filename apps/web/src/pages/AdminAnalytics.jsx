@@ -17,6 +17,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+function activityActor(activity) {
+  if (activity.user_id) return `User ${String(activity.user_id).slice(0, 8)}`;
+  return activity.user_email || 'Unknown user';
+}
+
 export default function AdminAnalytics() {
   const { user, isLoadingAuth } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
@@ -73,7 +78,8 @@ export default function AdminAnalytics() {
       // Most active users
       const userActivityCounts = {};
       recent30d.forEach(a => {
-        userActivityCounts[a.user_email] = (userActivityCounts[a.user_email] || 0) + 1;
+        const userKey = a.user_id || a.user_email || 'unknown';
+        userActivityCounts[userKey] = (userActivityCounts[userKey] || 0) + 1;
       });
 
       const topUsers = Object.entries(userActivityCounts)
@@ -349,8 +355,8 @@ export default function AdminAnalytics() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {stats.topUsers?.map(([email, count], idx) => (
-                    <div key={email} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                  {stats.topUsers?.map(([userKey, count], idx) => (
+                    <div key={userKey} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                       <div className="flex items-center gap-4">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
                           idx === 0 ? 'bg-yellow-100 dark:bg-yellow-900' :
@@ -368,7 +374,7 @@ export default function AdminAnalytics() {
                           </span>
                         </div>
                         <div>
-                          <div className="font-medium">{email}</div>
+                          <div className="font-medium">{userKey.includes('@') ? userKey : `User ${userKey.slice(0, 8)}`}</div>
                           <div className="text-xs text-gray-500">{count} total actions</div>
                         </div>
                       </div>
@@ -395,7 +401,7 @@ export default function AdminAnalytics() {
                   {activities.slice(0, 50).map((activity) => (
                     <div key={activity.id} className="flex items-center justify-between p-3 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                       <div className="flex-1">
-                        <div className="text-sm font-medium">{activity.user_email}</div>
+                        <div className="text-sm font-medium">{activityActor(activity)}</div>
                         <div className="text-xs text-gray-500 mt-1">
                           <Badge variant="outline" className="mr-2">{activity.action_type.replace(/_/g, ' ')}</Badge>
                           {activity.page_name && <span>on {activity.page_name}</span>}

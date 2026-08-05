@@ -6,6 +6,34 @@ import { primeCachedUser } from '@/components/admin/UserActivityLogger';
 
 const AuthContext = createContext();
 
+const AUTH_SESSION_HINT_KEY = 'sermonsmith.authenticated-session';
+
+// This stores only a boolean hint, never an account identifier or credential.
+// It lets a returning signed-in browser keep the neutral loading shell while
+// the httpOnly session cookie is verified, without making first-time anonymous
+// visitors wait before a public marketing page renders.
+export function hasAuthSessionHint() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(AUTH_SESSION_HINT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setAuthSessionHint(isAuthenticated) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (isAuthenticated) {
+      window.localStorage.setItem(AUTH_SESSION_HINT_KEY, '1');
+    } else {
+      window.localStorage.removeItem(AUTH_SESSION_HINT_KEY);
+    }
+  } catch {
+    // Storage can be unavailable in locked-down or private browser contexts.
+  }
+}
+
 function usesHashRouter() {
   return typeof window !== 'undefined' && Boolean(window.electron?.isElectron);
 }
@@ -36,6 +64,7 @@ export const AuthProvider = ({ children }) => {
       const currentUser = await api.auth.me();
       setUser(currentUser);
       setIsAuthenticated(true);
+      setAuthSessionHint(true);
       setAuthError(null);
       // Share the just-fetched user with the activity logger so it doesn't
       // issue its own duplicate /api/auth/me call.
@@ -45,8 +74,13 @@ export const AuthProvider = ({ children }) => {
       if (error.status === 401) {
         setUser(null);
         setIsAuthenticated(false);
+        setAuthSessionHint(false);
         primeCachedUser(null);
       } else {
+        // If the current session cannot be verified, clear the returning-user
+        // hint as well. Otherwise every public reload would repeat a neutral
+        // loader even though this render has fallen back to signed-out state.
+        setAuthSessionHint(false);
         logError('Auth check failed', error);
         const errType = error.data?.type;
         setAuthError(errType ? { type: errType } : null);
@@ -92,6 +126,7 @@ export const AuthProvider = ({ children }) => {
 
       setUser(null);
       setIsAuthenticated(false);
+      setAuthSessionHint(false);
       primeCachedUser(null);
 
       const returnTo = getCurrentAppReturnPath();
@@ -108,6 +143,7 @@ export const AuthProvider = ({ children }) => {
     try { await api.auth.logout(); } catch { /* best-effort: cookie may already be expired */ }
     setUser(null);
     setIsAuthenticated(false);
+    setAuthSessionHint(false);
     setAuthError(null);
     primeCachedUser(null);
     if (shouldRedirect) {

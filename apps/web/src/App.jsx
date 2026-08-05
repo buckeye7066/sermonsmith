@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react'
+import React, { Suspense, useEffect } from 'react'
 import { lazyWithReload as lazy } from '@/lib/lazyWithReload'
 import { Toaster } from "@/components/ui/sonner"
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -7,7 +7,7 @@ import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
 import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
-import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import { AuthProvider, hasAuthSessionHint, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import { OfflineProvider } from '@/lib/offlineDetector.jsx';
 import OfflineBanner from '@/components/OfflineBanner';
@@ -25,6 +25,141 @@ const ADMIN_PAGES = new Set([
   'AdminImport',
   'FunctionReviewer',
 ]);
+
+
+const SITE_ORIGIN = 'https://sermonsmith.axiombiolabs.org';
+const SOCIAL_IMAGE = `${SITE_ORIGIN}/icon.png`;
+
+const HOME_METADATA = {
+  title: 'SermonSmith | AI-Assisted Sermon Builder & Bible Study Tools',
+  description: 'Draft and revise sermons, organize Bible-study notes, compare study prompts, and use an honest elapsed-time presentation coach. Verify all AI output and Scripture references before teaching.',
+  path: '/',
+};
+
+const PUBLIC_ROUTE_METADATA = {
+  '/': HOME_METADATA,
+  '/home': HOME_METADATA,
+  '/pricing': {
+    title: 'SermonSmith Pricing | Plans for Sermon & Bible Study Tools',
+    description: 'Compare SermonSmith plans for editable sermon drafts, Bible-study tools, and elapsed-time presentation coaching, with clear feature and source limitations.',
+    path: '/Pricing',
+  },
+  '/downloads': {
+    title: 'SermonSmith Scripture Sources & Offline Use',
+    description: 'Understand which Scripture sources SermonSmith can use, what offline access depends on, and why every passage and translation must be verified.',
+    path: '/Downloads',
+  },
+  '/privacy': {
+    title: 'SermonSmith Privacy Policy',
+    description: 'Read how SermonSmith handles account data, saved ministry content, AI requests, operational activity, service providers, retention, and deletion requests.',
+    path: '/privacy',
+  },
+};
+
+export function metadataForPath(pathname) {
+  return PUBLIC_ROUTE_METADATA[String(pathname || '/').toLowerCase()] || null;
+}
+
+function setMeta(selector, attribute, value) {
+  let element = document.head.querySelector(selector);
+  if (!element) {
+    element = document.createElement('meta');
+    const match = selector.match(/meta\[(name|property)="([^"]+)"\]/);
+    if (!match) return;
+    element.setAttribute(match[1], match[2]);
+    document.head.appendChild(element);
+  }
+  element.setAttribute(attribute, value);
+}
+
+function updateStructuredData(metadata, canonicalUrl) {
+  let script = document.getElementById('route-structured-data');
+  if (!metadata) {
+    script?.remove();
+    return;
+  }
+
+  if (!script) {
+    script = document.createElement('script');
+    script.id = 'route-structured-data';
+    script.type = 'application/ld+json';
+    document.head.appendChild(script);
+  }
+
+  script.textContent = JSON.stringify(
+    metadata.path === '/'
+      ? {
+          '@context': 'https://schema.org',
+          '@type': 'SoftwareApplication',
+          name: 'SermonSmith',
+          url: canonicalUrl,
+          applicationCategory: 'EducationalApplication',
+          operatingSystem: 'Web',
+          description: metadata.description,
+          creator: { '@type': 'Person', name: 'Dr. John White' },
+        }
+      : {
+          '@context': 'https://schema.org',
+          '@type': 'WebPage',
+          name: metadata.title,
+          url: canonicalUrl,
+          description: metadata.description,
+          isPartOf: {
+            '@type': 'WebSite',
+            name: 'SermonSmith',
+            url: `${SITE_ORIGIN}/`,
+          },
+        },
+  );
+}
+
+export function RouteMetadata() {
+  const location = useLocation();
+  const { pathname } = location;
+
+  useEffect(() => {
+    const metadata = metadataForPath(pathname);
+    const canonical = document.head.querySelector('link[rel="canonical"]');
+
+    if (!metadata) {
+      document.title = 'SermonSmith Application';
+      setMeta('meta[name="description"]', 'content', 'Signed-in SermonSmith application.');
+      setMeta('meta[name="robots"]', 'content', 'noindex,nofollow,noarchive');
+      canonical?.remove();
+      document.head.querySelector('meta[property="og:url"]')?.remove();
+      document.head.querySelector('meta[property="og:image"]')?.remove();
+      document.head.querySelector('meta[property="og:image:alt"]')?.remove();
+      document.head.querySelector('meta[name="twitter:image"]')?.remove();
+      updateStructuredData(null, null);
+      setMeta('meta[property="og:title"]', 'content', 'SermonSmith Application');
+      setMeta('meta[property="og:description"]', 'content', 'Signed-in SermonSmith application.');
+      setMeta('meta[name="twitter:title"]', 'content', 'SermonSmith Application');
+      setMeta('meta[name="twitter:description"]', 'content', 'Signed-in SermonSmith application.');
+      return;
+    }
+
+    const canonicalUrl = new URL(metadata.path, SITE_ORIGIN).href;
+    document.title = metadata.title;
+    setMeta('meta[name="description"]', 'content', metadata.description);
+    setMeta('meta[name="robots"]', 'content', 'index,follow,max-image-preview:large');
+    setMeta('meta[property="og:title"]', 'content', metadata.title);
+    setMeta('meta[property="og:description"]', 'content', metadata.description);
+    setMeta('meta[property="og:url"]', 'content', canonicalUrl);
+    setMeta('meta[property="og:image"]', 'content', SOCIAL_IMAGE);
+    setMeta('meta[property="og:image:alt"]', 'content', 'SermonSmith application icon');
+    setMeta('meta[name="twitter:title"]', 'content', metadata.title);
+    setMeta('meta[name="twitter:description"]', 'content', metadata.description);
+    setMeta('meta[name="twitter:image"]', 'content', SOCIAL_IMAGE);
+    updateStructuredData(metadata, canonicalUrl);
+
+    const canonicalLink = canonical || document.createElement('link');
+    canonicalLink.setAttribute('rel', 'canonical');
+    canonicalLink.setAttribute('href', canonicalUrl);
+    if (!canonical) document.head.appendChild(canonicalLink);
+  }, [location]);
+
+  return null;
+}
 
 const Login = lazy(() => import('./pages/Login'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
@@ -58,14 +193,41 @@ export const AuthenticatedApp = () => {
   const { isAuthenticated, isLoadingAuth, authError } = useAuth();
   const location = useLocation();
 
-  // Public, unauthenticated routes. Legal/store pages (e.g. the privacy policy
-  // required by Google Play and the App Store) must render for anyone —
-  // app-store reviewers and logged-out visitors — before the auth/loading
-  // gate below, and without the authenticated app shell/navigation.
-  if (location.pathname.toLowerCase() === '/privacy') {
+  // Public routes must render before auth initialization finishes. Previously the
+  // global auth gate redirected every logged-out path except /privacy to Login,
+  // which made the landing and pricing pages unusable as public web pages.
+  const publicPath = location.pathname.toLowerCase();
+  const PublicPage =
+    publicPath === '/' || publicPath === '/home'
+      ? Pages.Home
+      : publicPath === '/pricing'
+        ? Pages.Pricing
+        : publicPath === '/downloads'
+          ? Pages.Downloads
+          : null;
+
+  if (publicPath === '/privacy') {
     return (
       <Suspense fallback={<PageLoader />}>
         <PrivacyPolicy />
+      </Suspense>
+    );
+  }
+
+  // An anonymous browser with no prior authenticated-session hint gets the
+  // public page immediately. A returning browser waits on the neutral loader
+  // until its httpOnly cookie is verified, preventing a marketing-shell flash
+  // before the signed-in layout appears. A stale hint is cleared by a 401.
+  if (PublicPage && isLoadingAuth && hasAuthSessionHint()) {
+    return <PageLoader />;
+  }
+
+  // Logged-out visitors get a marketing page without the authenticated app
+  // shell. Signed-in users continue through to the normal routed experience.
+  if (PublicPage && (isLoadingAuth || !isAuthenticated)) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <PublicPage />
       </Suspense>
     );
   }
@@ -102,6 +264,7 @@ export const AuthenticatedApp = () => {
           <Route
             key={path}
             path={`/${path}`}
+            caseSensitive={false}
             element={
               <LayoutWrapper currentPageName={path}>
                 {ADMIN_PAGES.has(path) ? (
@@ -132,6 +295,7 @@ function App() {
           <QueryClientProvider client={queryClientInstance}>
             <Router>
               <NavigationTracker />
+              <RouteMetadata />
               <OfflineBanner />
               <AuthenticatedApp />
             </Router>

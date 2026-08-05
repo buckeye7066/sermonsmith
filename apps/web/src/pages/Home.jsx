@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { api } from '@/api/apiClient';
@@ -24,7 +24,6 @@ import {
   CheckCircle2,
   ArrowRight,
   Star,
-  Mic,
   Languages,
   MessageSquare,
   TrendingUp,
@@ -40,12 +39,21 @@ import { motion } from "framer-motion";
 import VerseOfTheDay from "@/components/reader/VerseOfTheDay";
 import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import { logActivity } from "../components/admin/UserActivityLogger";
-import { TRANSLATIONS_LABEL, LANGUAGES_LABEL, WORLDVIEWS_LABEL } from "@/lib/appStats";
+import { WORLDVIEWS_LABEL } from "@/lib/appStats";
 
-const testimonials = [
-  { name: "Pastor Michael Harper", church: "Church of God of Prophecy", text: "SermonSmith reduced my prep time by 10 hours weekly while improving depth." },
-  { name: "Sister Angela Ramirez", church: "Assembly of God", text: "Larry helped me prepare VBS lessons instantly. A true blessing!" },
-  { name: "Pastor Joel Simmons", church: "Baptist", text: "The theological clarity is unmatched. My church notices the difference." }
+const reviewPrinciples = [
+  {
+    title: "Your judgment stays final",
+    text: "Treat every generated outline, illustration, application, and theological statement as a draft to review.",
+  },
+  {
+    title: "Check every Scripture reference",
+    text: "Open the passage in your chosen translation and read the surrounding context before teaching it.",
+  },
+  {
+    title: "Trusted sources still matter",
+    text: "Use commentaries, original-language tools, denominational guidance, and pastoral counsel alongside AI prompts.",
+  },
 ];
 
 export default function Home() {
@@ -55,10 +63,13 @@ export default function Home() {
   const [showDemo, setShowDemo] = useState(false);
   const [showPrayer, setShowPrayer] = useState(false);
   const [hasCheckedOnboarding, setHasCheckedOnboarding] = useState(false);
+  const hasLoggedHomeViewRef = useRef(false);
 
   useEffect(() => {
+    if (loading || !user || hasLoggedHomeViewRef.current) return;
+    hasLoggedHomeViewRef.current = true;
     logActivity('page_view', { page_name: 'Home' });
-  }, []);
+  }, [loading, user]);
 
   // Onboarding nudge fires once the AuthContext has resolved a user and
   // we haven't already triggered it for this mount.
@@ -75,14 +86,14 @@ export default function Home() {
     {
       icon: Bot,
       title: "Larry - Teaching & Sermon Assistant",
-      description: "Generate complete lessons and sermons for church, VBS, Sunday School, and Christian schools",
+      description: "Generate editable lesson and sermon drafts for church, VBS, Sunday School, and Christian schools",
       color: "blue",
       link: "SermonBuilder"
     },
     {
       icon: Layers,
       title: "Arlynn - Series Specialist",
-      description: "Create 3-12 week sermon series with theological trajectories and discussion questions",
+      description: "Draft 3-12 week sermon-series outlines with trajectories and discussion prompts",
       color: "purple",
       link: "SermonBuilder"
     },
@@ -110,7 +121,7 @@ export default function Home() {
     {
       icon: Globe,
       title: "Worldview & Hot Topics",
-      description: "Biblical responses to current events and cultural issues from your tradition",
+      description: "Draft study prompts for current events and cultural issues from a selected tradition",
       color: "red",
       link: "WorldviewExplorer"
     },
@@ -124,14 +135,14 @@ export default function Home() {
     {
       icon: Presentation,
       title: "Live Teaching Assistant",
-      description: "Real-time AI help, vocal feedback, and engagement suggestions while teaching or preaching",
+      description: "Elapsed-time pacing cues and outline navigation for teaching or preaching",
       color: "pink",
       link: "SermonBuilder"
     },
     {
       icon: Search,
       title: "Deep Exegesis",
-      description: "Original language analysis, historical context, and theological interpretation",
+      description: "Study prompts for original-language, historical, and theological research",
       color: "amber",
       link: "SermonBuilder"
     },
@@ -146,21 +157,21 @@ export default function Home() {
 
   const aiCapabilities = [
     { icon: Sparkles, text: "Draft sermon & lesson generation for review", highlight: true },
-    { icon: Lightbulb, text: "AI-powered illustrations and anecdotes" },
-    { icon: BookOpen, text: "Scripture suggestions and cross-references" },
-    { icon: Users, text: "Audience adaptation (youth, adults, seniors, children)" },
-    { icon: Languages, text: `Multi-language translation (${LANGUAGES_LABEL} languages)` },
+    { icon: Lightbulb, text: "AI-drafted illustrations and anecdotes to verify" },
+    { icon: BookOpen, text: "Scripture references to open and verify in context" },
+    { icon: Users, text: "Audience adaptation prompts (youth, adults, seniors, children)" },
+    { icon: Languages, text: `AI-assisted language adaptation for human review` },
     { icon: TrendingUp, text: "Theological trajectory planning" },
-    { icon: Mic, text: "Real-time vocal feedback while teaching" },
+    { icon: Clock, text: "Elapsed-time presentation coaching; no microphone used" },
     { icon: MessageSquare, text: "Counter-arguments and Q&A prep" },
     { icon: Scale, text: "Denominational ethics & worldview analysis" },
-    { icon: Globe, text: "Biblical responses to hot topics & culture" }
+    { icon: Globe, text: "Draft discussion prompts for current topics" }
   ];
 
   const stats = [
     { number: "Draft", label: "Sermon Generation", icon: Clock },
     { number: "Assist", label: "Prep Support", icon: Zap },
-    { number: TRANSLATIONS_LABEL, label: "Bible Translations", icon: Globe },
+    { number: "Source-based", label: "Bible Catalogue", icon: Globe },
     { number: "AI×2", label: "Smart Assistants", icon: Bot }
   ];
 
@@ -246,7 +257,7 @@ export default function Home() {
                     onClick={() => setShowDemo(true)}
                   >
                     <Zap className="w-5 h-5 mr-2" />
-                    Try It Live
+                    View Example Draft
                   </Button>
                   <Link to={createPageUrl('Pricing')}>
                     <Button
@@ -383,7 +394,7 @@ export default function Home() {
             Meet Your AI Team
           </h2>
           <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
-            Two specialized AI assistants having a conversation about what they do
+            Two drafting assistants for individual messages and multi-week series
           </p>
         </motion.div>
 
@@ -456,7 +467,7 @@ export default function Home() {
                       👋 Hey there! I'm Arlynn, the Series Specialist.
                     </p>
                     <p className="text-gray-700 dark:text-gray-300 text-right">
-                      While Larry is perfect for individual sermons, I'm your go-to for multi-week sermon series! I create comprehensive 3-12 week teaching series where each sermon builds on the previous one. I'll map out the theological trajectory, ensure your series has a powerful culmination, and provide small group discussion questions for each week. Perfect when you want to do an in-depth book study, topical series, or seasonal teaching plan. I make sure your congregation experiences a cohesive spiritual journey, not just disconnected messages.
+                      While Larry is perfect for individual sermons, I'm your go-to for multi-week sermon series! I help draft 3-12 week teaching-series plans in which each message can build on the previous one. I can propose a theological trajectory and small-group questions, but you should revise the plan against Scripture, trusted sources, and the needs of your congregation.
                     </p>
                   </div>
                 </div>
@@ -470,7 +481,7 @@ export default function Home() {
                 <div className="flex-1">
                   <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-tl-none p-4 shadow-md">
                     <p className="text-gray-700 dark:text-gray-300">
-                      Exactly! And together, we help with the entire SermonSmith platform. The app also has a powerful Bible Reader with {TRANSLATIONS_LABEL} translations in multiple languages, instant scripture search, verse highlighting, and personal note-taking. Plus there's a Community feature where you can share your sermons and studies with other ministry leaders, discover what's working in churches around the world, and even adapt other people's content for your congregation.
+                      The Bible Reader supports search, highlighting, and personal notes. Translation availability depends on configured sources and licenses. Community tools can help signed-in users share and adapt material, with attribution and their own pastoral review.
                     </p>
                   </div>
                 </div>
@@ -484,7 +495,7 @@ export default function Home() {
                 <div className="flex-1">
                   <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-tr-none p-4 shadow-md">
                     <p className="text-gray-700 dark:text-gray-300 text-right">
-                      Right! And don't forget the Christian Ethics and Worldview Explorer features - where pastors can get biblical responses to tough topics like AI ethics, gender issues, political questions, and cultural challenges. Everything is filtered through your chosen denomination's theology, so you're not just getting generic answers. SermonSmith understands the nuances between Reformed, Wesleyan, Catholic, Pentecostal, and other traditions.
+                      Christian Ethics and Worldview Explorer can draft questions and comparisons for difficult cultural topics. A selected tradition can inform the prompt, but AI can miss doctrinal nuance; compare the result with Scripture and authoritative guidance from your tradition.
                     </p>
                   </div>
                 </div>
@@ -502,10 +513,10 @@ export default function Home() {
                   </div>
                 </div>
                 <p className="text-lg text-gray-700 dark:text-gray-300 font-medium">
-                  <strong className="text-blue-600">Larry</strong> + <strong className="text-purple-600">Arlynn</strong> = Your complete ministry team
+                  <strong className="text-blue-600">Larry</strong> + <strong className="text-purple-600">Arlynn</strong> = Two drafting helpers, with you as the editor
                 </p>
                 <p className="text-gray-600 dark:text-gray-400 mt-2">
-                  We're here to lighten the prep load so you can focus on shepherding your flock.
+                  Use the drafts to organize your work, then bring your own study, prayer, experience, and pastoral judgment.
                 </p>
               </div>
             </CardContent>
@@ -558,7 +569,7 @@ export default function Home() {
                     <CheckCircle2 className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
                     <div>
                       <div className="font-semibold text-gray-900 dark:text-white">Live Teaching Help</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">Real-time suggestions, vocal feedback, timing cues</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Elapsed-time pacing cues and outline navigation; no audio is captured</div>
                     </div>
                   </div>
 
@@ -566,7 +577,7 @@ export default function Home() {
                     <CheckCircle2 className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
                     <div>
                       <div className="font-semibold text-gray-900 dark:text-white">Denominational Theology</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">Content aligned with your tradition's teachings</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Prompts informed by your selected tradition; verify doctrinal nuance</div>
                     </div>
                   </div>
 
@@ -667,7 +678,7 @@ export default function Home() {
               Powered by Advanced AI
             </h2>
             <p className="text-xl text-indigo-100 max-w-3xl mx-auto">
-              Cutting-edge artificial intelligence that understands theology, context, and your congregation
+              AI-assisted drafting shaped by your prompts. It can be incomplete or wrong, so review theology, context, and application.
             </p>
           </motion.div>
 
@@ -708,10 +719,10 @@ export default function Home() {
           className="text-center mb-16"
         >
           <h2 className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white mb-4">
-            Everything You Need
+            Core Preparation Tools
           </h2>
           <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
-            From Bible reading to sermon delivery, SermonSmith has you covered
+            Move from reading and notes to an editable draft and presentation outline
           </p>
         </motion.div>
 
@@ -770,31 +781,30 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Testimonial Carousel */}
-      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 overflow-hidden py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8">
+      {/* Responsible-use guidance */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white text-center mb-4">
-            What Pastors Are Saying
+            Built for Pastoral Review
           </h2>
+          <p className="text-center text-gray-600 dark:text-gray-400 max-w-3xl mx-auto mb-10">
+            SermonSmith helps with drafts and organization. It does not replace careful exegesis,
+            trusted sources, prayer, or accountability to your faith community.
+          </p>
+          <div className="grid md:grid-cols-3 gap-6">
+            {reviewPrinciples.map((principle) => (
+              <Card key={principle.title} className="bg-white dark:bg-gray-800 shadow-lg">
+                <CardContent className="pt-6">
+                  <CheckCircle2 className="w-7 h-7 text-indigo-600 mb-3" />
+                  <h3 className="font-bold text-lg text-gray-900 dark:text-white mb-2">
+                    {principle.title}
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-400">{principle.text}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
-        <motion.div
-          initial={{ x: 0 }}
-          animate={{ x: ["0%", "-50%"] }}
-          transition={{ duration: 22, repeat: Infinity, ease: "linear" }}
-          className="flex gap-6 w-max"
-        >
-          {[...testimonials, ...testimonials].map((t, i) => (
-            <Card key={i} className="w-96 flex-shrink-0 bg-white dark:bg-gray-800 p-6 shadow-xl">
-              <CardContent className="pt-4">
-                <p className="italic mb-4 text-gray-700 dark:text-gray-300">
-                  "{t.text}"
-                </p>
-                <p className="font-bold text-indigo-600">{t.name}</p>
-                <p className="text-gray-500">{t.church}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </motion.div>
       </div>
 
       {/* How It Works */}
@@ -811,7 +821,7 @@ export default function Home() {
               How It Works
             </h2>
             <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
-              From idea to pulpit in minutes, not hours
+              A guided path from passage or topic to an editable, review-ready draft
             </p>
           </motion.div>
 
@@ -820,7 +830,7 @@ export default function Home() {
               { step: "1", title: "Choose Your Topic", description: "Enter a scripture passage or sermon theme", icon: BookOpen },
               { step: "2", title: "AI Drafts Content", description: "Larry or Arlynn prepares a sermon draft for review", icon: Sparkles },
               { step: "3", title: "Customize & Enhance", description: "Review, edit, and add your personal touches", icon: Lightbulb },
-              { step: "4", title: "Present with AI", description: "Use live presentation mode with real-time assistance", icon: Presentation }
+              { step: "4", title: "Present & Review", description: "Use outline navigation and elapsed-time pacing cues, then capture revisions", icon: Presentation }
             ].map((step, index) => {
               const Icon = step.icon;
               return (
@@ -880,8 +890,8 @@ export default function Home() {
                   <Heart className="w-6 h-6 text-blue-600" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Better Quality Sermons</h3>
-                  <p className="text-gray-600 dark:text-gray-400">Access to theological depth and multiple perspectives</p>
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Broader Study Prompts</h3>
+                  <p className="text-gray-600 dark:text-gray-400">Compare prompts and perspectives, then verify them with trusted sources</p>
                 </div>
               </div>
 
@@ -947,10 +957,10 @@ export default function Home() {
             viewport={{ once: true }}
           >
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
-              Ready to Transform Your Ministry?
+              Ready to Start a Review-Ready Draft?
             </h2>
             <p className="text-xl text-indigo-100 mb-10">
-              Join thousands of pastors who are preaching better sermons with less stress
+              Use SermonSmith to organize a first draft while keeping study, prayer, and pastoral judgment at the center
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -989,7 +999,7 @@ export default function Home() {
             </div>
 
             <p className="text-indigo-100 mt-6">
-              No credit card required • Works on all devices • {TRANSLATIONS_LABEL} Bible translations
+              No credit card required for a free account • Web, desktop, and Android builds are maintained separately
             </p>
           </motion.div>
         </div>
@@ -1032,14 +1042,10 @@ export default function Home() {
                 </Badge>
                 <Badge variant="outline" className="text-white border-white">
                   <Download className="w-3 h-3 mr-1" />
-                  iOS
-                </Badge>
-                <Badge variant="outline" className="text-white border-white">
-                  <Download className="w-3 h-3 mr-1" />
                   Android
                 </Badge>
               </div>
-              <p className="text-gray-400 text-sm">Works on all your devices</p>
+              <p className="text-gray-400 text-sm">Feature availability varies by platform</p>
             </div>
           </div>
           
@@ -1068,13 +1074,13 @@ export default function Home() {
         user={user}
       />
 
-      {/* Live Demo Modal */}
+      {/* Example draft modal */}
       {showDemo && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
           <Card className="w-full max-w-2xl p-8 bg-white dark:bg-gray-900 shadow-2xl mx-4">
             <CardHeader>
-              <CardTitle className="text-2xl">Live Demo</CardTitle>
-              <CardDescription>See a sermon created instantly</CardDescription>
+              <CardTitle className="text-2xl">Example Draft</CardTitle>
+              <CardDescription>Review a static example of a possible draft structure</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-gray-700 dark:text-gray-300 space-y-2">

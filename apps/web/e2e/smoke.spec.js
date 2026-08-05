@@ -1,43 +1,119 @@
 import { test, expect } from '@playwright/test';
 
-// Backend-independent smoke: the app must boot, mount React into #root, keep
-// its title, and surface an interactive auth UI when unauthenticated — all
-// without throwing an uncaught page error.
-test('app boots and renders the shell', async ({ page }) => {
+async function mockLoggedOutApi(page) {
+  await page.route('**/api/**', async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Authentication required' }),
+    });
+  });
+}
+
+test('route-specific documents expose aligned crawl metadata over HTTP', async ({ request }) => {
+  const documents = [
+    { file: '/index.html', canonical: 'https://sermonsmith.axiombiolabs.org/' },
+    { file: '/pricing.html', canonical: 'https://sermonsmith.axiombiolabs.org/Pricing' },
+    { file: '/downloads.html', canonical: 'https://sermonsmith.axiombiolabs.org/Downloads' },
+    { file: '/privacy.html', canonical: 'https://sermonsmith.axiombiolabs.org/privacy' },
+  ];
+
+  for (const document of documents) {
+    const response = await request.get(document.file);
+    expect(response.ok()).toBeTruthy();
+    const html = await response.text();
+    expect(html).toContain(`rel="canonical" href="${document.canonical}"`);
+    expect(html).toContain('name="robots" content="index,follow,max-image-preview:large"');
+  }
+
+  const protectedShell = await request.get('/app.html');
+  expect(protectedShell.ok()).toBeTruthy();
+  const protectedHtml = await protectedShell.text();
+  expect(protectedHtml).toContain('name="robots" content="noindex,nofollow,noarchive"');
+  expect(protectedHtml).not.toContain('rel="canonical"');
+});
+
+test('anonymous public pages stay public after auth initialization', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
+  await mockLoggedOutApi(page);
 
-  await page.goto('/');
+  const publicPages = [
+    {
+      path: '/',
+      heading: 'SermonSmith',
+      url: /\/$/,
+      canonical: 'https://sermonsmith.axiombiolabs.org/',
+      title: /AI-Assisted Sermon Builder/i,
+    },
+    {
+      path: '/Pricing',
+      heading: 'Choose Your Plan',
+      url: /\/Pricing$/i,
+      canonical: 'https://sermonsmith.axiombiolabs.org/Pricing',
+      title: /SermonSmith Pricing/i,
+    },
+    {
+      path: '/Downloads',
+      heading: 'Scripture Sources & Offline Use',
+      url: /\/Downloads$/i,
+      canonical: 'https://sermonsmith.axiombiolabs.org/Downloads',
+      title: /Scripture Sources & Offline Use/i,
+    },
+    {
+      path: '/privacy',
+      heading: 'Privacy Policy',
+      url: /\/privacy$/i,
+      canonical: 'https://sermonsmith.axiombiolabs.org/privacy',
+      title: /SermonSmith Privacy Policy/i,
+    },
+  ];
 
-  // Title is served from index.html and must survive the build.
-  await expect(page).toHaveTitle(/SermonSmith/i);
-
-  // React mounted something into #root.
+  for (const publicPage of publicPages) {
+    await page.goto(publicPage.path);
+    await expect(page.getByRole('heading', { name: publicPage.heading }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page).toHaveURL(publicPage.url);
+    await expect(page).toHaveTitle(publicPage.title);
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      publicPage.canonical,
+    );
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+      'content',
+      'index,follow,max-image-preview:large',
+    );
+    expect(page.url()).not.toContain('/Login');
+  }
   await expect(page.locator('#root')).not.toBeEmpty();
-
-  // No uncaught runtime errors during boot/route.
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
-test('unauthenticated user reaches an auth surface', async ({ page }) => {
-  await page.goto('/');
-  // Either an email field (login), a visible sign-in/get-started affordance,
-  // or — while login maintenance mode is on (apps/web/src/lib/maintenance.js)
-  // — the upgrade banner that replaces the sign-in form.
+test('unauthenticated user reaches the login surface directly', async ({ page }) => {
+  await mockLoggedOutApi(page);
+  await page.goto('/Login');
+
   const authSurface = page.locator(
-    'input[type="email"], a:has-text("Login"), a:has-text("Sign"), button:has-text("Sign"), button:has-text("Get Started"), [role="status"]:has-text("upgraded")',
+    'input[type="email"], [role="status"]:has-text("upgraded")',
   );
   await expect(authSurface.first()).toBeVisible({ timeout: 15_000 });
+  await expect(page).toHaveURL(/\/Login$/i);
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+    'content',
+    'noindex,nofollow,noarchive',
+  );
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
 });
 
-test('registration form is reachable from the login page', async ({ page }) => {
-  await page.goto('/Login');
-  await page.getByText(/don't have an account\? register/i).click();
-  // The register mode shows a name field alongside email/password and a
-  // create-account submit.
+test('registration form is reachable from a stable public URL', async ({ page }) => {
+  await mockLoggedOutApi(page);
+  await page.goto('/Login?mode=register');
+
+  await expect(page.getByRole('heading', { name: /create account/i })).toBeVisible();
   await expect(page.locator('input[type="email"]')).toBeVisible();
   await expect(page.locator('input[type="password"]').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: /create account|register|sign up/i }).first()).toBeVisible();
+  await expect(page).toHaveURL(/\/Login\?mode=register$/i);
 });
 
 // Regression guard for the 2026-08-02 "Bible reader is a broken link" report:

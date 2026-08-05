@@ -2,27 +2,38 @@ import { api } from '@/api/apiClient';
 
 let activityQueue = [];
 let isProcessing = false;
-let cachedUser = null;
-let userFetchPromise = null;
+// undefined = AuthContext has not resolved yet; null = resolved signed-out.
+// Activity logging must never race AuthContext with its own /api/auth/me request.
+let cachedUser;
 
-// The AuthContext primes this cache via `primeCachedUser` so that the
-// activity logger never has to issue its own `/api/auth/me` request when
-// the centralised auth fetch has already happened. This is what keeps the
-// per-page-load count of `/api/auth/me` calls at exactly one.
-export function primeCachedUser(user) {
-  cachedUser = user || null;
+function normalizedLabel(value, fallback, maxLength = 80) {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, maxLength);
+  return normalized || fallback;
 }
 
-async function resolveUser() {
-  if (cachedUser) return cachedUser;
-  if (userFetchPromise) return userFetchPromise;
-  // Fallback: only fires if logActivity is invoked before AuthContext has
-  // primed the cache (rare — typically only on very early boot events).
-  userFetchPromise = api.auth.me()
-    .then(u => { cachedUser = u; return u; })
-    .catch(() => null)
-    .finally(() => { userFetchPromise = null; });
-  return userFetchPromise;
+export function buildActivityRecord(actionType, details = {}, now = new Date()) {
+  const currentPath =
+    typeof window !== 'undefined' ? window.location.pathname.split('/').filter(Boolean).pop() : '';
+
+  return {
+    action_type: normalizedLabel(actionType, 'unknown_action'),
+    page_name: normalizedLabel(details.page_name || currentPath, 'Home'),
+    resource_type: details.resource_type
+      ? normalizedLabel(details.resource_type, null)
+      : null,
+    metadata: {
+      timestamp: now.toISOString(),
+      outcome: details.outcome && details.outcome !== 'success' ? 'failure' : 'success',
+    },
+  };
+}
+
+// AuthContext primes this cache so activity logging does not add another
+// /api/auth/me round-trip.
+export function primeCachedUser(user) {
+  cachedUser = user || null;
+  if (!cachedUser) activityQueue = [];
 }
 
 const processQueue = async () => {
@@ -33,23 +44,18 @@ const processQueue = async () => {
   activityQueue = [];
 
   try {
-    const user = await resolveUser();
-    if (!user) {
-      isProcessing = false;
-      return;
-    }
+    // AuthContext primes this cache after its single auth lookup. A missing
+    // user means unresolved or signed out; either way, discard rather than
+    // launching a second, racing authentication request.
+    if (!cachedUser) return;
 
+    // The authenticated entities API attaches the account's user_id on the
+    // server. Do not duplicate email addresses or accept caller-supplied IDs.
     await Promise.allSettled(
-      batch.map(activity =>
-        api.entities.UserActivity.create({
-          user_id: user.id,
-          user_email: user.email,
-          ...activity,
-        })
-      )
+      batch.map((activity) => api.entities.UserActivity.create(activity)),
     );
   } catch (error) {
-    console.error("Batch activity logging failed:", error);
+    console.error('Batch activity logging failed:', error);
   } finally {
     isProcessing = false;
   }
@@ -59,40 +65,27 @@ let intervalId = null;
 function ensureInterval() {
   if (!intervalId) {
     intervalId = setInterval(() => {
-      if (activityQueue.length === 0) return;
-      processQueue();
+      if (activityQueue.length > 0) processQueue();
     }, 2000);
   }
 }
 
 export function clearCachedUser() {
-  cachedUser = null;
+  cachedUser = undefined;
+  activityQueue = [];
 }
 
 export const logActivity = (actionType, details = {}) => {
-  activityQueue.push({
-    action_type: actionType,
-    page_name: details.page_name || window.location.pathname.split('/').pop() || 'Home',
-    resource_type: details.resource_type || null,
-    resource_id: details.resource_id || null,
-    metadata: {
-      ...(details.metadata || {}),
-      url: window.location.href,
-      pathname: window.location.pathname,
-      timestamp: new Date().toISOString(),
-      screen_size: `${window.innerWidth}x${window.innerHeight}`,
-      outcome: details.outcome || 'success',
-      error_message: details.error_message || null,
-      data_modified: details.data_modified || null,
-      data_viewed: details.data_viewed || null,
-    },
-  });
+  if (!cachedUser) return false;
 
+  activityQueue.push(buildActivityRecord(actionType, details));
   ensureInterval();
 
   if (activityQueue.length >= 5) {
     processQueue();
   }
+
+  return true;
 };
 
 export default logActivity;

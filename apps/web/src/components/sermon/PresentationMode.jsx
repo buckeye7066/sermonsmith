@@ -29,8 +29,6 @@ import {
   CheckCircle2,
   Loader2,
   Settings,
-  Mic,
-  MicOff,
   Users,
   Search,
   MessageCircle,
@@ -48,6 +46,53 @@ const formatTime = (seconds) => {
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
+
+export function calculateTimingStatus({
+  elapsedTime,
+  targetTime,
+  currentPointIndex,
+  pointCount,
+}) {
+  const elapsedMinutes = elapsedTime / 60;
+  const expectedProgress = (currentPointIndex + 1) / (pointCount + 2);
+  const actualProgress = elapsedMinutes / targetTime;
+
+  if (currentPointIndex === -1) {
+    if (elapsedMinutes > 4) {
+      return { status: "warning", message: "Consider moving to Point 1" };
+    }
+    return { status: "good", message: "Good pace" };
+  }
+
+  if (actualProgress < expectedProgress - 0.15) {
+    return { status: "fast", message: "You're ahead of schedule - can expand points" };
+  }
+  if (actualProgress > expectedProgress + 0.15) {
+    return { status: "slow", message: "Running behind - consider condensing" };
+  }
+
+  return { status: "good", message: "On pace" };
+}
+
+export function getTimingCoachingTip(status, minutesRemaining) {
+  const tips = {
+    fast: "You are ahead of the outline target. Expand only where it helps the message.",
+    slow: "You are behind the outline target. Consider condensing the next section.",
+    warning: "The introduction is running long. Consider moving to Point 1.",
+    good: `${minutesRemaining} target minute${minutesRemaining === 1 ? "" : "s"} remain.`,
+  };
+
+  return tips[status] || tips.good;
+}
+
+export function getTimingStateLabel(status) {
+  return {
+    fast: "ahead",
+    slow: "behind",
+    warning: "move on",
+    good: "on pace",
+  }[status] || "on pace";
+}
 
 const ASSISTANT_PERSONALITIES = [
   { 
@@ -69,14 +114,14 @@ const ASSISTANT_PERSONALITIES = [
     name: 'Analytical Mentor', 
     icon: Brain,
     description: 'Data-driven, strategic, thoughtful',
-    style: 'Based on pace, consider condensing Point 3.'
+    style: 'Based on elapsed time, consider condensing Point 3.'
   },
   { 
     id: 'conversational', 
     name: 'Conversational Friend', 
     icon: MessageCircle,
     description: 'Warm, casual, relatable',
-    style: 'Hey, that illustration landed well! Keep going!'
+    style: 'That illustration is next—keep it concise.'
   }
 ];
 
@@ -92,9 +137,9 @@ export default function PresentationMode({ sermon, onClose }) {
   const [lastSuggestionPoint, setLastSuggestionPoint] = useState(-999);
   const [pauseStartTime, setPauseStartTime] = useState(null);
   
-  // New AI features
-  const [vocalFeedback, setVocalFeedback] = useState(null);
-  const [isVocalMonitoring, setIsVocalMonitoring] = useState(false);
+  // Presentation assistance state
+  const [timingCoaching, setTimingCoaching] = useState(null);
+  const [isTimingCoachActive, setIsTimingCoachActive] = useState(false);
   const [showScriptureLookup, setShowScriptureLookup] = useState(false);
   const [scriptureQuery, setScriptureQuery] = useState("");
   const [scriptureResults, setScriptureResults] = useState(null);
@@ -106,18 +151,18 @@ export default function PresentationMode({ sermon, onClose }) {
     targetTime: 30,
     showTimingCues: true,
     showAISuggestions: true,
-    autoSuggestOnPause: true,
-    pauseThreshold: 5,
+    autoSuggestWhileRunning: true,
+    suggestionDelay: 5,
     enableVoiceAlerts: false,
-    enableVocalFeedback: true,
+    enableTimingCoaching: true,
     enableEngagementSuggestions: true,
-    vocalFeedbackInterval: 60 // seconds
+    timingCoachingInterval: 60 // seconds
   });
 
   const containerRef = useRef(null);
   const timerRef = useRef(null);
   const pauseTimerRef = useRef(null);
-  const vocalFeedbackTimerRef = useRef(null);
+  const lastTimingCoachingBucketRef = useRef(0);
 
   useEffect(() => {
     if (isRunning) {
@@ -135,23 +180,30 @@ export default function PresentationMode({ sermon, onClose }) {
     };
   }, [isRunning]);
 
-  // Vocal feedback monitoring
+  // Elapsed-time coaching; no audio input. Drive coaching from the current
+  // elapsed-time state instead of an interval callback that closes over the
+  // time at which coaching started.
   useEffect(() => {
-    if (isVocalMonitoring && settings.enableVocalFeedback && isRunning) {
-      vocalFeedbackTimerRef.current = setInterval(() => {
-        generateVocalFeedback();
-      }, settings.vocalFeedbackInterval * 1000);
-    } else {
-      if (vocalFeedbackTimerRef.current) {
-        clearInterval(vocalFeedbackTimerRef.current);
-      }
-    }
+    if (!isTimingCoachActive || !settings.enableTimingCoaching || !isRunning) return;
 
-    return () => {
-      if (vocalFeedbackTimerRef.current) clearInterval(vocalFeedbackTimerRef.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
-  }, [isVocalMonitoring, settings.enableVocalFeedback, isRunning]);
+    const interval = Math.max(1, Number(settings.timingCoachingInterval) || 60);
+    const bucket = Math.floor(elapsedTime / interval);
+    if (bucket < 1 || bucket <= lastTimingCoachingBucketRef.current) return;
+
+    lastTimingCoachingBucketRef.current = bucket;
+    generateTimingCoaching();
+  // generateTimingCoaching reads the same current render state listed here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    elapsedTime,
+    currentPointIndex,
+    isTimingCoachActive,
+    isRunning,
+    settings.enableTimingCoaching,
+    settings.targetTime,
+    settings.timingCoachingInterval,
+    sermon.points.length,
+  ]);
 
   // Auto-engagement suggestions
   useEffect(() => {
@@ -166,9 +218,9 @@ export default function PresentationMode({ sermon, onClose }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [settings.enableEngagementSuggestions, isRunning, currentPointIndex]);
 
-  // Monitor pauses for auto-suggestions
+  // Offer a suggestion after navigation inactivity while the timer is running
   useEffect(() => {
-    if (!isRunning || !settings.autoSuggestOnPause) {
+    if (!isRunning || !settings.autoSuggestWhileRunning) {
       if (pauseTimerRef.current) {
         clearTimeout(pauseTimerRef.current);
         setPauseStartTime(null);
@@ -184,13 +236,13 @@ export default function PresentationMode({ sermon, onClose }) {
       if (currentPointIndex !== lastSuggestionPoint) {
         handleAISuggestion();
       }
-    }, settings.pauseThreshold * 1000);
+    }, settings.suggestionDelay * 1000);
 
     return () => {
       if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
-  }, [isRunning, currentPointIndex, pauseStartTime, settings.autoSuggestOnPause]);
+  }, [isRunning, currentPointIndex, pauseStartTime, settings.autoSuggestWhileRunning]);
 
   const handleUserAction = () => {
     setPauseStartTime(null);
@@ -199,52 +251,32 @@ export default function PresentationMode({ sermon, onClose }) {
     }
   };
 
-  const toggleVocalMonitoring = () => {
-    setIsVocalMonitoring(!isVocalMonitoring);
-    if (!isVocalMonitoring) {
-      toast.success("Vocal monitoring started - Larry is listening");
-    } else {
-      toast.info("Vocal monitoring paused");
-      setVocalFeedback(null);
-    }
+  const toggleTimingCoach = () => {
+    setIsTimingCoachActive((active) => {
+      const nextActive = !active;
+      if (nextActive) {
+        const interval = Math.max(1, Number(settings.timingCoachingInterval) || 60);
+        lastTimingCoachingBucketRef.current = Math.floor(elapsedTime / interval);
+        toast.success("Timed coaching started — no microphone or audio is used");
+      } else {
+        toast.info("Timed coaching paused");
+        setTimingCoaching(null);
+      }
+      return nextActive;
+    });
   };
 
-  const generateVocalFeedback = async () => {
-    // Simulate vocal analysis - in production this would use Web Audio API
-    const personalityData = ASSISTANT_PERSONALITIES.find(p => p.id === assistantPersonality);
-    
-    try {
-      const prompt = `You are Larry, the AI preaching assistant with a ${personalityData.name} personality (${personalityData.description}).
-
-The preacher has been speaking for ${Math.floor(elapsedTime / 60)} minutes. Based on typical vocal patterns at this stage:
-
-Provide brief vocal feedback in your ${assistantPersonality} style:
-1. Pace assessment (too fast, good, or slow)
-2. Energy level observation
-3. One actionable tip
-
-Keep it VERY brief (2-3 sentences max) and ${assistantPersonality === 'encouraging' ? 'encouraging' : assistantPersonality === 'direct' ? 'direct' : assistantPersonality === 'analytical' ? 'analytical' : 'conversational'}.`;
-
-      const response = await api.integrations.Core.InvokeLLM({
-        system_prompt: LARRY_SYSTEM_PROMPT,
-        prompt,
-        feature: 'presentation',
-        response_json_schema: {
-          type: "object",
-          properties: {
-            pace: { type: "string", enum: ["fast", "good", "slow"] },
-            energy: { type: "string", enum: ["high", "good", "low"] },
-            feedback: { type: "string" },
-            tip: { type: "string" }
-          }
-        }
-      });
-
-      setVocalFeedback(response);
-    } catch (error) {
-      console.error("Error generating vocal feedback:", error);
-      toast.error("Larry couldn't analyze your delivery right now");
-    }
+  const generateTimingCoaching = () => {
+    // This coach uses only elapsed time, target time, and outline position.
+    // It does not request microphone permission, capture audio, or infer vocal
+    // pace, tone, energy, audience response, or delivery quality.
+    const status = getTimingStatus();
+    const minutesRemaining = Math.max(0, settings.targetTime - Math.floor(elapsedTime / 60));
+    setTimingCoaching({
+      timingState: status.status,
+      feedback: status.message,
+      tip: getTimingCoachingTip(status.status, minutesRemaining),
+    });
   };
 
   const generateEngagementSuggestion = async () => {
@@ -290,20 +322,20 @@ Keep it ${assistantPersonality === 'encouraging' ? 'encouraging and positive' : 
 
   const searchScripture = async () => {
     if (!scriptureQuery.trim()) return;
-    
+
     setIsSearchingScripture(true);
-    
+
     try {
-      const prompt = `Larry, I need a quick scripture reference while preaching!
+      const prompt = `Suggest 2-3 Bible references that may relate to the user's topic.
 
-${formatUserInputBlock('Query', scriptureQuery)}
+${formatUserInputBlock('Topic', scriptureQuery)}
 
-Find and return 2-3 relevant Bible verses that address this. Include:
-- Verse reference
-- Verse text (real verses only)
-- Why it's relevant
+Return only:
+- A canonical Bible reference
+- A short explanation of possible relevance
 
-Keep each verse brief and directly applicable to preaching context.`;
+Do not quote, paraphrase, or translate verse text. Do not claim a reference is verified.
+The user must open each passage in an authorized translation and read its context.`;
 
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
@@ -318,20 +350,21 @@ Keep each verse brief and directly applicable to preaching context.`;
                 type: "object",
                 properties: {
                   reference: { type: "string" },
-                  text: { type: "string" },
-                  relevance: { type: "string" }
-                }
-              }
-            }
-          }
-        }
+                  relevance: { type: "string" },
+                },
+                required: ["reference", "relevance"],
+              },
+            },
+          },
+          required: ["verses"],
+        },
       });
 
-      setScriptureResults(response.verses);
-      toast.success("Found verses!");
+      setScriptureResults(Array.isArray(response?.verses) ? response.verses : []);
+      toast.success("Suggested references — verify each passage before use");
     } catch (error) {
-      console.error("Error searching scripture:", error);
-      toast.error("Scripture search failed");
+      console.error("Error suggesting scripture references:", error);
+      toast.error("Reference suggestions are unavailable");
     } finally {
       setIsSearchingScripture(false);
     }
@@ -391,7 +424,7 @@ Current context: ${context}
 Sermon topic: ${sermon.topic}
 Time elapsed: ${formatTime(elapsedTime)}
 
-I've paused. Provide ONE brief suggestion in your ${assistantPersonality} style:
+Provide ONE brief optional suggestion in your ${assistantPersonality} style:
 - Transition phrase
 - Scripture reference
 - Quick example (2-3 sentences)
@@ -432,25 +465,12 @@ Match the ${personalityData.description} tone!`;
     }
   };
 
-  const getTimingStatus = () => {
-    const elapsedMinutes = elapsedTime / 60;
-    const targetMinutes = settings.targetTime;
-    const expectedProgress = (currentPointIndex + 1) / (sermon.points.length + 2);
-    const actualProgress = elapsedMinutes / targetMinutes;
-
-    if (currentPointIndex === -1) {
-      if (elapsedMinutes > 4) return { status: "warning", message: "Consider moving to Point 1" };
-      return { status: "good", message: "Good pace" };
-    }
-
-    if (actualProgress < expectedProgress - 0.15) {
-      return { status: "fast", message: "You're ahead of schedule - can expand points" };
-    } else if (actualProgress > expectedProgress + 0.15) {
-      return { status: "slow", message: "Running behind - consider condensing" };
-    }
-
-    return { status: "good", message: "On pace" };
-  };
+  const getTimingStatus = () => calculateTimingStatus({
+    elapsedTime,
+    targetTime: settings.targetTime,
+    currentPointIndex,
+    pointCount: sermon.points.length,
+  });
 
   const getCurrentContent = () => {
     if (currentPointIndex === -1) {
@@ -499,8 +519,8 @@ Match the ${personalityData.description} tone!`;
         setIsRunning(!isRunning);
       } else if (e.key === 's') {
         handleAISuggestion();
-      } else if (e.key === 'v') {
-        toggleVocalMonitoring();
+      } else if (e.key === 'c') {
+        toggleTimingCoach();
       } else if (e.key === 'l') {
         setShowScriptureLookup(true);
       } else if (e.key === 'e') {
@@ -527,6 +547,7 @@ Match the ${personalityData.description} tone!`;
             size="sm"
             onClick={() => setIsRunning(!isRunning)}
             className="text-white hover:bg-gray-800"
+            aria-label={isRunning ? "Pause timer" : "Start timer"}
           >
             {isRunning ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
           </Button>
@@ -541,26 +562,30 @@ Match the ${personalityData.description} tone!`;
             <Badge 
               variant={timingStatus.status === 'good' ? 'default' : 'secondary'}
               className={`${
-                timingStatus.status === 'fast' ? 'bg-blue-500' : 
-                timingStatus.status === 'slow' ? 'bg-orange-500' : 
+                timingStatus.status === 'fast' ? 'bg-blue-500' :
+                timingStatus.status === 'slow' ? 'bg-orange-500' :
+                timingStatus.status === 'warning' ? 'bg-amber-500' :
                 'bg-green-500'
               } text-white`}
             >
               {timingStatus.status === 'good' && <CheckCircle2 className="w-3 h-3 mr-1" />}
-              {timingStatus.status === 'slow' && <AlertTriangle className="w-3 h-3 mr-1" />}
+              {(timingStatus.status === 'slow' || timingStatus.status === 'warning') && (
+                <AlertTriangle className="w-3 h-3 mr-1" />
+              )}
               {timingStatus.message}
             </Badge>
           )}
 
-          {/* Vocal Feedback Badge */}
-          {vocalFeedback && (
+          {/* Elapsed-time coaching badge */}
+          {timingCoaching && (
             <Badge className={`${
-              vocalFeedback.pace === 'fast' ? 'bg-orange-500' :
-              vocalFeedback.pace === 'slow' ? 'bg-blue-500' :
+              timingCoaching.timingState === 'fast' ? 'bg-blue-500' :
+              timingCoaching.timingState === 'slow' ? 'bg-orange-500' :
+              timingCoaching.timingState === 'warning' ? 'bg-amber-500' :
               'bg-green-500'
             } text-white animate-pulse`}>
-              <Mic className="w-3 h-3 mr-1" />
-              Pace: {vocalFeedback.pace}
+              <Clock className="w-3 h-3 mr-1" />
+              Timed: {getTimingStateLabel(timingCoaching.timingState)}
             </Badge>
           )}
 
@@ -572,15 +597,15 @@ Match the ${personalityData.description} tone!`;
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Vocal Monitoring Toggle */}
+          {/* Elapsed-time coaching toggle */}
           <Button
             variant="ghost"
             size="sm"
-            onClick={toggleVocalMonitoring}
-            className={`text-white hover:bg-gray-800 ${isVocalMonitoring ? 'bg-red-600' : ''}`}
-            title="Toggle vocal monitoring (V)"
+            onClick={toggleTimingCoach}
+            className={`text-white hover:bg-gray-800 ${isTimingCoachActive ? 'bg-indigo-600' : ''}`}
+            title="Toggle elapsed-time coaching (C); no microphone is used"
           >
-            {isVocalMonitoring ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+            <Clock className="w-4 h-4" />
           </Button>
 
           {/* Scripture Lookup */}
@@ -731,23 +756,16 @@ Match the ${personalityData.description} tone!`;
             </CardContent>
           </Card>
 
-          {/* Vocal Feedback Alert */}
-          {vocalFeedback && (
+          {/* Elapsed-time coaching alert */}
+          {timingCoaching && (
             <Alert className="bg-purple-900/50 border-purple-500 animate-in slide-in-from-bottom">
-              <Mic className="w-5 h-5 text-purple-400" />
+              <Clock className="w-5 h-5 text-purple-400" />
               <AlertDescription className="text-white">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-4">
-                    <Badge className={vocalFeedback.pace === 'fast' ? 'bg-orange-500' : vocalFeedback.pace === 'slow' ? 'bg-blue-500' : 'bg-green-500'}>
-                      Pace: {vocalFeedback.pace}
-                    </Badge>
-                    <Badge className={vocalFeedback.energy === 'low' ? 'bg-orange-500' : vocalFeedback.energy === 'high' ? 'bg-blue-500' : 'bg-green-500'}>
-                      Energy: {vocalFeedback.energy}
-                    </Badge>
-                  </div>
-                  <p className="text-lg">{vocalFeedback.feedback}</p>
-                  <p className="text-sm text-purple-300">💡 {vocalFeedback.tip}</p>
-                </div>
+                <p className="text-lg">{timingCoaching.feedback}</p>
+                <p className="text-sm text-purple-300">💡 {timingCoaching.tip}</p>
+                <p className="text-xs text-purple-200 mt-2">
+                  Based only on elapsed time and outline position. No audio is captured.
+                </p>
               </AlertDescription>
             </Alert>
           )}
@@ -844,7 +862,7 @@ Match the ${personalityData.description} tone!`;
             
             <div className="text-center text-gray-400 text-sm">
               <div>← → or Space: Navigate • S: AI Help • E: Engage</div>
-              <div>V: Vocal Monitor • L: Scripture • P: Pause</div>
+              <div>C: Timed Coach • L: References • P: Pause</div>
             </div>
           </div>
 
@@ -904,11 +922,11 @@ Match the ${personalityData.description} tone!`;
             {/* Other Settings */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Enable Vocal Feedback</Label>
+                <Label>Enable elapsed-time coaching (no microphone)</Label>
                 <input
                   type="checkbox"
-                  checked={settings.enableVocalFeedback}
-                  onChange={(e) => setSettings({...settings, enableVocalFeedback: e.target.checked})}
+                  checked={settings.enableTimingCoaching}
+                  onChange={(e) => setSettings({...settings, enableTimingCoaching: e.target.checked})}
                   className="w-4 h-4"
                 />
               </div>
@@ -924,11 +942,11 @@ Match the ${personalityData.description} tone!`;
               </div>
 
               <div className="flex items-center justify-between">
-                <Label>Auto-Suggest on Pause</Label>
+                <Label>Auto-suggest after navigation inactivity</Label>
                 <input
                   type="checkbox"
-                  checked={settings.autoSuggestOnPause}
-                  onChange={(e) => setSettings({...settings, autoSuggestOnPause: e.target.checked})}
+                  checked={settings.autoSuggestWhileRunning}
+                  onChange={(e) => setSettings({...settings, autoSuggestWhileRunning: e.target.checked})}
                   className="w-4 h-4"
                 />
               </div>
@@ -952,7 +970,7 @@ Match the ${personalityData.description} tone!`;
               Quick Scripture Lookup
             </DialogTitle>
             <DialogDescription>
-              Find relevant verses instantly while preaching
+              Generate possible references to open and verify before use
             </DialogDescription>
           </DialogHeader>
 
@@ -981,8 +999,8 @@ Match the ${personalityData.description} tone!`;
                       <div className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
                         {verse.reference}
                       </div>
-                      <p className="text-sm italic text-gray-700 dark:text-gray-300 mb-2">
-                        "{verse.text}"
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-2">
+                        Suggested reference only — open the passage and verify its wording and context.
                       </p>
                       <p className="text-xs text-gray-600 dark:text-gray-400">
                         💡 {verse.relevance}
