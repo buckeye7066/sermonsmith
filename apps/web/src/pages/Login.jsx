@@ -41,10 +41,19 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get('return');
   const resetToken = searchParams.get('reset_token');
+  const requestedMode = searchParams.get('mode');
   // We capture the reset token into state so we can blow it out of the URL
   // immediately (history.replaceState) — leaving it in the location bar
   // means it shows up in screenshots, browser history, and shareable URLs.
   const [resetTokenState, setResetTokenState] = useState(null);
+
+  // Stable public links can open registration or forgot-password directly.
+  // Reset mode is intentionally unavailable without a server-issued token.
+  useEffect(() => {
+    if (!resetToken && ['login', 'register', 'forgot'].includes(requestedMode)) {
+      setMode(requestedMode);
+    }
+  }, [requestedMode, resetToken]);
 
   // Runtime maintenance status. Render the static fallback immediately (no
   // flash of the wrong state), then follow the server's answer — the switch
@@ -396,7 +405,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          Works on iPhone, Android, Mac, Windows, and Web
+          Web, desktop, and Android builds; feature availability varies by platform
         </p>
       </div>
     </div>
