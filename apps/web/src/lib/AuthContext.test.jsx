@@ -87,6 +87,18 @@ describe('AuthContext', () => {
     expect(hasAuthSessionHint()).toBe(false);
   });
 
+  it('clears a returning-session hint when auth verification fails', async () => {
+    me.mockRejectedValueOnce(Object.assign(new Error('Service unavailable'), { status: 503 }));
+    window.localStorage.setItem('sermonsmith.authenticated-session', '1');
+
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(hasAuthSessionHint()).toBe(false);
+    expect(logError).toHaveBeenCalledWith('Auth check failed', expect.any(Error));
+  });
+
   it('logout clears auth state', async () => {
     me.mockResolvedValueOnce({ id: 'u1', email: 'pastor@example.com' });
 
