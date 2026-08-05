@@ -29,8 +29,6 @@ import {
   CheckCircle2,
   Loader2,
   Settings,
-  Mic,
-  MicOff,
   Users,
   Search,
   MessageCircle,
@@ -76,7 +74,7 @@ const ASSISTANT_PERSONALITIES = [
     name: 'Conversational Friend', 
     icon: MessageCircle,
     description: 'Warm, casual, relatable',
-    style: 'Hey, that illustration landed well! Keep going!'
+    style: 'That illustration is next—keep it concise.'
   }
 ];
 
@@ -93,8 +91,8 @@ export default function PresentationMode({ sermon, onClose }) {
   const [pauseStartTime, setPauseStartTime] = useState(null);
   
   // New AI features
-  const [vocalFeedback, setVocalFeedback] = useState(null);
-  const [isVocalMonitoring, setIsVocalMonitoring] = useState(false);
+  const [timingCoaching, setVocalFeedback] = useState(null);
+  const [isTimingCoachActive, setIsVocalMonitoring] = useState(false);
   const [showScriptureLookup, setShowScriptureLookup] = useState(false);
   const [scriptureQuery, setScriptureQuery] = useState("");
   const [scriptureResults, setScriptureResults] = useState(null);
@@ -106,18 +104,18 @@ export default function PresentationMode({ sermon, onClose }) {
     targetTime: 30,
     showTimingCues: true,
     showAISuggestions: true,
-    autoSuggestOnPause: true,
-    pauseThreshold: 5,
+    autoSuggestWhileRunning: true,
+    suggestionDelay: 5,
     enableVoiceAlerts: false,
-    enableVocalFeedback: true,
+    enableTimingCoaching: true,
     enableEngagementSuggestions: true,
-    vocalFeedbackInterval: 60 // seconds
+    timingCoachingInterval: 60 // seconds
   });
 
   const containerRef = useRef(null);
   const timerRef = useRef(null);
   const pauseTimerRef = useRef(null);
-  const vocalFeedbackTimerRef = useRef(null);
+  const timingCoachingTimerRef = useRef(null);
 
   useEffect(() => {
     if (isRunning) {
@@ -135,23 +133,23 @@ export default function PresentationMode({ sermon, onClose }) {
     };
   }, [isRunning]);
 
-  // Vocal feedback monitoring
+  // Elapsed-time coaching; no audio input
   useEffect(() => {
-    if (isVocalMonitoring && settings.enableVocalFeedback && isRunning) {
-      vocalFeedbackTimerRef.current = setInterval(() => {
-        generateVocalFeedback();
-      }, settings.vocalFeedbackInterval * 1000);
+    if (isTimingCoachActive && settings.enableTimingCoaching && isRunning) {
+      timingCoachingTimerRef.current = setInterval(() => {
+        generateTimingCoaching();
+      }, settings.timingCoachingInterval * 1000);
     } else {
-      if (vocalFeedbackTimerRef.current) {
-        clearInterval(vocalFeedbackTimerRef.current);
+      if (timingCoachingTimerRef.current) {
+        clearInterval(timingCoachingTimerRef.current);
       }
     }
 
     return () => {
-      if (vocalFeedbackTimerRef.current) clearInterval(vocalFeedbackTimerRef.current);
+      if (timingCoachingTimerRef.current) clearInterval(timingCoachingTimerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
-  }, [isVocalMonitoring, settings.enableVocalFeedback, isRunning]);
+  }, [isTimingCoachActive, settings.enableTimingCoaching, isRunning]);
 
   // Auto-engagement suggestions
   useEffect(() => {
@@ -166,9 +164,9 @@ export default function PresentationMode({ sermon, onClose }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [settings.enableEngagementSuggestions, isRunning, currentPointIndex]);
 
-  // Monitor pauses for auto-suggestions
+  // Offer a suggestion after navigation inactivity while the timer is running
   useEffect(() => {
-    if (!isRunning || !settings.autoSuggestOnPause) {
+    if (!isRunning || !settings.autoSuggestWhileRunning) {
       if (pauseTimerRef.current) {
         clearTimeout(pauseTimerRef.current);
         setPauseStartTime(null);
@@ -184,13 +182,13 @@ export default function PresentationMode({ sermon, onClose }) {
       if (currentPointIndex !== lastSuggestionPoint) {
         handleAISuggestion();
       }
-    }, settings.pauseThreshold * 1000);
+    }, settings.suggestionDelay * 1000);
 
     return () => {
       if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
-  }, [isRunning, currentPointIndex, pauseStartTime, settings.autoSuggestOnPause]);
+  }, [isRunning, currentPointIndex, pauseStartTime, settings.autoSuggestWhileRunning]);
 
   const handleUserAction = () => {
     setPauseStartTime(null);
@@ -199,52 +197,36 @@ export default function PresentationMode({ sermon, onClose }) {
     }
   };
 
-  const toggleVocalMonitoring = () => {
-    setIsVocalMonitoring(!isVocalMonitoring);
-    if (!isVocalMonitoring) {
-      toast.success("Vocal monitoring started - Larry is listening");
-    } else {
-      toast.info("Vocal monitoring paused");
-      setVocalFeedback(null);
-    }
+  const toggleTimingCoach = () => {
+    setIsTimingCoachActive((active) => {
+      const nextActive = !active;
+      if (nextActive) {
+        toast.success("Timed coaching started — no microphone or audio is used");
+      } else {
+        toast.info("Timed coaching paused");
+        setTimingCoaching(null);
+      }
+      return nextActive;
+    });
   };
 
-  const generateVocalFeedback = async () => {
-    // Simulate vocal analysis - in production this would use Web Audio API
-    const personalityData = ASSISTANT_PERSONALITIES.find(p => p.id === assistantPersonality);
-    
-    try {
-      const prompt = `You are Larry, the AI preaching assistant with a ${personalityData.name} personality (${personalityData.description}).
+  const generateTimingCoaching = () => {
+    // This coach uses only elapsed time, target time, and outline position.
+    // It does not request microphone permission, capture audio, or infer vocal
+    // pace, tone, energy, audience response, or delivery quality.
+    const status = getTimingStatus();
+    const minutesRemaining = Math.max(0, settings.targetTime - Math.floor(elapsedTime / 60));
+    const tips = {
+      fast: "You are ahead of the outline target. Expand only where it helps the message.",
+      slow: "You are behind the outline target. Consider condensing the next section.",
+      good: `${minutesRemaining} target minute${minutesRemaining === 1 ? "" : "s"} remain.`,
+    };
 
-The preacher has been speaking for ${Math.floor(elapsedTime / 60)} minutes. Based on typical vocal patterns at this stage:
-
-Provide brief vocal feedback in your ${assistantPersonality} style:
-1. Pace assessment (too fast, good, or slow)
-2. Energy level observation
-3. One actionable tip
-
-Keep it VERY brief (2-3 sentences max) and ${assistantPersonality === 'encouraging' ? 'encouraging' : assistantPersonality === 'direct' ? 'direct' : assistantPersonality === 'analytical' ? 'analytical' : 'conversational'}.`;
-
-      const response = await api.integrations.Core.InvokeLLM({
-        system_prompt: LARRY_SYSTEM_PROMPT,
-        prompt,
-        feature: 'presentation',
-        response_json_schema: {
-          type: "object",
-          properties: {
-            pace: { type: "string", enum: ["fast", "good", "slow"] },
-            energy: { type: "string", enum: ["high", "good", "low"] },
-            feedback: { type: "string" },
-            tip: { type: "string" }
-          }
-        }
-      });
-
-      setVocalFeedback(response);
-    } catch (error) {
-      console.error("Error generating vocal feedback:", error);
-      toast.error("Larry couldn't analyze your delivery right now");
-    }
+    setTimingCoaching({
+      timingState: status.status,
+      feedback: status.message,
+      tip: tips[status.status],
+    });
   };
 
   const generateEngagementSuggestion = async () => {
@@ -290,20 +272,20 @@ Keep it ${assistantPersonality === 'encouraging' ? 'encouraging and positive' : 
 
   const searchScripture = async () => {
     if (!scriptureQuery.trim()) return;
-    
+
     setIsSearchingScripture(true);
-    
+
     try {
-      const prompt = `Larry, I need a quick scripture reference while preaching!
+      const prompt = `Suggest 2-3 Bible references that may relate to the user's topic.
 
-${formatUserInputBlock('Query', scriptureQuery)}
+${formatUserInputBlock('Topic', scriptureQuery)}
 
-Find and return 2-3 relevant Bible verses that address this. Include:
-- Verse reference
-- Verse text (real verses only)
-- Why it's relevant
+Return only:
+- A canonical Bible reference
+- A short explanation of possible relevance
 
-Keep each verse brief and directly applicable to preaching context.`;
+Do not quote, paraphrase, or translate verse text. Do not claim a reference is verified.
+The user must open each passage in an authorized translation and read its context.`;
 
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
@@ -318,20 +300,21 @@ Keep each verse brief and directly applicable to preaching context.`;
                 type: "object",
                 properties: {
                   reference: { type: "string" },
-                  text: { type: "string" },
-                  relevance: { type: "string" }
-                }
-              }
-            }
-          }
-        }
+                  relevance: { type: "string" },
+                },
+                required: ["reference", "relevance"],
+              },
+            },
+          },
+          required: ["verses"],
+        },
       });
 
-      setScriptureResults(response.verses);
-      toast.success("Found verses!");
+      setScriptureResults(Array.isArray(response?.verses) ? response.verses : []);
+      toast.success("Suggested references — verify each passage before use");
     } catch (error) {
-      console.error("Error searching scripture:", error);
-      toast.error("Scripture search failed");
+      console.error("Error suggesting scripture references:", error);
+      toast.error("Reference suggestions are unavailable");
     } finally {
       setIsSearchingScripture(false);
     }
@@ -391,7 +374,7 @@ Current context: ${context}
 Sermon topic: ${sermon.topic}
 Time elapsed: ${formatTime(elapsedTime)}
 
-I've paused. Provide ONE brief suggestion in your ${assistantPersonality} style:
+Provide ONE brief optional suggestion in your ${assistantPersonality} style:
 - Transition phrase
 - Scripture reference
 - Quick example (2-3 sentences)
@@ -499,8 +482,8 @@ Match the ${personalityData.description} tone!`;
         setIsRunning(!isRunning);
       } else if (e.key === 's') {
         handleAISuggestion();
-      } else if (e.key === 'v') {
-        toggleVocalMonitoring();
+      } else if (e.key === 'c') {
+        toggleTimingCoach();
       } else if (e.key === 'l') {
         setShowScriptureLookup(true);
       } else if (e.key === 'e') {
@@ -552,15 +535,15 @@ Match the ${personalityData.description} tone!`;
             </Badge>
           )}
 
-          {/* Vocal Feedback Badge */}
-          {vocalFeedback && (
+          {/* Elapsed-time coaching badge */}
+          {timingCoaching && (
             <Badge className={`${
-              vocalFeedback.pace === 'fast' ? 'bg-orange-500' :
-              vocalFeedback.pace === 'slow' ? 'bg-blue-500' :
+              timingCoaching.timingState === 'fast' ? 'bg-blue-500' :
+              timingCoaching.timingState === 'slow' ? 'bg-orange-500' :
               'bg-green-500'
             } text-white animate-pulse`}>
-              <Mic className="w-3 h-3 mr-1" />
-              Pace: {vocalFeedback.pace}
+              <Clock className="w-3 h-3 mr-1" />
+              Timed: {timingCoaching.timingState === 'fast' ? 'ahead' : timingCoaching.timingState === 'slow' ? 'behind' : 'on pace'}
             </Badge>
           )}
 
@@ -572,15 +555,15 @@ Match the ${personalityData.description} tone!`;
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Vocal Monitoring Toggle */}
+          {/* Elapsed-time coaching toggle */}
           <Button
             variant="ghost"
             size="sm"
-            onClick={toggleVocalMonitoring}
-            className={`text-white hover:bg-gray-800 ${isVocalMonitoring ? 'bg-red-600' : ''}`}
-            title="Toggle vocal monitoring (V)"
+            onClick={toggleTimingCoach}
+            className={`text-white hover:bg-gray-800 ${isTimingCoachActive ? 'bg-indigo-600' : ''}`}
+            title="Toggle elapsed-time coaching (C); no microphone is used"
           >
-            {isVocalMonitoring ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+            <Clock className="w-4 h-4" />
           </Button>
 
           {/* Scripture Lookup */}
@@ -731,22 +714,173 @@ Match the ${personalityData.description} tone!`;
             </CardContent>
           </Card>
 
+          {/* Elapsed-time coaching alert */}
+          {timingCoaching && (
+            <Alert className="bg-purple-900/50 border-purple-500 animate-in slide-in-from-bottom">
+              <Clock className="w-5 h-5 text-purple-400" />
+              <AlertDescription className="text-white">
+                <p className="text-lg">{timingCoaching.feedback}</p>
+                <p className="text-sm text-purple-300">💡 {timingCoaching.tip}</p>
+                <p className="text-xs text-purple-200 mt-2">
+                  Based only on elapsed time and outline position. No audio is captured.
+                </p>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Engagement Suggestion */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={generateEngagementSuggestion}
+            className="text-white hover:bg-gray-800"
+            title="Get engagement idea (E)"
+          >
+            <Users className="w-4 h-4" />
+          </Button>
+
+          <span className="text-sm text-gray-400">
+            {currentPointIndex + 2} / {sermon.points.length + 2}
+          </span>
+          
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowSettings(true)}
+            className="text-white hover:bg-gray-800"
+          >
+            <Settings className="w-4 h-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleFullscreen}
+            className="text-white hover:bg-gray-800"
+          >
+            <Maximize className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="text-white hover:bg-gray-800"
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="w-full h-2 bg-gray-800">
+        <div 
+          className="h-full bg-indigo-600 transition-all duration-300"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-auto p-12 text-white">
+        <div className="max-w-6xl mx-auto space-y-8">
+          {/* Current Section */}
+          <div className="text-center space-y-4">
+            <Badge variant="outline" className="text-lg px-4 py-2 border-gray-600 text-gray-300">
+              {currentContent.title}
+            </Badge>
+            <h1 className="text-5xl font-bold leading-tight" style={{ fontSize: `${fontSize * 1.8}px` }}>
+              {currentContent.subtitle}
+            </h1>
+          </div>
+
+          {/* Main Content */}
+          <Card className="bg-gray-900 border-gray-700 shadow-2xl">
+            <CardContent className="p-8 space-y-6">
+              {currentContent.type === 'intro' && (
+                <div>
+                  <h2 className="text-3xl font-bold mb-4 text-indigo-400">Big Idea</h2>
+                  <p className="text-2xl leading-relaxed text-gray-200">
+                    {currentContent.content}
+                  </p>
+                </div>
+              )}
+
+              {currentContent.type === 'point' && (
+                <div className="space-y-6">
+                  {currentContent.content && (
+                    <div>
+                      <h3 className="text-2xl font-bold mb-3 text-blue-400 flex items-center gap-2">
+                        <BookOpen className="w-6 h-6" />
+                        Key Teaching
+                      </h3>
+                      <p className="text-xl leading-relaxed text-gray-200" style={{ fontSize: `${fontSize}px` }}>
+                        {currentContent.content?.substring(0, 400)}...
+                      </p>
+                    </div>
+                  )}
+
+                  {currentContent.scriptures && currentContent.scriptures.length > 0 && (
+                    <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-purple-500">
+                      <h4 className="text-lg font-semibold mb-2 text-purple-400">📖 Supporting Scriptures</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {currentContent.scriptures.map((scripture, index) => (
+                          <Badge key={index} variant="outline" className="text-base border-gray-600 text-gray-300">
+                            {scripture}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {currentContent.illustration && (
+                    <div className="bg-yellow-900/30 p-4 rounded-lg border-l-4 border-yellow-500">
+                      <h4 className="text-lg font-semibold mb-2 text-yellow-400 flex items-center gap-2">
+                        <Lightbulb className="w-5 h-5" />
+                        Illustration
+                      </h4>
+                      <p className="text-base text-gray-300">
+                        {currentContent.illustration.substring(0, 200)}...
+                      </p>
+                    </div>
+                  )}
+
+                  {currentContent.application && (
+                    <div className="bg-green-900/30 p-4 rounded-lg border-l-4 border-green-500">
+                      <h4 className="text-lg font-semibold mb-2 text-green-400">✨ Application</h4>
+                      <p className="text-base text-gray-300">
+                        {currentContent.application.substring(0, 200)}...
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {currentContent.type === 'conclusion' && (
+                <div>
+                  <h2 className="text-3xl font-bold mb-4 text-green-400">Call to Response</h2>
+                  <p className="text-2xl leading-relaxed text-gray-200">
+                    {currentContent.content}
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Vocal Feedback Alert */}
-          {vocalFeedback && (
+          {timingCoaching && (
             <Alert className="bg-purple-900/50 border-purple-500 animate-in slide-in-from-bottom">
               <Mic className="w-5 h-5 text-purple-400" />
               <AlertDescription className="text-white">
                 <div className="space-y-2">
                   <div className="flex items-center gap-4">
-                    <Badge className={vocalFeedback.pace === 'fast' ? 'bg-orange-500' : vocalFeedback.pace === 'slow' ? 'bg-blue-500' : 'bg-green-500'}>
-                      Pace: {vocalFeedback.pace}
+                    <Badge className={timingCoaching.pace === 'fast' ? 'bg-orange-500' : timingCoaching.pace === 'slow' ? 'bg-blue-500' : 'bg-green-500'}>
+                      Pace: {timingCoaching.pace}
                     </Badge>
-                    <Badge className={vocalFeedback.energy === 'low' ? 'bg-orange-500' : vocalFeedback.energy === 'high' ? 'bg-blue-500' : 'bg-green-500'}>
-                      Energy: {vocalFeedback.energy}
+                    <Badge className={timingCoaching.energy === 'low' ? 'bg-orange-500' : timingCoaching.energy === 'high' ? 'bg-blue-500' : 'bg-green-500'}>
+                      Energy: {timingCoaching.energy}
                     </Badge>
                   </div>
-                  <p className="text-lg">{vocalFeedback.feedback}</p>
-                  <p className="text-sm text-purple-300">💡 {vocalFeedback.tip}</p>
+                  <p className="text-lg">{timingCoaching.feedback}</p>
+                  <p className="text-sm text-purple-300">💡 {timingCoaching.tip}</p>
                 </div>
               </AlertDescription>
             </Alert>
@@ -844,7 +978,7 @@ Match the ${personalityData.description} tone!`;
             
             <div className="text-center text-gray-400 text-sm">
               <div>← → or Space: Navigate • S: AI Help • E: Engage</div>
-              <div>V: Vocal Monitor • L: Scripture • P: Pause</div>
+              <div>C: Timed Coach • L: References • P: Pause</div>
             </div>
           </div>
 
@@ -904,11 +1038,11 @@ Match the ${personalityData.description} tone!`;
             {/* Other Settings */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Enable Vocal Feedback</Label>
+                <Label>Enable elapsed-time coaching (no microphone)</Label>
                 <input
                   type="checkbox"
-                  checked={settings.enableVocalFeedback}
-                  onChange={(e) => setSettings({...settings, enableVocalFeedback: e.target.checked})}
+                  checked={settings.enableTimingCoaching}
+                  onChange={(e) => setSettings({...settings, enableTimingCoaching: e.target.checked})}
                   className="w-4 h-4"
                 />
               </div>
@@ -924,11 +1058,11 @@ Match the ${personalityData.description} tone!`;
               </div>
 
               <div className="flex items-center justify-between">
-                <Label>Auto-Suggest on Pause</Label>
+                <Label>Auto-suggest after navigation inactivity</Label>
                 <input
                   type="checkbox"
-                  checked={settings.autoSuggestOnPause}
-                  onChange={(e) => setSettings({...settings, autoSuggestOnPause: e.target.checked})}
+                  checked={settings.autoSuggestWhileRunning}
+                  onChange={(e) => setSettings({...settings, autoSuggestWhileRunning: e.target.checked})}
                   className="w-4 h-4"
                 />
               </div>
@@ -952,7 +1086,7 @@ Match the ${personalityData.description} tone!`;
               Quick Scripture Lookup
             </DialogTitle>
             <DialogDescription>
-              Find relevant verses instantly while preaching
+              Generate possible references to open and verify before use
             </DialogDescription>
           </DialogHeader>
 
@@ -981,8 +1115,8 @@ Match the ${personalityData.description} tone!`;
                       <div className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
                         {verse.reference}
                       </div>
-                      <p className="text-sm italic text-gray-700 dark:text-gray-300 mb-2">
-                        "{verse.text}"
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-2">
+                        Suggested reference only — open the passage and verify its wording and context.
                       </p>
                       <p className="text-xs text-gray-600 dark:text-gray-400">
                         💡 {verse.relevance}
