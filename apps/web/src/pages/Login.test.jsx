@@ -106,6 +106,21 @@ describe('Login routing', () => {
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/'));
   });
 
+  it('opens registration from a stable public mode URL', async () => {
+    renderLogin('/Login?mode=register');
+
+    expect(await screen.findByRole('heading', { name: /create account/i })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/your name/i)).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/Login?mode=register');
+  });
+
+  it('opens password recovery from a stable public mode URL', async () => {
+    renderLogin('/Login?mode=forgot');
+
+    expect(await screen.findByRole('heading', { name: /reset password/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /send reset link/i })).toBeInTheDocument();
+  });
+
   it('preserves reset-token mode while scrubbing the token from the URL', async () => {
     renderLogin('/Login?reset_token=secret-token');
 
