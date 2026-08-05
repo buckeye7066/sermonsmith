@@ -1,43 +1,59 @@
 import { test, expect } from '@playwright/test';
 
-// Backend-independent smoke: the app must boot, mount React into #root, keep
-// its title, and surface an interactive auth UI when unauthenticated — all
-// without throwing an uncaught page error.
-test('app boots and renders the shell', async ({ page }) => {
+async function mockLoggedOutApi(page) {
+  await page.route('**/api/**', async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Authentication required' }),
+    });
+  });
+}
+
+test('anonymous public pages stay public after auth initialization', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
+  await mockLoggedOutApi(page);
 
-  await page.goto('/');
+  const publicPages = [
+    { path: '/', heading: 'SermonSmith', url: /\/$/ },
+    { path: '/Pricing', heading: 'Choose Your Plan', url: /\/Pricing$/i },
+    { path: '/privacy', heading: 'Privacy Policy', url: /\/privacy$/i },
+  ];
 
-  // Title is served from index.html and must survive the build.
+  for (const publicPage of publicPages) {
+    await page.goto(publicPage.path);
+    await expect(page.getByRole('heading', { name: publicPage.heading }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page).toHaveURL(publicPage.url);
+    expect(page.url()).not.toContain('/Login');
+  }
+
   await expect(page).toHaveTitle(/SermonSmith/i);
-
-  // React mounted something into #root.
   await expect(page.locator('#root')).not.toBeEmpty();
-
-  // No uncaught runtime errors during boot/route.
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
-test('unauthenticated user reaches an auth surface', async ({ page }) => {
-  await page.goto('/');
-  // Either an email field (login), a visible sign-in/get-started affordance,
-  // or — while login maintenance mode is on (apps/web/src/lib/maintenance.js)
-  // — the upgrade banner that replaces the sign-in form.
+test('unauthenticated user reaches the login surface directly', async ({ page }) => {
+  await mockLoggedOutApi(page);
+  await page.goto('/Login');
+
   const authSurface = page.locator(
-    'input[type="email"], a:has-text("Login"), a:has-text("Sign"), button:has-text("Sign"), button:has-text("Get Started"), [role="status"]:has-text("upgraded")',
+    'input[type="email"], [role="status"]:has-text("upgraded")',
   );
   await expect(authSurface.first()).toBeVisible({ timeout: 15_000 });
+  await expect(page).toHaveURL(/\/Login$/i);
 });
 
-test('registration form is reachable from the login page', async ({ page }) => {
-  await page.goto('/Login');
-  await page.getByText(/don't have an account\? register/i).click();
-  // The register mode shows a name field alongside email/password and a
-  // create-account submit.
+test('registration form is reachable from a stable public URL', async ({ page }) => {
+  await mockLoggedOutApi(page);
+  await page.goto('/Login?mode=register');
+
+  await expect(page.getByRole('heading', { name: /create account/i })).toBeVisible();
   await expect(page.locator('input[type="email"]')).toBeVisible();
   await expect(page.locator('input[type="password"]').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: /create account|register|sign up/i }).first()).toBeVisible();
+  await expect(page).toHaveURL(/\/Login\?mode=register$/i);
 });
 
 // Regression guard for the 2026-08-02 "Bible reader is a broken link" report:
