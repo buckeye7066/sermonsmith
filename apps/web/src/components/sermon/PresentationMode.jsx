@@ -67,7 +67,7 @@ const ASSISTANT_PERSONALITIES = [
     name: 'Analytical Mentor', 
     icon: Brain,
     description: 'Data-driven, strategic, thoughtful',
-    style: 'Based on pace, consider condensing Point 3.'
+    style: 'Based on elapsed time, consider condensing Point 3.'
   },
   { 
     id: 'conversational', 
@@ -91,8 +91,8 @@ export default function PresentationMode({ sermon, onClose }) {
   const [pauseStartTime, setPauseStartTime] = useState(null);
   
   // New AI features
-  const [timingCoaching, setVocalFeedback] = useState(null);
-  const [isTimingCoachActive, setIsVocalMonitoring] = useState(false);
+  const [timingCoaching, setTimingCoaching] = useState(null);
+  const [isTimingCoachActive, setIsTimingCoachActive] = useState(false);
   const [showScriptureLookup, setShowScriptureLookup] = useState(false);
   const [scriptureQuery, setScriptureQuery] = useState("");
   const [scriptureResults, setScriptureResults] = useState(null);
@@ -148,7 +148,7 @@ export default function PresentationMode({ sermon, onClose }) {
     return () => {
       if (timingCoachingTimerRef.current) clearInterval(timingCoachingTimerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- effect intentionally keeps existing trigger behavior.
   }, [isTimingCoachActive, settings.enableTimingCoaching, isRunning]);
 
   // Auto-engagement suggestions
