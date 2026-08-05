@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Allow: /Pricing
+Allow: /Downloads
+Allow: /privacy
+Disallow: /Login
+Disallow: /Reader
+Disallow: /SermonBuilder
+Disallow: /MySermons
+Disallow: /Settings
+Disallow: /Admin
+Disallow: /api/
+
+Sitemap: https://sermonsmith.axiombiolabs.org/sitemap.xml
