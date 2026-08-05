@@ -13,13 +13,19 @@ vi.mock('@/lib/AuthContext', () => ({
 }));
 
 vi.mock('./pages.config', () => {
+  const Home = () => <h1>SermonSmith Home</h1>;
+  const Pricing = () => <h1>Choose Your Plan</h1>;
+  const Downloads = () => <h1>Scripture Downloads</h1>;
   const ProtectedPage = () => <div data-testid="protected-page">Protected page</div>;
   const Layout = ({ children }) => <div data-testid="layout">{children}</div>;
 
   return {
     pagesConfig: {
-      mainPage: 'Reader',
+      mainPage: 'Home',
       Pages: {
+        Home,
+        Pricing,
+        Downloads,
         Reader: ProtectedPage,
         SermonBuilder: ProtectedPage,
       },
@@ -32,9 +38,6 @@ vi.mock('@/components/UserNotRegisteredError', () => ({
   default: () => <div data-testid="user-not-registered">User not registered</div>,
 }));
 
-// Route-gating assertions look for the Login page's "Sign In" heading, which
-// the maintenance banner replaces while the upgrade flag is on — pin it off
-// here; the banner itself is covered in Login.test.jsx.
 vi.mock('@/lib/maintenance', () => ({
   LOGIN_MAINTENANCE: { active: false, title: '', message: '', etaText: '' },
 }));
@@ -51,7 +54,7 @@ function renderWithRoute(route) {
     <MemoryRouter initialEntries={[route]}>
       <LocationProbe />
       <AuthenticatedApp />
-    </MemoryRouter>
+    </MemoryRouter>,
   );
 }
 
@@ -62,15 +65,39 @@ describe('AuthenticatedApp route gating', () => {
       isAuthenticated: false,
       isLoadingAuth: false,
       authError: null,
+      checkAppState: vi.fn(),
     };
   });
 
-  it('shows only the login route on unauthenticated startup', async () => {
+  it('keeps the landing page public while auth initializes', () => {
+    authState.isLoadingAuth = true;
     renderWithRoute('/');
 
-    expect(await screen.findByRole('heading', { name: /sign in/i })).toBeInTheDocument();
-    expect(screen.queryByTestId('protected-page')).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/Login'));
+    expect(screen.getByRole('heading', { name: /sermonsmith home/i })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/$/);
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+  });
+
+  it.each(['/Pricing', '/pricing'])('keeps %s public for logged-out visitors', (route) => {
+    renderWithRoute(route);
+
+    expect(screen.getByRole('heading', { name: /choose your plan/i })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent(route);
+    expect(screen.queryByRole('heading', { name: /sign in/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps the downloads information page public', () => {
+    renderWithRoute('/Downloads');
+
+    expect(screen.getByRole('heading', { name: /scripture downloads/i })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/Downloads');
+  });
+
+  it('supports a direct registration URL', async () => {
+    renderWithRoute('/Login?mode=register');
+
+    expect(await screen.findByRole('heading', { name: /create account/i })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/Login?mode=register');
   });
 
   it('preserves an intended protected route as a return URL', async () => {
@@ -87,12 +114,7 @@ describe('AuthenticatedApp route gating', () => {
   });
 
   it('does not flicker protected content during auth loading', () => {
-    authState = {
-      isAuthenticated: false,
-      isLoadingAuth: true,
-      authError: null,
-    };
-
+    authState.isLoadingAuth = true;
     renderWithRoute('/SermonBuilder');
 
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
@@ -101,15 +123,18 @@ describe('AuthenticatedApp route gating', () => {
   });
 
   it('renders protected routes only when authenticated', async () => {
-    authState = {
-      isAuthenticated: true,
-      isLoadingAuth: false,
-      authError: null,
-    };
-
+    authState.isAuthenticated = true;
     renderWithRoute('/SermonBuilder');
 
     expect(await screen.findByTestId('protected-page')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: /sign in/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('layout')).toBeInTheDocument();
+  });
+
+  it('renders the signed-in Home inside the authenticated layout', () => {
+    authState.isAuthenticated = true;
+    renderWithRoute('/Home');
+
+    expect(screen.getByRole('heading', { name: /sermonsmith home/i })).toBeInTheDocument();
+    expect(screen.getByTestId('layout')).toBeInTheDocument();
   });
 });
