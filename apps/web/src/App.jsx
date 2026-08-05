@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react'
+import React, { Suspense, useEffect } from 'react'
 import { lazyWithReload as lazy } from '@/lib/lazyWithReload'
 import { Toaster } from "@/components/ui/sonner"
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -25,6 +25,133 @@ const ADMIN_PAGES = new Set([
   'AdminImport',
   'FunctionReviewer',
 ]);
+
+
+const SITE_ORIGIN = 'https://sermonsmith.axiombiolabs.org';
+
+const HOME_METADATA = {
+  title: 'SermonSmith | AI-Assisted Sermon Builder & Bible Study Tools',
+  description: 'Draft and revise sermons, organize Bible-study notes, compare study prompts, and use an honest elapsed-time presentation coach. Verify all AI output and Scripture references before teaching.',
+  path: '/',
+};
+
+const PUBLIC_ROUTE_METADATA = {
+  '/': HOME_METADATA,
+  '/home': HOME_METADATA,
+  '/pricing': {
+    title: 'SermonSmith Pricing | Plans for Sermon & Bible Study Tools',
+    description: 'Compare SermonSmith plans for editable sermon drafts, Bible-study tools, and elapsed-time presentation coaching, with clear feature and source limitations.',
+    path: '/Pricing',
+  },
+  '/downloads': {
+    title: 'SermonSmith Scripture Sources & Offline Use',
+    description: 'Understand which Scripture sources SermonSmith can use, what offline access depends on, and why every passage and translation must be verified.',
+    path: '/Downloads',
+  },
+  '/privacy': {
+    title: 'SermonSmith Privacy Policy',
+    description: 'Read how SermonSmith handles account data, saved ministry content, AI requests, operational activity, service providers, retention, and deletion requests.',
+    path: '/privacy',
+  },
+};
+
+export function metadataForPath(pathname) {
+  return PUBLIC_ROUTE_METADATA[String(pathname || '/').toLowerCase()] || null;
+}
+
+function setMeta(selector, attribute, value) {
+  let element = document.head.querySelector(selector);
+  if (!element) {
+    element = document.createElement('meta');
+    const match = selector.match(/meta\[(name|property)="([^"]+)"\]/);
+    if (!match) return;
+    element.setAttribute(match[1], match[2]);
+    document.head.appendChild(element);
+  }
+  element.setAttribute(attribute, value);
+}
+
+function updateStructuredData(metadata, canonicalUrl) {
+  let script = document.getElementById('route-structured-data');
+  if (!metadata) {
+    script?.remove();
+    return;
+  }
+
+  if (!script) {
+    script = document.createElement('script');
+    script.id = 'route-structured-data';
+    script.type = 'application/ld+json';
+    document.head.appendChild(script);
+  }
+
+  script.textContent = JSON.stringify(
+    metadata.path === '/'
+      ? {
+          '@context': 'https://schema.org',
+          '@type': 'SoftwareApplication',
+          name: 'SermonSmith',
+          url: canonicalUrl,
+          applicationCategory: 'EducationalApplication',
+          operatingSystem: 'Web',
+          description: metadata.description,
+          creator: { '@type': 'Person', name: 'Dr. John White' },
+        }
+      : {
+          '@context': 'https://schema.org',
+          '@type': 'WebPage',
+          name: metadata.title,
+          url: canonicalUrl,
+          description: metadata.description,
+          isPartOf: {
+            '@type': 'WebSite',
+            name: 'SermonSmith',
+            url: `${SITE_ORIGIN}/`,
+          },
+        },
+  );
+}
+
+function RouteMetadata() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    const metadata = metadataForPath(pathname);
+    const canonical = document.head.querySelector('link[rel="canonical"]');
+
+    if (!metadata) {
+      document.title = 'SermonSmith Application';
+      setMeta('meta[name="description"]', 'content', 'Signed-in SermonSmith application.');
+      setMeta('meta[name="robots"]', 'content', 'noindex,nofollow,noarchive');
+      canonical?.remove();
+      document.head.querySelector('meta[property="og:url"]')?.remove();
+      updateStructuredData(null, null);
+      setMeta('meta[property="og:title"]', 'content', 'SermonSmith Application');
+      setMeta('meta[property="og:description"]', 'content', 'Signed-in SermonSmith application.');
+      setMeta('meta[name="twitter:title"]', 'content', 'SermonSmith Application');
+      setMeta('meta[name="twitter:description"]', 'content', 'Signed-in SermonSmith application.');
+      return;
+    }
+
+    const canonicalUrl = new URL(metadata.path, SITE_ORIGIN).href;
+    document.title = metadata.title;
+    setMeta('meta[name="description"]', 'content', metadata.description);
+    setMeta('meta[name="robots"]', 'content', 'index,follow,max-image-preview:large');
+    setMeta('meta[property="og:title"]', 'content', metadata.title);
+    setMeta('meta[property="og:description"]', 'content', metadata.description);
+    setMeta('meta[property="og:url"]', 'content', canonicalUrl);
+    setMeta('meta[name="twitter:title"]', 'content', metadata.title);
+    setMeta('meta[name="twitter:description"]', 'content', metadata.description);
+    updateStructuredData(metadata, canonicalUrl);
+
+    const canonicalLink = canonical || document.createElement('link');
+    canonicalLink.setAttribute('rel', 'canonical');
+    canonicalLink.setAttribute('href', canonicalUrl);
+    if (!canonical) document.head.appendChild(canonicalLink);
+  }, [pathname]);
+
+  return null;
+}
 
 const Login = lazy(() => import('./pages/Login'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
@@ -151,6 +278,7 @@ function App() {
           <QueryClientProvider client={queryClientInstance}>
             <Router>
               <NavigationTracker />
+              <RouteMetadata />
               <OfflineBanner />
               <AuthenticatedApp />
             </Router>

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/api/apiClient', () => ({
   api: {
@@ -8,9 +8,25 @@ vi.mock('@/api/apiClient', () => ({
   },
 }));
 
-import { buildActivityRecord } from './UserActivityLogger.jsx';
+import { api } from '@/api/apiClient';
+import {
+  buildActivityRecord,
+  clearCachedUser,
+  logActivity,
+  primeCachedUser,
+} from './UserActivityLogger.jsx';
 
 describe('buildActivityRecord', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearCachedUser();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
   it('keeps coarse operational fields and drops content and direct identifiers', () => {
     window.history.replaceState({}, '', '/SermonBuilder?reset_token=secret#private-note');
 
@@ -59,5 +75,28 @@ describe('buildActivityRecord', () => {
     expect(record.page_name).toBe('Readerverseprivate');
     expect(record.resource_type).toBe('versereference');
     expect(record.metadata.outcome).toBe('success');
+  });
+
+  it('never races AuthContext or records logged-out public activity', async () => {
+    vi.useFakeTimers();
+    api.entities.UserActivity.create.mockResolvedValue({ id: 'activity-1' });
+
+    expect(logActivity('page_view', { page_name: 'Home' })).toBe(false);
+    primeCachedUser(null);
+    expect(logActivity('page_view', { page_name: 'Pricing' })).toBe(false);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(api.auth.me).not.toHaveBeenCalled();
+    expect(api.entities.UserActivity.create).not.toHaveBeenCalled();
+
+    primeCachedUser({ id: 'user-1' });
+    expect(logActivity('page_view', { page_name: 'Home' })).toBe(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(api.auth.me).not.toHaveBeenCalled();
+    expect(api.entities.UserActivity.create).toHaveBeenCalledTimes(1);
+    expect(api.entities.UserActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({ action_type: 'page_view', page_name: 'Home' }),
+    );
   });
 });

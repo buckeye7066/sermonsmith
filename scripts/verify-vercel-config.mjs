@@ -7,7 +7,18 @@ const API_REWRITE = {
   source: '/api/:path*',
   destination: 'https://sermonsmith-api-production.up.railway.app/api/:path*',
 };
-const SPA_REWRITE = { source: '/(.*)', destination: '/index.html' };
+const SPA_REWRITE = { source: '/(.*)', destination: '/app.html' };
+const PUBLIC_DOCUMENT_REWRITES = new Map([
+  ['/', '/index.html'],
+  ['/Home', '/index.html'],
+  ['/home', '/index.html'],
+  ['/Pricing', '/pricing.html'],
+  ['/pricing', '/pricing.html'],
+  ['/Downloads', '/downloads.html'],
+  ['/downloads', '/downloads.html'],
+  ['/privacy', '/privacy.html'],
+  ['/Privacy', '/privacy.html'],
+]);
 
 const REQUIRED_SECURITY_HEADERS = new Map([
   [
@@ -56,8 +67,18 @@ function verifyConfig(config, label, { root = false } = {}) {
   assert.deepEqual(
     config.rewrites.at(-1),
     SPA_REWRITE,
-    `${label}: the SPA fallback must remain the final rewrite`,
+    `${label}: protected and login routes must use the noindex SPA shell`,
   );
+  assert.equal(config.trailingSlash, false, `${label}: canonical routes must not fork on trailing slashes`);
+
+  const rewrites = new Map(config.rewrites.map((entry) => [entry.source, entry.destination]));
+  for (const [source, destination] of PUBLIC_DOCUMENT_REWRITES) {
+    assert.equal(
+      rewrites.get(source),
+      destination,
+      `${label}: ${source} must use its route-specific crawlable document`,
+    );
+  }
 
   const securityHeaders = route(config, '/(.*)', label);
   assert.equal(
@@ -100,7 +121,14 @@ function verifyConfig(config, label, { root = false } = {}) {
   assertHeader(serviceWorker, 'Cache-Control', 'public, max-age=0, must-revalidate', label);
   assertHeader(serviceWorker, 'Service-Worker-Allowed', '/', label);
 
-  for (const source of ['/index.html', '/manifest.webmanifest']) {
+  for (const source of [
+    '/index.html',
+    '/app.html',
+    '/pricing.html',
+    '/downloads.html',
+    '/privacy.html',
+    '/manifest.webmanifest',
+  ]) {
     const headers = route(config, source, label);
     assertHeader(headers, 'Cache-Control', 'public, max-age=0, must-revalidate', label);
   }
@@ -130,4 +158,4 @@ assert.deepEqual(
   'Root and apps/web Vercel response-header policies have drifted',
 );
 
-console.log('Vercel configuration verified: routing, security headers, and cache policy are aligned.');
+console.log('Vercel configuration verified: public metadata routing, protected noindex shell, security headers, and cache policy are aligned.');

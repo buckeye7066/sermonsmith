@@ -10,15 +10,63 @@ async function mockLoggedOutApi(page) {
   });
 }
 
+test('route-specific documents expose aligned crawl metadata over HTTP', async ({ request }) => {
+  const documents = [
+    { file: '/index.html', canonical: 'https://sermonsmith.axiombiolabs.org/' },
+    { file: '/pricing.html', canonical: 'https://sermonsmith.axiombiolabs.org/Pricing' },
+    { file: '/downloads.html', canonical: 'https://sermonsmith.axiombiolabs.org/Downloads' },
+    { file: '/privacy.html', canonical: 'https://sermonsmith.axiombiolabs.org/privacy' },
+  ];
+
+  for (const document of documents) {
+    const response = await request.get(document.file);
+    expect(response.ok()).toBeTruthy();
+    const html = await response.text();
+    expect(html).toContain(`rel="canonical" href="${document.canonical}"`);
+    expect(html).toContain('name="robots" content="index,follow,max-image-preview:large"');
+  }
+
+  const protectedShell = await request.get('/app.html');
+  expect(protectedShell.ok()).toBeTruthy();
+  const protectedHtml = await protectedShell.text();
+  expect(protectedHtml).toContain('name="robots" content="noindex,nofollow,noarchive"');
+  expect(protectedHtml).not.toContain('rel="canonical"');
+});
+
 test('anonymous public pages stay public after auth initialization', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
   await mockLoggedOutApi(page);
 
   const publicPages = [
-    { path: '/', heading: 'SermonSmith', url: /\/$/ },
-    { path: '/Pricing', heading: 'Choose Your Plan', url: /\/Pricing$/i },
-    { path: '/privacy', heading: 'Privacy Policy', url: /\/privacy$/i },
+    {
+      path: '/',
+      heading: 'SermonSmith',
+      url: /\/$/,
+      canonical: 'https://sermonsmith.axiombiolabs.org/',
+      title: /AI-Assisted Sermon Builder/i,
+    },
+    {
+      path: '/Pricing',
+      heading: 'Choose Your Plan',
+      url: /\/Pricing$/i,
+      canonical: 'https://sermonsmith.axiombiolabs.org/Pricing',
+      title: /SermonSmith Pricing/i,
+    },
+    {
+      path: '/Downloads',
+      heading: 'Scripture Sources & Offline Use',
+      url: /\/Downloads$/i,
+      canonical: 'https://sermonsmith.axiombiolabs.org/Downloads',
+      title: /Scripture Sources & Offline Use/i,
+    },
+    {
+      path: '/privacy',
+      heading: 'Privacy Policy',
+      url: /\/privacy$/i,
+      canonical: 'https://sermonsmith.axiombiolabs.org/privacy',
+      title: /SermonSmith Privacy Policy/i,
+    },
   ];
 
   for (const publicPage of publicPages) {
@@ -27,10 +75,17 @@ test('anonymous public pages stay public after auth initialization', async ({ pa
       timeout: 15_000,
     });
     await expect(page).toHaveURL(publicPage.url);
+    await expect(page).toHaveTitle(publicPage.title);
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      publicPage.canonical,
+    );
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+      'content',
+      'index,follow,max-image-preview:large',
+    );
     expect(page.url()).not.toContain('/Login');
   }
-
-  await expect(page).toHaveTitle(/SermonSmith/i);
   await expect(page.locator('#root')).not.toBeEmpty();
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
@@ -44,6 +99,11 @@ test('unauthenticated user reaches the login surface directly', async ({ page })
   );
   await expect(authSurface.first()).toBeVisible({ timeout: 15_000 });
   await expect(page).toHaveURL(/\/Login$/i);
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+    'content',
+    'noindex,nofollow,noarchive',
+  );
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
 });
 
 test('registration form is reachable from a stable public URL', async ({ page }) => {

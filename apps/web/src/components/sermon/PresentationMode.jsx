@@ -47,6 +47,53 @@ const formatTime = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
+export function calculateTimingStatus({
+  elapsedTime,
+  targetTime,
+  currentPointIndex,
+  pointCount,
+}) {
+  const elapsedMinutes = elapsedTime / 60;
+  const expectedProgress = (currentPointIndex + 1) / (pointCount + 2);
+  const actualProgress = elapsedMinutes / targetTime;
+
+  if (currentPointIndex === -1) {
+    if (elapsedMinutes > 4) {
+      return { status: "warning", message: "Consider moving to Point 1" };
+    }
+    return { status: "good", message: "Good pace" };
+  }
+
+  if (actualProgress < expectedProgress - 0.15) {
+    return { status: "fast", message: "You're ahead of schedule - can expand points" };
+  }
+  if (actualProgress > expectedProgress + 0.15) {
+    return { status: "slow", message: "Running behind - consider condensing" };
+  }
+
+  return { status: "good", message: "On pace" };
+}
+
+export function getTimingCoachingTip(status, minutesRemaining) {
+  const tips = {
+    fast: "You are ahead of the outline target. Expand only where it helps the message.",
+    slow: "You are behind the outline target. Consider condensing the next section.",
+    warning: "The introduction is running long. Consider moving to Point 1.",
+    good: `${minutesRemaining} target minute${minutesRemaining === 1 ? "" : "s"} remain.`,
+  };
+
+  return tips[status] || tips.good;
+}
+
+export function getTimingStateLabel(status) {
+  return {
+    fast: "ahead",
+    slow: "behind",
+    warning: "move on",
+    good: "on pace",
+  }[status] || "on pace";
+}
+
 const ASSISTANT_PERSONALITIES = [
   { 
     id: 'encouraging', 
@@ -115,7 +162,7 @@ export default function PresentationMode({ sermon, onClose }) {
   const containerRef = useRef(null);
   const timerRef = useRef(null);
   const pauseTimerRef = useRef(null);
-  const timingCoachingTimerRef = useRef(null);
+  const lastTimingCoachingBucketRef = useRef(0);
 
   useEffect(() => {
     if (isRunning) {
@@ -133,23 +180,30 @@ export default function PresentationMode({ sermon, onClose }) {
     };
   }, [isRunning]);
 
-  // Elapsed-time coaching; no audio input
+  // Elapsed-time coaching; no audio input. Drive coaching from the current
+  // elapsed-time state instead of an interval callback that closes over the
+  // time at which coaching started.
   useEffect(() => {
-    if (isTimingCoachActive && settings.enableTimingCoaching && isRunning) {
-      timingCoachingTimerRef.current = setInterval(() => {
-        generateTimingCoaching();
-      }, settings.timingCoachingInterval * 1000);
-    } else {
-      if (timingCoachingTimerRef.current) {
-        clearInterval(timingCoachingTimerRef.current);
-      }
-    }
+    if (!isTimingCoachActive || !settings.enableTimingCoaching || !isRunning) return;
 
-    return () => {
-      if (timingCoachingTimerRef.current) clearInterval(timingCoachingTimerRef.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
-  }, [isTimingCoachActive, settings.enableTimingCoaching, settings.timingCoachingInterval, isRunning]);
+    const interval = Math.max(1, Number(settings.timingCoachingInterval) || 60);
+    const bucket = Math.floor(elapsedTime / interval);
+    if (bucket < 1 || bucket <= lastTimingCoachingBucketRef.current) return;
+
+    lastTimingCoachingBucketRef.current = bucket;
+    generateTimingCoaching();
+  // generateTimingCoaching reads the same current render state listed here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    elapsedTime,
+    currentPointIndex,
+    isTimingCoachActive,
+    isRunning,
+    settings.enableTimingCoaching,
+    settings.targetTime,
+    settings.timingCoachingInterval,
+    sermon.points.length,
+  ]);
 
   // Auto-engagement suggestions
   useEffect(() => {
@@ -201,6 +255,8 @@ export default function PresentationMode({ sermon, onClose }) {
     setIsTimingCoachActive((active) => {
       const nextActive = !active;
       if (nextActive) {
+        const interval = Math.max(1, Number(settings.timingCoachingInterval) || 60);
+        lastTimingCoachingBucketRef.current = Math.floor(elapsedTime / interval);
         toast.success("Timed coaching started — no microphone or audio is used");
       } else {
         toast.info("Timed coaching paused");
@@ -216,16 +272,10 @@ export default function PresentationMode({ sermon, onClose }) {
     // pace, tone, energy, audience response, or delivery quality.
     const status = getTimingStatus();
     const minutesRemaining = Math.max(0, settings.targetTime - Math.floor(elapsedTime / 60));
-    const tips = {
-      fast: "You are ahead of the outline target. Expand only where it helps the message.",
-      slow: "You are behind the outline target. Consider condensing the next section.",
-      good: `${minutesRemaining} target minute${minutesRemaining === 1 ? "" : "s"} remain.`,
-    };
-
     setTimingCoaching({
       timingState: status.status,
       feedback: status.message,
-      tip: tips[status.status],
+      tip: getTimingCoachingTip(status.status, minutesRemaining),
     });
   };
 
@@ -415,25 +465,12 @@ Match the ${personalityData.description} tone!`;
     }
   };
 
-  const getTimingStatus = () => {
-    const elapsedMinutes = elapsedTime / 60;
-    const targetMinutes = settings.targetTime;
-    const expectedProgress = (currentPointIndex + 1) / (sermon.points.length + 2);
-    const actualProgress = elapsedMinutes / targetMinutes;
-
-    if (currentPointIndex === -1) {
-      if (elapsedMinutes > 4) return { status: "warning", message: "Consider moving to Point 1" };
-      return { status: "good", message: "Good pace" };
-    }
-
-    if (actualProgress < expectedProgress - 0.15) {
-      return { status: "fast", message: "You're ahead of schedule - can expand points" };
-    } else if (actualProgress > expectedProgress + 0.15) {
-      return { status: "slow", message: "Running behind - consider condensing" };
-    }
-
-    return { status: "good", message: "On pace" };
-  };
+  const getTimingStatus = () => calculateTimingStatus({
+    elapsedTime,
+    targetTime: settings.targetTime,
+    currentPointIndex,
+    pointCount: sermon.points.length,
+  });
 
   const getCurrentContent = () => {
     if (currentPointIndex === -1) {
@@ -510,6 +547,7 @@ Match the ${personalityData.description} tone!`;
             size="sm"
             onClick={() => setIsRunning(!isRunning)}
             className="text-white hover:bg-gray-800"
+            aria-label={isRunning ? "Pause timer" : "Start timer"}
           >
             {isRunning ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
           </Button>
@@ -524,13 +562,16 @@ Match the ${personalityData.description} tone!`;
             <Badge 
               variant={timingStatus.status === 'good' ? 'default' : 'secondary'}
               className={`${
-                timingStatus.status === 'fast' ? 'bg-blue-500' : 
-                timingStatus.status === 'slow' ? 'bg-orange-500' : 
+                timingStatus.status === 'fast' ? 'bg-blue-500' :
+                timingStatus.status === 'slow' ? 'bg-orange-500' :
+                timingStatus.status === 'warning' ? 'bg-amber-500' :
                 'bg-green-500'
               } text-white`}
             >
               {timingStatus.status === 'good' && <CheckCircle2 className="w-3 h-3 mr-1" />}
-              {timingStatus.status === 'slow' && <AlertTriangle className="w-3 h-3 mr-1" />}
+              {(timingStatus.status === 'slow' || timingStatus.status === 'warning') && (
+                <AlertTriangle className="w-3 h-3 mr-1" />
+              )}
               {timingStatus.message}
             </Badge>
           )}
@@ -540,10 +581,11 @@ Match the ${personalityData.description} tone!`;
             <Badge className={`${
               timingCoaching.timingState === 'fast' ? 'bg-blue-500' :
               timingCoaching.timingState === 'slow' ? 'bg-orange-500' :
+              timingCoaching.timingState === 'warning' ? 'bg-amber-500' :
               'bg-green-500'
             } text-white animate-pulse`}>
               <Clock className="w-3 h-3 mr-1" />
-              Timed: {timingCoaching.timingState === 'fast' ? 'ahead' : timingCoaching.timingState === 'slow' ? 'behind' : 'on pace'}
+              Timed: {getTimingStateLabel(timingCoaching.timingState)}
             </Badge>
           )}
 

@@ -67,8 +67,11 @@ export default function PrivacyPolicy() {
               a server-attached account ID, a coarse action type, page name, optional resource type,
               event time, and success/failure outcome. New activity events do not include prompt or
               sermon content, resource IDs, email addresses, full URLs, URL queries or fragments,
-              screen size, or detailed error text. Older operational records may contain an account
-              email and are handled under the retention and deletion practices below.
+              screen size, or detailed error text. Logged-out public-page visits do not create these
+              first-party UserActivity records or trigger an additional account lookup, although
+              hosting and security logs can still be created as described below. Older operational
+              records may contain an account email and are handled under the retention and deletion
+              practices below.
             </li>
             <li>
               <strong>Technical and security data</strong> — server and hosting logs can include IP

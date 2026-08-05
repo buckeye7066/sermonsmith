@@ -2,8 +2,9 @@ import { api } from '@/api/apiClient';
 
 let activityQueue = [];
 let isProcessing = false;
-let cachedUser = null;
-let userFetchPromise = null;
+// undefined = AuthContext has not resolved yet; null = resolved signed-out.
+// Activity logging must never race AuthContext with its own /api/auth/me request.
+let cachedUser;
 
 function normalizedLabel(value, fallback, maxLength = 80) {
   if (typeof value !== 'string') return fallback;
@@ -32,23 +33,7 @@ export function buildActivityRecord(actionType, details = {}, now = new Date()) 
 // /api/auth/me round-trip.
 export function primeCachedUser(user) {
   cachedUser = user || null;
-}
-
-async function resolveUser() {
-  if (cachedUser) return cachedUser;
-  if (userFetchPromise) return userFetchPromise;
-
-  userFetchPromise = api.auth.me()
-    .then((user) => {
-      cachedUser = user;
-      return user;
-    })
-    .catch(() => null)
-    .finally(() => {
-      userFetchPromise = null;
-    });
-
-  return userFetchPromise;
+  if (!cachedUser) activityQueue = [];
 }
 
 const processQueue = async () => {
@@ -59,8 +44,10 @@ const processQueue = async () => {
   activityQueue = [];
 
   try {
-    const user = await resolveUser();
-    if (!user) return;
+    // AuthContext primes this cache after its single auth lookup. A missing
+    // user means unresolved or signed out; either way, discard rather than
+    // launching a second, racing authentication request.
+    if (!cachedUser) return;
 
     // The authenticated entities API attaches the account's user_id on the
     // server. Do not duplicate email addresses or accept caller-supplied IDs.
@@ -84,16 +71,21 @@ function ensureInterval() {
 }
 
 export function clearCachedUser() {
-  cachedUser = null;
+  cachedUser = undefined;
+  activityQueue = [];
 }
 
 export const logActivity = (actionType, details = {}) => {
+  if (!cachedUser) return false;
+
   activityQueue.push(buildActivityRecord(actionType, details));
   ensureInterval();
 
   if (activityQueue.length >= 5) {
     processQueue();
   }
+
+  return true;
 };
 
 export default logActivity;

@@ -19,12 +19,14 @@ describe('public product claims', () => {
       'understands theology, context, and your congregation',
       'Works on all your devices',
       'created instantly',
+      'Try It Live',
     ]) {
       expect(home, `unsupported Home claim: ${unsupported}`).not.toContain(unsupported);
     }
 
     expect(home).toContain('Built for Pastoral Review');
     expect(home).toContain('Your judgment stays final');
+    expect(home).toContain('View Example Draft');
   });
 
   it('does not advertise unavailable exports or guaranteed translation catalogues', () => {

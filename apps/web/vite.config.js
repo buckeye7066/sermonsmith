@@ -20,6 +20,13 @@ export default defineConfig({
     target: 'es2020',
     reportCompressedSize: false,
     rollupOptions: {
+      input: {
+        app: fileURLToPath(new URL('./app.html', import.meta.url)),
+        downloads: fileURLToPath(new URL('./downloads.html', import.meta.url)),
+        home: fileURLToPath(new URL('./index.html', import.meta.url)),
+        pricing: fileURLToPath(new URL('./pricing.html', import.meta.url)),
+        privacy: fileURLToPath(new URL('./privacy.html', import.meta.url)),
+      },
       output: {
         // Only the libraries the app shell actually uses on first paint are
         // pinned into stable, entry-preloaded vendor chunks (better long-term

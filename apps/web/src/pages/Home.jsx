@@ -65,8 +65,9 @@ export default function Home() {
   const [hasCheckedOnboarding, setHasCheckedOnboarding] = useState(false);
 
   useEffect(() => {
+    if (loading || !user) return;
     logActivity('page_view', { page_name: 'Home' });
-  }, []);
+  }, [loading, user]);
 
   // Onboarding nudge fires once the AuthContext has resolved a user and
   // we haven't already triggered it for this mount.
@@ -254,7 +255,7 @@ export default function Home() {
                     onClick={() => setShowDemo(true)}
                   >
                     <Zap className="w-5 h-5 mr-2" />
-                    Try It Live
+                    View Example Draft
                   </Button>
                   <Link to={createPageUrl('Pricing')}>
                     <Button

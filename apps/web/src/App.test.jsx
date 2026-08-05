@@ -42,7 +42,7 @@ vi.mock('@/lib/maintenance', () => ({
   LOGIN_MAINTENANCE: { active: false, title: '', message: '', etaText: '' },
 }));
 
-import { AuthenticatedApp } from './App.jsx';
+import { AuthenticatedApp, metadataForPath } from './App.jsx';
 
 function LocationProbe() {
   const location = useLocation();
@@ -136,5 +136,30 @@ describe('AuthenticatedApp route gating', () => {
 
     expect(screen.getByRole('heading', { name: /sermonsmith home/i })).toBeInTheDocument();
     expect(screen.getByTestId('layout')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['/home', /sermonsmith home/i],
+    ['/pricing', /choose your plan/i],
+    ['/downloads', /scripture downloads/i],
+  ])('matches signed-in lowercase public route %s', (route, heading) => {
+    authState.isAuthenticated = true;
+    renderWithRoute(route);
+
+    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
+    expect(screen.getByTestId('layout')).toBeInTheDocument();
+  });
+
+  it('publishes metadata only for intentionally crawlable routes', () => {
+    expect(metadataForPath('/Pricing')).toMatchObject({
+      path: '/Pricing',
+      title: expect.stringContaining('Pricing'),
+    });
+    expect(metadataForPath('/privacy')).toMatchObject({
+      path: '/privacy',
+      title: expect.stringContaining('Privacy'),
+    });
+    expect(metadataForPath('/Reader')).toBeNull();
+    expect(metadataForPath('/Login')).toBeNull();
   });
 });
