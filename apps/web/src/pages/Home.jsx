@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { api } from '@/api/apiClient';
@@ -63,9 +63,11 @@ export default function Home() {
   const [showDemo, setShowDemo] = useState(false);
   const [showPrayer, setShowPrayer] = useState(false);
   const [hasCheckedOnboarding, setHasCheckedOnboarding] = useState(false);
+  const hasLoggedHomeViewRef = useRef(false);
 
   useEffect(() => {
-    if (loading || !user) return;
+    if (loading || !user || hasLoggedHomeViewRef.current) return;
+    hasLoggedHomeViewRef.current = true;
     logActivity('page_view', { page_name: 'Home' });
   }, [loading, user]);
 
