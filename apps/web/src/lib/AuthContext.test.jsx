@@ -29,7 +29,7 @@ vi.mock('@/lib/logError', () => ({
   logError: (...args) => logError(...args),
 }));
 
-import { AuthProvider, getCurrentAppReturnPath, getLoginPath, useAuth } from './AuthContext.jsx';
+import { AuthProvider, getCurrentAppReturnPath, getLoginPath, hasAuthSessionHint, useAuth } from './AuthContext.jsx';
 
 function AuthProbe() {
   const auth = useAuth();
@@ -58,6 +58,7 @@ describe('AuthContext', () => {
     vi.clearAllMocks();
     Reflect.deleteProperty(window, 'electron');
     logoutRequest.mockResolvedValue(null);
+    window.localStorage.clear();
   });
 
   it('loads the current user into authenticated state', async () => {
@@ -69,10 +70,12 @@ describe('AuthContext', () => {
     expect(screen.getByTestId('authenticated')).toHaveTextContent('true');
     expect(screen.getByTestId('user')).toHaveTextContent('u1');
     expect(primeCachedUser).toHaveBeenCalledWith({ id: 'u1', email: 'pastor@example.com' });
+    expect(hasAuthSessionHint()).toBe(true);
   });
 
   it('treats a 401 auth check as logged out, not as a fatal auth error', async () => {
     me.mockRejectedValueOnce(Object.assign(new Error('Unauthorized'), { status: 401 }));
+    window.localStorage.setItem('sermonsmith.authenticated-session', '1');
 
     renderProvider();
 
@@ -81,6 +84,7 @@ describe('AuthContext', () => {
     expect(screen.getByTestId('user')).toHaveTextContent('none');
     expect(primeCachedUser).toHaveBeenCalledWith(null);
     expect(logError).not.toHaveBeenCalled();
+    expect(hasAuthSessionHint()).toBe(false);
   });
 
   it('logout clears auth state', async () => {
@@ -94,6 +98,7 @@ describe('AuthContext', () => {
     await waitFor(() => expect(logoutRequest).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
     expect(screen.getByTestId('user')).toHaveTextContent('none');
+    expect(hasAuthSessionHint()).toBe(false);
   });
 
   it('builds BrowserRouter login targets with a return path', () => {
