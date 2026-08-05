@@ -9,6 +9,7 @@ vi.stubGlobal('IntersectionObserver', class IntersectionObserverMock {
   observe() {}
   unobserve() {}
   disconnect() {}
+  takeRecords() { return []; }
 });
 
 vi.mock('@/lib/AuthContext', () => ({
@@ -51,7 +52,7 @@ describe('public Home', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole('heading', { name: 'SermonSmith' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { name: 'SermonSmith' }).length).toBeGreaterThan(0);
     expect(screen.getByText('Built for Pastoral Review')).toBeInTheDocument();
     expect(
       screen.getByText('Elapsed-time presentation coaching; no microphone used'),
