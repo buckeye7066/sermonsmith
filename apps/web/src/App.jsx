@@ -7,7 +7,7 @@ import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
 import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
-import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import { AuthProvider, hasAuthSessionHint, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import { OfflineProvider } from '@/lib/offlineDetector.jsx';
 import OfflineBanner from '@/components/OfflineBanner';
@@ -212,6 +212,14 @@ export const AuthenticatedApp = () => {
         <PrivacyPolicy />
       </Suspense>
     );
+  }
+
+  // An anonymous browser with no prior authenticated-session hint gets the
+  // public page immediately. A returning browser waits on the neutral loader
+  // until its httpOnly cookie is verified, preventing a marketing-shell flash
+  // before the signed-in layout appears. A stale hint is cleared by a 401.
+  if (PublicPage && isLoadingAuth && hasAuthSessionHint()) {
+    return <PageLoader />;
   }
 
   // Logged-out visitors get a marketing page without the authenticated app
