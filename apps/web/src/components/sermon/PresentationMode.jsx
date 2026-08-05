@@ -90,7 +90,7 @@ export default function PresentationMode({ sermon, onClose }) {
   const [lastSuggestionPoint, setLastSuggestionPoint] = useState(-999);
   const [pauseStartTime, setPauseStartTime] = useState(null);
   
-  // New AI features
+  // Presentation assistance state
   const [timingCoaching, setTimingCoaching] = useState(null);
   const [isTimingCoachActive, setIsTimingCoachActive] = useState(false);
   const [showScriptureLookup, setShowScriptureLookup] = useState(false);
@@ -148,8 +148,8 @@ export default function PresentationMode({ sermon, onClose }) {
     return () => {
       if (timingCoachingTimerRef.current) clearInterval(timingCoachingTimerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- effect intentionally keeps existing trigger behavior.
-  }, [isTimingCoachActive, settings.enableTimingCoaching, isRunning]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
+  }, [isTimingCoachActive, settings.enableTimingCoaching, settings.timingCoachingInterval, isRunning]);
 
   // Auto-engagement suggestions
   useEffect(() => {
@@ -724,164 +724,6 @@ Match the ${personalityData.description} tone!`;
                 <p className="text-xs text-purple-200 mt-2">
                   Based only on elapsed time and outline position. No audio is captured.
                 </p>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Engagement Suggestion */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={generateEngagementSuggestion}
-            className="text-white hover:bg-gray-800"
-            title="Get engagement idea (E)"
-          >
-            <Users className="w-4 h-4" />
-          </Button>
-
-          <span className="text-sm text-gray-400">
-            {currentPointIndex + 2} / {sermon.points.length + 2}
-          </span>
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowSettings(true)}
-            className="text-white hover:bg-gray-800"
-          >
-            <Settings className="w-4 h-4" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleFullscreen}
-            className="text-white hover:bg-gray-800"
-          >
-            <Maximize className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            className="text-white hover:bg-gray-800"
-          >
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Progress Bar */}
-      <div className="w-full h-2 bg-gray-800">
-        <div 
-          className="h-full bg-indigo-600 transition-all duration-300"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 overflow-auto p-12 text-white">
-        <div className="max-w-6xl mx-auto space-y-8">
-          {/* Current Section */}
-          <div className="text-center space-y-4">
-            <Badge variant="outline" className="text-lg px-4 py-2 border-gray-600 text-gray-300">
-              {currentContent.title}
-            </Badge>
-            <h1 className="text-5xl font-bold leading-tight" style={{ fontSize: `${fontSize * 1.8}px` }}>
-              {currentContent.subtitle}
-            </h1>
-          </div>
-
-          {/* Main Content */}
-          <Card className="bg-gray-900 border-gray-700 shadow-2xl">
-            <CardContent className="p-8 space-y-6">
-              {currentContent.type === 'intro' && (
-                <div>
-                  <h2 className="text-3xl font-bold mb-4 text-indigo-400">Big Idea</h2>
-                  <p className="text-2xl leading-relaxed text-gray-200">
-                    {currentContent.content}
-                  </p>
-                </div>
-              )}
-
-              {currentContent.type === 'point' && (
-                <div className="space-y-6">
-                  {currentContent.content && (
-                    <div>
-                      <h3 className="text-2xl font-bold mb-3 text-blue-400 flex items-center gap-2">
-                        <BookOpen className="w-6 h-6" />
-                        Key Teaching
-                      </h3>
-                      <p className="text-xl leading-relaxed text-gray-200" style={{ fontSize: `${fontSize}px` }}>
-                        {currentContent.content?.substring(0, 400)}...
-                      </p>
-                    </div>
-                  )}
-
-                  {currentContent.scriptures && currentContent.scriptures.length > 0 && (
-                    <div className="bg-gray-800 p-4 rounded-lg border-l-4 border-purple-500">
-                      <h4 className="text-lg font-semibold mb-2 text-purple-400">📖 Supporting Scriptures</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {currentContent.scriptures.map((scripture, index) => (
-                          <Badge key={index} variant="outline" className="text-base border-gray-600 text-gray-300">
-                            {scripture}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {currentContent.illustration && (
-                    <div className="bg-yellow-900/30 p-4 rounded-lg border-l-4 border-yellow-500">
-                      <h4 className="text-lg font-semibold mb-2 text-yellow-400 flex items-center gap-2">
-                        <Lightbulb className="w-5 h-5" />
-                        Illustration
-                      </h4>
-                      <p className="text-base text-gray-300">
-                        {currentContent.illustration.substring(0, 200)}...
-                      </p>
-                    </div>
-                  )}
-
-                  {currentContent.application && (
-                    <div className="bg-green-900/30 p-4 rounded-lg border-l-4 border-green-500">
-                      <h4 className="text-lg font-semibold mb-2 text-green-400">✨ Application</h4>
-                      <p className="text-base text-gray-300">
-                        {currentContent.application.substring(0, 200)}...
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {currentContent.type === 'conclusion' && (
-                <div>
-                  <h2 className="text-3xl font-bold mb-4 text-green-400">Call to Response</h2>
-                  <p className="text-2xl leading-relaxed text-gray-200">
-                    {currentContent.content}
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Vocal Feedback Alert */}
-          {timingCoaching && (
-            <Alert className="bg-purple-900/50 border-purple-500 animate-in slide-in-from-bottom">
-              <Mic className="w-5 h-5 text-purple-400" />
-              <AlertDescription className="text-white">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-4">
-                    <Badge className={timingCoaching.pace === 'fast' ? 'bg-orange-500' : timingCoaching.pace === 'slow' ? 'bg-blue-500' : 'bg-green-500'}>
-                      Pace: {timingCoaching.pace}
-                    </Badge>
-                    <Badge className={timingCoaching.energy === 'low' ? 'bg-orange-500' : timingCoaching.energy === 'high' ? 'bg-blue-500' : 'bg-green-500'}>
-                      Energy: {timingCoaching.energy}
-                    </Badge>
-                  </div>
-                  <p className="text-lg">{timingCoaching.feedback}</p>
-                  <p className="text-sm text-purple-300">💡 {timingCoaching.tip}</p>
-                </div>
               </AlertDescription>
             </Alert>
           )}
