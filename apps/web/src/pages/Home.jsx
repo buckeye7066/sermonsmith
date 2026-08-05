@@ -159,7 +159,7 @@ export default function Home() {
     { icon: Users, text: "Audience adaptation prompts (youth, adults, seniors, children)" },
     { icon: Languages, text: `AI-assisted language adaptation for human review` },
     { icon: TrendingUp, text: "Theological trajectory planning" },
-    { icon: Mic, text: "Elapsed-time presentation coaching; no microphone used" },
+    { icon: Clock, text: "Elapsed-time presentation coaching; no microphone used" },
     { icon: MessageSquare, text: "Counter-arguments and Q&A prep" },
     { icon: Scale, text: "Denominational ethics & worldview analysis" },
     { icon: Globe, text: "Draft discussion prompts for current topics" }
