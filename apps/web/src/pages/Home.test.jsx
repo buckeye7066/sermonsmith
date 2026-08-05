@@ -72,7 +72,7 @@ describe('public Home', () => {
   it('logs a Home view only after AuthContext resolves a signed-in user', () => {
     authState.user = { id: 'user-1', onboarding_completed: true };
 
-    render(
+    const view = render(
       <MemoryRouter>
         <Home />
       </MemoryRouter>,
@@ -80,5 +80,17 @@ describe('public Home', () => {
 
     expect(logActivity).toHaveBeenCalledTimes(1);
     expect(logActivity).toHaveBeenCalledWith('page_view', { page_name: 'Home' });
+
+    authState = {
+      ...authState,
+      user: { ...authState.user, full_name: 'Refreshed user object' },
+    };
+    view.rerender(
+      <MemoryRouter>
+        <Home />
+      </MemoryRouter>,
+    );
+
+    expect(logActivity).toHaveBeenCalledTimes(1);
   });
 });
