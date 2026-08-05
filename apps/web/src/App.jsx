@@ -58,14 +58,33 @@ export const AuthenticatedApp = () => {
   const { isAuthenticated, isLoadingAuth, authError } = useAuth();
   const location = useLocation();
 
-  // Public, unauthenticated routes. Legal/store pages (e.g. the privacy policy
-  // required by Google Play and the App Store) must render for anyone —
-  // app-store reviewers and logged-out visitors — before the auth/loading
-  // gate below, and without the authenticated app shell/navigation.
-  if (location.pathname.toLowerCase() === '/privacy') {
+  // Public routes must render before auth initialization finishes. Previously the
+  // global auth gate redirected every logged-out path except /privacy to Login,
+  // which made the landing and pricing pages unusable as public web pages.
+  const publicPath = location.pathname.toLowerCase();
+  const PublicPage =
+    publicPath === '/' || publicPath === '/home'
+      ? Pages.Home
+      : publicPath === '/pricing'
+        ? Pages.Pricing
+        : publicPath === '/downloads'
+          ? Pages.Downloads
+          : null;
+
+  if (publicPath === '/privacy') {
     return (
       <Suspense fallback={<PageLoader />}>
         <PrivacyPolicy />
+      </Suspense>
+    );
+  }
+
+  // Logged-out visitors get a marketing page without the authenticated app
+  // shell. Signed-in users continue through to the normal routed experience.
+  if (PublicPage && (isLoadingAuth || !isAuthenticated)) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <PublicPage />
       </Suspense>
     );
   }
