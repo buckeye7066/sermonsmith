@@ -53,11 +53,21 @@
     "node": ">=20 <25",
     "npm": ">=10 <12"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "fast-uri": "3.1.5",
+    "js-yaml": "4.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "overrides": {
+    "fast-uri": "3.1.5",
+    "js-yaml": "4.3.1"
+  },
   "allowScripts": {
     "@prisma/client@6.19.2": true,
     "@prisma/engines@6.19.3": true,
     "core-js@3.48.0": true,
+    "electron@41.10.4": true,
     "electron-winstaller@5.4.0": true,
     "esbuild@0.25.12": true,
     "prisma@6.19.3": true,

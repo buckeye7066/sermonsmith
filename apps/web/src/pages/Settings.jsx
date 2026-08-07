@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 import { Settings as SettingsIcon, User, Crown, Bell, Loader2, Sparkles, Mail, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 import { isNativeApp } from "@/lib/platform";
 import PreferencesManager from "@/components/profile/PreferencesManager";

@@ -20,7 +20,7 @@ vi.mock('@/api/apiClient', () => ({
 vi.mock('@/lib/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', denomination: 'Baptist', content_preferences: {} } }),
 }));
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   Link: ({ children }) => <a href="#">{children}</a>,
 }));
 vi.mock('@/utils', () => ({ createPageUrl: (s) => `/${s}` }));

@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BookOpen, Save, AlertCircle, FileText, Crown, MessageCircle, Sparkles, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 import { apiBinaryCall } from "@/components/utils/apiCall";
 import PrintButton from "@/components/common/PrintButton";

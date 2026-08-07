@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MapPin, Navigation, Clock, Book, Loader2, Crown, Search, Image as ImageIcon, Calendar } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 import PrintButton from "@/components/common/PrintButton";

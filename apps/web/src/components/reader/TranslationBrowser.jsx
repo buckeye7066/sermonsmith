@@ -12,7 +12,7 @@ import {
   Globe, Search, Lock, Check, BookOpen, Loader2, Languages, Crown, Sparkles
 } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 
 // Region icons/colors for visual appeal

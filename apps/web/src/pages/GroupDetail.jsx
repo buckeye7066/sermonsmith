@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Users, ArrowLeft, MessageCircle, Calendar, TrendingUp, Crown, UserMinus } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 import GroupChat from "../components/groups/GroupChat";
 import MeetingScheduler from "../components/groups/MeetingScheduler";

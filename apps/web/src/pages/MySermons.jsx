@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { FileText, Printer, Trash2, Loader2, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation, Users, MessageSquare, Edit3 } from "lucide-react";
 import { toast } from "sonner";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { createPageUrl } from "@/utils";
 import TagManager from "@/components/resources/TagManager";
 import CollectionManager from "@/components/resources/CollectionManager";

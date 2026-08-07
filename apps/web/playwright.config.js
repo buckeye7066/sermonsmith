@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 // and drives it with headless Chromium. The smoke is backend-independent — it
 // verifies the SPA boots, mounts, and routes to the auth screen without a live
 // API, which is exactly the class of regression (bad build, broken router, a
-// dependency upgrade like react-router-dom) that the unit tests can't catch.
+// dependency upgrade like react-router) that the unit tests can't catch.
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,

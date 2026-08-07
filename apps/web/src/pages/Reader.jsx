@@ -25,7 +25,7 @@ import {
   CloudOff
 } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { createPageUrl } from "../utils";
 import { BOOK_NAME_TO_OSIS } from "../components/bible/bibleSources";
 import { logError } from "@/lib/logError";
