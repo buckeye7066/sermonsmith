@@ -36,8 +36,8 @@ export function compareQuotedWording(quotedText, providerText) {
 
   const match =
     quotedNormalized === providerNormalized
-    || providerNormalized.includes(quotedNormalized)
-    || quotedNormalized.includes(providerNormalized);
+    // Allow acceptable partial excerpts (quoted text is a substring of provider text)
+    || providerNormalized.includes(quotedNormalized);
 
   return {
     status: match ? 'match' : 'mismatch',

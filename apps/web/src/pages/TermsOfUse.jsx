@@ -62,8 +62,9 @@ export default function TermsOfUse() {
             Exact verse wording shown through the Service comes from registered Bible
             providers for the selected translation. Canon and reference checks confirm that
             a citation exists in a selected canon; they do not by themselves prove that a
-            freely typed or AI-suggested quotation matches provider text. Use the in-product
-            wording verification when quoting.
+            freely typed or AI-suggested quotation matches provider text. Compare any
+            quotation directly against the provider wording shown in the app, or use the
+            wording verification API.
           </p>
         </Section>
 
