@@ -46,6 +46,14 @@
       "destination": "/privacy.html"
     },
     {
+      "source": "/terms",
+      "destination": "/terms.html"
+    },
+    {
+      "source": "/Terms",
+      "destination": "/terms.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/app.html"
     }

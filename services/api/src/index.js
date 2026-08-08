@@ -86,6 +86,7 @@ export function buildApp(opts = {}) {
   app.use('/api/auth/reset-password', resetLimiter);
   app.use('/api/ai', aiLimiter);
   app.use('/api/functions/biblePassage', publicFunctionLimiter);
+  app.use('/api/functions/verifyVerseWording', publicFunctionLimiter);
   app.use('/api/functions/listAvailableTranslations', publicFunctionLimiter);
   app.use('/api/functions/getPassageMultiSource', publicFunctionLimiter);
   app.use('/api/report-client-error', clientErrorLimiter);

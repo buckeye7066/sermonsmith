@@ -144,6 +144,20 @@ describe('AuthenticatedApp route gating', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/Downloads');
   });
 
+  it('keeps Login/register reachable while auth initializes', async () => {
+    authState.isLoadingAuth = true;
+    renderWithRoute('/Login?mode=register');
+
+    expect(await screen.findByRole('heading', { name: /create account/i })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/Login?mode=register');
+  });
+
+  it('keeps Terms public without authentication', async () => {
+    renderWithRoute('/terms');
+
+    expect(await screen.findByRole('heading', { name: /terms of use/i })).toBeInTheDocument();
+  });
+
   it('supports a direct registration URL', async () => {
     renderWithRoute('/Login?mode=register');
 
