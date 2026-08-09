@@ -608,6 +608,7 @@ const integrations = {
 const RETRYABLE_FUNCTIONS = new Set([
   'biblePassage',
   'listAvailableTranslations',
+  'verifyVerseWording',
   'getPassageMultiSource',
 ]);
 

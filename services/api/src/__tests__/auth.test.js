@@ -74,8 +74,16 @@ describe('auth routes', () => {
     expect(res.status).toBe(400);
   });
 
+  it('register rejects malformed email addresses', async () => {
+    const res = await request(app)
+      .post('/api/auth/register')
+      .send({ email: 'not-an-email', password: 'longenough123' });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/valid email/i);
+  });
+
   it('register rejects short password', async () => {
-    const res = await request(app).post('/api/auth/register').send({ email: 'a@b', password: 'x' });
+    const res = await request(app).post('/api/auth/register').send({ email: 'short@example.com', password: 'x' });
     expect(res.status).toBe(400);
   });
 

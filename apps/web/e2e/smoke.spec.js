@@ -16,6 +16,7 @@ test('route-specific documents expose aligned crawl metadata over HTTP', async (
     { file: '/pricing.html', canonical: 'https://sermonsmith.axiombiolabs.org/Pricing' },
     { file: '/downloads.html', canonical: 'https://sermonsmith.axiombiolabs.org/Downloads' },
     { file: '/privacy.html', canonical: 'https://sermonsmith.axiombiolabs.org/privacy' },
+    { file: '/terms.html', canonical: 'https://sermonsmith.axiombiolabs.org/terms' },
   ];
 
   for (const document of documents) {
@@ -66,6 +67,13 @@ test('anonymous public pages stay public after auth initialization', async ({ pa
       url: /\/privacy$/i,
       canonical: 'https://sermonsmith.axiombiolabs.org/privacy',
       title: /SermonSmith Privacy Policy/i,
+    },
+    {
+      path: '/terms',
+      heading: 'Terms of Use',
+      url: /\/terms$/i,
+      canonical: 'https://sermonsmith.axiombiolabs.org/terms',
+      title: /SermonSmith Terms of Use/i,
     },
   ];
 

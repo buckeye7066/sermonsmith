@@ -8,6 +8,8 @@ Allow: /Downloads$
 Allow: /downloads$
 Allow: /privacy$
 Allow: /Privacy$
+Allow: /terms$
+Allow: /Terms$
 Allow: /assets/
 Allow: /icon.svg
 Allow: /icon.png

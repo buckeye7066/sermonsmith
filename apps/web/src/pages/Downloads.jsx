@@ -97,9 +97,11 @@ export default function Downloads() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-gray-600 dark:text-gray-400">
-                AI-generated references, quotations, cross-references, and translations can be
-                incomplete or wrong. Open the passage in your preferred authorized translation,
-                read its surrounding context, and verify wording before publication or delivery.
+                Canon and reference checks confirm a citation exists in a selected canon. Exact
+                verse wording is fetched from registered Bible providers and can be compared with
+                <code className="mx-1 text-sm">verifyVerseWording</code>
+                so a valid reference with wrong quoted text is reported as a mismatch. Open the
+                passage, read surrounding context, and verify wording before publication or delivery.
               </p>
               <Link to={user ? createPageUrl("Reader") : "/Login?return=%2FReader"}>
                 <Button className="w-full">

@@ -54,6 +54,11 @@ const PUBLIC_ROUTE_METADATA = {
     description: 'Read how SermonSmith handles account data, saved ministry content, AI requests, operational activity, service providers, retention, and deletion requests.',
     path: '/privacy',
   },
+  '/terms': {
+    title: 'SermonSmith Terms of Use',
+    description: 'Read the SermonSmith terms covering acceptable use, AI draft limitations, Scripture source verification, billing, and pastoral responsibility.',
+    path: '/terms',
+  },
 };
 
 export function metadataForPath(pathname) {
@@ -163,6 +168,7 @@ export function RouteMetadata() {
 
 const Login = lazy(() => import('./pages/Login'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const TermsOfUse = lazy(() => import('./pages/TermsOfUse'));
 
 const PageLoader = () => (
   <div className="fixed inset-0 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -212,6 +218,30 @@ export const AuthenticatedApp = () => {
         <PrivacyPolicy />
       </Suspense>
     );
+  }
+
+  if (publicPath === '/terms') {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <TermsOfUse />
+      </Suspense>
+    );
+  }
+
+  // Login / register / forgot / reset must render before the auth gate finishes.
+  // Returning-session hints still wait on the loader so a signed-in user does
+  // not flash the marketing/login shell before cookie verification completes.
+  if (publicPath === '/login') {
+    if (isLoadingAuth && hasAuthSessionHint()) {
+      return <PageLoader />;
+    }
+    if (isLoadingAuth || !isAuthenticated) {
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <Login />
+        </Suspense>
+      );
+    }
   }
 
   // An anonymous browser with no prior authenticated-session hint gets the

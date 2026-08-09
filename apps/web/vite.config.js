@@ -26,6 +26,7 @@ export default defineConfig({
         home: fileURLToPath(new URL('./index.html', import.meta.url)),
         pricing: fileURLToPath(new URL('./pricing.html', import.meta.url)),
         privacy: fileURLToPath(new URL('./privacy.html', import.meta.url)),
+        terms: fileURLToPath(new URL('./terms.html', import.meta.url)),
       },
       output: {
         // Only the libraries the app shell actually uses on first paint are

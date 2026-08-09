@@ -173,22 +173,28 @@ router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
+    const normalizedEmail = String(email).trim().toLowerCase();
+    // Practical mailbox shape check — not full RFC coverage. Rejects empty local/domain
+    // and missing TLD so accidental typos do not create undeliverable accounts.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 254) {
+      return res.status(400).json({ message: 'Enter a valid email address' });
+    }
     if (password.length < 8) {
       return res.status(400).json({ message: 'Password must be at least 8 characters' });
     }
 
-    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
       return res.status(409).json({ message: 'An account with this email already exists' });
     }
 
     const hashed = await bcrypt.hash(password, 12);
-    const displayName = name || email.split('@')[0];
-    const admin = isAdminEmail(email);
+    const displayName = name || normalizedEmail.split('@')[0];
+    const admin = isAdminEmail(normalizedEmail);
 
     let user = await prisma.user.create({
       data: {
-        email: email.toLowerCase(),
+        email: normalizedEmail,
         password: hashed,
         name: displayName,
         full_name: displayName,
