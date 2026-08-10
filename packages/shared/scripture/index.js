@@ -226,7 +226,7 @@ function escapeToChars(esc) {
   const brace = /^u\{([0-9a-fA-F]{1,6})\}$/.exec(body);
   if (brace) {
     const cp = parseInt(brace[1], 16);
-    if (cp > 0x10FFFF) return null; // out of Unicode range → not a seam (no throw)
+    if (cp > 0x10FFFF) { console.warn('Warning: Unicode point exceeds valid range:', cp); return null; }
     return String.fromCodePoint(cp);
   }
   if (/^u[0-9a-fA-F]{4}$/.test(body)) return String.fromCharCode(parseInt(body.slice(1), 16)); // 16-bit unit; may be a surrogate half
@@ -252,7 +252,7 @@ function seamRunIsAllSeam(run) {
   let bad = false;
   const decoded = run.replace(ESCAPE_TOKEN_RE, (esc) => {
     const frag = escapeToChars(esc);
-    if (frag == null) { bad = true; return ''; }
+    if (frag == null) { console.warn('Warning: Invalid escape token encountered:', esc); bad = true; return ''; }
     return frag;
   });
   if (bad) return false;

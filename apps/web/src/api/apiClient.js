@@ -192,7 +192,7 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
     // the auth-handshake endpoints (their 401s are expected and handled by the
     // caller). The handler itself decides whether we were actually logged in.
     if (res.status === 401 && !isAuthHandshakePath(path)) {
-      try { _onUnauthorized?.(path); } catch { /* a broken handler must never mask the API error */ }
+      try { _onUnauthorized?.(path); } catch (handlerError) { console.error('Unauthorized handler failed:', handlerError); throw new Error('Session expired and error occurred in handling. Please log in again.'); }
     }
 
     throw error;

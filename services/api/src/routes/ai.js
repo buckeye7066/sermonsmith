@@ -91,7 +91,7 @@ const STREAM_TRAILER_NONCE_HEADER = 'X-Stream-Trailer-Nonce';
 let _openai = null;
 async function getOpenAI() {
   if (!process.env.OPENAI_API_KEY) {
-    throw Object.assign(new Error('OpenAI API key not configured'), { status: 503 });
+    return Promise.reject(Object.assign(new Error('OpenAI API key not configured'), { status: 503 }));
   }
   if (process.env.DISABLE_AI === '1') {
     throw Object.assign(new Error('AI features are disabled in this deployment'), { status: 503 });
@@ -266,7 +266,7 @@ export function estimateTokenCount(...parts) {
     .map((p) => (typeof p === 'string' ? p : JSON.stringify(p)))
     .join('\n')
     .length;
-  return Math.max(1, Math.ceil(chars / 4));
+  return chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -754,6 +754,19 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
       // the intermittent "AI returned invalid JSON" failures without burning an
       // extra quota unit (daily usage was already counted above).
       if (!parsed.ok && finishReason !== 'length') {
+        if (parsed.errorMessage) {
+          await auditAiCall({
+            ...auditBase,
+            response: content,
+            status: 'schema_validation_failure',
+            failureType: 'invalid_json',
+            tokenEstimate: estimateTokenCount(auditBase.prompt, content),
+          });
+          return res.status(422).json({
+            message: parsed.errorMessage,
+            responsePreview: content.slice(0, 500),
+          });
+        }
         try {
           const repairMessages = [
             ...messages,
@@ -1164,7 +1177,7 @@ router.post('/image', authenticateToken, async (req, res, next) => {
     const openai = await getOpenAI();
     const { src, model } = await generateImage(openai, { prompt, size });
     if (!src) {
-      throw Object.assign(new Error('Image provider returned no image data'), { status: 502 });
+      throw Object.assign(new Error('Image provider returned no image data'), { status: 502, userMessage: 'Image generation failed. Please try again later or contact support.' });
     }
 
     await auditAiCall({

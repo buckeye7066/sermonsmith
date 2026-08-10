@@ -18,6 +18,12 @@ import { usePremiumAccess } from "@/components/hooks/usePremiumAccess";
 import InteractiveMap from "../components/maps/InteractiveMap";
 import TimelineViewer from "../components/maps/TimelineViewer";
 
+// Generates a unique ID
+const generateUniqueId = (() => {
+  let id = 0;
+  return () => id++;
+})();
+
 const biblicalJourneys = [
   {
     id: 1,
@@ -70,7 +76,7 @@ const biblicalJourneys = [
 
 const biblicalTimelines = [
   {
-    id: 1,
+    id: generateUniqueId(),
     title: "Old Testament Overview",
     description: "Key events from Creation to the return from exile",
     events: [
@@ -89,7 +95,7 @@ const biblicalTimelines = [
     ]
   },
   {
-    id: 2,
+    id: generateUniqueId(),
     title: "Life of Jesus Christ",
     description: "Major events from birth to ascension",
     events: [
@@ -108,7 +114,7 @@ const biblicalTimelines = [
     ]
   },
   {
-    id: 3,
+    id: generateUniqueId(),
     title: "Early Church & Apostolic Age",
     description: "From Pentecost through the spread of Christianity",
     events: [

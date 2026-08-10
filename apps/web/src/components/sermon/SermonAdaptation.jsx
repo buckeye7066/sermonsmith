@@ -93,6 +93,7 @@ export default function SermonAdaptation({ open, onClose, sermon, onAdaptedSermo
     
     try {
       const lengthInfo = SERMON_LENGTHS.find(l => l.value === targetLength);
+      if (!lengthInfo) { toast.error('Unknown length selection'); return; }
       
       const prompt = `Larry, I need your help adapting this sermon for a different time constraint!
 
@@ -186,6 +187,7 @@ Return the adapted sermon in the same JSON format with title, big_idea, points a
     
     try {
       const depthInfo = THEOLOGICAL_DEPTHS.find(d => d.value === targetDepth);
+      if (!depthInfo) { toast.error('Unknown depth selection'); return; }
       
       const prompt = `Larry, adapt this sermon for a different theological depth level!
 
@@ -282,6 +284,7 @@ Return the adapted sermon in the same JSON format.`;
     
     try {
       const languageInfo = LANGUAGES.find(l => l.code === targetLanguage);
+      if (!languageInfo) { toast.error('Unknown language selection'); return; }
       
       const prompt = `Larry, I need you to translate this entire sermon into ${languageInfo.name}!
 
@@ -291,12 +294,12 @@ Topic: ${sermon.topic}
 Big Idea: ${sermon.big_idea}
 
 Points:
-${sermon.points?.map((p, i) => `
+${sermon.points ? sermon.points.map((p, i) => `
 Point ${i+1}: ${p.title}
 Exegesis: ${p.exegesis?.substring(0, 200)}...
 Illustration: ${p.illustration?.substring(0, 200)}...
 Application: ${p.application?.substring(0, 200)}...
-`).join('\n')}
+`).join('\n') : ''}
 
 Conclusion: ${sermon.conclusion?.substring(0, 300)}
 
@@ -361,6 +364,7 @@ Return the full translated sermon in the same JSON format.`;
     
     try {
       const summaryInfo = SUMMARY_TYPES.find(s => s.value === summaryType);
+      if (!summaryInfo) { toast.error('Unknown summary type'); return; }
       
       const prompt = `Larry, create a ${summaryInfo.label} for this sermon!
 
@@ -368,7 +372,7 @@ Sermon:
 Title: ${sermon.title}
 Topic: ${sermon.topic}
 Big Idea: ${sermon.big_idea}
-Key Points: ${sermon.points?.map(p => p.title).join(', ')}
+Key Points: ${sermon.points?.map(p => p.title).join(', ') ?? ''}
 
 ${summaryType === 'social' ? `
 Create a SOCIAL MEDIA POST (200-280 characters):

@@ -128,6 +128,7 @@ export default function BibleStudy() {
         response = coerceToSchema(JSON.parse(fullText), studyGenerationSchema);
       } catch (streamErr) {
         console.warn('[BibleStudy] streaming unavailable or incomplete, falling back to invoke:', streamErr?.message);
+        toast.error("Error parsing streaming response. Re-attempting study generation using non-streaming method.");
         response = await api.integrations.Core.InvokeLLM({
           system_prompt: LARRY_SYSTEM_PROMPT,
           prompt,
@@ -376,7 +377,7 @@ Return as JSON array of strings.`;
       toast.success("Bible study saved successfully!");
     } catch (error) {
       console.error("Save error:", error);
-      toast.error("Failed to save study");
+      toast.error("Failed to save study. Please retry or check your inputs.");
     }
   };
 
