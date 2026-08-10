@@ -72,6 +72,8 @@ const RUBRIC = {
 if (!process.env.OPENAI_API_KEY) {
   console.error('OPENAI_API_KEY is not set — live benchmark cannot run. (Report this acceptance gate as BLOCKED, not passed.)');
   process.exit(2);
+} else if (process.env.NODE_ENV !== 'production') {
+  console.warn('WARNING: API key is set in a non-production environment. Ensure this key is not exposed.');
 }
 
 const { default: OpenAI } = await import('openai');

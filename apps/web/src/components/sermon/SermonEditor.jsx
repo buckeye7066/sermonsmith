@@ -142,7 +142,7 @@ export default function SermonEditor({
 
             <Button
               variant="outline"
-              onClick={() => handleExegesis()}
+              onClick={() => handleExegesis(currentSermon.anchor_passage)}
               className="justify-start h-auto py-4 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30"
             >
               <Search className="w-5 h-5 mr-3 text-blue-600" />
@@ -366,7 +366,7 @@ export default function SermonEditor({
                               key={sIndex}
                               variant="outline"
                               className="text-sm cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/30"
-                              onClick={() => handleExegesis(scripture)}
+                              onClick={() => scripture && handleExegesis(scripture)}
                               title="Click for deep exegesis"
                             >
                               {scripture}

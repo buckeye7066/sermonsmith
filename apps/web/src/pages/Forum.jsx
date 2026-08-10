@@ -48,6 +48,7 @@ export default function Forum() {
     } catch (error) {
       console.error('Error loading posts:', error);
       toast.error("Couldn't load forum posts. Please try again.");
+      setPosts([]);
     } finally {
       // Without this the initial spinner never clears — the forum looked
       // like an infinite load even after posts arrived.
@@ -62,6 +63,7 @@ export default function Forum() {
       setReplies(postReplies);
     } catch (error) {
       console.error('Error loading replies:', error);
+      toast.error("Couldn't load replies. Please try again.");
     }
   };
 
@@ -85,7 +87,7 @@ export default function Forum() {
     } catch (error) {
       // Surface the server's actual reason (e.g. a validation message) instead
       // of an opaque "Failed to create post" that hides the real HTTP error.
-      toast.error(error?.data?.message || error?.message || "Failed to create post");
+      toast.error("Failed to create post. Please try again later.");
     }
   };
 
@@ -109,7 +111,7 @@ export default function Forum() {
       loadReplies(selectedPost.id);
       loadPosts();
     } catch (error) {
-      toast.error(error?.data?.message || error?.message || "Failed to post reply");
+      toast.error("Failed to post reply. Please try again later.");
     }
   };
 

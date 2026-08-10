@@ -42,6 +42,7 @@ export default function ExegesisHelper({ open, onClose, initialPassage = "", den
   const performExegesis = async () => {
     if (!passage.trim()) {
       toast.error("Please enter a scripture passage");
+      toast.info("Exegesis attempt was not executed due to empty passage.");
       return;
     }
 
@@ -192,7 +193,7 @@ Be scholarly but accessible. Include specific examples.`;
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={(newOpen) => { if (!newOpen) onClose(); }}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
