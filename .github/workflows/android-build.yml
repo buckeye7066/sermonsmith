@@ -36,6 +36,7 @@ jobs:
         run: |
           npm run lint
           npm run typecheck
+          npm run db:generate
           npm test
           npm run audit
       - name: Build web application
@@ -95,10 +96,19 @@ jobs:
         run: |
           set -euo pipefail
           TAG="android-v${ANDROID_VERSION_NAME}"
-          gh release create "$TAG" \
-            "SermonSmith-${ANDROID_VERSION_NAME}.apk" \
-            "SermonSmith-${ANDROID_VERSION_NAME}.aab" \
-            sermonsmith-android.sha256 \
-            --target "$GITHUB_SHA" \
-            --title "SermonSmith Android ${ANDROID_VERSION_NAME}" \
-            --notes "Automated signed Android release from main at ${GITHUB_SHA}. Package com.sermonsmith.app. Intended for repo-direct phone updates; Android requires the same signing certificate as the installed copy."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading assets with --clobber"
+            gh release upload "$TAG" \
+              "SermonSmith-${ANDROID_VERSION_NAME}.apk" \
+              "SermonSmith-${ANDROID_VERSION_NAME}.aab" \
+              sermonsmith-android.sha256 \
+              --clobber
+          else
+            gh release create "$TAG" \
+              "SermonSmith-${ANDROID_VERSION_NAME}.apk" \
+              "SermonSmith-${ANDROID_VERSION_NAME}.aab" \
+              sermonsmith-android.sha256 \
+              --target "$GITHUB_SHA" \
+              --title "SermonSmith Android ${ANDROID_VERSION_NAME}" \
+              --notes "Automated signed Android release from main at ${GITHUB_SHA}. Package com.sermonsmith.app. Intended for repo-direct phone updates; Android requires the same signing certificate as the installed copy."
+          fi
