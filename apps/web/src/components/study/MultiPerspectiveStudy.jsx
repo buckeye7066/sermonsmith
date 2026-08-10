@@ -182,7 +182,11 @@ Be fair, accurate, and respectful to every tradition. Present each view charitab
         response_json_schema: perspectiveSchema
       });
 
-      setResult(response);
+      if (response && response.passage_context && response.perspectives) {
+        setResult(response);
+      } else {
+        throw new Error("Invalid response structure");
+      }
       toast.success("Larry completed the multi-perspective analysis!");
     } catch (error) {
       console.error("Error generating perspectives:", error);
@@ -304,7 +308,7 @@ Be fair, accurate, and respectful to every tradition. Present each view charitab
 
             <Button
               onClick={generateMultiPerspective}
-              disabled={isGenerating || (!passage.trim() && !topic.trim()) || selectedPerspectives.length < 2}
+              disabled={isGenerating || (!passage.trim() && !topic.trim()) || selectedPerspectives.length < 2 || result}
               className="w-full"
               size="lg"
             >

@@ -78,6 +78,24 @@ const prayerSchema = {
 
 export default function PrayerGenerator() {
   const { user } = useAuth();
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
+        <div className="max-w-4xl mx-auto">
+          <Card>
+            <CardContent className="pt-6 text-center py-12">
+              <Heart className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+              <h2 className="text-2xl font-bold mb-2">Sign In Required</h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-6">
+                Access the Prayer Generator to create biblically sound prayers
+              </p>
+              <Button onClick={() => api.auth.redirectToLogin()}>Sign In</Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
   const [prayerTheme, setPrayerTheme] = useState('');
   const [prayerType, setPrayerType] = useState('personal');
   const [occasion, setOccasion] = useState('General');

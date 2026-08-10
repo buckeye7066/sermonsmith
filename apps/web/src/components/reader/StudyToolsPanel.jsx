@@ -81,7 +81,8 @@ Mix question types: observation, interpretation, application, and reflection.`;
         }
       });
 
-      setStudyContent(prev => ({ ...prev, questions: response.questions || [] }));
+      const questions = Array.isArray(response.questions) ? response.questions : [];
+      setStudyContent(prev => ({ ...prev, questions }));
       toast.success("Study questions generated!");
     } catch (error) {
       console.error("Error generating questions:", error);
@@ -134,7 +135,21 @@ Make it detailed but accessible, about 400-500 words total.`;
         }
       });
 
-      setStudyContent(prev => ({ ...prev, outline: response }));
+      if (response && typeof response === 'object') {
+        const { historical_context, literary_context, key_terms, theological_themes, cross_references, life_application, discussion_points } = response;
+        setStudyContent(prev => ({
+          ...prev,
+          outline: {
+            historical_context: historical_context || '',
+            literary_context: literary_context || '',
+            key_terms: Array.isArray(key_terms) ? key_terms : [],
+            theological_themes: Array.isArray(theological_themes) ? theological_themes : [],
+            cross_references: Array.isArray(cross_references) ? cross_references : [],
+            life_application: life_application || '',
+            discussion_points: Array.isArray(discussion_points) ? discussion_points : []
+          }
+        }));
+      }
       toast.success("Study outline created!");
     } catch (error) {
       console.error("Error generating outline:", error);
@@ -185,7 +200,20 @@ Be scholarly yet accessible. About 400 words.`;
         }
       });
 
-      setStudyContent(prev => ({ ...prev, connections: response }));
+      if (response && typeof response === 'object') {
+        const { gospel_connection, old_testament_echoes, new_testament_parallels, theological_traditions, systematic_theology, practical_discipleship } = response;
+        setStudyContent(prev => ({
+          ...prev,
+          connections: {
+            gospel_connection: gospel_connection || '',
+            old_testament_echoes: Array.isArray(old_testament_echoes) ? old_testament_echoes : [],
+            new_testament_parallels: Array.isArray(new_testament_parallels) ? new_testament_parallels : [],
+            theological_traditions: theological_traditions || '',
+            systematic_theology: Array.isArray(systematic_theology) ? systematic_theology : [],
+            practical_discipleship: practical_discipleship || ''
+          }
+        }));
+      }
       toast.success("Theological connections revealed!");
     } catch (error) {
       console.error("Error generating connections:", error);
@@ -232,7 +260,20 @@ Make it personal, practical, and profound. About 350 words.`;
         }
       });
 
-      setStudyContent(prev => ({ ...prev, insights: response }));
+      if (response && typeof response === 'object') {
+        const { original_meaning, what_we_miss, core_truth, misinterpretations, devotional, memorization_tip } = response;
+        setStudyContent(prev => ({
+          ...prev,
+          insights: {
+            original_meaning: original_meaning || '',
+            what_we_miss: what_we_miss || '',
+            core_truth: core_truth || '',
+            misinterpretations: misinterpretations || '',
+            devotional: devotional || '',
+            memorization_tip: memorization_tip || ''
+          }
+        }));
+      }
       toast.success("Insights generated!");
     } catch (error) {
       console.error("Error generating insights:", error);
@@ -248,6 +289,10 @@ Make it personal, practical, and profound. About 350 words.`;
       return;
     }
 
+    if (!user || !user.id) {
+      toast.error("User is not logged in or ID is missing");
+      return;
+    }
     setIsSavingNote(true);
     try {
       const tags = noteTags.split(',').map(t => t.trim()).filter(Boolean);

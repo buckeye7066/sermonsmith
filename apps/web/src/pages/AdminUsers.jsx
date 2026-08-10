@@ -207,6 +207,11 @@ export default function AdminUsers() {
       const activities = await api.entities.UserActivity.filter({ 
         user_id: userId 
       }, '-created_date', 100);
+      activities.forEach(activity => {
+        if (!activity.created_date || Number.isNaN(new Date(activity.created_date).getTime())) {
+          activity.created_date = '—';
+        }
+      });
       
       setSelectedUserActivities({ email: userEmail, activities });
     } catch (error) {
@@ -260,7 +265,7 @@ export default function AdminUsers() {
                   </h3>
                   <p className="text-sm text-amber-800 dark:text-amber-200">
                     {globalFree.active
-                      ? `Active — every user has free premium until ${globalFree.expires_at ? new Date(globalFree.expires_at).toLocaleDateString() : '—'}.`
+                      ? `Active — every user has free premium until ${globalFree.expires_at ? (isNaN(new Date(globalFree.expires_at).getTime()) ? '—' : new Date(globalFree.expires_at).toLocaleDateString()) : '—'}.`
                       : 'Off — grant free premium to your entire user base with one switch.'}
                   </p>
                 </div>

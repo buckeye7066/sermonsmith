@@ -110,6 +110,7 @@ export default function Settings() {
       }
     } catch (error) {
       toast.error(logError('Could not open billing portal', error));
+    } finally {
       setIsOpeningPortal(false);
     }
   };
@@ -127,6 +128,7 @@ export default function Settings() {
       window.location.assign('/');
     } catch (error) {
       toast.error(logError('Could not delete account', error));
+    } finally {
       setIsDeletingAccount(false);
     }
   };

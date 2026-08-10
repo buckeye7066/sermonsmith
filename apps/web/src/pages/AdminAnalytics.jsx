@@ -44,6 +44,9 @@ export default function AdminAnalytics() {
   const loadAnalytics = async () => {
     try {
       const allActivities = await api.entities.UserActivity.list('-created_date', 5000);
+      if (!Array.isArray(allActivities)) {
+        throw new Error("Unexpected API response structure");
+      }
       setActivities(allActivities);
 
       // Calculate stats

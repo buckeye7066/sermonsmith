@@ -138,7 +138,7 @@ export default function StudyPlanGenerator({ open, onClose, user }) {
 Focus: ${ageGroupInfo.description}
 ${formatUserInputBlock('Topic', topic)}
 ${formatUserInputBlock('Custom Notes', customNotes, 'Standard approach')}
-Denomination: ${user?.denomination || 'Non-Denominational'}
+Denomination: ${user?.denomination ?? 'Non-Denominational'}
 
 For EACH DAY include: a progressive day TITLE; 1-3 SCRIPTURE READINGS (age-appropriate length); one KEY VERSE; a DEVOTIONAL CONTEXT (what's happening, why it matters, connection to the study topic); ACTIVITIES (${activitiesGuide(ageGroup)}); 2-3 DISCUSSION QUESTIONS; and PRAYER POINTS. Keep it engaging and age-appropriate.`;
 
@@ -198,8 +198,8 @@ For EACH DAY include: a progressive day TITLE; 1-3 SCRIPTURE READINGS (age-appro
         toast.success(`Created ${duration}-day study plan! 📚`);
       }
     } catch (error) {
-      console.error('Error generating plan:', error);
-      if (allLessons.length === 0) toast.error('Failed to generate study plan');
+      console.error('Error generating plan:', error.message || error);
+      toast.error(allLessons.length === 0 ? 'Failed to generate study plan' : 'Partial generation failure. Please refer to console for details.');
     } finally {
       setIsGenerating(false);
     }

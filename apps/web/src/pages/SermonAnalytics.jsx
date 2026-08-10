@@ -33,6 +33,9 @@ export default function SermonAnalytics() {
   }, [isLoadingAuth, user, timeRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAnalyticsData = async () => {
+    if (!user) {
+      return;
+    }
     setIsLoading(true);
     try {
       const [userSermons, publicSermons, allRatings, userSeries] = await Promise.all([
