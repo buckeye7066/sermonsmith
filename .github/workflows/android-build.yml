@@ -51,6 +51,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test -n "$ANDROID_KEYSTORE_BASE64" || { echo 'ANDROID_KEYSTORE_BASE64 is missing'; exit 1; }
@@ -66,6 +67,16 @@ jobs:
             | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}' \
             > "$RUNNER_TEMP/keystore-cert.sha256"
           test -s "$RUNNER_TEMP/keystore-cert.sha256"
+
+          BASELINE_TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[] | select(.tagName | startswith("android-v")) | .tagName' | head -n 1 || true)
+          if [ -n "$BASELINE_TAG" ]; then
+            mkdir -p "$RUNNER_TEMP/signing-baseline"
+            gh release download "$BASELINE_TAG" --repo "$GITHUB_REPOSITORY" --pattern sermonsmith-signing-cert.sha256 --dir "$RUNNER_TEMP/signing-baseline"
+            test -s "$RUNNER_TEMP/signing-baseline/sermonsmith-signing-cert.sha256" || { echo "Existing Android release lacks signing fingerprint"; exit 1; }
+            cmp "$RUNNER_TEMP/signing-baseline/sermonsmith-signing-cert.sha256" "$RUNNER_TEMP/keystore-cert.sha256" || { echo 'Configured keystore certificate differs from prior Android releases'; exit 1; }
+          else
+            echo 'No prior signed Android release: this main build will establish the signing fingerprint bootstrap.'
+          fi
       - name: Build signed release APK and AAB
         run: ./gradlew assembleRelease bundleRelease --no-daemon
         working-directory: apps/mobile/android
