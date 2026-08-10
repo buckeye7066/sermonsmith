@@ -250,7 +250,13 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
       };
 
       utteranceRef.current = utterance;
-      window.speechSynthesis.speak(utterance);
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch (error) {
+        console.error('Speech synthesis failed:', error);
+        setIsPlaying(false);
+        toast.error("Audio playback failed");
+      }
     } else {
       toast.error("Audio playback not supported in this browser");
       setIsPlaying(false);
@@ -481,7 +487,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
           <div className="space-y-6 py-4">
             <Alert>
               <Info className="w-4 h-4" />
-              <AlertTitle>Your System: {userOS}</AlertTitle>
+              <AlertTitle>Your System: Anonymous</AlertTitle>
               <AlertDescription>
                 {getInstallInstructions(userOS, LANGUAGE_MAP[translationLanguage])}
               </AlertDescription>

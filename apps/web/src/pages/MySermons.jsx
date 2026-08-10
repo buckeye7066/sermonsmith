@@ -73,7 +73,7 @@ export default function MySermons() {
 
   const loadSermons = async () => {
     try {
-      const userSermons = await api.entities.Sermon.filter({ user_id: user.id }, '-created_date');
+      const userSermons = user ? await api.entities.Sermon.filter({ user_id: user.id }, '-created_date') : [];
       setSermons(userSermons);
       setFilteredSermons(userSermons);
       

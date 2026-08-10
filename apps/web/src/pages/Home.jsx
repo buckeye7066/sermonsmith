@@ -66,7 +66,7 @@ export default function Home() {
   const hasLoggedHomeViewRef = useRef(false);
 
   useEffect(() => {
-    if (loading || !user || hasLoggedHomeViewRef.current) return;
+    if (loading || !user || hasLoggedHomeViewRef.current || !user.isAuthenticated) return;
     hasLoggedHomeViewRef.current = true;
     logActivity('page_view', { page_name: 'Home' });
   }, [loading, user]);
@@ -74,11 +74,17 @@ export default function Home() {
   // Onboarding nudge fires once the AuthContext has resolved a user and
   // we haven't already triggered it for this mount.
   useEffect(() => {
+    let isMounted = true;
     if (loading || !user || hasCheckedOnboarding) return;
     setHasCheckedOnboarding(true);
     if (!user.onboarding_completed) {
-      const t = setTimeout(() => setShowOnboarding(true), 2000);
-      return () => clearTimeout(t);
+      const t = setTimeout(() => {
+        if (isMounted) setShowOnboarding(true);
+      }, 2000);
+      return () => {
+        clearTimeout(t);
+        isMounted = false;
+      };
     }
   }, [loading, user, hasCheckedOnboarding]);
 
@@ -340,7 +346,7 @@ export default function Home() {
             <CardContent className="pt-6">
               <div className="text-center">
                 <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">
-                  Welcome back, {user.full_name || 'friend'}! 👋
+                  Welcome back, {user?.full_name || 'friend'}! 👋
                 </h2>
                 {user.denomination && (
                   <p className="text-gray-600 dark:text-gray-400 mb-2">

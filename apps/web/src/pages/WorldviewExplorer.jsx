@@ -127,7 +127,8 @@ const BELIEF_SYSTEMS = [
 // list — warn in dev if someone adds/removes a belief system without updating
 // src/lib/appStats.js.
 if (import.meta.env?.DEV && BELIEF_SYSTEMS.length !== WORLDVIEW_COUNT) {
-  console.warn(`[appStats] WORLDVIEW_COUNT (${WORLDVIEW_COUNT}) != BELIEF_SYSTEMS.length (${BELIEF_SYSTEMS.length}); update src/lib/appStats.js`);
+  console.error(`[appStats] WORLDVIEW_COUNT (${WORLDVIEW_COUNT}) does not match BELIEF_SYSTEMS.length (${BELIEF_SYSTEMS.length}). Please update src/lib/appStats.js to reflect the current number of belief systems.`);
+  throw new Error('WORLDVIEW_COUNT mismatch');
 }
 
 const analysisSchema = {
@@ -404,12 +405,12 @@ Be respectful, accurate, pastoral.`;
       setAnalysis(response);
       toast.success(`Analysis complete!`);
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error details:', error);
       // Record the failure in state so the UI can show a real error panel.
       // Previously the catch only fired a toast and left both `analysis` and
       // `isAnalyzing` empty/false — so the page rendered nothing and looked
       // like the click was simply ignored.
-      setAnalysisError(error?.data?.message || error?.message || 'Something went wrong while generating this analysis. Please try again.');
+      setAnalysisError(error?.data?.message || error?.message || 'Something went wrong while generating this analysis. Please try again. If the issue persists, please report it with the error details in the console.');
       toast.error("Failed to generate analysis");
     } finally {
       setIsAnalyzing(false);

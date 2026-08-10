@@ -21,7 +21,7 @@ import {
   BookOpen,
   Sparkles,
   TrendingUp,
-  CheckCircle2,
+
   ChevronRight,
   FileText,
   MessageSquare,
@@ -99,7 +99,7 @@ export default function SeriesBuilder({ open, onClose, user }) {
   const [copied, setCopied] = useState(false);
 
   const generateSermonOutline = async () => {
-    if (!outlineTopic.trim() && !outlinePassage.trim() && !outlineTheme.trim()) {
+    if (!(outlineTopic.trim() || outlinePassage.trim() || outlineTheme.trim())) {
       toast.error("Please provide at least a topic, passage, or theme");
       return;
     }
@@ -107,7 +107,7 @@ export default function SeriesBuilder({ open, onClose, user }) {
     setIsGenerating(true);
 
     try {
-      const contextInfo = TEACHING_CONTEXTS.find(c => c.value === outlineContext);
+      const contextInfo = TEACHING_CONTEXTS.find(c => c.value === outlineContext) || {};
       const prompt = `Hi, I'm Arlynn - your AI sermon outline specialist! I create comprehensive, preaching-ready sermon outlines.
 
 Request:
@@ -231,6 +231,9 @@ Make this biblically accurate, aligned with the stated denominational/theologica
         }
       });
 
+      if (!response || !response.title || !response.big_idea || !response.main_points || !response.conclusion) {
+        throw new Error('Invalid response structure from API');
+      }
       const outline = normalizeOutline(response);
       setGeneratedOutline(outline);
       toast.success("Arlynn created your sermon outline! 📋");
@@ -251,7 +254,7 @@ Make this biblically accurate, aligned with the stated denominational/theologica
         seriesType === 'theme' ? 'Series theme' : 'Bible book',
         seriesSource
       );
-      const contextInfo = TEACHING_CONTEXTS.find(c => c.value === seriesContext);
+      const contextInfo = TEACHING_CONTEXTS.find(c => c.value === seriesContext) || {};
 
       const prompt = `Hi, I'm Arlynn - your AI Series Specialist! I create comprehensive, multi-week sermon series that build on each other.
 
@@ -360,6 +363,9 @@ Make this comprehensive but practical. Ensure each sermon clearly connects to th
         }
       });
 
+      if (!response || !response.series_title || !response.series_description || !response.series_goal || !response.theological_trajectory || !response.sermons) {
+        throw new Error('Invalid response structure from API');
+      }
       const outline = normalizeSeriesOutline(response, seriesLength);
       setSeriesOutline(outline);
       setStep(2);
@@ -487,6 +493,12 @@ Include:
     }
     if (!generatedOutline) {
       toast.error("No outline generated to save.");
+      return;
+    }
+
+    const { title, big_idea, main_points, conclusion } = generatedOutline;
+    if (!title || !big_idea || !conclusion || !main_points) {
+      toast.error("Generated outline incomplete.");
       return;
     }
 

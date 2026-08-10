@@ -164,6 +164,17 @@ Return as JSON array of objects with "reference" and "reason" fields.`;
       return;
     }
 
+    const validation = validateAiSermon({
+      anchor_passage: passage,
+      points: [{ supporting_scriptures: [passage] }]
+    }, {
+      canon: canonForDenomination(denomination),
+    });
+    if (!validation.allValid) {
+      toast.error('Invalid scripture reference present. Please provide valid scriptures before generating the sermon.');
+      return;
+    }
+
     setIsGenerating(true);
     setStreamingSermon(null);
     setGeneratedSermon(null);
@@ -180,6 +191,12 @@ Return as JSON array of objects with "reference" and "reason" fields.`;
       });
 
       const fallbackCtx = { topic, anchor_passage: passage, tone, audience, denomination };
+
+      if (!validation.allValid) {
+        toast.error('Invalid scripture reference present in points. Please provide valid scriptures before generating the sermon.');
+        setIsGenerating(false);
+        return;
+      }
 
       // Stream the sermon so the user watches it appear instead of waiting on a
       // blank spinner. Falls back to the non-streaming call if streaming isn't
