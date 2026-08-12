@@ -19,7 +19,6 @@
     "build:web": "npm run build -w @sermonsmith/web",
     "check:api": "npm run lint -w @sermonsmith/api && npm run typecheck -w @sermonsmith/api && npm test -w @sermonsmith/api",
     "build": "npm run build:web && npm run check:api",
-    "build:mobile-bundle": "npm run build:web",
     "lint": "npm run lint -w @sermonsmith/web && npm run lint -w @sermonsmith/api",
     "lint:web": "npm run lint -w @sermonsmith/web",
     "lint:api": "npm run lint -w @sermonsmith/api",
@@ -70,7 +69,6 @@
     "js-yaml": "4.3.1"
   },
   "devDependencies": {
-    "adm-zip": "^0.6.0",
     "fast-uri": "3.1.5",
     "js-yaml": "4.3.1",
     "react": "^19.2.8",
