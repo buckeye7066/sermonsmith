@@ -18,6 +18,7 @@ import { isNativeApp } from "@/lib/platform";
 import PreferencesManager from "@/components/profile/PreferencesManager";
 import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import ProfileEditor from "@/components/profile/ProfileEditor";
+import MobileUpdateCard from "@/components/settings/MobileUpdateCard";
 
 export default function Settings() {
   const { user, isLoadingAuth, authError, checkAppState } = useAuth();
@@ -448,6 +449,11 @@ export default function Settings() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Native app only: manual OTA content updates (renders nothing on web). */}
+        <div className="mt-6">
+          <MobileUpdateCard />
+        </div>
 
         <OnboardingWizard
           open={showOnboarding}

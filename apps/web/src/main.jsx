@@ -9,6 +9,15 @@ import { isNativeApp } from '@/lib/platform'
 // (server enforces the non-admin-only rule).
 registerGlobalErrorReporting()
 
+// Native app only: confirm the active OTA bundle booted successfully so
+// @capgo/capacitor-updater does not roll it back (manual-update mode; see
+// src/lib/mobileUpdater.js and the Settings "App Updates" card).
+if (isNativeApp()) {
+  import('@capgo/capacitor-updater')
+    .then(({ CapacitorUpdater }) => CapacitorUpdater.notifyAppReady())
+    .catch(() => {}); // plugin unavailable (older APK) — nothing to confirm
+}
+
 // Register service worker for offline support — WEB ONLY. In the Capacitor
 // app the assets are already local, so a SW adds nothing and its cached
 // index.html kept serving OLD hashed bundles after app updates (verified on
