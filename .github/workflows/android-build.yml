@@ -41,6 +41,7 @@ jobs:
         run: npm run build -w @sermonsmith/web
         env:
           VITE_API_URL: https://sermonsmith-api-production.up.railway.app
+          VITE_NATIVE_VERSION: ${{ env.ANDROID_VERSION_NAME }}
       - name: Sync Capacitor
         run: npx cap sync android
         working-directory: apps/mobile
@@ -93,18 +94,274 @@ jobs:
           set -euo pipefail
           APK='apps/mobile/android/app/build/outputs/apk/release/app-release.apk'
           AAB='apps/mobile/android/app/build/outputs/bundle/release/app-release.aab'
-          test -f "$APK"
-          test -f "$AAB"
+          test -s "$APK" || { echo 'Signed release APK is missing or empty'; exit 1; }
+          test -s "$AAB" || { echo 'Signed release AAB is missing or empty'; exit 1; }
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)
-          test -n "$APKSIGNER"
-          "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/apk-certs.txt"
-          awk -F': ' '/Signer #1 certificate SHA-256 digest:/{gsub(":", "", $2); print tolower($2); exit}' "$RUNNER_TEMP/apk-certs.txt" > "$RUNNER_TEMP/apk-cert.sha256"
-          test -s "$RUNNER_TEMP/apk-cert.sha256"
-          cmp "$RUNNER_TEMP/keystore-cert.sha256" "$RUNNER_TEMP/apk-cert.sha256" || { echo 'Built APK signing certificate does not match configured persistent keystore'; exit 1; }
+          test -n "$APKSIGNER" || { echo 'Android apksigner was not found'; exit 1; }
+          # apksigner versions do not consistently use the same output stream
+          # for certificate details. Capture the complete verified diagnostic
+          # stream, then locate the field label instead of depending on a
+          # version-specific signer prefix.
+          if ! "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/apk-certs.txt" 2>&1; then
+            cat "$RUNNER_TEMP/apk-certs.txt" >&2
+            echo 'Built APK signature verification failed'
+            exit 1
+          fi
+
+          extract_apk_cert_sha256() {
+            awk '
+              {
+                line = $0
+                lower = tolower(line)
+                marker = "certificate sha-256 digest:"
+                position = index(lower, marker)
+                if (position > 0) {
+                  fingerprint = substr(line, position + length(marker))
+                  gsub(/[^0-9A-Fa-f]/, "", fingerprint)
+                  if (length(fingerprint) > 0) {
+                    print tolower(fingerprint)
+                  }
+                }
+              }
+            '
+          }
+
+          # Keep a parser regression fixture beside the release operation so a
+          # future apksigner wording/prefix change cannot silently break every
+          # main-branch Android release again.
+          PARSER_FIXTURE='Signer #1 certificate SHA-256 digest: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+          test "$(printf '%s\n' "$PARSER_FIXTURE" | extract_apk_cert_sha256)" = \
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+
+          EXPECTED_CERT_SHA256=$(tr '[:upper:]' '[:lower:]' < "$RUNNER_TEMP/keystore-cert.sha256" | tr -d ':[:space:]')
+          [[ "$EXPECTED_CERT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'Configured keystore fingerprint is malformed'; exit 1; }
+          extract_apk_cert_sha256 < "$RUNNER_TEMP/apk-certs.txt" | sort -u > "$RUNNER_TEMP/apk-cert.sha256"
+          test -s "$RUNNER_TEMP/apk-cert.sha256" || { echo 'Verified APK did not report a signer SHA-256 fingerprint'; exit 1; }
+          test "$(wc -l < "$RUNNER_TEMP/apk-cert.sha256")" -eq 1 || { echo 'Verified APK reported multiple signer SHA-256 fingerprints'; exit 1; }
+          APK_CERT_SHA256=$(< "$RUNNER_TEMP/apk-cert.sha256")
+          [[ "$APK_CERT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'Built APK signer fingerprint is malformed'; exit 1; }
+          test "$EXPECTED_CERT_SHA256" = "$APK_CERT_SHA256" || { echo 'Built APK signing certificate does not match configured persistent keystore'; exit 1; }
+
+          cat > "$RUNNER_TEMP/VerifySignedAab.java" <<'JAVA'
+          import java.io.OutputStream;
+          import java.nio.file.Path;
+          import java.security.MessageDigest;
+          import java.security.cert.Certificate;
+          import java.util.HexFormat;
+          import java.util.Locale;
+          import java.util.Set;
+          import java.util.TreeSet;
+          import java.util.jar.JarEntry;
+          import java.util.jar.JarFile;
+
+          final class VerifySignedAab {
+            public static void main(String[] args) throws Exception {
+              if (args.length != 2 || !args[1].matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("Expected AAB path and normalized SHA-256 fingerprint");
+              }
+              var expected = args[1];
+              var entryCount = 0;
+              try (var jar = new JarFile(Path.of(args[0]).toFile(), true)) {
+                var entries = jar.entries();
+                while (entries.hasMoreElements()) {
+                  JarEntry entry = entries.nextElement();
+                  if (entry.isDirectory() || isSignatureMetadata(entry.getName())) {
+                    continue;
+                  }
+                  entryCount += 1;
+                  try (var input = jar.getInputStream(entry)) {
+                    input.transferTo(OutputStream.nullOutputStream());
+                  }
+                  var signers = entry.getCodeSigners();
+                  if (signers == null || signers.length == 0) {
+                    throw new SecurityException("AAB contains an unsigned payload entry");
+                  }
+                  Set<String> leafFingerprints = new TreeSet<>();
+                  for (var signer : signers) {
+                    Certificate leaf = signer.getSignerCertPath().getCertificates().get(0);
+                    var digest = MessageDigest.getInstance("SHA-256").digest(leaf.getEncoded());
+                    leafFingerprints.add(HexFormat.of().formatHex(digest));
+                  }
+                  if (!leafFingerprints.equals(Set.of(expected))) {
+                    throw new SecurityException("AAB payload signer does not match the configured keystore");
+                  }
+                }
+              }
+              if (entryCount == 0) {
+                throw new SecurityException("AAB contains no signed payload entries");
+              }
+            }
+
+            private static boolean isSignatureMetadata(String name) {
+              var upper = name.toUpperCase(Locale.ROOT);
+              if (!upper.startsWith("META-INF/")) {
+                return false;
+              }
+              var leaf = upper.substring("META-INF/".length());
+              return leaf.equals("MANIFEST.MF")
+                || leaf.matches("[^/]+\\.(SF|RSA|DSA|EC)");
+            }
+          }
+          JAVA
+          java "$RUNNER_TEMP/VerifySignedAab.java" "$AAB" "$EXPECTED_CERT_SHA256"
+
+          AAPT=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)
+          test -n "$AAPT" || { echo 'Android aapt was not found'; exit 1; }
+          "$AAPT" dump badging "$APK" > "$RUNNER_TEMP/release-apk-badging.txt"
+          grep -F "package: name='com.sermonsmith.app' versionCode='${ANDROID_VERSION_CODE}' versionName='${ANDROID_VERSION_NAME}'" "$RUNNER_TEMP/release-apk-badging.txt"
+
+          BUNDLETOOL_VERSION='1.18.3'
+          BUNDLETOOL_SHA256='a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29'
+          BUNDLETOOL_JAR="$RUNNER_TEMP/bundletool-all-${BUNDLETOOL_VERSION}.jar"
+          curl --fail --show-error --location \
+            --proto '=https' --tlsv1.2 \
+            --retry 3 --retry-all-errors \
+            --connect-timeout 15 --max-time 180 \
+            --output "$BUNDLETOOL_JAR" \
+            "https://github.com/google/bundletool/releases/download/${BUNDLETOOL_VERSION}/bundletool-all-${BUNDLETOOL_VERSION}.jar"
+          printf '%s  %s\n' "$BUNDLETOOL_SHA256" "$BUNDLETOOL_JAR" | sha256sum --check --status
+          java -jar "$BUNDLETOOL_JAR" validate --bundle="$AAB"
+
+          # Assert the expected scalar as an exact output line. This is robust to
+          # launcher diagnostics before or after bundletool's XPath value and
+          # preserves complete stdout/stderr when a future toolchain changes.
+          assert_manifest_value() {
+            local xpath="$1"
+            local expected="$2"
+            local label="$3"
+            local stdout_file="$RUNNER_TEMP/bundletool-${label}.stdout"
+            local stderr_file="$RUNNER_TEMP/bundletool-${label}.stderr"
+
+            if ! java -jar "$BUNDLETOOL_JAR" dump manifest \
+              --bundle="$AAB" \
+              --xpath="$xpath" \
+              > "$stdout_file" 2> "$stderr_file"; then
+              cat "$stdout_file" >&2
+              cat "$stderr_file" >&2
+              echo "::error title=AAB manifest inspection failed::bundletool could not read ${label}"
+              return 1
+            fi
+
+            tr -d '\r' < "$stdout_file" > "$stdout_file.normalized"
+            local matches
+            matches=$(grep -Fxc -- "$expected" "$stdout_file.normalized" || true)
+            if [ "$matches" -ne 1 ]; then
+              echo "::error title=AAB manifest mismatch::${label} expected=${expected} exact_matches=${matches}"
+              echo 'bundletool stdout:' >&2
+              cat "$stdout_file.normalized" >&2
+              echo 'bundletool stderr:' >&2
+              cat "$stderr_file" >&2
+              return 1
+            fi
+          }
+          assert_manifest_value '/manifest/@package' 'com.sermonsmith.app' package
+          assert_manifest_value '/manifest/@android:versionCode' "$ANDROID_VERSION_CODE" version-code
+          assert_manifest_value '/manifest/@android:versionName' "$ANDROID_VERSION_NAME" version-name
+
+          cat > "$RUNNER_TEMP/InspectZip.java" <<'JAVA'
+          import java.io.OutputStream;
+          import java.nio.file.Path;
+          import java.util.Comparator;
+          import java.util.zip.ZipFile;
+
+          final class InspectZip {
+            public static void main(String[] args) throws Exception {
+              if (args.length < 2 || args.length > 3) {
+                throw new IllegalArgumentException("Expected mode, archive, and optional entry");
+              }
+              try (var zip = new ZipFile(Path.of(args[1]).toFile())) {
+                switch (args[0]) {
+                  case "list" ->
+                    zip.stream()
+                      .map(entry -> entry.getName())
+                      .sorted(Comparator.naturalOrder())
+                      .forEach(System.out::println);
+                  case "extract" -> {
+                    if (args.length != 3) {
+                      throw new IllegalArgumentException("Extract mode requires an entry");
+                    }
+                    var entry = zip.getEntry(args[2]);
+                    if (entry == null || entry.isDirectory()) {
+                      throw new IllegalArgumentException("ZIP entry is missing: " + args[2]);
+                    }
+                    try (var input = zip.getInputStream(entry)) {
+                      input.transferTo(System.out);
+                    }
+                  }
+                  default -> throw new IllegalArgumentException("Unknown ZIP inspection mode");
+                }
+              }
+            }
+          }
+          JAVA
+
+          java "$RUNNER_TEMP/InspectZip.java" list "$APK" > "$RUNNER_TEMP/release-apk-files.txt"
+          java "$RUNNER_TEMP/InspectZip.java" list "$AAB" > "$RUNNER_TEMP/release-aab-files.txt"
+
+          assert_zip_entry_once() {
+            local inventory="$1"
+            local expected="$2"
+            local label="$3"
+            local matches
+            matches=$(awk -v expected="$expected" '$0 == expected { count += 1 } END { print count + 0 }' "$inventory")
+            if [ "$matches" -ne 1 ]; then
+              echo "::error title=Android package content mismatch::${label} expected=${expected} exact_matches=${matches}"
+              grep -Ei '(^|/)assets/|index\.html|capacitor\.config\.json' "$inventory" >&2 || true
+              return 1
+            fi
+          }
+          assert_zip_entry_once "$RUNNER_TEMP/release-apk-files.txt" 'assets/public/index.html' 'APK web entrypoint'
+          assert_zip_entry_once "$RUNNER_TEMP/release-aab-files.txt" 'base/assets/public/index.html' 'AAB web entrypoint'
+
+          if grep -Eiq '^assets/public/mobile/|\.zip$' "$RUNNER_TEMP/release-apk-files.txt"; then
+            echo '::error title=Forbidden APK content::Release APK contains an OTA directory or ZIP archive'
+            exit 1
+          fi
+          if grep -Eiq '^base/assets/public/mobile/|\.zip$' "$RUNNER_TEMP/release-aab-files.txt"; then
+            echo '::error title=Forbidden AAB content::Release AAB contains an OTA directory or ZIP archive'
+            exit 1
+          fi
+
+          if ! java "$RUNNER_TEMP/InspectZip.java" extract "$APK" assets/capacitor.config.json \
+            > "$RUNNER_TEMP/release-apk-capacitor-config.json"; then
+            echo '::error title=APK configuration missing::assets/capacitor.config.json could not be read'
+            exit 1
+          fi
+          if ! java "$RUNNER_TEMP/InspectZip.java" extract "$AAB" base/assets/capacitor.config.json \
+            > "$RUNNER_TEMP/release-aab-capacitor-config.json"; then
+            echo '::error title=AAB configuration missing::base/assets/capacitor.config.json could not be read'
+            exit 1
+          fi
+          jq -e '(.plugins // {} | has("CapacitorUpdater") | not)' "$RUNNER_TEMP/release-apk-capacitor-config.json" > /dev/null || {
+            echo '::error title=Forbidden APK updater::CapacitorUpdater must be absent'
+            exit 1
+          }
+          jq -e '(.plugins // {} | has("CapacitorUpdater") | not)' "$RUNNER_TEMP/release-aab-capacitor-config.json" > /dev/null || {
+            echo '::error title=Forbidden AAB updater::CapacitorUpdater must be absent'
+            exit 1
+          }
+
           cp "$APK" "SermonSmith-${ANDROID_VERSION_NAME}.apk"
           cp "$AAB" "SermonSmith-${ANDROID_VERSION_NAME}.aab"
           cp "$RUNNER_TEMP/apk-cert.sha256" sermonsmith-signing-cert.sha256
-          sha256sum "SermonSmith-${ANDROID_VERSION_NAME}.apk" > sermonsmith-android.sha256
+          sha256sum \
+            "SermonSmith-${ANDROID_VERSION_NAME}.apk" \
+            "SermonSmith-${ANDROID_VERSION_NAME}.aab" \
+            > sermonsmith-android.sha256
+          APK_BYTES=$(stat -c '%s' "$APK")
+          AAB_BYTES=$(stat -c '%s' "$AAB")
+          {
+            echo '### Signed Android release inspection'
+            echo "- Package: com.sermonsmith.app"
+            echo "- Version: ${ANDROID_VERSION_NAME} (${ANDROID_VERSION_CODE})"
+            echo "- APK bytes: ${APK_BYTES}"
+            echo "- AAB bytes: ${AAB_BYTES}"
+            echo '- APK web entrypoints: 1'
+            echo '- AAB web entrypoints: 1'
+            echo '- OTA directories: 0'
+            echo '- ZIP files: 0'
+            echo '- Runtime web-bundle updater: absent'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sermonsmith-signed-android
