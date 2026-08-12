@@ -17,13 +17,6 @@ const config: CapacitorConfig = {
     allowMixedContent: false
   },
   plugins: {
-    // Manual OTA web-bundle updates only (Settings -> "App Updates").
-    // No Capgo cloud: autoUpdate off, stats/update endpoints cleared.
-    CapacitorUpdater: {
-      autoUpdate: false,
-      statsUrl: '',
-      updateUrl: ''
-    },
     SplashScreen: {
       launchShowDuration: 2000,
       backgroundColor: '#0f172a',
