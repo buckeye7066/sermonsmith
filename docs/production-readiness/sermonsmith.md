@@ -125,14 +125,6 @@ The production `/mobile/latest.json` URL currently serves the SPA HTML fallback,
 
 A previously observed APK was debug-signed with an ephemeral CI identity and cannot update to a release signed by a new production keystore. The safe operator path for that population is data export/backup where available, uninstall, then a fresh installation of the verified signed release. Reintroducing an OTA migration bundle would contradict the signed-only release boundary and must not be done without an explicit security/product decision.
 
-### Remaining live acceptance evidence
-
-- An authorized test mailbox plus configured Resend path: registration, reset, recovery.
-- Authorized Stripe test-mode journey: upgrade, cancellation, and no-stranding behavior; no real charges.
-- A physical Android device journey using the produced signed artifact.
-- A human pastoral review of generated content and provider-sourced Scripture wording.
-- Legal/brand review before material paid promotion.
-
 ### Review state
 
 PR #96 contains an unresolved P1 review thread about legacy APK migration. Keep the thread unresolved unless a reviewer accepts the documented signed-package transition and public distribution decision above. This note must not substitute for that review or for release-artifact verification.
