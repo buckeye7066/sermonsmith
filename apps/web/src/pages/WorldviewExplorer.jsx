@@ -33,7 +33,7 @@ import {
   StickyNote
 } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 import { usePremiumAccess } from "@/components/hooks/usePremiumAccess";
 import { WORLDVIEW_COUNT } from "@/lib/appStats";

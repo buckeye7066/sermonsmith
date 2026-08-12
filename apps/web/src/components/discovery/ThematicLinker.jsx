@@ -8,7 +8,7 @@ import { Loader2, Sparkles, BookOpen, FileText, TrendingUp, Link2, Calendar } fr
 import { api } from '@/api/apiClient';
 import { LARRY_SYSTEM_PROMPT } from '@/ai/personas';
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { createPageUrl } from "@/utils";
 
 export default function ThematicLinker({ 

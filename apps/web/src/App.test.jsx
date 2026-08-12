@@ -3,7 +3,7 @@ import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router';
 
 let authState;
 let authSessionHint;

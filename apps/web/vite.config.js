@@ -41,7 +41,7 @@ export default defineConfig({
         // the lazy routes that import them (deduped across routes), loaded on
         // navigation and never preloaded on the landing page.
         manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-react': ['react', 'react-dom', 'react-router'],
           'vendor-ui': [
             '@radix-ui/react-dialog',
             '@radix-ui/react-select',

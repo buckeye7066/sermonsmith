@@ -19,7 +19,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, FileText, Loader2, BookOpen, Lightbulb, Users, Bot, Layers, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { createPageUrl } from "@/utils";
 import SermonEditor from "@/components/sermon/SermonEditor";
 import SeriesBuilder from "@/components/sermon/SeriesBuilder";

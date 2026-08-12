@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/api/apiClient";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 import SermonAdaptation from "./SermonAdaptation";
 import PresentationMode from "./PresentationMode";

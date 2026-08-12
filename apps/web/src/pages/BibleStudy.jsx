@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, BookOpen, Loader2, Lightbulb, Link2, Bot, GraduationCap, Calendar, Eye } from "lucide-react";
 import { toast } from "sonner";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { createPageUrl } from "@/utils";
 import StudyGuideViewer from "@/components/study/StudyGuideViewer";
 import StudyPlanGenerator from "@/components/study/StudyPlanGenerator";

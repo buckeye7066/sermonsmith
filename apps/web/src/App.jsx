@@ -5,7 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
-import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation } from 'react-router';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, hasAuthSessionHint, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -120,7 +120,7 @@ function updateStructuredData(metadata, canonicalUrl) {
 
 export function RouteMetadata() {
   const location = useLocation();
-  const { pathname } = location;
+  const { pathname, search } = location;
 
   useEffect(() => {
     const metadata = metadataForPath(pathname);
@@ -161,7 +161,7 @@ export function RouteMetadata() {
     canonicalLink.setAttribute('rel', 'canonical');
     canonicalLink.setAttribute('href', canonicalUrl);
     if (!canonical) document.head.appendChild(canonicalLink);
-  }, [location]);
+  }, [pathname, search]);
 
   return null;
 }
