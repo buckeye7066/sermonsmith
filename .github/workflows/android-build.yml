@@ -1,69 +1,162 @@
-name: Android build
-
-# Builds Android binaries on every push to main and uploads them as
-# Actions artifacts, where App Store Publisher's "From GitHub" tab can
-# list and fetch them:
-#   sermonsmith-debug-apk   — debug-signed, installable for testing
-#   sermonsmith-release-aab — upload-key-signed .aab, ready for Play Store
-# Release signing uses the ANDROID_KEYSTORE_* repo secrets (upload
-# keystore lives at ~/.android-keystores/sermonsmith-upload.jks locally).
+name: Android build and repo-direct release
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'apps/mobile/**'
-      - 'packages/**'
-      - '.github/workflows/android-build.yml'
   workflow_dispatch:
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
+env:
+  ANDROID_VERSION_CODE: ${{ github.run_number }}
+  ANDROID_VERSION_NAME: 1.0.${{ github.run_number }}
+
 jobs:
   android:
-    name: Build APK + AAB
+    name: Build signed APK + AAB
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: 'npm'
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: 'temurin'
           java-version: '21'
-      - run: npm ci
-      # Inside Capacitor the origin is https://localhost, so the API base
-      # must be baked in at build time (apiClient falls back to origin).
-      - run: npm run build -w @sermonsmith/web
+      - name: Authoritative release gates
+        run: npm run release:check
+      - name: Build production-configured web application
+        run: npm run build -w @sermonsmith/web
         env:
           VITE_API_URL: https://sermonsmith-api-production.up.railway.app
-      - run: npx cap sync android
+      - name: Sync Capacitor
+        run: npx cap sync android
         working-directory: apps/mobile
-      - run: ./gradlew assembleDebug --no-daemon
-        working-directory: apps/mobile/android
-      - name: Decode upload keystore
-        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+      - name: Require persistent Android signing identity
+        shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      - name: Build signed release bundle
-        run: ./gradlew bundleRelease --no-daemon
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64" || { echo 'ANDROID_KEYSTORE_BASE64 is missing'; exit 1; }
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo 'ANDROID_KEYSTORE_PASSWORD is missing'; exit 1; }
+          test -n "$ANDROID_KEY_ALIAS" || { echo 'ANDROID_KEY_ALIAS is missing'; exit 1; }
+          test -n "$ANDROID_KEY_PASSWORD" || { echo 'ANDROID_KEY_PASSWORD is missing'; exit 1; }
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          keytool -list -v \
+            -keystore "$RUNNER_TEMP/upload.jks" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -keypass "$ANDROID_KEY_PASSWORD" \
+            | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}' \
+            > "$RUNNER_TEMP/keystore-cert.sha256"
+          test -s "$RUNNER_TEMP/keystore-cert.sha256"
+
+          BASELINE_TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[] | select(.tagName | startswith("android-v")) | .tagName' | head -n 1)
+          if [ -n "$BASELINE_TAG" ]; then
+            mkdir -p "$RUNNER_TEMP/signing-baseline"
+            gh release download "$BASELINE_TAG" --repo "$GITHUB_REPOSITORY" --pattern sermonsmith-signing-cert.sha256 --dir "$RUNNER_TEMP/signing-baseline"
+            test -s "$RUNNER_TEMP/signing-baseline/sermonsmith-signing-cert.sha256" || { echo "Existing Android release lacks signing fingerprint"; exit 1; }
+            cmp "$RUNNER_TEMP/signing-baseline/sermonsmith-signing-cert.sha256" "$RUNNER_TEMP/keystore-cert.sha256" || { echo 'Configured keystore certificate differs from prior Android releases'; exit 1; }
+          else
+            echo 'No prior signed Android release: this main build will establish the signing fingerprint bootstrap.'
+          fi
+      - name: Build signed release APK and AAB
+        run: ./gradlew assembleRelease bundleRelease --no-daemon
         working-directory: apps/mobile/android
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/upload.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      - uses: actions/upload-artifact@v4
+          ANDROID_VERSION_CODE: ${{ env.ANDROID_VERSION_CODE }}
+          ANDROID_VERSION_NAME: ${{ env.ANDROID_VERSION_NAME }}
+      - name: Verify signing certificate and prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='apps/mobile/android/app/build/outputs/apk/release/app-release.apk'
+          AAB='apps/mobile/android/app/build/outputs/bundle/release/app-release.aab'
+          test -f "$APK"
+          test -f "$AAB"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/apk-certs.txt"
+          awk -F': ' '/Signer #1 certificate SHA-256 digest:/{gsub(":", "", $2); print tolower($2); exit}' "$RUNNER_TEMP/apk-certs.txt" > "$RUNNER_TEMP/apk-cert.sha256"
+          test -s "$RUNNER_TEMP/apk-cert.sha256"
+          cmp "$RUNNER_TEMP/keystore-cert.sha256" "$RUNNER_TEMP/apk-cert.sha256" || { echo 'Built APK signing certificate does not match configured persistent keystore'; exit 1; }
+          cp "$APK" "SermonSmith-${ANDROID_VERSION_NAME}.apk"
+          cp "$AAB" "SermonSmith-${ANDROID_VERSION_NAME}.aab"
+          cp "$RUNNER_TEMP/apk-cert.sha256" sermonsmith-signing-cert.sha256
+          sha256sum "SermonSmith-${ANDROID_VERSION_NAME}.apk" > sermonsmith-android.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sermonsmith-debug-apk
-          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: sermonsmith-signed-android
+          path: |
+            SermonSmith-*.apk
+            SermonSmith-*.aab
+            sermonsmith-android.sha256
+            sermonsmith-signing-cert.sha256
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+
+  publish:
+    name: Publish repo-direct Android release
+    needs: android
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: sermonsmith-release-aab
-          path: apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
-          if-no-files-found: error
+          name: sermonsmith-signed-android
+      - name: Publish GitHub Release for phone updater
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="android-v${ANDROID_VERSION_NAME}"
+          NOTES="Automated signed Android release from main at ${GITHUB_SHA}. Package com.sermonsmith.app. Intended for repo-direct phone updates; Android requires the same signing certificate as the installed copy."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            TARGET=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)
+            test "$TARGET" = "$GITHUB_SHA" || { echo "Existing $TAG targets $TARGET, expected $GITHUB_SHA"; exit 1; }
+            gh release upload "$TAG" \
+              "SermonSmith-${ANDROID_VERSION_NAME}.apk" \
+              "SermonSmith-${ANDROID_VERSION_NAME}.aab" \
+              sermonsmith-android.sha256 \
+              sermonsmith-signing-cert.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "SermonSmith Android ${ANDROID_VERSION_NAME}" \
+              --notes "$NOTES" \
+              --draft=false
+          else
+            gh release create "$TAG" \
+              "SermonSmith-${ANDROID_VERSION_NAME}.apk" \
+              "SermonSmith-${ANDROID_VERSION_NAME}.aab" \
+              sermonsmith-android.sha256 \
+              sermonsmith-signing-cert.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "SermonSmith Android ${ANDROID_VERSION_NAME}" \
+              --notes "$NOTES"
+          fi

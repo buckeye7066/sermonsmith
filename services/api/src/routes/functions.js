@@ -17,6 +17,7 @@ import {
   fetchPremiumChapter,
   sliceVerses,
 } from '../services/premiumTranslations.js';
+import { buildVerseWordingResult } from '../services/verseWording.js';
 
 const router = Router();
 
@@ -315,6 +316,66 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
     if (err.name === 'AbortError') {
       return res.status(504).json({ message: 'Bible API request timed out' });
     }
+    if (err.status && err.status >= 400 && err.status < 600) {
+      return res.status(err.status).json({ message: err.message });
+    }
+    next(err);
+  }
+});
+
+// Exact wording check: a reference can be canon-valid while the quoted string
+// is wrong. Fetch provider text for the registered translation and compare.
+const verseWordingSchema = z.object({
+  reference: z.string().min(3).max(80),
+  quotedText: z.string().min(1).max(4000),
+  translation: z.string().min(1).max(20).optional(),
+  translationId: z.string().min(1).max(20).optional(),
+});
+
+router.post('/verifyVerseWording', optionalAuth, async (req, res, next) => {
+  try {
+    const parsed = verseWordingSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: 'Invalid verse wording request',
+        issues: parsed.error.issues,
+      });
+    }
+
+    const translationRaw = parsed.data.translationId || parsed.data.translation || 'kjv';
+    if (isPremiumTranslationId(translationRaw)) {
+      return res.status(400).json({
+        message: 'Wording verification for premium translations is not available on this endpoint; use a registered public-domain translation id.',
+      });
+    }
+
+    const translation = requireBibleTranslation(translationRaw);
+    const translationId = translation.id;
+    const reference = parsed.data.reference.trim();
+
+    let data;
+    try {
+      data = await getCachedBiblePassage({ ref: reference, translationId });
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        return res.status(504).json({ message: 'Bible API request timed out' });
+      }
+      throw err;
+    }
+
+    const result = buildVerseWordingResult({
+      reference: data.reference || reference,
+      quotedText: parsed.data.quotedText,
+      translationId,
+      providerText: data.text || '',
+      translation: translationMetadata(translationId),
+    });
+
+    return res.json({
+      ...result,
+      cacheHit: !!data.cacheHit,
+    });
+  } catch (err) {
     if (err.status && err.status >= 400 && err.status < 600) {
       return res.status(err.status).json({ message: err.message });
     }
@@ -887,6 +948,7 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
 router.post('/discoverFunctions', authenticateToken, requireAdmin, requireDevTools, async (req, res) => {
   const functions = [
     { id: 'biblePassage', name: 'Bible Passage', description: 'Fetch a Bible passage from bible-api.com', category: 'bible', path: 'routes/functions.js' },
+    { id: 'verifyVerseWording', name: 'Verify Verse Wording', description: 'Compare quoted wording to registered provider text', category: 'bible', path: 'routes/functions.js' },
     { id: 'listAvailableTranslations', name: 'List Translations', description: 'Return available Bible translations', category: 'bible', path: 'routes/functions.js' },
     { id: 'getPassageMultiSource', name: 'Multi-Source Passage', description: 'Fetch a passage across multiple translations', category: 'bible', path: 'routes/functions.js' },
     { id: 'createCheckoutSession', name: 'Stripe Checkout', description: 'Create a Stripe checkout session for Premium', category: 'billing', path: 'routes/functions.js' },
@@ -961,6 +1023,7 @@ router.post('/getFunctionDetails', authenticateToken, requireAdmin, requireDevTo
   // source file; for a self-hosted Express app we return route documentation.
   const details = {
     biblePassage: { code: '// Proxies bible-api.com — see routes/functions.js:13', method: 'POST', auth: 'optional' },
+    verifyVerseWording: { code: '// Provider wording compare — see routes/functions.js', method: 'POST', auth: 'optional' },
     listAvailableTranslations: { code: '// Returns Bible source registry metadata — see routes/functions.js', method: 'POST', auth: 'optional' },
     getPassageMultiSource: { code: '// Parallel multi-translation fetch — see routes/functions.js:74', method: 'POST', auth: 'optional' },
     createCheckoutSession: { code: '// Stripe checkout — see routes/functions.js:107', method: 'POST', auth: 'required' },

@@ -32,6 +32,8 @@ The API source of truth is `services/api/src/services/bibleSources.js`. Route ha
 - `displayAllowed`
 - `exportAllowed`
 
+`POST /api/functions/verifyVerseWording` fetches exact provider text for a registered public-domain translation and compares it to a supplied quotation. A canon-valid reference with wrong wording returns `status: "mismatch"`. Canon/reference shape checking remains a separate gate in `@sermonsmith/shared/scripture`.
+
 Unsupported translations fail with HTTP 400 before any upstream request is made.
 
 ## Caching

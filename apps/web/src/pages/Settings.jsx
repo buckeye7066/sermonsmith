@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-import { Settings as SettingsIcon, User, Crown, Bell, Loader2, Sparkles, Mail, MessageSquare } from "lucide-react";
+import { Settings as SettingsIcon, User, Crown, Bell, Loader2, Sparkles, Mail, MessageSquare, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
@@ -18,6 +18,7 @@ import { isNativeApp } from "@/lib/platform";
 import PreferencesManager from "@/components/profile/PreferencesManager";
 import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import ProfileEditor from "@/components/profile/ProfileEditor";
+import MobileUpdateCard from "@/components/settings/MobileUpdateCard";
 
 export default function Settings() {
   const { user, isLoadingAuth, authError, checkAppState } = useAuth();
@@ -25,6 +26,8 @@ export default function Settings() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
   const [notificationSettings, setNotificationSettings] = useState({
     email_new_features: false,
     email_weekly_digest: false,
@@ -108,6 +111,23 @@ export default function Settings() {
     } catch (error) {
       toast.error(logError('Could not open billing portal', error));
       setIsOpeningPortal(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirm.trim().toUpperCase() !== 'DELETE') {
+      toast.error('Type DELETE to confirm account deletion.');
+      return;
+    }
+    setIsDeletingAccount(true);
+    try {
+      await api.auth.deleteAccount();
+      logActivity('account_deleted', { page_name: 'Settings' });
+      toast.success('Your account has been deleted.');
+      window.location.assign('/');
+    } catch (error) {
+      toast.error(logError('Could not delete account', error));
+      setIsDeletingAccount(false);
     }
   };
 
@@ -210,7 +230,46 @@ export default function Settings() {
           </TabsContent>
 
           <TabsContent value="profile">
-            <ProfileEditor user={user} onUpdate={refreshUser} />
+            <div className="space-y-4">
+              <ProfileEditor user={user} onUpdate={refreshUser} />
+              <Card className="border-red-200 dark:border-red-900/50">
+                <CardHeader>
+                  <CardTitle className="text-red-700 dark:text-red-300 flex items-center gap-2">
+                    <Trash2 className="w-5 h-5" />
+                    Delete account
+                  </CardTitle>
+                  <CardDescription>
+                    Soft-deletes your account, revokes sessions immediately, and stops sign-in.
+                    Ministry content is retained for recovery/audit per the Privacy Policy; it is
+                    no longer accessible through this login.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Label htmlFor="delete-confirm">Type DELETE to confirm</Label>
+                  <input
+                    id="delete-confirm"
+                    className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+                    value={deleteConfirm}
+                    onChange={(e) => setDeleteConfirm(e.target.value)}
+                    autoComplete="off"
+                  />
+                  <Button
+                    variant="destructive"
+                    onClick={handleDeleteAccount}
+                    disabled={isDeletingAccount || deleteConfirm.trim().toUpperCase() !== 'DELETE'}
+                  >
+                    {isDeletingAccount ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      'Delete my account'
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="subscription">
@@ -252,8 +311,8 @@ export default function Settings() {
                   <>
                     <Alert className="bg-green-50 dark:bg-green-900/20 border-green-200">
                       <AlertDescription className="text-green-800 dark:text-green-200">
-                        ✅ You have access to all premium features including multi-language translation,
-                        export tools, and advanced AI features!
+                        Premium unlocks configured AI and export tools for your account. Scripture wording
+                        still comes from registered providers and requires your review before teaching.
                       </AlertDescription>
                     </Alert>
 
@@ -390,6 +449,11 @@ export default function Settings() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Native app only: manual OTA content updates (renders nothing on web). */}
+        <div className="mt-6">
+          <MobileUpdateCard />
+        </div>
 
         <OnboardingWizard
           open={showOnboarding}

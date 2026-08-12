@@ -19,6 +19,7 @@
     "build:web": "npm run build -w @sermonsmith/web",
     "check:api": "npm run lint -w @sermonsmith/api && npm run typecheck -w @sermonsmith/api && npm test -w @sermonsmith/api",
     "build": "npm run build:web && npm run check:api",
+    "build:mobile-bundle": "npm run build:web",
     "lint": "npm run lint -w @sermonsmith/web && npm run lint -w @sermonsmith/api",
     "lint:web": "npm run lint -w @sermonsmith/web",
     "lint:api": "npm run lint -w @sermonsmith/api",
@@ -53,16 +54,6 @@
     "node": ">=20 <25",
     "npm": ">=10 <12"
   },
-  "devDependencies": {
-    "fast-uri": "3.1.5",
-    "js-yaml": "4.3.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
-  },
-  "overrides": {
-    "fast-uri": "3.1.5",
-    "js-yaml": "4.3.1"
-  },
   "allowScripts": {
     "@prisma/client@6.19.2": true,
     "@prisma/engines@6.19.3": true,
@@ -72,5 +63,17 @@
     "esbuild@0.25.12": true,
     "prisma@6.19.3": true,
     "sharp@0.33.5": true
+  },
+  "overrides": {
+    "nanoid": "3.3.17",
+    "fast-uri": "3.1.5",
+    "js-yaml": "4.3.1"
+  },
+  "devDependencies": {
+    "adm-zip": "^0.5.18",
+    "fast-uri": "3.1.5",
+    "js-yaml": "4.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   }
 }

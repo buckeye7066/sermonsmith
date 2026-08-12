@@ -116,6 +116,57 @@ describe('function routes - Bible source registry', () => {
     });
   });
 
+  it('rejects quoted wording that does not match provider text for a valid reference', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        reference: 'John 3:16',
+        text: 'For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.',
+        verses: [{ book_name: 'John', chapter: 3, verse: 16, text: 'For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.' }],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await request(app)
+      .post('/api/functions/verifyVerseWording')
+      .send({
+        reference: 'John 3:16',
+        translation: 'kjv',
+        quotedText: 'God is love and nothing else matters.',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.reference).toBe('John 3:16');
+    expect(res.body.status).toBe('mismatch');
+    expect(res.body.message).toMatch(/does not match the registered provider text/i);
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('accepts quoted wording that matches the registered provider text', async () => {
+    const provider =
+      'For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.';
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        reference: 'John 3:16',
+        text: provider,
+        verses: [{ book_name: 'John', chapter: 3, verse: 16, text: provider }],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await request(app)
+      .post('/api/functions/verifyVerseWording')
+      .send({
+        reference: 'John 3:16',
+        translation: 'kjv',
+        quotedText: 'For God so loved the world, that he gave his only begotten Son',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('match');
+  });
+
   it('deduplicates normalized translations for multi-source passage lookups', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

@@ -149,7 +149,7 @@ export default function PrivacyPolicy() {
         <Section title="Retention, Account Deactivation, and Deletion">
           <ul className="list-disc pl-6 space-y-2">
             <li>
-              The in-app account-deletion action immediately revokes access and marks the account
+              The in-app account-deletion action in Settings immediately revokes access and marks the account
               deleted. It is a soft deletion and does not by itself immediately erase every database
               row, shared copy, operational record, or backup.
             </li>
@@ -196,6 +196,11 @@ export default function PrivacyPolicy() {
 
         <footer className="mt-12 border-t border-gray-200 dark:border-gray-700 pt-6 text-sm text-gray-500 dark:text-gray-400">
           &copy; {new Date().getFullYear()} SermonSmith. All rights reserved.
+          {' '}
+          <a className="text-indigo-600 dark:text-indigo-400 underline" href="/terms">
+            Terms of Use
+          </a>
+          .
         </footer>
       </article>
     </main>

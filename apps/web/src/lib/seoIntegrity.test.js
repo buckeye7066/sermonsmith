@@ -13,6 +13,7 @@ const PUBLIC_DOCUMENTS = {
   '/Pricing': { file: 'pricing.html', canonical: 'https://sermonsmith.axiombiolabs.org/Pricing' },
   '/Downloads': { file: 'downloads.html', canonical: 'https://sermonsmith.axiombiolabs.org/Downloads' },
   '/privacy': { file: 'privacy.html', canonical: 'https://sermonsmith.axiombiolabs.org/privacy' },
+  '/terms': { file: 'terms.html', canonical: 'https://sermonsmith.axiombiolabs.org/terms' },
 };
 
 describe('crawlable route documents', () => {
@@ -44,6 +45,7 @@ describe('crawlable route documents', () => {
       expect(rewrites.get('/Pricing')).toBe('/pricing.html');
       expect(rewrites.get('/Downloads')).toBe('/downloads.html');
       expect(rewrites.get('/privacy')).toBe('/privacy.html');
+      expect(rewrites.get('/terms')).toBe('/terms.html');
       expect(rewrites.get('/(.*)')).toBe('/app.html');
     }
   });
@@ -55,6 +57,7 @@ describe('crawlable route documents', () => {
     expect(robots).toMatch(/^Allow: \/Pricing\$$/m);
     expect(robots).toMatch(/^Allow: \/Downloads\$$/m);
     expect(robots).toMatch(/^Allow: \/privacy\$$/m);
+    expect(robots).toMatch(/^Allow: \/terms\$$/m);
     expect(robots).toMatch(/^Disallow: \/$/m);
     expect(robots).not.toMatch(/^Allow: \/$/m);
   });
