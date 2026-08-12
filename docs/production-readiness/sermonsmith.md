@@ -93,3 +93,46 @@ Local commands (run in worktree):
 | 69 | **Not fully met** — blocked on live multi-surface smoke |
 
 **Status recommendation after merge+deploy of software:** `SOFTWARE COMPLETE, EXTERNAL RELEASE BLOCKER` until owner smoke (and trademark if promoting) clear.
+---
+
+## Post-merge re-verification — 2026-08-12
+
+**Observed main SHA:** `eafee7868f88fdd089a307be8f6af9b26a32a21e` (`fix(android): enforce complete signed release boundary (#96)`).
+
+This is an operational handoff, not independent production certification.
+
+### Confirmed connector-visible state
+
+- GitHub default branch is `main` at the SHA above; no open pull requests were returned by the connected GitHub account.
+- Vercel production deployment `dpl_FfPUawns3bcRuLRpuunKPsvSnwyk` is `READY`, targets production, and records the same GitHub SHA.
+- The public custom domain returned HTTP 200 for `/`, `/login`, and `/terms`. Vercel reported no runtime errors for the project at this check.
+- The main Android workflow runs `npm run release:check`, requires four protected signing secrets, verifies signed APK and AAB contents/certificate continuity, writes checksums, and publishes a GitHub release tied to `GITHUB_SHA`.
+
+### Android release remains unproven
+
+The available integration can inspect repository configuration, but it cannot dispatch the main-only workflow, enumerate its main-push workflow runs, or enumerate GitHub Releases. No signed APK/AAB, signing-certificate checksum, release tag, or artifact bound to the observed main SHA was available as evidence in this check.
+
+**Owner action packet:**
+
+1. In GitHub Actions, run **Android build and repo-direct release** on `main` while it points to the SHA above (or merge a reviewed successor first).
+2. If it fails, retain the first failing job-step log. The workflow's first protected failure is expected to be one of: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, or `ANDROID_KEY_PASSWORD` missing/invalid. Do not copy those values into tickets, PRs, or chat.
+3. If it succeeds, retain the published `android-v<version>` release, APK, AAB, `sermonsmith-android.sha256`, `sermonsmith-signing-cert.sha256`, and action URL. Verify that the release target commit equals the built SHA and that the certificate matches the prior production Android release where one exists.
+4. Decide the public distribution model. The Android settings UI links to this repository's GitHub Releases page, but the repository is private. Either grant intended installers read access, publish verified signed assets through an approved public distribution channel, or use an app-store delivery path. Do not make a repository public solely to bypass this decision.
+
+### Legacy-install transition
+
+The production `/mobile/latest.json` URL currently serves the SPA HTML fallback, so legacy Capgo clients deterministically reject it rather than receiving a valid update manifest. This is preferable to silently executing a mutable bundle, but it does not migrate existing clients.
+
+A previously observed APK was debug-signed with an ephemeral CI identity and cannot update to a release signed by a new production keystore. The safe operator path for that population is data export/backup where available, uninstall, then a fresh installation of the verified signed release. Reintroducing an OTA migration bundle would contradict the signed-only release boundary and must not be done without an explicit security/product decision.
+
+### Remaining live acceptance evidence
+
+- An authorized test mailbox plus configured Resend path: registration, reset, recovery.
+- Authorized Stripe test-mode journey: upgrade, cancellation, and no-stranding behavior; no real charges.
+- A physical Android device journey using the produced signed artifact.
+- A human pastoral review of generated content and provider-sourced Scripture wording.
+- Legal/brand review before material paid promotion.
+
+### Review state
+
+PR #96 contains an unresolved P1 review thread about legacy APK migration. Keep the thread unresolved unless a reviewer accepts the documented signed-package transition and public distribution decision above. This note must not substitute for that review or for release-artifact verification.
