@@ -1372,7 +1372,11 @@ export function validateScriptureRefs(refs, options = {}) {
 // objects this module itself produced; walking it would re-validate already-
 // recorded references (and, on an update, mix stale results into the new
 // computation). Skip these keys everywhere in the tree.
-const NON_CONTENT_KEYS = new Set(['scripture_validation']);
+const NON_CONTENT_KEYS = new Set([
+  'scripture_validation',
+  'wording_verification',
+  'quotation_verification',
+]);
 
 /**
  * Recursively collect scripture references from every string anywhere in an

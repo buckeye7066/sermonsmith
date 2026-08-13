@@ -178,7 +178,7 @@ function normalizePassageRef(ref) {
   return String(ref || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-async function getCachedBiblePassage({ ref, translationId }) {
+export async function getCachedBiblePassage({ ref, translationId }) {
   const normalizedRef = normalizePassageRef(ref);
   const cacheKey = { translationId, normalizedRef };
 

@@ -127,17 +127,26 @@ export function buildApp(opts = {}) {
 
   app.use(express.json({ limit: '2mb' }));
 
-  // Liveness — process is up.
-  app.get('/healthz', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
-  app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
-  app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+  // Non-secret build identity for deploy correlation (Vercel/Railway/local).
+  const buildIdentity = {
+    gitSha: process.env.RAILWAY_GIT_COMMIT_SHA
+      || process.env.VERCEL_GIT_COMMIT_SHA
+      || process.env.GIT_COMMIT_SHA
+      || process.env.COMMIT_SHA
+      || null,
+    version: process.env.npm_package_version || null,
+  };
 
-  // Readiness — process is up AND can reach its hard dependencies.
-  app.get('/readyz', async (_req, res) => {
+  // Liveness — process is up.
+  app.get('/healthz', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), ...buildIdentity }));
+  app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), ...buildIdentity }));
+  app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), ...buildIdentity }));
+  // Alias used by some probes / reverse proxies.
+  app.get('/api/ready', async (_req, res) => {
     try {
       await prisma.$queryRaw`SELECT 1`;
     } catch (err) {
-      return res.status(503).json({ status: 'not_ready', reason: 'database unreachable' });
+      return res.status(503).json({ status: 'not_ready', reason: 'database unreachable', ...buildIdentity });
     }
     return res.json({
       status: 'ready',
@@ -145,6 +154,24 @@ export function buildApp(opts = {}) {
       billingEnabled: env.billingEnabled,
       passwordResetEnabled: env.passwordResetEnabled,
       timestamp: new Date().toISOString(),
+      ...buildIdentity,
+    });
+  });
+
+  // Readiness — process is up AND can reach its hard dependencies.
+  app.get('/readyz', async (_req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (err) {
+      return res.status(503).json({ status: 'not_ready', reason: 'database unreachable', ...buildIdentity });
+    }
+    return res.json({
+      status: 'ready',
+      aiEnabled: env.aiEnabled,
+      billingEnabled: env.billingEnabled,
+      passwordResetEnabled: env.passwordResetEnabled,
+      timestamp: new Date().toISOString(),
+      ...buildIdentity,
     });
   });
 

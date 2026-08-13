@@ -4,7 +4,7 @@ productName: Sermon Smith
 # module discovery walks from apps/desktop and misses it, failing with
 # "Cannot compute electron version". Pin it explicitly (keep in sync with the
 # electron devDependency).
-electronVersion: 41.1.1
+electronVersion: 41.10.4
 # No auto-update/publish provider is configured; without this, the build
 # crashes AFTER producing the installers while generating update-info
 # metadata ("Cannot read properties of null (reading 'provider')").

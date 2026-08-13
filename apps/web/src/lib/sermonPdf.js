@@ -154,6 +154,44 @@ export async function renderSermonPdf(sermon) {
     write(sermon.theological_notes, { size: 10, gap: 4 });
   }
 
+  // Prefer wording_verification; fall back to legacy quotation_verification alias.
+  const qv = sermon.wording_verification || sermon.quotation_verification;
+  if (qv && typeof qv === 'object') {
+    checkPage(28);
+    rule();
+    write('SCRIPTURE QUOTATION PROVENANCE', { size: 9, style: 'bold', gap: 1 });
+    // Honest product language: never claim "verified" when mismatched / unavailable.
+    const verifiedLabel = qv.verified === true
+      ? 'yes'
+      : (qv.overall === 'mismatch'
+        ? 'no (mismatch)'
+        : (qv.overall === 'provider_unavailable' || qv.overall === 'unsupported_translation'
+          ? 'no (unverified — provider unavailable)'
+          : 'no'));
+    write(
+      `Overall: ${qv.overall || 'unknown'}  |  Verified wording: ${verifiedLabel}  |  Checked: ${qv.verifiedAt || 'n/a'}`,
+      { size: 9, gap: 2 },
+    );
+    const quotations = Array.isArray(qv.quotations) ? qv.quotations : [];
+    for (const q of quotations) {
+      const ref = q?.reference || '(no reference)';
+      const status = q?.status || 'unknown';
+      const translation = q?.translationId || qv.translationId || '';
+      const provider = q?.provider || '';
+      write(
+        `${ref} — ${status}${translation ? ` [${translation}]` : ''}${provider ? ` via ${provider}` : ''}`,
+        { size: 9, indent: 2, gap: 1 },
+      );
+      if (q?.quotedText && status !== 'exact_full_verse' && status !== 'verified_excerpt') {
+        // Surface the claimed quote when it was NOT verified, so the PDF cannot
+        // be mistaken for provider-blessed wording.
+        write(`Claimed quote (unverified): ${q.quotedText}`, { size: 8, style: 'italic', indent: 4, gap: 2 });
+      } else if (q?.quotedText) {
+        write(`Quote: ${q.quotedText}`, { size: 8, style: 'italic', indent: 4, gap: 2 });
+      }
+    }
+  }
+
   // Footer: page numbers on every page, added last so the count is final.
   const pageCount = doc.internal.getNumberOfPages();
   for (let page = 1; page <= pageCount; page += 1) {
