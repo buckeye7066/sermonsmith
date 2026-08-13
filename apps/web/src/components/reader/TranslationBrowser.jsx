@@ -60,8 +60,8 @@ export default function TranslationBrowser({
     try {
       const result = await api.functions.invoke('listAvailableTranslations');
 
-      if (result.ok === false) {
-        throw new Error(result.error || 'Failed to load translations');
+      if (!result || result.ok === false) {
+        throw new Error(result?.error || 'Failed to load translations');
       }
 
       const data = result.data || result;
@@ -106,7 +106,7 @@ export default function TranslationBrowser({
       t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.language.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.nativeName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.id.toLowerCase().includes(searchQuery.toLowerCase());
+      String(t.id).toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesRegion = selectedRegion === "all" || t.region === selectedRegion;
     

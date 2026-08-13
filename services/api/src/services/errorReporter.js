@@ -251,7 +251,7 @@ async function analyzeError(error, ctx) {
       };
     }
   } catch (e) {
-    console.error('[errorReporter] AI analysis failed, using heuristic:', e?.message || e);
+    console.error('[errorReporter] AI analysis failed, using heuristic:', e && e.message ? e.message.replace(/OPENAI_API_KEY=[^&\s]+/g, 'OPENAI_API_KEY=[REDACTED]') : e);
   }
   return fallback;
 }

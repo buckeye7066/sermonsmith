@@ -61,16 +61,31 @@ export default function VersionComparison({ book, chapter, onClose }) {
       }
 
       const dataPromises = selectedVersions.map(async (translationId) => {
-        const result = await api.functions.invoke('biblePassage', {
-          translationId,
-          bookCode,
-          chapter
-        });
-        return {
-          translationId,
-          translation: availableTranslations.find(t => t.id === translationId),
-          verses: result?.verses || []
-        };
+        try {
+          const result = await api.functions.invoke('biblePassage', {
+            translationId,
+            bookCode,
+            chapter
+          });
+          return {
+            translationId,
+            translation: availableTranslations.find(t => t.id === translationId),
+            verses: result?.verses || []
+          };
+        } catch (error) {
+          logError('Error fetching passages for translation', error, {
+            endpoint: 'biblePassage',
+            translationId,
+            bookCode,
+            chapter
+          });
+          toast.error(`Failed to fetch passages for ${translationId}`);
+          return {
+            translationId,
+            translation: availableTranslations.find(t => t.id === translationId),
+            verses: []
+          };
+        }
       });
 
       const results = await Promise.all(dataPromises);

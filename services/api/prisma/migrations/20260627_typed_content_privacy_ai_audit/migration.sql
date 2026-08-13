@@ -12,7 +12,7 @@ CREATE TABLE "sermons" (
     "search_text" TEXT,
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "sermons_pkey" PRIMARY KEY ("id")
 );
 
@@ -24,7 +24,7 @@ CREATE TABLE "sermon_series" (
     "search_text" TEXT,
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "sermon_series_pkey" PRIMARY KEY ("id")
 );
 
@@ -35,7 +35,7 @@ CREATE TABLE "sermon_outlines" (
     "status" TEXT NOT NULL DEFAULT 'draft',
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "sermon_outlines_pkey" PRIMARY KEY ("id")
 );
 
@@ -48,7 +48,7 @@ CREATE TABLE "bible_studies" (
     "search_text" TEXT,
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "bible_studies_pkey" PRIMARY KEY ("id")
 );
 
@@ -61,7 +61,7 @@ CREATE TABLE "study_notes" (
     "search_text" TEXT,
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "study_notes_pkey" PRIMARY KEY ("id")
 );
 
@@ -72,7 +72,7 @@ CREATE TABLE "highlights" (
     "color" TEXT,
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "highlights_pkey" PRIMARY KEY ("id")
 );
 
@@ -83,7 +83,7 @@ CREATE TABLE "bookmarks" (
     "label" TEXT,
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "bookmarks_pkey" PRIMARY KEY ("id")
 );
 
@@ -95,7 +95,7 @@ CREATE TABLE "prayer_requests" (
     "visibility" TEXT NOT NULL DEFAULT 'private',
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "prayer_requests_pkey" PRIMARY KEY ("id")
 );
 
@@ -112,7 +112,7 @@ CREATE TABLE "shared_content" (
     "removed_by" TEXT,
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "shared_content_pkey" PRIMARY KEY ("id")
 );
 
@@ -128,7 +128,7 @@ CREATE TABLE "forum_posts" (
     "removed_by" TEXT,
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "forum_posts_pkey" PRIMARY KEY ("id")
 );
 
@@ -140,7 +140,7 @@ CREATE TABLE "study_groups" (
     "status" TEXT NOT NULL DEFAULT 'active',
     "content" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "study_groups_pkey" PRIMARY KEY ("id")
 );
 
@@ -199,7 +199,7 @@ CREATE TABLE "bible_translations" (
     "display_allowed" BOOLEAN NOT NULL DEFAULT true,
     "export_allowed" BOOLEAN NOT NULL DEFAULT false,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "bible_translations_pkey" PRIMARY KEY ("id")
 );
 
@@ -210,7 +210,7 @@ CREATE TABLE "bible_passage_cache" (
     "normalized_ref" TEXT NOT NULL,
     "payload" JSONB NOT NULL,
     "fetched_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "bible_passage_cache_pkey" PRIMARY KEY ("id")
 );
 

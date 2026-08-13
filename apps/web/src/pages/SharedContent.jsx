@@ -18,17 +18,17 @@ export default function SharedContent() {
   const [sharedLink, setSharedLink] = useState(null);
 
   useEffect(() => {
-    // When the URL carries ?link=<slug> we resolve it through the dedicated
-    // share route — the generic entity API would tenant-scope the lookup
-    // away and return 404 even for legitimate share links.
-    const params = new URLSearchParams(window.location.search);
-    const linkSlug = params.get('link');
-    if (linkSlug) {
-      api.community.share(linkSlug)
-        .then((result) => setSharedLink(result))
-        .catch((err) => {
-          toast.error(logError('Could not load share link', err));
-        });
+    // Ensure this code only runs on the client side
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const linkSlug = params.get('link');
+      if (linkSlug) {
+        api.community.share(linkSlug)
+          .then((result) => setSharedLink(result))
+          .catch((err) => {
+            toast.error(logError('Could not load share link', err));
+          });
+      }
     }
   }, []);
 
