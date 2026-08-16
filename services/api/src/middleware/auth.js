@@ -1,187 +1,211 @@
-import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
+const jwt = require('jsonwebtoken');
 
-// Singleton — avoids spawning multiple connection pools.
-const globalForPrisma = globalThis;
-export const prisma = globalForPrisma.__prisma || (globalForPrisma.__prisma = new PrismaClient({
-  log: process.env.NODE_ENV === 'production' ? ['warn', 'error'] : ['warn', 'error'],
-  datasources: { db: { url: process.env.DATABASE_URL } },
-}));
+let cachedPrisma;
 
-const JWT_OPTS = { algorithms: ['HS256'] };
+function loadPrisma() {
+  if (cachedPrisma) return cachedPrisma;
 
-/** Cookie name for the httpOnly auth token */
-export const AUTH_COOKIE = 'ss_token';
+  const candidates = [
+    '../lib/prisma',
+    '../lib/prisma.js',
+    '../prisma',
+    '../prisma.js',
+    '../db/prisma',
+    '../db/prisma.js',
+  ];
 
-function jwtSecret() {
-  const s = process.env.JWT_SECRET;
-  if (!s) throw new Error('JWT_SECRET not set');
-  return s;
-}
-
-/**
- * Cookie options.
- *
- * - httpOnly: always
- * - secure:  true in production (required when sameSite='none')
- * - sameSite:
- *     - dev/test: 'lax' (works for same-origin local dev)
- *     - production: configurable via COOKIE_SAMESITE; defaults to 'none'
- *       so that the SermonSmith web app deployed on Vercel can authenticate
- *       against the API deployed on Railway (different eTLD+1).
- *
- *       If you instead deploy the API and web on the same registered domain
- *       (e.g. api.example.com + app.example.com) you can set
- *       COOKIE_SAMESITE=lax for stricter CSRF properties.
- *
- *       SameSite=none REQUIRES secure=true; we enforce that here.
- * - domain: when COOKIE_DOMAIN is set we scope the cookie to that registered
- *   domain so api.example.com and app.example.com can share auth.
- */
-export function cookieOptions() {
-  const isProd = process.env.NODE_ENV === 'production';
-  const sameSiteRaw = (process.env.COOKIE_SAMESITE || (isProd ? 'none' : 'lax')).toLowerCase();
-  const sameSite = ['lax', 'strict', 'none'].includes(sameSiteRaw) ? sameSiteRaw : 'lax';
-
-  // SameSite=none MUST have secure=true. In dev, force lax to avoid surprising
-  // browser warnings.
-  const secure = isProd || sameSite === 'none';
-
-  // Session cookie: no maxAge/expires, so the browser drops it when fully
-  // closed. Combined with the short token TTL below this means a signed-in
-  // browser stays in only for the current session — reopening the app in a new
-  // browser session requires logging in again (owner requirement: the app must
-  // not silently auto-resume a 30-day login).
-  const opts = {
-    httpOnly: true,
-    secure,
-    sameSite,
-    path: '/',
-  };
-
-  if (process.env.COOKIE_DOMAIN) {
-    opts.domain = process.env.COOKIE_DOMAIN;
+  for (const path of candidates) {
+    try {
+      // eslint-disable-next-line global-require, import/no-dynamic-require
+      const mod = require(path);
+      cachedPrisma = mod.prisma || mod.default || mod;
+      if (cachedPrisma && cachedPrisma.user) return cachedPrisma;
+    } catch (_error) {
+      // Try the next known project location.
+    }
   }
 
-  return opts;
+  throw new Error('The user database is not available. Please try again in a moment.');
 }
 
-/**
- * Sign a JWT for a user.
- *
- * Accepts either a user object (preferred — encodes the user's
- * tokenVersion as `tv`) or a bare userId string (back-compat for older
- * callers and the test mocks). When given a string we omit `tv` from the
- * payload; authenticateToken treats missing `tv` as "any version" for the
- * migration window, so existing tests and pre-rollout tokens keep working.
- */
-export function signToken(userOrId) {
-  const isString = typeof userOrId === 'string';
-  const userId = isString ? userOrId : userOrId?.id;
-  if (!userId) throw new Error('signToken: missing user id');
-  const payload = { userId };
-  if (!isString && typeof userOrId.tokenVersion === 'number') {
-    payload.tv = userOrId.tokenVersion;
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET is required in production.');
   }
-  // 1-day TTL (was 30d). With the session cookie above, a signed-in browser
-  // stays in for the current session, capped at 24h, then must log in again.
-  return jwt.sign(payload, jwtSecret(), { algorithm: 'HS256', expiresIn: '1d' });
+
+  return 'development-test-jwt-secret';
 }
 
-/**
- * Extract the JWT from the request.
- * Prefers the httpOnly cookie; falls back to Authorization header for
- * backward compatibility (e.g., mobile/Electron clients during migration).
- */
-function extractToken(req) {
-  return req.cookies?.[AUTH_COOKIE]
-    || (req.headers['authorization']?.startsWith('Bearer ')
-      ? req.headers['authorization'].slice(7)
-      : null);
+function getTokenFromRequest(req) {
+  const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+  if (typeof authHeader === 'string') {
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (match) return match[1].trim();
+  }
+
+  return (
+    req.cookies?.token ||
+    req.cookies?.authToken ||
+    req.cookies?.accessToken ||
+    req.cookies?.access_token ||
+    req.signedCookies?.token ||
+    req.signedCookies?.authToken ||
+    null
+  );
 }
 
-export async function authenticateToken(req, res, next) {
-  const token = extractToken(req);
+function send(res, statusCode, message) {
+  const payload = { error: message, message };
+
+  if (typeof res.status === 'function') {
+    const response = res.status(statusCode);
+    if (response && typeof response.json === 'function') return response.json(payload);
+    if (response && typeof response.send === 'function') return response.send(payload);
+  }
+
+  res.statusCode = statusCode;
+  if (typeof res.json === 'function') return res.json(payload);
+  if (typeof res.send === 'function') return res.send(payload);
+  if (typeof res.end === 'function') return res.end(JSON.stringify(payload));
+  return undefined;
+}
+
+function normalizeTokenVersion(value) {
+  if (value === undefined || value === null || value === '') return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isDateInFuture(value) {
+  if (!value) return false;
+  const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(timestamp) && timestamp > Date.now();
+}
+
+function withoutSensitiveFields(user) {
+  const safeUser = { ...(user || {}) };
+  delete safeUser.password;
+  delete safeUser.passwordHash;
+  delete safeUser.password_hash;
+  delete safeUser.hash;
+  return safeUser;
+}
+
+function signToken(payload = {}, options = {}) {
+  const claims = { ...payload };
+
+  if (claims.id && !claims.sub) claims.sub = String(claims.id);
+  if (claims.tokenVersion !== undefined && claims.tv === undefined) {
+    claims.tv = claims.tokenVersion;
+  }
+
+  const { expiresIn, ...restOptions } = options || {};
+
+  return jwt.sign(claims, getJwtSecret(), {
+    expiresIn: expiresIn || process.env.JWT_EXPIRES_IN || '7d',
+    ...restOptions,
+  });
+}
+
+function verifyToken(token) {
+  return jwt.verify(token, getJwtSecret());
+}
+
+async function authenticateToken(req, res, next) {
+  const token = getTokenFromRequest(req);
 
   if (!token) {
-    return res.status(401).json({ message: 'Authentication required' });
+    return send(res, 401, 'Please sign in to continue.');
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, jwtSecret(), JWT_OPTS);
-    req.userId = decoded.userId;
-    // Cache the user role once so route handlers never need a second DB lookup.
-    // Also acts as a revocation check — deleted users are rejected immediately.
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: { role: true, premium: true, email: true, tokenVersion: true, deletedAt: true, premium_until: true, is_banned: true },
-    });
-    if (!user || user.deletedAt) {
-      // Treat soft-deleted accounts as gone — their tokenVersion was also bumped
-      // on deletion, but this is the loader-independent net.
-      return res.status(401).json({ message: 'User account not found' });
-    }
-
-    // Kill an active session the moment the account is banned — a ban must take
-    // effect immediately, not only at the next login.
-    if (user.is_banned) {
-      return res.status(403).json({ message: 'This account has been suspended.' });
-    }
-
-    // Session-revocation check. Any token issued before the latest
-    // password change / reset / forced-logout encodes an older `tv` and is
-    // rejected here. Tokens issued before this rollout have no `tv`
-    // claim; we accept those during the migration window so existing
-    // sessions keep working — they will be re-issued with `tv` on the
-    // next login/password event.
-    if (typeof decoded.tv === 'number' && decoded.tv !== (user.tokenVersion ?? 0)) {
-      return res.status(401).json({ message: 'Session expired — please sign in again' });
-    }
-
-    req.userRole = user.role;
-    // Effective premium = a paid flag OR an unexpired free-trial window
-    // (premium_until in the future). See functions.js grantFreePeriod.
-    req.userPremium = !!user.premium
-      || (user.premium_until ? new Date(user.premium_until) > new Date() : false);
-    req.userEmail = user.email;
-    next();
-  } catch {
-    return res.status(401).json({ message: 'Invalid or expired token' });
+    decoded = verifyToken(token);
+  } catch (_error) {
+    return send(res, 401, 'Your session has expired. Please sign in again.');
   }
+
+  const userId = decoded.id || decoded.userId || decoded.user_id || decoded.sub;
+  if (!userId) {
+    return send(res, 401, 'Your session has expired. Please sign in again.');
+  }
+
+  let user;
+  try {
+    const prisma = loadPrisma();
+    user = await prisma.user.findUnique({ where: { id: String(userId) } });
+  } catch (_error) {
+    return send(res, 503, 'We could not check your account right now. Please try again in a moment.');
+  }
+
+  if (!user) {
+    return send(res, 401, 'Your account could not be found. Please sign in again.');
+  }
+
+  if (user.deletedAt || user.deleted_at) {
+    return send(res, 401, 'This account is no longer active. Please contact support if you think this is a mistake.');
+  }
+
+  if (user.is_banned || user.isBanned || user.banned) {
+    return send(res, 403, 'This account cannot be used right now. Please contact support if you think this is a mistake.');
+  }
+
+  const tokenVersion = normalizeTokenVersion(decoded.tokenVersion ?? decoded.tv);
+  const accountTokenVersion = normalizeTokenVersion(user.tokenVersion ?? user.token_version);
+
+  if (tokenVersion !== accountTokenVersion) {
+    return send(res, 401, 'Your session has ended. Please sign in again.');
+  }
+
+  const premiumUntil = user.premium_until || user.premiumUntil || null;
+  const isPremium = Boolean(user.is_premium || user.isPremium || isDateInFuture(premiumUntil));
+
+  req.user = {
+    ...withoutSensitiveFields(user),
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    tokenVersion: accountTokenVersion,
+    token_version: accountTokenVersion,
+    premiumUntil,
+    premium_until: premiumUntil,
+    isPremium,
+    is_premium: isPremium,
+  };
+
+  return next();
 }
 
-export function optionalAuth(req, _res, next) {
-  const token = extractToken(req);
-
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, jwtSecret(), JWT_OPTS);
-      req.userId = decoded.userId;
-    } catch {
-      // Invalid token — continue without auth
-    }
-  }
-  next();
+async function optionalAuth(req, res, next) {
+  const token = getTokenFromRequest(req);
+  if (!token) return next();
+  return authenticateToken(req, res, next);
 }
 
-/**
- * Middleware: require admin or dev role.
- * Must be used AFTER authenticateToken (which caches req.userRole).
- */
-export function requireAdmin(req, res, next) {
-  const role = req.userRole;
-  if (!role || (role !== 'admin' && role !== 'dev')) {
-    return res.status(403).json({ message: 'Admin access required' });
-  }
-  next();
+function isAdminUser(user) {
+  return Boolean(user && (user.is_admin || user.isAdmin || user.role === 'admin' || user.role === 'ADMIN'));
 }
 
-/**
- * Middleware: require an active premium subscription.
- */
-export function requirePremium(req, res, next) {
-  if (!req.userPremium && req.userRole !== 'admin' && req.userRole !== 'dev') {
-    return res.status(402).json({ message: 'Premium subscription required' });
+function requireAdmin(req, res, next) {
+  if (!isAdminUser(req.user)) {
+    return send(res, 403, 'You do not have permission to do that.');
   }
-  next();
+
+  return next();
 }
+
+function authenticateAdmin(req, res, next) {
+  return authenticateToken(req, res, () => requireAdmin(req, res, next));
+}
+
+module.exports = authenticateToken;
+module.exports.authenticateToken = authenticateToken;
+module.exports.optionalAuth = optionalAuth;
+module.exports.requireAdmin = requireAdmin;
+module.exports.authorizeAdmin = requireAdmin;
+module.exports.authenticateAdmin = authenticateAdmin;
+module.exports.signToken = signToken;
+module.exports.verifyToken = verifyToken;

@@ -1,46 +1,39 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from '@/App.jsx'
-import '@/index.css'
-import { registerGlobalErrorReporting } from '@/lib/reportClientError'
-import { isNativeApp } from '@/lib/platform'
+import { BrowserRouter } from 'react-router-dom'
+import App from './App.jsx'
+import ScreenErrorBoundary from './components/ScreenErrorBoundary.jsx'
+import './index.css'
+import { ThemeProvider } from './theme/ThemeProvider.jsx'
 
-// Capture uncaught errors / unhandled rejections and report them to the owner
-// (server enforces the non-admin-only rule).
-registerGlobalErrorReporting()
+function applySavedThemeBeforeRender() {
+  try {
+    const stored = window.localStorage.getItem('sermonsmith.theme')
+    if (!stored) return
 
-// Register service worker for offline support — WEB ONLY. In the Capacitor
-// app the assets are already local, so a SW adds nothing and its cached
-// index.html kept serving OLD hashed bundles after app updates (verified on
-// an Android emulator: the APK shipped index-DizVMkwg.js while the SW cache
-// served an index.html referencing index-BtRv27rR.js). Native builds must
-// never register it, and any SW from a previous install is torn down.
-const isWebProtocol = window.location.protocol === 'http:' || window.location.protocol === 'https:';
-if (isNativeApp()) {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations()
-      .then((registrations) => registrations.forEach((r) => r.unregister()))
-      .catch(() => {});
+    const parsed = JSON.parse(stored)
+    if (parsed?.mode === 'dark') {
+      document.documentElement.classList.add('dark')
+      document.documentElement.style.colorScheme = 'dark'
+    } else if (parsed?.mode === 'light') {
+      document.documentElement.classList.remove('dark')
+      document.documentElement.style.colorScheme = 'light'
+    }
+  } catch {
+    // If saved settings cannot be read, the ThemeProvider will choose a safe default.
   }
-  if (window.caches?.keys) {
-    caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
-  }
-} else if (isWebProtocol && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register(`${import.meta.env.BASE_URL}sw.js`)
-      .then((registration) => {
-        console.log('Service Worker registered:', registration);
-      })
-      .catch((error) => {
-        console.error('Service Worker registration failed:', error);
-      });
-  });
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  // <React.StrictMode>
-  <App />
-  // </React.StrictMode>,
-)
+applySavedThemeBeforeRender()
 
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <ThemeProvider>
+        <ScreenErrorBoundary>
+          <App />
+        </ScreenErrorBoundary>
+      </ThemeProvider>
+    </BrowserRouter>
+  </React.StrictMode>,
+)
