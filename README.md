@@ -1,118 +1,131 @@
 # SermonSmith
 
-**Sermon Smith** is a comprehensive sermon preparation and Bible study application available as a web app, desktop application, and mobile app. Self-hosted with Vercel (frontend) + Railway (backend), it provides powerful tools for pastors, teachers, and Bible students.
+**SermonSmith** is your calm, plain-language workspace for preparing sermons and Bible lessons.
 
-## Features
+It is made for pastors, teachers, and Bible students who want to read Scripture, study a passage, build a sermon or lesson, plan a teaching series, keep a library, and present their message without wrestling with software.
 
-- **Bible Reader** - Read Scripture with multiple translations, highlights, and notes
-- **Sermon Builder (Larry)** - AI-powered sermon outline and content generation
-- **Series Builder (Arlynn)** - Multi-week sermon series planning with teaching context adaptation
-- **Bible Study** - Deep study tools with multi-perspective theological analysis
-- **Worldview Explorer** - Compare interpretations across Christian traditions and world perspectives
-- **Quiz Builder** - Create Bible knowledge quizzes
-- **Bible Maps** - Interactive maps and timelines of biblical events
-- **Christian Ethics** - Explore ethical topics from multiple theological viewpoints
-- **Prayer Generator** - AI-assisted prayer writing
-- **Community** - Share sermons, study plans, and collaborate with other users
-- **Premium Features** - Advanced AI capabilities via Stripe subscription
+## What you can do
 
-## Architecture
+- **Read Scripture** — open the Bible reader and begin with the text.
+- **Study** — gather notes, questions, and helpful study material.
+- **Build Sermon/Lesson** — shape one message from idea to draft.
+- **Plan Series** — organize a multi-week sermon or lesson series.
+- **Library** — return to saved sermons, studies, plans, and resources.
+- **Present** — use a clean view when it is time to teach or preach.
 
-```
-├── apps/
-│   ├── web/          # React + Vite frontend (deployed to Vercel)
-│   ├── desktop/      # Electron desktop app
-│   └── mobile/       # Capacitor mobile app (iOS/Android)
-├── packages/
-│   └── shared/       # Shared utilities
-└── services/
-    └── api/          # Express + Prisma backend (deployed to Railway)
-```
+## Larry and Arlynn
 
-### Tech Stack
+SermonSmith includes two plain-language helpers:
 
-| Layer     | Technology                                         |
-|-----------|----------------------------------------------------|
-| Frontend  | React 18, Vite 6, Tailwind CSS, Radix UI, shadcn/ui |
-| Backend   | Express, Prisma ORM, PostgreSQL                     |
-| Auth      | JWT (bcrypt + jsonwebtoken)                          |
-| AI        | OpenAI API (GPT-4o-mini)                             |
-| Payments  | Stripe                                               |
-| Hosting   | Vercel (web), Railway (API + DB)                     |
-| Desktop   | Electron                                             |
-| Mobile    | Capacitor (iOS, Android)                             |
+- **Larry** helps draft a single sermon or lesson.
+- **Arlynn** helps plan a multi-week series.
 
-## Getting Started
+## Run SermonSmith locally
 
-### Prerequisites
-
-- Node.js 20+
-- PostgreSQL (or Railway for managed DB)
-- OpenAI API key
-
-### 1. Clone and Install
+From the root of this repo:
 
 ```bash
-git clone https://github.com/your-org/sermonsmith.git
-cd sermonsmith
 npm install
-```
-
-### 2. Set Up the Backend
-
-```bash
-cd services/api
-cp .env.example .env
-# Edit .env with your DATABASE_URL, JWT_SECRET, OPENAI_API_KEY
-npx prisma db push
 npm run dev
 ```
 
-### 3. Set Up the Frontend
+Then open the local address shown in your terminal.
+
+## Build the app
 
 ```bash
-cd apps/web
-cp .env.example .env
-# Edit .env: VITE_API_URL=http://localhost:3001
-npm run dev
+npm run build
 ```
 
-### 4. Open in Browser
+This creates the production build for the web app and runs the checks included in the root build command.
 
-Visit `http://localhost:5173` to use the app.
+## Run tests
 
-## Deployment
+```bash
+npm test
+```
 
-### Frontend (Vercel)
+You can also run only the web tests:
 
-1. Connect the repo to Vercel
-2. Set root directory to `apps/web`
-3. Set environment variable: `VITE_API_URL=https://your-api.up.railway.app`
-4. Deploy
+```bash
+npm run test:web
+```
 
-### Backend (Railway)
+## Project layout
 
-1. Create a new Railway project
-2. Add a PostgreSQL database
-3. Deploy from `services/api` directory
-4. Set environment variables (see `services/api/.env.example`)
+This repo is a monorepo. The main user-facing app lives in `apps/web`.
 
-## Supported Platforms
+```text
+apps/
+  web/      SermonSmith web app
+  desktop/  Desktop app wrapper
+  mobile/   Mobile app wrapper
+packages/   Shared code
+services/   Optional service code used by features that need it
+```
 
-| Platform | Method          |
-|----------|-----------------|
-| Web      | Vercel hosting  |
-| Windows  | Electron        |
-| macOS    | Electron        |
-| Linux    | Electron        |
-| Android  | Capacitor       |
-| iOS      | Capacitor       |
+## Navigation and pages
 
-## License
+The everyday navigation should stay simple and ministry-focused:
 
-MIT
+1. Read Scripture
+2. Study
+3. Build Sermon/Lesson
+4. Plan Series
+5. Library
+6. Present
 
-## Credits
+The web app should use one shared page or route list as the source of truth for both navigation links and rendered pages. In this repo, keep that shared list with the web app route/page configuration so a menu item cannot point to a missing screen.
 
-- **AI Assistants**: Larry (Teaching & Sermon) and Arlynn (Series Specialist)
-- Built with React, Vite, Prisma, Express, OpenAI, and Stripe
+Each ordinary navigation item should include:
+
+- a stable `id`
+- a plain `label`
+- a `route`
+- a one-line `description`
+- an `icon`
+- `isBuilt`
+- `visibleToOrdinaryUser`
+
+Only items with `visibleToOrdinaryUser: true` should appear in the main navigation. Admin, developer, testing, and internal review screens should not appear in the ordinary user navigation.
+
+## Marking a feature as built
+
+When a feature is ready for everyday use:
+
+1. Point its route to the real page component.
+2. Set `isBuilt: true` in the shared route/page list.
+3. Keep the one-line description clear and non-technical.
+4. Make sure the page has a visible heading and a clear next action.
+
+## Adding a friendly placeholder
+
+If a feature is not ready yet, do not show a blank screen or a technical error.
+
+Add a friendly placeholder page with:
+
+- a clear title
+- one sentence explaining what will go there
+- one sentence telling the user what they can do right now instead
+
+Example tone:
+
+> Series planning will help you organize several weeks of teaching in one place. For now, you can start one message in Build Sermon/Lesson or save ideas in your Library.
+
+## Theme preference
+
+SermonSmith supports light and dark themes. The theme toggle should be easy to find, clearly labeled, and remembered for the next visit.
+
+Theme preference is stored in the browser with localStorage using a small preference object. If the saved preference is missing or cannot be read, the app should quietly use the sensible default and keep working.
+
+## Local-first approach
+
+SermonSmith should keep the everyday experience local-first whenever possible. Navigation, theme preference, placeholders, and ordinary draft work should work from the browser without requiring a user to understand servers or setup details.
+
+Some advanced or connected features may use service code, but the basic workflow should remain simple: open the app, choose where to begin, and keep working.
+
+## Plain-language rule
+
+Every message a user sees should explain what happened and what to do next in everyday words.
+
+Avoid raw error text, developer terms, and unexplained empty screens.

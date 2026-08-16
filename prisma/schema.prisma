@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String             @id @default(cuid())
+  email                String             @unique
+  password             String?
+  passwordHash         String?
+  name                 String?
+  role                 String             @default("user")
+  isAdmin              Boolean            @default(false)
+  premium              Boolean            @default(false)
+  premiumUntil         DateTime?
+  premium_until        DateTime?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  subscriptionStatus   String?
+  trialStartedAt       DateTime?
+  trialEndsAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  sermons              Sermon[]
+  series               Series[]
+  notes                Note[]
+  shareLinks           ShareLink[]
+  communityPosts       CommunityPost[]
+  communityComments    CommunityComment[]
+  subscriptions        Subscription[]
+}
+
+model Sermon {
+  id          String      @id @default(cuid())
+  title       String
+  scripture   String?
+  passage     String?
+  summary     String?
+  content     String?
+  body        String?
+  outline     Json?
+  metadata    Json?
+  status      String      @default("draft")
+  userId      String?
+  seriesId    String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  series      Series?     @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  notes       Note[]
+  shareLinks  ShareLink[]
+  entities    Entity[]
+}
+
+model Series {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  theme       String?
+  metadata    Json?
+  userId      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sermons     Sermon[]
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  title     String?
+  content   String?
+  body      String?
+  metadata  Json?
+  userId    String?
+  sermonId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sermon    Sermon?  @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+}
+
+model ShareLink {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  title     String?
+  active    Boolean   @default(true)
+  expiresAt DateTime?
+  userId    String?
+  sermonId  String?
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sermon    Sermon?   @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+}
+
+model Entity {
+  id        String   @id @default(cuid())
+  type      String
+  name      String
+  value     String?
+  data      Json?
+  sermonId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sermon    Sermon?  @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+}
+
+model CommunityPost {
+  id        String             @id @default(cuid())
+  title     String
+  content   String?
+  body      String?
+  status    String             @default("published")
+  metadata  Json?
+  authorId  String?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  author    User?              @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  comments  CommunityComment[]
+}
+
+model CommunityComment {
+  id        String         @id @default(cuid())
+  content   String
+  body      String?
+  authorId  String?
+  postId    String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  author    User?          @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  post      CommunityPost? @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?   @unique
+  status               String?
+  currentPeriodEnd     DateTime?
+  metadata             Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ApiUsage {
+  id        String   @id @default(cuid())
+  userId    String?
+  feature   String?
+  model     String?
+  tokens    Int      @default(0)
+  cost      Float    @default(0)
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
