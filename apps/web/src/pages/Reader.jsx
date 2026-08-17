@@ -1269,6 +1269,7 @@ export default function Reader() {
                         onJump={handleJumpToVerse}
                         currentBook={currentBook}
                         currentChapter={currentChapter}
+                        currentTranslation={currentTranslation}
                         translationBookInfo={translationBookInfo}
                       />
 
