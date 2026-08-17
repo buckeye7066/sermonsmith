@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { createReadinessClient } from '@sermonsmith/shared';
+import { createReadinessClient } from '../packages/shared/api/index.js';
 
 const DEPLOYMENT_ATTEMPTS = 40;
 const DEPLOYMENT_POLL_MS = 15_000;
