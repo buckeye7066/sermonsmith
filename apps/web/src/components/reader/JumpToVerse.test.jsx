@@ -74,4 +74,16 @@ describe('JumpToVerse translation-aware validation', () => {
     expect(onJump).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('defers verse bounds for an unaudited translation', () => {
+    const { onClose, onJump } = renderJumpToVerse({
+      currentChapter: 14,
+      currentTranslation: 'bbe',
+    });
+
+    submitVerse(24);
+
+    expect(onJump).toHaveBeenCalledWith('Romans', 14, 24);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
