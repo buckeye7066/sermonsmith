@@ -85,7 +85,9 @@ describe('bibleVerseCounts table integrity', () => {
     expect(versesInChapter('Romans', 14, 'web')).toBe(26);
     expect(versesInChapter('Romans', 14, 'en-web')).toBe(26);
     expect(versesInChapter('Romans', 16, 'WEB')).toBe(25);
-    expect(versesInChapter('Romans', 14, 'unverified-premium')).toBe(23);
+    expect(versesInChapter('Romans', 14, 'asv')).toBe(23);
+    expect(versesInChapter('Romans', 14, 'bbe')).toBe(null);
+    expect(versesInChapter('Romans', 14, 'unverified-premium')).toBe(null);
   });
 
   it('knows the longest chapter is Psalm 119 with 176 verses', () => {
