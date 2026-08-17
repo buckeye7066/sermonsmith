@@ -86,7 +86,9 @@ VERSE_COUNTS['song of songs'] = VERSE_COUNTS['song of solomon'];
 // Translation-specific versification differences verified against the pinned
 // wldeh/bible-api data used by the Reader. Keep the canonical table above KJV
 // compatible; only translations with an exhaustively audited difference belong
-// here. Unknown/premium translations intentionally retain the canonical bound.
+// here. Explicit unknown/premium translations intentionally return no bound so
+// the Reader can defer to the provider instead of enforcing KJV versification.
+const AUDITED_TRANSLATION_IDS = new Set(['kjv', 'asv', 'web']);
 const TRANSLATION_VERSE_COUNT_OVERRIDES = {
   web: {
     romans: { 14: 26, 16: 25 },
@@ -103,9 +105,10 @@ function normalizeTranslationId(translationId) {
 /**
  * Verses in a given (book, chapter), or null if unknown. `book` and the
  * optional `translationId` are matched case-insensitively. Audited translation
- * overrides are applied when available; otherwise the KJV/Protestant count is
- * returned. Unknown books or out-of-range chapters return null so callers can
- * fall back to a coarser bound.
+ * overrides are applied when available. Calls without a translation use the
+ * KJV/Protestant count; an explicit unaudited translation returns null so UI
+ * callers do not enforce a false bound. Unknown books and out-of-range chapters
+ * also return null.
  */
 export function versesInChapter(book, chapter, translationId) {
   const bookKey = String(book).toLowerCase();
@@ -113,6 +116,7 @@ export function versesInChapter(book, chapter, translationId) {
   if (!arr) return null;
   if (!Number.isInteger(chapter) || chapter < 1 || chapter > arr.length) return null;
   const translationKey = normalizeTranslationId(translationId);
+  if (translationKey && !AUDITED_TRANSLATION_IDS.has(translationKey)) return null;
   const override = TRANSLATION_VERSE_COUNT_OVERRIDES[translationKey]?.[bookKey]?.[chapter];
   if (override != null) return override;
   return arr[chapter - 1];
