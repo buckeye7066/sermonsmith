@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -15,6 +16,10 @@ import SermonAdaptation from "./SermonAdaptation";
 import PresentationMode from "./PresentationMode";
 import TheologicalExplorer from "./TheologicalExplorer";
 import ExegesisHelper from "./ExegesisHelper";
+import {
+  PASTORAL_REVIEW_ITEMS,
+  isPastoralReviewChecklistComplete,
+} from "@sermonsmith/shared/review";
 
 export default function SermonEditor({
   sermonData,
@@ -35,12 +40,14 @@ export default function SermonEditor({
   const [exegesisPassage, setExegesisPassage] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
+  const [reviewChecklist, setReviewChecklist] = useState({});
 
   // Update internal state when sermonData prop changes
   useEffect(() => {
     if (sermonData) {
       setCurrentSermon(sermonData);
       setEditedTitle(sermonData.title || "");
+      setReviewChecklist({});
     }
   }, [sermonData]);
 
@@ -407,12 +414,20 @@ export default function SermonEditor({
         const invalid = refs.filter((r) => r.status === 'invalid_book' || r.status === 'out_of_range' || r.status === 'unparseable');
         const deutero = refs.filter((r) => r.status === 'chapter_checked' || r.status === 'unsupported_canon');
         const reviewed = currentSermon.pastor_reviewed === true;
+        const completedReviewItems = PASTORAL_REVIEW_ITEMS
+          .filter(({ id }) => reviewChecklist[id])
+          .map(({ id }) => id);
+        const reviewReady = isPastoralReviewChecklistComplete(completedReviewItems);
 
         const handleReview = async (acknowledged) => {
           if (!currentSermon.id) return;
           setIsReviewing(true);
           try {
-            const updated = await api.entities.Sermon.review(currentSermon.id, acknowledged);
+            const updated = await api.entities.Sermon.review(
+              currentSermon.id,
+              acknowledged,
+              acknowledged ? completedReviewItems : [],
+            );
             setCurrentSermon((prev) => ({ ...prev, ...updated }));
             toast.success(acknowledged ? 'Marked as pastor reviewed.' : 'Review withdrawn.');
           } catch (err) {
@@ -452,7 +467,7 @@ export default function SermonEditor({
                     variant="outline"
                     size="sm"
                     className="ml-auto"
-                    disabled={isReviewing}
+                    disabled={isReviewing || (!reviewed && !reviewReady)}
                     onClick={() => handleReview(!reviewed)}
                   >
                     {isReviewing ? (
@@ -469,6 +484,35 @@ export default function SermonEditor({
                   {invalid.map((r) => `${r.ref} (${r.status === 'invalid_book' ? 'unknown book' : 'out of range'})`).join(' · ')}
                   {' — '}open the Reader to verify each passage before preaching.
                 </p>
+              )}
+              {!reviewed && currentSermon.id && (
+                <div className="mt-4 space-y-3 border-t pt-4">
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-gray-100">Pastoral review checklist</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      Complete all {PASTORAL_REVIEW_ITEMS.length} checkpoints before recording your review.
+                    </p>
+                  </div>
+                  {PASTORAL_REVIEW_ITEMS.map((item) => (
+                    <label key={item.id} className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                      <Checkbox
+                        checked={Boolean(reviewChecklist[item.id])}
+                        onCheckedChange={(checked) => setReviewChecklist((previous) => ({
+                          ...previous,
+                          [item.id]: checked === true,
+                        }))}
+                        aria-label={item.label}
+                      />
+                      <span>
+                        <span className="block text-sm font-medium">{item.label}</span>
+                        <span className="block text-xs text-gray-600 dark:text-gray-400">{item.description}</span>
+                      </span>
+                    </label>
+                  ))}
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    {completedReviewItems.length} of {PASTORAL_REVIEW_ITEMS.length} checkpoints complete
+                  </p>
+                </div>
               )}
             </AlertDescription>
           </Alert>
