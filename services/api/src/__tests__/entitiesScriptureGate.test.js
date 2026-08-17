@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
+import { PASTORAL_REVIEW_ITEM_IDS } from '@sermonsmith/shared/review';
 
 // Server-side Scripture / quality-state gate tests.
 //
@@ -13,6 +14,10 @@ import { createPrismaMock } from './setup.js';
 // premature `published` status must never be stored as authoritative.
 
 const prisma = createPrismaMock();
+const completedReview = () => ({
+  acknowledged: true,
+  checklist: [...PASTORAL_REVIEW_ITEM_IDS],
+});
 
 vi.mock('../middleware/auth.js', () => ({
   prisma,
@@ -278,11 +283,13 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     const res = await request(app)
       .post(`/api/entities/Sermon/${sermon.id}/review`)
       .set('Cookie', asUser('u-pastor'))
-      .send({ acknowledged: true });
+      .send(completedReview());
     expect(res.status).toBe(200);
     expect(res.body.pastor_reviewed).toBe(true);
     expect(res.body.reviewed_by).toBe('u-pastor');
     expect(res.body.reviewed_at).toBeTruthy();
+    expect(res.body.review_checklist).toEqual(PASTORAL_REVIEW_ITEM_IDS);
+    expect(res.body.review_checklist_version).toBe(1);
     expect(res.body.scripture_validation[0].status).toBe('valid');
   });
 
@@ -295,12 +302,22 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     expect(res.status).toBe(400);
   });
 
+  it('review acknowledgment requires every pastoral checkpoint', async () => {
+    const sermon = await createSermon('u-pastor', { title: 'Incomplete review', anchor_passage: 'John 3:16' });
+    const res = await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({ acknowledged: true, checklist: PASTORAL_REVIEW_ITEM_IDS.slice(0, -1) });
+    expect(res.status).toBe(400);
+    expect(res.body.missing).toEqual(['pastoral_application']);
+  });
+
   it('only the owner may acknowledge review', async () => {
     const sermon = await createSermon('u-pastor', { title: 'Mine', anchor_passage: 'John 3:16' });
     const res = await request(app)
       .post(`/api/entities/Sermon/${sermon.id}/review`)
       .set('Cookie', asUser('u-catholic'))
-      .send({ acknowledged: true });
+      .send(completedReview());
     expect(res.status).toBe(403);
   });
 
@@ -308,7 +325,7 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     const res = await request(app)
       .post('/api/entities/Note/some-id/review')
       .set('Cookie', asUser('u-pastor'))
-      .send({ acknowledged: true });
+      .send(completedReview());
     expect(res.status).toBe(400);
   });
 
@@ -317,7 +334,7 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     await request(app)
       .post(`/api/entities/Sermon/${sermon.id}/review`)
       .set('Cookie', asUser('u-pastor'))
-      .send({ acknowledged: true });
+      .send(completedReview());
 
     const edited = await request(app)
       .put(`/api/entities/Sermon/${sermon.id}`)
@@ -333,7 +350,7 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     await request(app)
       .post(`/api/entities/Sermon/${sermon.id}/review`)
       .set('Cookie', asUser('u-pastor'))
-      .send({ acknowledged: true });
+      .send(completedReview());
 
     const archived = await request(app)
       .put(`/api/entities/Sermon/${sermon.id}`)
@@ -348,7 +365,7 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     await request(app)
       .post(`/api/entities/Sermon/${sermon.id}/review`)
       .set('Cookie', asUser('u-pastor'))
-      .send({ acknowledged: true });
+      .send(completedReview());
 
     const publish = await request(app)
       .put(`/api/entities/Sermon/${sermon.id}`)
@@ -362,7 +379,7 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     await request(app)
       .post(`/api/entities/Sermon/${sermon.id}/review`)
       .set('Cookie', asUser('u-pastor'))
-      .send({ acknowledged: true });
+      .send(completedReview());
     const res = await request(app)
       .post(`/api/entities/Sermon/${sermon.id}/review`)
       .set('Cookie', asUser('u-pastor'))
