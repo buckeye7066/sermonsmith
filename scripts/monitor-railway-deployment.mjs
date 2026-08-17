@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { createReadinessClient } from '@sermonsmith/shared';
 
 const DEPLOYMENT_ATTEMPTS = 40;
 const DEPLOYMENT_POLL_MS = 15_000;
@@ -55,12 +56,6 @@ function parseDeploymentList(output) {
   }
 }
 
-async function fetchReadiness(readyUrl, fetchFn) {
-  const response = await fetchFn(readyUrl, { signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error(`readiness returned HTTP ${response.status}`);
-  return response.json();
-}
-
 async function emitLogs(executor, args, errorLog) {
   const result = commandResult(await executor(args));
   if (result.stdout) errorLog(result.stdout.trimEnd());
@@ -71,9 +66,8 @@ export async function waitForExactDeployment(options) {
   const {
     service,
     expectedSha,
-    readyUrl,
+    apiBaseUrl,
     executor = defaultExecutor,
-    fetchFn = globalThis.fetch,
     sleep = defaultSleep,
     log = console.log,
     errorLog = console.error,
@@ -82,6 +76,7 @@ export async function waitForExactDeployment(options) {
     liveAttempts = LIVE_ATTEMPTS,
     livePollMs = LIVE_POLL_MS,
   } = options;
+  const apiClient = options.apiClient || createReadinessClient({ baseUrl: apiBaseUrl });
   let lastMatch = null;
 
   log(`Watching ${service} for exact commit ${expectedSha}`);
@@ -117,7 +112,7 @@ export async function waitForExactDeployment(options) {
       log(`Railway reports exact deployment ${deploymentId} successful; verifying live identity.`);
       for (let liveAttempt = 1; liveAttempt <= liveAttempts; liveAttempt += 1) {
         try {
-          const readiness = await fetchReadiness(readyUrl, fetchFn);
+          const readiness = await apiClient.getReadiness();
           if (readiness?.releaseSha === expectedSha) {
             log(`Live readiness confirms exact release ${expectedSha}`);
             return { deployment: lastMatch, readiness };
@@ -142,11 +137,11 @@ export async function waitForExactDeployment(options) {
 async function main() {
   const service = process.env.RAILWAY_SERVICE || 'sermonsmith-api';
   const expectedSha = process.env.EXPECTED_SHA;
-  const readyUrl = process.env.READY_URL;
+  const apiBaseUrl = process.env.API_BASE_URL;
   if (!process.env.RAILWAY_TOKEN) throw new Error('RAILWAY_TOKEN is required');
   if (!/^[0-9a-f]{40}$/i.test(expectedSha || '')) throw new Error('EXPECTED_SHA must be an exact 40-character commit SHA');
-  if (!readyUrl) throw new Error('READY_URL is required');
-  await waitForExactDeployment({ service, expectedSha, readyUrl });
+  if (!apiBaseUrl) throw new Error('API_BASE_URL is required');
+  await waitForExactDeployment({ service, expectedSha, apiBaseUrl });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

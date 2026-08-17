@@ -26,5 +26,5 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           EXPECTED_SHA: ${{ github.sha }}
-          READY_URL: https://sermonsmith-api-production.up.railway.app/readyz
+          API_BASE_URL: https://sermonsmith-api-production.up.railway.app
         run: node scripts/monitor-railway-deployment.mjs

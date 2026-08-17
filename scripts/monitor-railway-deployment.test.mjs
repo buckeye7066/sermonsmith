@@ -7,10 +7,6 @@ import {
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
 
-function response(body, { ok = true, status = 200 } = {}) {
-  return { ok, status, json: async () => body };
-}
-
 test('selects the latest deployment for the exact commit and ignores newer unrelated pushes', () => {
   const selected = selectExactDeployment([
     { id: 'exact-old', status: 'FAILED', createdAt: '2026-08-17T10:00:00Z', meta: { commitHash: SHA } },
@@ -27,14 +23,16 @@ test('waits through live identity lag and accepts only the expected release SHA'
   const result = await waitForExactDeployment({
     service: 'sermonsmith-api',
     expectedSha: SHA,
-    readyUrl: 'https://example.test/readyz',
+    apiBaseUrl: 'https://example.test',
     executor: () => ({
       status: 0,
       stdout: JSON.stringify([{ id: 'deploy-1', status: 'SUCCESS', meta: { commitHash: SHA } }]),
     }),
-    fetchFn: async () => {
-      liveCalls += 1;
-      return response({ status: 'ready', releaseSha: liveCalls === 1 ? 'f'.repeat(40) : SHA });
+    apiClient: {
+      getReadiness: async () => {
+        liveCalls += 1;
+        return { status: 'ready', releaseSha: liveCalls === 1 ? 'f'.repeat(40) : SHA };
+      },
     },
     sleep: async (ms) => delays.push(ms),
     log: () => {},
@@ -52,7 +50,7 @@ test('retries a transient list failure before matching the exact commit', async 
   await waitForExactDeployment({
     service: 'sermonsmith-api',
     expectedSha: SHA,
-    readyUrl: 'https://example.test/readyz',
+    apiBaseUrl: 'https://example.test',
     executor: () => {
       lists += 1;
       if (lists === 1) return { status: 1, stderr: 'temporary network failure' };
@@ -61,7 +59,7 @@ test('retries a transient list failure before matching the exact commit', async 
         stdout: JSON.stringify([{ id: 'deploy-2', status: 'SUCCESS', meta: { commitHash: SHA } }]),
       };
     },
-    fetchFn: async () => response({ status: 'ready', releaseSha: SHA }),
+    apiClient: { getReadiness: async () => ({ status: 'ready', releaseSha: SHA }) },
     sleep: async (ms) => delays.push(ms),
     log: () => {},
     errorLog: () => {},
@@ -78,7 +76,7 @@ test('surfaces exact failed-deployment build and deploy logs', async () => {
     waitForExactDeployment({
       service: 'sermonsmith-api',
       expectedSha: SHA,
-      readyUrl: 'https://example.test/readyz',
+      apiBaseUrl: 'https://example.test',
       executor: (args) => {
         calls.push(args);
         if (args[0] === 'deployment') {
@@ -89,7 +87,7 @@ test('surfaces exact failed-deployment build and deploy logs', async () => {
         }
         return { status: 0, stdout: args.includes('--build') ? 'build failed' : 'deploy crashed' };
       },
-      fetchFn: async () => assert.fail('failed deployment must not probe live readiness'),
+      apiClient: { getReadiness: async () => assert.fail('failed deployment must not probe live readiness') },
       sleep: async () => {},
       log: () => {},
       errorLog: (message) => errors.push(message),
@@ -108,12 +106,12 @@ test('times out when only unrelated commit deployments exist', async () => {
     waitForExactDeployment({
       service: 'sermonsmith-api',
       expectedSha: SHA,
-      readyUrl: 'https://example.test/readyz',
+      apiBaseUrl: 'https://example.test',
       executor: () => ({
         status: 0,
         stdout: JSON.stringify([{ id: 'other', status: 'SUCCESS', meta: { commitHash: 'f'.repeat(40) } }]),
       }),
-      fetchFn: async () => assert.fail('unrelated deployment must not probe readiness'),
+      apiClient: { getReadiness: async () => assert.fail('unrelated deployment must not probe readiness') },
       sleep: async (ms) => delays.push(ms),
       log: () => {},
       errorLog: () => {},

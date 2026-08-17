@@ -1,4 +1,2 @@
-// Shared configuration, API client, types, and validators
-// This package will be populated in future PRs
-
-export {};
+// Shared configuration, API client, types, and validators.
+export { createReadinessClient, READINESS_CLIENT_CONSTANTS } from './api/index.js';
