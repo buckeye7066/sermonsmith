@@ -95,7 +95,10 @@ const STATIC_BIBLE_DATASETS = Object.freeze({
   web: 'en-web',
   asv: 'en-asv',
 });
-const STATIC_BIBLE_BASE = 'https://cdn.jsdelivr.net/gh/wldeh/bible-api@main/bibles';
+// Pin the reviewed dataset revision so Scripture text cannot change merely
+// because the upstream repository's default branch moves.
+const STATIC_BIBLE_REVISION = '1d6987e268fcadb1e96ceb487e3d365a5e837f4a';
+const STATIC_BIBLE_BASE = `https://cdn.jsdelivr.net/gh/wldeh/bible-api@${STATIC_BIBLE_REVISION}/bibles`;
 
 function normalizeStaticChapter(payload, book, chapter, translationId) {
   const rows = Array.isArray(payload?.data) ? payload.data : [];
