@@ -112,7 +112,7 @@ export default function SearchDialog({ open, onClose, onSelectVerse, currentTran
       toast.error(msg);
       return;
     }
-    const maxVerse = versesInChapter(book, chapter);
+    const maxVerse = versesInChapter(book, chapter, currentTranslation);
     if (maxVerse && (verse < 1 || verse > maxVerse)) {
       const msg = `${book} ${chapter} has ${maxVerse} verse${maxVerse === 1 ? '' : 's'} — verse ${verse} doesn't exist.`;
       setError(msg);
