@@ -696,7 +696,7 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ message: 'Body must include { acknowledged: true | false } — review is an explicit human action.' });
     }
     const existing = await prisma.entity.findUnique({
-      select: { id: true, type: true, data: true, userId: true },
+      select: { id: true, type: true, data: true, userId: true, updatedAt: true },
       where: { id: req.params.id },
     });
     if (!existing || existing.type !== req.params.type) return res.status(404).json({ message: 'Not found' });
@@ -733,10 +733,26 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
           scripture_validation: validation.refs,
         };
 
-    const entity = await prisma.entity.update({
-      where: { id: req.params.id },
+    // The content validated above must be the same content we mark reviewed.
+    // Match updatedAt as an optimistic-concurrency token so a simultaneous
+    // sermon edit cannot be overwritten by this read/validate/write cycle or
+    // inherit a stale pastoral-review acknowledgment.
+    const result = await prisma.entity.updateMany({
+      where: {
+        id: existing.id,
+        type: existing.type,
+        userId: existing.userId,
+        updatedAt: existing.updatedAt,
+      },
       data: { data: { ...existing.data, ...reviewFields, updated_date: new Date().toISOString() } },
     });
+    if (result.count !== 1) {
+      return res.status(409).json({
+        message: 'Content changed while review was being acknowledged. Re-open the latest draft and review it again.',
+      });
+    }
+
+    const entity = await prisma.entity.findUnique({ where: { id: existing.id } });
     res.json(formatEntity(entity));
   } catch (err) {
     next(err);

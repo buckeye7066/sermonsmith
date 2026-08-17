@@ -13,42 +13,18 @@ on:
 jobs:
   verify-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - name: Wait for a fresh successful deployment
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@5.41.2
+
+      - name: Wait for the exact commit and verify the live release identity
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          PUSH_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
-        run: |
-          set -uo pipefail
-          SERVICE="sermonsmith-api"
-          # Use the commit's own push timestamp, not a runner-local clock read —
-          # Railway has been observed deploying within ~2 seconds of a push, which
-          # is faster than this job even finishes installing the CLI. A 60s buffer
-          # absorbs clock skew between GitHub and Railway.
-          START_EPOCH=$(( $(date -u -d "$PUSH_TIMESTAMP" +%s) - 60 ))
-          echo "Watching for a new $SERVICE deployment created at/after $(date -u -d "@$START_EPOCH")"
-
-          for i in $(seq 1 40); do
-            LATEST_LINE=$(railway deployment list --service "$SERVICE" 2>/dev/null | sed -n '2p')
-            STATUS=$(echo "$LATEST_LINE" | awk -F'|' '{print $2}' | xargs)
-            CREATED=$(echo "$LATEST_LINE" | awk -F'|' '{print $3}' | xargs)
-            CREATED_EPOCH=$(date -u -d "$CREATED" +%s 2>/dev/null || echo 0)
-
-            if [ "$CREATED_EPOCH" -ge "$START_EPOCH" ]; then
-              if [ "$STATUS" = "SUCCESS" ]; then
-                echo "New deployment confirmed: $LATEST_LINE"
-                exit 0
-              elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "CRASHED" ]; then
-                echo "::error::New deployment for $SERVICE failed: $LATEST_LINE"
-                exit 1
-              fi
-              echo "Deployment in progress ($STATUS), waiting..."
-            fi
-            sleep 15
-          done
-
-          echo "::error::No new successful Railway deployment for $SERVICE landed within 10 minutes of this push (last seen: $LATEST_LINE). Auto-deploy may be broken again — check 'railway status --json' for a null source.repo, same root cause as 2026-07-05."
-          exit 1
+          EXPECTED_SHA: ${{ github.sha }}
+          READY_URL: https://sermonsmith-api-production.up.railway.app/readyz
+        run: node scripts/monitor-railway-deployment.mjs

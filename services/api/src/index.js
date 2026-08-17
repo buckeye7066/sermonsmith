@@ -30,6 +30,7 @@ function isSafeRequestId(value) {
 export function buildApp(opts = {}) {
   const app = express();
   const allowedOrigins = env.corsAllowList();
+  const readinessProbe = opts.readinessProbe || (() => prisma.$queryRaw`SELECT 1`);
   // Optional shared rate-limit stores (Redis), resolved by the caller when
   // REDIS_URL is set. Undefined → express-rate-limit's default in-memory store,
   // which is correct for a single instance. Passing them per-limiter is what
@@ -128,19 +129,20 @@ export function buildApp(opts = {}) {
   app.use(express.json({ limit: '2mb' }));
 
   // Liveness — process is up.
-  app.get('/healthz', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
-  app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
-  app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+  app.get('/healthz', (_req, res) => res.json({ status: 'ok', releaseSha: env.releaseSha, timestamp: new Date().toISOString() }));
+  app.get('/health', (_req, res) => res.json({ status: 'ok', releaseSha: env.releaseSha, timestamp: new Date().toISOString() }));
+  app.get('/api/health', (_req, res) => res.json({ status: 'ok', releaseSha: env.releaseSha, timestamp: new Date().toISOString() }));
 
   // Readiness — process is up AND can reach its hard dependencies.
   app.get('/readyz', async (_req, res) => {
     try {
-      await prisma.$queryRaw`SELECT 1`;
+      await readinessProbe();
     } catch (err) {
-      return res.status(503).json({ status: 'not_ready', reason: 'database unreachable' });
+      return res.status(503).json({ status: 'not_ready', reason: 'database unreachable', releaseSha: env.releaseSha });
     }
     return res.json({
       status: 'ready',
+      releaseSha: env.releaseSha,
       aiEnabled: env.aiEnabled,
       billingEnabled: env.billingEnabled,
       passwordResetEnabled: env.passwordResetEnabled,

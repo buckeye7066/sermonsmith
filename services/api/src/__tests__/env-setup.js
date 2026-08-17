@@ -7,6 +7,7 @@ process.env.CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
 process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/test';
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 process.env.LOG_LEVEL = process.env.LOG_LEVEL || 'silent';
+process.env.RELEASE_SHA = process.env.RELEASE_SHA || '0123456789abcdef0123456789abcdef01234567';
 process.env.DISABLE_AI = process.env.DISABLE_AI || '1';
 process.env.DISABLE_BILLING = process.env.DISABLE_BILLING || '1';
 process.env.DISABLE_PASSWORD_RESET = process.env.DISABLE_PASSWORD_RESET || '1';

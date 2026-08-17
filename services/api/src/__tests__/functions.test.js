@@ -147,6 +147,70 @@ describe('function routes - Bible source registry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('serves every chapter of every multi-token book from all pinned static datasets without fallback', async () => {
+    const affectedBooks = [
+      ['1 Samuel', 31, '1samuel'], ['2 Samuel', 24, '2samuel'],
+      ['1 Kings', 22, '1kings'], ['2 Kings', 25, '2kings'],
+      ['1 Chronicles', 29, '1chronicles'], ['2 Chronicles', 36, '2chronicles'],
+      ['Song of Solomon', 8, 'songofsolomon'],
+      ['1 Corinthians', 16, '1corinthians'], ['2 Corinthians', 13, '2corinthians'],
+      ['1 Thessalonians', 5, '1thessalonians'], ['2 Thessalonians', 3, '2thessalonians'],
+      ['1 Timothy', 6, '1timothy'], ['2 Timothy', 4, '2timothy'],
+      ['1 Peter', 5, '1peter'], ['2 Peter', 3, '2peter'],
+      ['1 John', 5, '1john'], ['2 John', 1, '2john'], ['3 John', 1, '3john'],
+    ];
+    const translations = ['kjv', 'web', 'asv'];
+    const namesBySlug = new Map(
+      affectedBooks.map(([name, , expectedSlug]) => [expectedSlug, name]),
+    );
+    const chaptersPerTranslation = affectedBooks.reduce((total, [, chapters]) => total + chapters, 0);
+
+    expect(affectedBooks).toHaveLength(18);
+    expect(chaptersPerTranslation).toBe(237);
+
+    const fetchMock = vi.fn(async (url) => {
+      const value = String(url);
+      if (value.includes('bible-api.com')) {
+        throw new Error(`Unexpected fallback request: ${value}`);
+      }
+      const match = value.match(/\/bibles\/en-(kjv|web|asv)\/books\/([^/]+)\/chapters\/(\d+)\.json$/);
+      if (!match || !namesBySlug.has(match[2])) {
+        throw new Error(`Unexpected static Bible URL: ${value}`);
+      }
+      const [, translation, slug, chapter] = match;
+      return {
+        ok: true,
+        json: async () => ({
+          data: [{
+            book: namesBySlug.get(slug),
+            chapter,
+            verse: '1',
+            text: `${translation} ${slug} ${chapter}`,
+          }],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    for (const translation of translations) {
+      for (const [book, chapterCount] of affectedBooks) {
+        for (let chapter = 1; chapter <= chapterCount; chapter += 1) {
+          const res = await request(app)
+            .post('/api/functions/biblePassage')
+            .send({ book, chapter, translation });
+          expect(res.status, `${translation} ${book} ${chapter}`).toBe(200);
+          expect(res.body).toMatchObject({
+            reference: `${book} ${chapter}`,
+            cacheHit: false,
+          });
+        }
+      }
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(chaptersPerTranslation * translations.length);
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('bible-api.com'))).toBe(true);
+  });
+
   it('still serves a chapter when the durable chapter-cache table is unavailable', async () => {
     prisma.bibleChapterCache.findUnique.mockRejectedValueOnce(new Error('table missing'));
     prisma.bibleChapterCache.upsert.mockRejectedValueOnce(new Error('table missing'));

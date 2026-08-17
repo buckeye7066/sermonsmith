@@ -23,5 +23,17 @@ describe('app request ids', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['x-request-id']).toMatch(/^[a-f0-9-]{36}$/i);
+    expect(res.body.releaseSha).toBe(process.env.RELEASE_SHA);
+  });
+
+  it('reports the exact release identity from readiness after dependencies pass', async () => {
+    const app = buildApp({ readinessProbe: async () => [{ ok: 1 }] });
+    const res = await request(app).get('/readyz');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'ready',
+      releaseSha: process.env.RELEASE_SHA,
+    });
   });
 });
