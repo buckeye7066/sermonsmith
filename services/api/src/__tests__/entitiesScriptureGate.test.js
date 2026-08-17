@@ -293,6 +293,33 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     expect(res.body.scripture_validation[0].status).toBe('valid');
   });
 
+  it('returns 409 instead of overwriting a sermon edited during review acknowledgment', async () => {
+    const sermon = await createSermon('u-pastor', {
+      title: 'Original draft',
+      anchor_passage: 'John 3:16',
+      status: 'draft',
+    });
+    const updateMany = prisma.entity.updateMany.getMockImplementation();
+
+    prisma.entity.updateMany.mockImplementationOnce(async (args) => {
+      const row = prisma._store.entity.find((item) => item.id === sermon.id);
+      row.data = { ...row.data, title: 'Concurrent pastoral edit' };
+      row.updatedAt = new Date(row.updatedAt.getTime() + 1_000);
+      return updateMany(args);
+    });
+
+    const res = await request(app)
+      .post(`/api/entities/Sermon/${sermon.id}/review`)
+      .set('Cookie', asUser('u-pastor'))
+      .send(completedReview());
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/content changed/i);
+    const stored = prisma._store.entity.find((item) => item.id === sermon.id);
+    expect(stored.data.title).toBe('Concurrent pastoral edit');
+    expect(stored.data.pastor_reviewed).toBeUndefined();
+  });
+
   it('review acknowledgment requires an explicit boolean', async () => {
     const sermon = await createSermon('u-pastor', { title: 'X', anchor_passage: 'John 3:16' });
     const res = await request(app)

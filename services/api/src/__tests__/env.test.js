@@ -93,6 +93,26 @@ describe('loadEnv', () => {
     expect(env.passwordResetEnabled).toBe(false);
   });
 
+  it('exposes a validated non-secret release SHA with explicit override precedence', () => {
+    const env = loadEnv({
+      source: {
+        NODE_ENV: 'development',
+        RELEASE_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        RAILWAY_GIT_COMMIT_SHA: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        GITHUB_SHA: 'cccccccccccccccccccccccccccccccccccccccc',
+      },
+      warn: () => {},
+    });
+    expect(env.releaseSha).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+  });
+
+  it('rejects malformed release identity instead of reporting an inexact deployment', () => {
+    expect(() => loadEnv({
+      source: { NODE_ENV: 'development', RELEASE_SHA: 'main' },
+      warn: () => {},
+    })).toThrow(/RELEASE_SHA/);
+  });
+
   it('parses CORS_ORIGIN as a list', () => {
     const env = loadEnv({ source: { NODE_ENV: 'development', CORS_ORIGIN: 'https://a, https://b' } });
     // Capacitor mobile origins are always appended (see corsAllowList).

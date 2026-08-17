@@ -132,7 +132,12 @@ async function fetchStaticBibleChapter(bookInput, chapter, translationId, timeou
   const dataset = STATIC_BIBLE_DATASETS[translationId];
   const book = bookByName(bookInput);
   if (!dataset || !book) return null;
-  const slug = book.name.toLowerCase().replace(/\s+/g, '-');
+  // wldeh/bible-api stores multi-word and numbered book directories as one
+  // lowercase alphanumeric token (for example `1samuel` and
+  // `songofsolomon`). Kebab-casing those names made all 237 chapters across
+  // the 18 affected books miss the pinned static dataset and silently fall
+  // back to bible-api.com.
+  const slug = book.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
   const url = `${STATIC_BIBLE_BASE}/${dataset}/books/${slug}/chapters/${chapter}.json`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

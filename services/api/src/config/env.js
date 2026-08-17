@@ -20,6 +20,13 @@ const baseSchema = z.object({
   HOST: z.string().min(1).default('0.0.0.0'),
   LOG_LEVEL: z.string().optional(),
 
+  // Non-secret build identity. Railway injects RAILWAY_GIT_COMMIT_SHA for
+  // repository deployments; RELEASE_SHA is an explicit override for other
+  // environments and GITHUB_SHA supports direct Actions-hosted launches.
+  RELEASE_SHA: z.string().regex(/^[0-9a-f]{40}$/i).optional(),
+  RAILWAY_GIT_COMMIT_SHA: z.string().regex(/^[0-9a-f]{40}$/i).optional(),
+  GITHUB_SHA: z.string().regex(/^[0-9a-f]{40}$/i).optional(),
+
   // Database
   DATABASE_URL: z.string().min(1).optional(),
 
@@ -153,6 +160,7 @@ export function loadEnv(opts = {}) {
     aiEnabled: source.DISABLE_AI !== '1',
     billingEnabled: source.DISABLE_BILLING !== '1',
     passwordResetEnabled: source.DISABLE_PASSWORD_RESET !== '1',
+    releaseSha: env.RELEASE_SHA || env.RAILWAY_GIT_COMMIT_SHA || env.GITHUB_SHA || null,
 
     corsAllowList() {
       const raw = env.CORS_ORIGIN || (isProd ? '' : 'http://localhost:5173');
