@@ -3,6 +3,8 @@ name: Android build and repo-direct release
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -17,6 +19,39 @@ env:
   ANDROID_VERSION_NAME: 1.0.${{ github.run_number }}
 
 jobs:
+  android-pr:
+    name: Verify Android debug build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - run: npm ci
+      - name: Build production-configured web application
+        run: npm run build -w @sermonsmith/web
+        env:
+          VITE_API_URL: https://sermonsmith-api-production.up.railway.app
+          VITE_NATIVE_VERSION: pr-${{ github.event.pull_request.number }}
+      - name: Sync Capacitor
+        run: npx cap sync android
+        working-directory: apps/mobile
+      - name: Compile Android debug package without release secrets
+        run: ./gradlew assembleDebug --no-daemon
+        working-directory: apps/mobile/android
+      - name: Verify Android debug package
+        run: test -s apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
   android:
     name: Build signed APK + AAB
     if: github.ref == 'refs/heads/main'
