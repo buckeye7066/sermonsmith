@@ -117,6 +117,14 @@ test('core flow: generate → validation → save as clean draft → reopen from
       body: JSON.stringify({ ...saved[0], pastor_reviewed: acknowledged, reviewed_by: USER.id }),
     });
   });
+  for (const checkpoint of [
+    'Scripture in context',
+    'Theological claims',
+    'Illustrations and facts',
+    'Pastoral application',
+  ]) {
+    await page.getByRole('checkbox', { name: checkpoint }).check();
+  }
   await page.getByRole('button', { name: /I've reviewed this sermon/i }).click();
   // Case-sensitive, unanchored: matches the chip ("Pastor reviewed"), not
   // the lowercase toast copy ("Marked as pastor reviewed.").

@@ -116,6 +116,58 @@ describe('function routes - Bible source registry', () => {
     });
   });
 
+  it('loads and caches Genesis 2 from the static chapter source without duplicate verses', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      expect(String(url)).toContain('/en-kjv/books/genesis/chapters/2.json');
+      return {
+        ok: true,
+        json: async () => ({
+          data: [
+            { book: 'Genesis', chapter: '2', verse: '1', text: 'Thus the heavens and the earth were finished.' },
+            { book: 'Genesis', chapter: '2', verse: '2', text: 'And on the seventh day God ended his work.' },
+            // The upstream file currently contains duplicate verse rows. The
+            // Reader contract is one row per verse, so normalize at ingress.
+            { book: 'Genesis', chapter: '2', verse: '1', text: 'duplicate' },
+          ],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const payload = { bookCode: 'GEN', chapter: 2, translationId: 'kjv' };
+    const first = await request(app).post('/api/functions/biblePassage').send(payload);
+    const second = await request(app).post('/api/functions/biblePassage').send(payload);
+
+    expect(first.status).toBe(200);
+    expect(first.body.reference).toBe('Genesis 2');
+    expect(first.body.verses.map((row) => row.verse)).toEqual([1, 2]);
+    expect(first.body.cacheHit).toBe(false);
+    expect(second.status).toBe(200);
+    expect(second.body.cacheHit).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still serves a chapter when the durable chapter-cache table is unavailable', async () => {
+    prisma.bibleChapterCache.findUnique.mockRejectedValueOnce(new Error('table missing'));
+    prisma.bibleChapterCache.upsert.mockRejectedValueOnce(new Error('table missing'));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        data: [{ book: 'John', chapter: '3', verse: '16', text: 'For God so loved the world.' }],
+      }),
+    })));
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ bookCode: 'JHN', chapter: 3, translationId: 'kjv' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.verses).toEqual([
+      expect.objectContaining({ book_name: 'John', chapter: 3, verse: 16 }),
+    ]);
+    expect(res.body.cacheHit).toBe(false);
+  });
+
   it('rejects quoted wording that does not match provider text for a valid reference', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

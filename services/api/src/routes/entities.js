@@ -4,6 +4,12 @@ import { prisma, authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { validateAiSermon } from '@sermonsmith/shared/scripture';
 import { canonForDenomination } from '@sermonsmith/shared/denominations';
 import {
+  PASTORAL_REVIEW_CHECKLIST_VERSION,
+  isPastoralReviewChecklistComplete,
+  missingPastoralReviewItems,
+  normalizePastoralReviewChecklist,
+} from '@sermonsmith/shared/review';
+import {
   SCRIPTURE_GATED_TYPES,
   REVIEWABLE_TYPES,
   gateEntityWrite,
@@ -685,11 +691,10 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
     if (!REVIEWABLE_TYPES.has(req.params.type)) {
       return res.status(400).json({ message: `'${req.params.type}' does not support review acknowledgment.` });
     }
-    const { acknowledged } = req.body || {};
+    const { acknowledged, checklist } = req.body || {};
     if (typeof acknowledged !== 'boolean') {
       return res.status(400).json({ message: 'Body must include { acknowledged: true | false } — review is an explicit human action.' });
     }
-
     const existing = await prisma.entity.findUnique({
       select: { id: true, type: true, data: true, userId: true },
       where: { id: req.params.id },
@@ -700,6 +705,12 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
     if (existing.userId !== req.userId) {
       return res.status(403).json({ message: 'Only the owner can acknowledge review of their content.' });
     }
+    if (acknowledged && !isPastoralReviewChecklistComplete(checklist)) {
+      return res.status(400).json({
+        message: 'Complete every pastoral review checkpoint before acknowledging this sermon.',
+        missing: missingPastoralReviewItems(checklist),
+      });
+    }
 
     const denomination = await denominationForRequest(req, existing.data?.denomination);
     const validation = validateAiSermon(existing.data, { canon: canonForDenomination(denomination) });
@@ -709,12 +720,16 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
           pastor_reviewed: true,
           reviewed_at: new Date().toISOString(),
           reviewed_by: req.userId,
+          review_checklist: normalizePastoralReviewChecklist(checklist),
+          review_checklist_version: PASTORAL_REVIEW_CHECKLIST_VERSION,
           scripture_validation: validation.refs,
         }
       : {
           pastor_reviewed: false,
           reviewed_at: null,
           reviewed_by: null,
+          review_checklist: null,
+          review_checklist_version: null,
           scripture_validation: validation.refs,
         };
 

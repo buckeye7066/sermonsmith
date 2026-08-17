@@ -16,6 +16,7 @@ import {
   listPremiumTranslationsDetailed,
   fetchPremiumChapter,
   sliceVerses,
+  bookByName,
 } from '../services/premiumTranslations.js';
 import { buildVerseWordingResult } from '../services/verseWording.js';
 
@@ -84,31 +85,110 @@ async function fetchBibleApiJson(ref, translationId, timeoutMs = 10000) {
   }
 }
 
+// Immutable public-domain chapter files provide a second, CDN-backed source
+// for the Reader's most-used free translations. This avoids making every new
+// chapter depend on one hobby API's uptime/rate limit. The remaining registry
+// translations keep using bible-api.com until an equivalently licensed static
+// dataset is configured for them.
+const STATIC_BIBLE_DATASETS = Object.freeze({
+  kjv: 'en-kjv',
+  web: 'en-web',
+  asv: 'en-asv',
+});
+// Pin the reviewed dataset revision so Scripture text cannot change merely
+// because the upstream repository's default branch moves.
+const STATIC_BIBLE_REVISION = '1d6987e268fcadb1e96ceb487e3d365a5e837f4a';
+const STATIC_BIBLE_BASE = `https://cdn.jsdelivr.net/gh/wldeh/bible-api@${STATIC_BIBLE_REVISION}/bibles`;
+
+function normalizeStaticChapter(payload, book, chapter, translationId) {
+  const rows = Array.isArray(payload?.data) ? payload.data : [];
+  const unique = new Map();
+  for (const row of rows) {
+    const verse = Number(row?.verse);
+    const text = typeof row?.text === 'string' ? row.text.trim() : '';
+    if (!Number.isInteger(verse) || verse < 1 || !text || unique.has(verse)) continue;
+    unique.set(verse, {
+      book_name: row.book || book.name,
+      chapter: Number(row.chapter) || Number(chapter),
+      verse,
+      text,
+    });
+  }
+  if (!unique.size) {
+    throw Object.assign(new Error(`Static Bible source returned no verses for ${book.name} ${chapter}`), { status: 502 });
+  }
+  const verses = [...unique.values()].sort((a, b) => a.verse - b.verse);
+  return {
+    reference: `${book.name} ${chapter}`,
+    translation_id: translationId,
+    translation_name: translationId.toUpperCase(),
+    verses,
+    text: verses.map((row) => row.text).join('\n'),
+    source: 'wldeh-bible-api-static',
+  };
+}
+
+async function fetchStaticBibleChapter(bookInput, chapter, translationId, timeoutMs = 10000) {
+  const dataset = STATIC_BIBLE_DATASETS[translationId];
+  const book = bookByName(bookInput);
+  if (!dataset || !book) return null;
+  const slug = book.name.toLowerCase().replace(/\s+/g, '-');
+  const url = `${STATIC_BIBLE_BASE}/${dataset}/books/${slug}/chapters/${chapter}.json`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw Object.assign(new Error(`Static Bible source returned ${response.status}`), { status: response.status });
+    }
+    return normalizeStaticChapter(await response.json(), book, chapter, translationId);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function getCachedBibleChapter({ book, chapter, translationId }) {
   const cacheKey = { translation: translationId, book, chapter: Number(chapter) };
 
-  const cached = await prisma.bibleChapterCache.findUnique({
-    where: { translation_book_chapter: cacheKey },
-  });
+  let cached = null;
+  try {
+    cached = await prisma.bibleChapterCache.findUnique({
+      where: { translation_book_chapter: cacheKey },
+    });
+  } catch (error) {
+    // A missed production migration must degrade to a live read, not turn the
+    // Bible Reader into a one-cached-chapter application.
+    console.warn('[Bible Reader] chapter cache read unavailable; serving from source:', error?.message || error);
+  }
 
   if (bibleCacheFresh(cached)) {
     return { ...cached.payload, cacheHit: true };
   }
 
   const ref = `${book} ${chapter}`;
-  const data = await fetchBibleApiJson(ref, translationId);
+  let data;
+  try {
+    data = await fetchStaticBibleChapter(book, chapter, translationId);
+  } catch (staticError) {
+    console.warn('[Bible Reader] static chapter source unavailable; trying bible-api.com:', staticError?.message || staticError);
+  }
+  if (!data) data = await fetchBibleApiJson(ref, translationId);
 
-  await prisma.bibleChapterCache.upsert({
-    where: { translation_book_chapter: cacheKey },
-    create: {
-      ...cacheKey,
-      payload: data,
-    },
-    update: {
-      payload: data,
-      fetchedAt: new Date(),
-    },
-  });
+  try {
+    await prisma.bibleChapterCache.upsert({
+      where: { translation_book_chapter: cacheKey },
+      create: {
+        ...cacheKey,
+        payload: data,
+      },
+      update: {
+        payload: data,
+        fetchedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    console.warn('[Bible Reader] chapter cache write unavailable; returning uncached text:', error?.message || error);
+  }
 
   return { ...data, cacheHit: false };
 }
