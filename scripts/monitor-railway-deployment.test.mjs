@@ -1,11 +1,49 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   selectExactDeployment,
   waitForExactDeployment,
 } from './monitor-railway-deployment.mjs';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
+
+test('imports from a clean checkout without a workspace install', async (context) => {
+  const cleanRoot = await mkdtemp(join(tmpdir(), 'sermonsmith-railway-monitor-'));
+  context.after(() => rm(cleanRoot, { recursive: true, force: true }));
+
+  await Promise.all([
+    mkdir(join(cleanRoot, 'scripts'), { recursive: true }),
+    mkdir(join(cleanRoot, 'packages/shared/api'), { recursive: true }),
+  ]);
+  await Promise.all([
+    copyFile(join(REPO_ROOT, 'package.json'), join(cleanRoot, 'package.json')),
+    copyFile(
+      join(REPO_ROOT, 'scripts/monitor-railway-deployment.mjs'),
+      join(cleanRoot, 'scripts/monitor-railway-deployment.mjs'),
+    ),
+    copyFile(
+      join(REPO_ROOT, 'packages/shared/api/index.js'),
+      join(cleanRoot, 'packages/shared/api/index.js'),
+    ),
+  ]);
+
+  assert.equal(existsSync(join(cleanRoot, 'node_modules')), false);
+  const monitorUrl = pathToFileURL(join(cleanRoot, 'scripts/monitor-railway-deployment.mjs')).href;
+  const imported = spawnSync(
+    process.execPath,
+    ['--input-type=module', '--eval', `await import(${JSON.stringify(monitorUrl)})`],
+    { cwd: cleanRoot, encoding: 'utf8', env: { ...process.env, NODE_PATH: '' } },
+  );
+
+  assert.equal(imported.status, 0, `${imported.stderr}\n${imported.stdout}`);
+});
 
 test('selects the latest deployment for the exact commit and ignores newer unrelated pushes', () => {
   const selected = selectExactDeployment([
