@@ -79,6 +79,15 @@ describe('bibleVerseCounts table integrity', () => {
     expect(versesInChapter('Malachi', 5)).toBe(null);
   });
 
+  it('uses audited WEB versification overrides without changing the KJV fixture', () => {
+    expect(versesInChapter('Romans', 14)).toBe(23);
+    expect(versesInChapter('Romans', 16, 'kjv')).toBe(27);
+    expect(versesInChapter('Romans', 14, 'web')).toBe(26);
+    expect(versesInChapter('Romans', 14, 'en-web')).toBe(26);
+    expect(versesInChapter('Romans', 16, 'WEB')).toBe(25);
+    expect(versesInChapter('Romans', 14, 'unverified-premium')).toBe(23);
+  });
+
   it('knows the longest chapter is Psalm 119 with 176 verses', () => {
     expect(versesInChapter('Psalms', 119)).toBe(176);
     expect(versesInChapter('John', 3)).toBe(36);
