@@ -11,7 +11,7 @@
  * resolve. A unit test asserts every array length matches CHAPTER_COUNTS.
  */
 export const VERSE_COUNTS = {
-  genesis: [31, 25, 24, 26, 32, 22, 24, 22, 29, 32, 32, 20, 18, 24, 21, 28, 16, 27, 33, 38, 18, 34, 24, 20, 67, 34, 35, 46, 22, 35, 43, 55, 32, 20, 31, 29, 43, 36, 30, 23, 23, 57, 38, 34, 34, 28, 34, 31, 22, 33],
+  genesis: [31, 25, 24, 26, 32, 22, 24, 22, 29, 32, 32, 20, 18, 24, 21, 16, 27, 33, 38, 18, 34, 24, 20, 67, 34, 35, 46, 22, 35, 43, 55, 32, 20, 31, 29, 43, 36, 30, 23, 23, 57, 38, 34, 34, 28, 34, 31, 22, 33, 26],
   exodus: [22, 25, 22, 31, 23, 30, 25, 32, 35, 29, 10, 51, 22, 31, 27, 36, 16, 27, 25, 26, 36, 31, 33, 18, 40, 37, 21, 43, 46, 38, 18, 35, 23, 35, 35, 38, 29, 31, 43, 38],
   leviticus: [17, 16, 17, 35, 19, 30, 38, 36, 24, 20, 47, 8, 59, 57, 33, 34, 16, 30, 37, 27, 24, 33, 44, 23, 55, 46, 34],
   numbers: [54, 34, 51, 49, 31, 27, 89, 26, 23, 36, 35, 16, 33, 45, 41, 50, 13, 32, 22, 29, 35, 41, 30, 25, 18, 65, 23, 31, 40, 16, 54, 42, 56, 29, 34, 13],
@@ -49,7 +49,7 @@ export const VERSE_COUNTS = {
   zephaniah: [18, 15, 20],
   haggai: [15, 23],
   zechariah: [21, 13, 10, 14, 11, 15, 14, 23, 17, 12, 17, 14, 9, 21],
-  malachi: [6, 17, 18, 21],
+  malachi: [14, 17, 18, 6],
   matthew: [25, 23, 17, 25, 48, 34, 29, 34, 38, 42, 30, 50, 58, 36, 39, 28, 27, 35, 30, 34, 46, 46, 39, 51, 46, 75, 66, 20],
   mark: [45, 28, 35, 41, 43, 56, 37, 38, 50, 52, 33, 44, 37, 72, 47, 20],
   luke: [80, 52, 38, 44, 39, 49, 50, 56, 62, 42, 54, 59, 35, 35, 32, 31, 37, 43, 48, 47, 38, 71, 56, 53],
@@ -83,15 +83,42 @@ export const VERSE_COUNTS = {
 VERSE_COUNTS.psalm = VERSE_COUNTS.psalms;
 VERSE_COUNTS['song of songs'] = VERSE_COUNTS['song of solomon'];
 
+// Translation-specific versification differences verified against the pinned
+// wldeh/bible-api data used by the Reader. Keep the canonical table above KJV
+// compatible; only translations with an exhaustively audited difference belong
+// here. Explicit unknown/premium translations intentionally return no bound so
+// the Reader can defer to the provider instead of enforcing KJV versification.
+const AUDITED_TRANSLATION_IDS = new Set(['kjv', 'asv', 'web']);
+const TRANSLATION_VERSE_COUNT_OVERRIDES = {
+  web: {
+    romans: { 14: 26, 16: 25 },
+  },
+};
+
+function normalizeTranslationId(translationId) {
+  return String(translationId || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^en-/, '');
+}
+
 /**
- * Verses in a given (book, chapter), or null if unknown. `book` is matched
- * case-insensitively. Returns null for unknown books or out-of-range chapters
- * so callers can fall back to a coarser bound.
+ * Verses in a given (book, chapter), or null if unknown. `book` and the
+ * optional `translationId` are matched case-insensitively. Audited translation
+ * overrides are applied when available. Calls without a translation use the
+ * KJV/Protestant count; an explicit unaudited translation returns null so UI
+ * callers do not enforce a false bound. Unknown books and out-of-range chapters
+ * also return null.
  */
-export function versesInChapter(book, chapter) {
-  const arr = VERSE_COUNTS[String(book).toLowerCase()];
+export function versesInChapter(book, chapter, translationId) {
+  const bookKey = String(book).toLowerCase();
+  const arr = VERSE_COUNTS[bookKey];
   if (!arr) return null;
   if (!Number.isInteger(chapter) || chapter < 1 || chapter > arr.length) return null;
+  const translationKey = normalizeTranslationId(translationId);
+  if (translationKey && !AUDITED_TRANSLATION_IDS.has(translationKey)) return null;
+  const override = TRANSLATION_VERSE_COUNT_OVERRIDES[translationKey]?.[bookKey]?.[chapter];
+  if (override != null) return override;
   return arr[chapter - 1];
 }
 

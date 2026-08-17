@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   extractScriptureRefs,
   extractScriptureRefsDeep,
@@ -44,6 +45,49 @@ describe('bibleVerseCounts table integrity', () => {
         expect(Number.isInteger(arr[i]) && arr[i] > 0, `${book} ch${i + 1}`).toBe(true);
       }
     }
+  });
+
+  it('matches the audited KJV chapter-count fixture', () => {
+    // Audited exhaustively against all 1,189 Protestant chapters in wldeh/bible-api
+    // at commit 1d6987e268fcadb1e96ceb487e3d365a5e837f4a. Keeping one stable digest
+    // catches shifted or mistyped entries without making routine CI call the network.
+    const fixture = Object.keys(EXPECTED_CHAPTERS)
+      .map((book) => `${book}:${VERSE_COUNTS[book].join(',')}`)
+      .join('|');
+
+    expect(createHash('sha256').update(fixture).digest('hex')).toBe(
+      '6239696d4bd71928fee90161b836ed2eb77bf36d6fa8a518a148e658f887a32e',
+    );
+  });
+
+  it('preserves corrected Genesis and Malachi boundaries', () => {
+    expect(VERSE_COUNTS.genesis).toEqual([
+      31, 25, 24, 26, 32, 22, 24, 22, 29, 32,
+      32, 20, 18, 24, 21, 16, 27, 33, 38, 18,
+      34, 24, 20, 67, 34, 35, 46, 22, 35, 43,
+      55, 32, 20, 31, 29, 43, 36, 30, 23, 23,
+      57, 38, 34, 34, 28, 34, 31, 22, 33, 26,
+    ]);
+    expect(versesInChapter('Genesis', 15)).toBe(21);
+    expect(versesInChapter('Genesis', 16)).toBe(16);
+    expect(versesInChapter('Genesis', 17)).toBe(27);
+    expect(versesInChapter('Genesis', 49)).toBe(33);
+    expect(versesInChapter('Genesis', 50)).toBe(26);
+    expect(versesInChapter('Genesis', 51)).toBe(null);
+
+    expect(VERSE_COUNTS.malachi).toEqual([14, 17, 18, 6]);
+    expect(versesInChapter('Malachi', 5)).toBe(null);
+  });
+
+  it('uses audited WEB versification overrides without changing the KJV fixture', () => {
+    expect(versesInChapter('Romans', 14)).toBe(23);
+    expect(versesInChapter('Romans', 16, 'kjv')).toBe(27);
+    expect(versesInChapter('Romans', 14, 'web')).toBe(26);
+    expect(versesInChapter('Romans', 14, 'en-web')).toBe(26);
+    expect(versesInChapter('Romans', 16, 'WEB')).toBe(25);
+    expect(versesInChapter('Romans', 14, 'asv')).toBe(23);
+    expect(versesInChapter('Romans', 14, 'bbe')).toBe(null);
+    expect(versesInChapter('Romans', 14, 'unverified-premium')).toBe(null);
   });
 
   it('knows the longest chapter is Psalm 119 with 176 verses', () => {
@@ -96,6 +140,16 @@ describe('validateScriptureRefs', () => {
   it('flags a precise verse overrun (John 3 has 36 verses)', () => {
     expect(validateScriptureRefs(['John 3:37'])[0].status).toBe('out_of_range');
     expect(validateScriptureRefs(['John 3:36'])[0].status).toBe('valid');
+  });
+
+  it('enforces corrected Genesis and Malachi verse limits', () => {
+    for (const reference of ['Genesis 16:16', 'Genesis 50:26', 'Malachi 1:14', 'Malachi 4:6']) {
+      expect(validateScriptureRefs([reference])[0].status, reference).toBe('valid');
+    }
+
+    for (const reference of ['Genesis 16:17', 'Genesis 50:27', 'Malachi 1:15', 'Malachi 4:7']) {
+      expect(validateScriptureRefs([reference])[0].status, reference).toBe('out_of_range');
+    }
   });
 
   it('accepts single-chapter books like Jude', () => {

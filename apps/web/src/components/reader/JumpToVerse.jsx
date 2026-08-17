@@ -27,7 +27,7 @@ const BIBLE_BOOKS = [
   "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
 ];
 
-export default function JumpToVerse({ open, onClose, onJump, currentBook, currentChapter, translationBookInfo }) {
+export default function JumpToVerse({ open, onClose, onJump, currentBook, currentChapter, currentTranslation, translationBookInfo }) {
   const [book, setBook] = useState(currentBook);
   const [chapter, setChapter] = useState(currentChapter.toString());
   const [verse, setVerse] = useState("");
@@ -72,7 +72,7 @@ export default function JumpToVerse({ open, onClose, onJump, currentBook, curren
         setError("Verse must be 1 or higher.");
         return;
       }
-      const maxVerse = versesInChapter(book, chapterNum);
+      const maxVerse = versesInChapter(book, chapterNum, currentTranslation);
       if (maxVerse && verseNum > maxVerse) {
         setError(`${book} ${chapterNum} only has ${maxVerse} verse${maxVerse === 1 ? "" : "s"}.`);
         return;
