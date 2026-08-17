@@ -60,6 +60,8 @@ export const REVIEW_ONLY_FIELDS = [
   'ready_to_present',
   'reviewed_by',
   'reviewed_at',
+  'review_checklist',
+  'review_checklist_version',
   'verified',
 ];
 
@@ -149,6 +151,8 @@ export function gateEntityWrite({ type, incoming, existingData = null, denominat
     data.pastor_reviewed = false;
     data.reviewed_at = null;
     data.reviewed_by = null;
+    data.review_checklist = null;
+    data.review_checklist_version = null;
   }
 
   return data;
