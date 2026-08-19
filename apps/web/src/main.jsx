@@ -4,10 +4,28 @@ import App from '@/App.jsx'
 import '@/index.css'
 import { registerGlobalErrorReporting } from '@/lib/reportClientError'
 import { isNativeApp } from '@/lib/platform'
+import { startMobileUpdateNotifier } from '@/lib/mobileUpdateNotifier.js'
 
 // Capture uncaught errors / unhandled rejections and report them to the owner
 // (server enforces the non-admin-only rule).
 registerGlobalErrorReporting()
+
+// Native app only. Two jobs:
+//  1. notifyAppReady() confirms the active OTA bundle booted, so
+//     @capgo/capacitor-updater does not roll it back to the previous one.
+//  2. start the launch/resume update check that raises a local notification
+//     and the in-app prompt (see lib/mobileUpdateNotifier.js).
+// Both are best-effort: an older package without the plugin just skips them.
+if (isNativeApp()) {
+  import('@capgo/capacitor-updater')
+    .then(({ CapacitorUpdater }) => CapacitorUpdater.notifyAppReady())
+    .catch(() => {})
+  try {
+    startMobileUpdateNotifier({ isNative: true })
+  } catch {
+    // an update check must never block the app from rendering
+  }
+}
 
 // Register service worker for offline support — WEB ONLY. In the Capacitor
 // app the assets are already local, so a SW adds nothing and its cached

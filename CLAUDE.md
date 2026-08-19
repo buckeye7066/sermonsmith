@@ -54,6 +54,52 @@ Engines: node >=20, npm >=10 (root `engines`).
 | Email | `services/api/src/services/email.js` (Resend) |
 | Rate limits | `middleware/rateLimitStore.js` (auth 20/15m, register 10/1h, reset 5/15m, ai 30/1m, public 60/1m) |
 
+## Mobile OTA updates (Android + iOS) — restored 2026-08-19
+
+This app shipped an OTA updater in **PR #94** and removed it in **PR #96**
+("remove unsigned OTA update path") because it applied a bundle it could not
+verify. The owner asked for the in-app update back on 2026-08-19, so the
+capability is restored — **with the missing verification**, not without it.
+
+- **Publish:** `scripts/build-mobile-bundle.mjs` zips `apps/web/dist` to
+  `dist/mobile/bundle-<version>.zip` and writes `dist/mobile/latest.json`
+  (`version`, absolute `url`, **`sha256`**, `minNativeVersion`, `notes`,
+  `builtAt`). It runs on the DEPLOY build only — `npm run build:web:deploy`,
+  which `vercel.json`'s `buildCommand` uses (and `scripts/verify-vercel-config.mjs`
+  asserts). It is deliberately NOT a `postbuild` on `@sermonsmith/web`: `npm run
+  cap:sync` runs that same build before `cap sync`, and `android-build.yml`
+  rejects `assets/public/mobile/` or any packaged `.zip` in the APK **and** the
+  AAB. That half of PR #96 stays — the feed is a deploy artifact, never baked
+  into the signed package.
+- **Consume:** `apps/web/src/lib/mobileUpdater.js` (pure, unit-tested) +
+  `components/settings/MobileUpdateCard.jsx` (Settings) +
+  `components/MobileUpdatePrompt.jsx` (in-app banner, mounted in `Layout.jsx`).
+- **Integrity, fail CLOSED:** a manifest without a valid 64-hex `sha256` is
+  rejected before any download; the checksum is passed to
+  `@capgo/capacitor-updater`'s `download()` (which hashes the file and throws on
+  mismatch) AND re-compared against `BundleInfo.checksum` afterwards. A mismatch
+  deletes the bundle and refuses to apply it. Nothing calls `set()` on
+  unverified bytes. **Do not weaken this — it is the entire reason the updater
+  could come back.** `android-build.yml` now asserts the plugin IS present with
+  `autoUpdate: false` and empty `updateUrl`/`statsUrl` (no Capgo cloud).
+- **Notify:** `lib/mobileUpdateNotifier.js` checks on launch and on resume
+  (`visibilitychange`, so no extra plugin), raises ONE
+  `@capacitor/local-notifications` notice per published version, and dispatches
+  `sermonsmith:mobile-update-available` for the banner. A denied notification
+  permission is silent, never re-prompted, and never blocks the in-app path.
+- **Native floor:** `minNativeVersion` (the `1.0.<run_number>` Android lineage,
+  default `1.0`, override with `MOBILE_MIN_NATIVE_VERSION`). Below the floor the
+  UI says "a new app version is required" and links to signed releases instead
+  of offering a web update that cannot carry a native change.
+- **Traps:** the Capacitor plugin handle is a Proxy that answers `then`, so
+  returning it bare from an `async` function makes the runtime call
+  `CapacitorUpdater.then()` (UNIMPLEMENTED) — `lib/capacitorUpdaterPlugin.js`
+  returns it wrapped, and is also the seam tests mock. The Capacitor CLI on
+  Windows writes BACKSLASH paths into `apps/mobile/ios/App/CapApp-SPM/Package.swift`;
+  they must be forward slashes (the committed file had this bug for
+  splash-screen/status-bar and is now fixed). iOS cannot be built or signed from
+  Windows — that needs a Mac plus an Apple Developer account.
+
 ## Gotchas
 - **Deploys:** web → Vercel (GitHub integration, builds from repo root → `apps/web/dist`) is genuinely automatic. API → Railway's GitHub source was found disconnected on 2026-07-05 (`sermonsmith-api` service had no repo linked — every past "auto-deploy" was actually a manual `railway up`, confirmed by a 13.5-hour gap with zero deploy activity across a merged PR). Reconnected via Railway's GraphQL `serviceConnect` mutation (repo `buckeye7066/sermonsmith`, branch `main`) — auto-deploy on merge to main should now work going forward, but after any high-stakes merge, still check `railway status --json` (service `source.repo` should read `buckeye7066/sermonsmith`) or deployment timestamps before assuming it fired, since this has silently regressed before. Do not re-add a deploy GitHub Action: a prior no-op "Deploy API (Railway)" workflow was removed because it reported a green check while doing nothing.
 - **httpOnly cookie auth:** frontend never touches the JWT; Electron resolves API base at runtime via `window.electron.getApiUrl()`.
