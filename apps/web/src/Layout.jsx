@@ -10,6 +10,7 @@ import { SafeImg } from '@/components/ui/SafeImg';
 import { toast } from 'sonner';
 import { usePremiumAccess } from './components/hooks/usePremiumAccess';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
+import MobileUpdatePrompt from './components/MobileUpdatePrompt';
 import OnboardingWizard from './components/profile/OnboardingWizard';
 import EmbeddedBrowserDetector from './components/EmbeddedBrowserDetector';
 import WhatsNewDialog, { CURRENT_VERSION } from './components/WhatsNewDialog';
@@ -331,6 +332,7 @@ export default function Layout({ children, currentPageName }) {
             <div className="flex items-center justify-between mb-6 md:mb-4">
               <SidebarTrigger />
             </div>
+            <MobileUpdatePrompt />
             {children}
           </div>
         </main>

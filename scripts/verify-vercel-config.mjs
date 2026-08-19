@@ -136,7 +136,14 @@ function verifyConfig(config, label, { root = false } = {}) {
   if (root) {
     assert.equal(config.framework, 'vite', `${label}: framework must remain vite`);
     assert.equal(config.installCommand, 'npm ci', `${label}: install must remain reproducible`);
-    assert.equal(config.buildCommand, 'npm run build:web', `${label}: wrong monorepo build command`);
+    // The deploy build is web build + OTA feed publish (scripts/build-mobile-bundle.mjs).
+    // Vercel is the only place the feed is produced; the native builds must run the
+    // plain web build so the feed never lands inside the signed package.
+    assert.equal(
+      config.buildCommand,
+      'npm run build:web:deploy',
+      `${label}: wrong monorepo build command`,
+    );
     assert.equal(config.outputDirectory, 'apps/web/dist', `${label}: wrong web output directory`);
   }
 }
