@@ -66,7 +66,14 @@ export default function Home() {
   const hasLoggedHomeViewRef = useRef(false);
 
   useEffect(() => {
-    if (loading || !user || hasLoggedHomeViewRef.current || !user.isAuthenticated) return;
+    // `user.isAuthenticated` was checked here and is NEVER set: AuthContext
+    // exposes `isAuthenticated` as a SIBLING of `user` in the context value,
+    // while `user` is the raw record from `api.auth.me()`. The guard was
+    // therefore always true and this page view was never logged for anyone.
+    // A non-null `user` already means authenticated by construction -
+    // AuthContext sets the user and the flag together, and every failure path
+    // (401, verify error, logout) calls setUser(null).
+    if (loading || !user || hasLoggedHomeViewRef.current) return;
     hasLoggedHomeViewRef.current = true;
     logActivity('page_view', { page_name: 'Home' });
   }, [loading, user]);
