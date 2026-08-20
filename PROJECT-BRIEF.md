@@ -143,7 +143,17 @@ npm run test:e2e      # Playwright end-to-end (8 journeys)
 npm run audit         # Security audit script (allowlist-aware)
 ```
 
-The nightly sweep (`tools/agents/sweep.mjs`) runs all 8 CI gates and writes a health-score report to `tools/agents/reports/` (gitignored).
+The nightly sweep (`tools/agents/sweep.mjs`) runs 8 gates of its own — `config:verify`, `typecheck`, `lint`, `test:api`, `test:web`, `build:web`, `e2e`, `audit` — and writes a health-score report to `tools/agents/reports/` (gitignored).
+
+**A green sweep is not a green CI.** Three of the eight checks a pull request must pass are *not* in it:
+
+| PR gate | why the sweep skips it |
+|---|---|
+| `integration-test` (`ci.yml`) | needs a live Postgres service container |
+| `policy` (`release-language-policy.yml`) | release-language scan runs only in CI |
+| `android-pr` (`android-build.yml`) | needs the Android SDK/JDK toolchain |
+
+Those are exactly the gates that catch a broken migration, prohibited release language, and an unbuildable Android package. `scripts/agent-sweep-coverage.test.mjs` fails if that list drifts.
 
 ---
 

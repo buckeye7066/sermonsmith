@@ -25,7 +25,7 @@
     "lint:web": "npm run lint -w @sermonsmith/web",
     "lint:api": "npm run lint -w @sermonsmith/api",
     "typecheck": "npm run typecheck -w @sermonsmith/web && npm run typecheck -w @sermonsmith/api",
-    "test": "npm test -w @sermonsmith/api && npm test -w @sermonsmith/web && node --test packages/shared/api/index.test.js scripts/android-release.test.mjs scripts/monitor-railway-deployment.test.mjs scripts/build-mobile-bundle.test.mjs",
+    "test": "npm test -w @sermonsmith/api && npm test -w @sermonsmith/web && node --test packages/shared/api/index.test.js scripts/android-release.test.mjs scripts/monitor-railway-deployment.test.mjs scripts/agent-sweep-coverage.test.mjs scripts/build-mobile-bundle.test.mjs",
     "test:api": "npm test -w @sermonsmith/api",
     "test:web": "npm test -w @sermonsmith/web",
     "test:e2e": "npm run e2e -w @sermonsmith/web",
