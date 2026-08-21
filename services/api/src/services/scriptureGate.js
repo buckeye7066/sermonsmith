@@ -107,9 +107,15 @@ export function gateEntityWrite({ type, incoming, existingData = null, denominat
   const data = { ...incoming };
   for (const field of REVIEW_ONLY_FIELDS) delete data[field];
   delete data.scripture_validation;
+  // Provider wording verification is recomputed on the entities save path —
+  // never trust a client-supplied blob (same rule as scripture_validation).
+  delete data.wording_verification;
+  delete data.quotation_verification;
 
   const merged = { ...(existingData || {}), ...data };
   delete merged.scripture_validation;
+  delete merged.wording_verification;
+  delete merged.quotation_verification;
 
   const canon = canonForDenomination(denomination || merged.denomination);
   const validation = recomputeScriptureValidation(type, merged, canon);

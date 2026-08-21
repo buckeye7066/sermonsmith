@@ -125,10 +125,10 @@ function shouldRetry(path, options) {
 }
 
 export async function apiFetch(path, options = {}, _retryCount = 0) {
-  const { retry, timeoutMs, ...fetchOptions } = options;
+  const { retry, timeoutMs, absoluteUrl, credentials, ...fetchOptions } = options;
 
   const headers = {
-    'Content-Type': 'application/json',
+    ...(absoluteUrl ? {} : { 'Content-Type': 'application/json' }),
     ...(fetchOptions.headers || {}),
   };
 
@@ -141,15 +141,25 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
     : null;
   const signal = ownController ? ownController.signal : fetchOptions.signal;
 
-  const apiBase = await getApiBaseUrl();
+  // Absolute public URLs (e.g. mobile OTA feed on the production CDN host)
+  // still go through this client so timeout / retry / error behavior stays
+  // centralized (AGENTS.md Rule 1). Auth cookies are omitted by default for
+  // cross-origin public feeds unless the caller opts in.
+  const isAbsolute = typeof absoluteUrl === 'string' && /^https?:\/\//i.test(absoluteUrl);
+  const url = isAbsolute
+    ? absoluteUrl
+    : `${await getApiBaseUrl()}${path}`;
+  const creds = credentials !== undefined
+    ? credentials
+    : (isAbsolute ? 'omit' : 'include');
 
   let res;
   try {
-    res = await fetch(`${apiBase}${path}`, {
+    res = await fetch(url, {
       ...fetchOptions,
       headers,
       signal,
-      credentials: 'include', // send/receive httpOnly auth cookies
+      credentials: creds,
     });
   } catch (err) {
     if (timeout) clearTimeout(timeout);
@@ -181,8 +191,15 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
       await new Promise(r => setTimeout(r, backoff + jitter));
       return apiFetch(path, options, _retryCount + 1);
     }
-    const body = await res.json().catch(() => ({ message: res.statusText }));
-    const error = new Error(body.message || `API error ${res.status}`);
+    // For absolute public feeds, callers may need the raw Response (non-JSON
+    // bodies). Prefer JSON error bodies when present.
+    let body = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = { message: res.statusText };
+    }
+    const error = new Error(body?.message || `API error ${res.status}`);
     error.status = res.status;
     error.data = body;
 
@@ -191,7 +208,7 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
     // of each page swallowing it into a vague "couldn't do X" message. We skip
     // the auth-handshake endpoints (their 401s are expected and handled by the
     // caller). The handler itself decides whether we were actually logged in.
-    if (res.status === 401 && !isAuthHandshakePath(path)) {
+    if (res.status === 401 && !isAbsolute && !isAuthHandshakePath(path)) {
       try { _onUnauthorized?.(path); } catch { /* a broken handler must never mask the API error */ }
     }
 
@@ -199,7 +216,13 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
   }
 
   if (res.status === 204) return null;
-  return res.json();
+  // Absolute-URL callers that need the Response itself pass { rawResponse: true }.
+  if (options.rawResponse) return res;
+  const contentType = res.headers?.get?.('content-type') || '';
+  if (contentType.includes('application/json') || !isAbsolute) {
+    return res.json();
+  }
+  return res;
 }
 
 // ---------------------------------------------------------------------------

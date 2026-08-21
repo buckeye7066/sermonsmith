@@ -15,6 +15,12 @@ import {
   gateEntityWrite,
   assertAiReplyExposable,
 } from '../services/scriptureGate.js';
+import {
+  attachQuotationVerification,
+  buildQuotationVerification,
+} from '../services/quotationVerification.js';
+import { translationMetadata } from '../services/bibleSources.js';
+import { getCachedBiblePassage } from './functions.js';
 
 // Tenant-isolated entity API.
 //
@@ -375,7 +381,38 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
     incoming?.denomination,
     existingData?.denomination,
   );
-  return gateEntityWrite({ type, incoming, existingData, denomination });
+  let gated = gateEntityWrite({ type, incoming, existingData, denomination });
+
+  // Provider wording verification is separate from canon reference validation.
+  // Wire it into every Sermon durable write so AI/user quotations cannot persist
+  // as silently "verified" when only the reference shape was checked.
+  if (type === 'Sermon') {
+    const merged = { ...(existingData || {}), ...gated };
+    const translationId = String(
+      merged.translationId || merged.translation || 'kjv',
+    ).toLowerCase();
+    const verification = await buildQuotationVerification(merged, {
+      translationId,
+      translationMetadata,
+      getProviderPassage: async ({ reference, translationId: tid }) => {
+        try {
+          const data = await getCachedBiblePassage({ ref: reference, translationId: tid });
+          return {
+            text: data?.text || '',
+            reference: data?.reference || reference,
+            provider: data?.translation_name || data?.provider || 'bible-api',
+            retrievedAt: new Date().toISOString(),
+            providerVersion: data?.cacheHit != null ? 'cache-or-live' : null,
+            unavailable: !data?.text,
+          };
+        } catch {
+          return { text: '', unavailable: true, reference };
+        }
+      },
+    });
+    gated = attachQuotationVerification(gated, verification);
+  }
+  return gated;
 }
 
 function validateEntityPayload(type, body) {

@@ -280,7 +280,8 @@ describe('function routes - Bible source registry', () => {
       });
 
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe('match');
+    expect(res.body.status).toBe('verified_excerpt');
+    expect(res.body.verified).toBe(true);
   });
 
   it('deduplicates normalized translations for multi-source passage lookups', async () => {
