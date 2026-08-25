@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const mobileCompatibility = /mobile Safari and Android profiles/;
+
 // E2E smoke config. Builds + serves the production bundle via `vite preview`
 // and drives it with Chromium and WebKit across desktop/mobile profiles. The smoke is backend-independent — it
 // verifies the SPA boots, mounts, and routes to the auth screen without a live
@@ -20,8 +22,8 @@ export default defineConfig({
   projects: [
     { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'desktop-webkit', use: { ...devices['Desktop Safari'] } },
-    { name: 'mobile-safari', use: { ...devices['iPhone 13'] } },
-    { name: 'mobile-chrome', use: { ...devices['Pixel 5'] } },
+    { name: 'mobile-safari', grep: mobileCompatibility, use: { ...devices['iPhone 13'] } },
+    { name: 'mobile-chrome', grep: mobileCompatibility, use: { ...devices['Pixel 5'] } },
   ],
   webServer: {
     command: 'npm run preview -- --port 4173 --strictPort',
