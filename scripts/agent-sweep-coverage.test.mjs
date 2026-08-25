@@ -7,10 +7,11 @@
 //
 // It does not. The sweep has 8 gates of its own — config:verify, typecheck,
 // lint, test:api, test:web, build:web, e2e, audit — and the count matching 8
-// is a coincidence that made the sentence read plausibly. Three of the eight
-// checks a PR actually has to pass are absent from it:
+// is a coincidence that made the sentence read plausibly. Four PR checks are
+// absent from it:
 //
 //   integration-test  (ci.yml)                    real Postgres + migrations
+//   desktop-build-windows-smoke (ci.yml)           real Electron/NSIS packaging
 //   policy            (release-language-policy.yml)
 //   android-pr        (android-build.yml)         debug APK builds at all
 //
@@ -44,6 +45,7 @@ const NON_PR_JOBS = new Set(['android', 'publish']);
  */
 const KNOWN_UNCOVERED = {
   'integration-test': 'needs a live Postgres service container',
+  'desktop-build-windows-smoke': 'needs a hosted Windows runner and Electron/NSIS toolchain',
   policy: 'release-language scan runs only in CI',
   'android-pr': 'needs the Android SDK/JDK toolchain',
 };
