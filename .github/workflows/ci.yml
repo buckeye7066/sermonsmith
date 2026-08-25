@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   # Test-only env so loadEnv() does not throw at import time. Real
   # production secrets are NEVER set in CI.
@@ -125,8 +128,36 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run build:web
-      - run: npx playwright install --with-deps chromium
+      - name: Install Chromium and WebKit browser engines
+        run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
+
+  desktop-build-windows-smoke:
+    name: Build unsigned Windows desktop packages
+    runs-on: windows-latest
+    needs: [build-web]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build unsigned NSIS and portable packages on Windows
+        run: npm run electron:build:win
+        env:
+          VITE_API_URL: https://sermonsmith-api-production.up.railway.app
+      - name: Verify Windows package output
+        shell: pwsh
+        run: |
+          $packages = Get-ChildItem -Path dist-electron -Filter *.exe -File
+          if ($packages.Count -lt 2) {
+            throw "Expected NSIS and portable Windows packages, found $($packages.Count)"
+          }
+          $packages | ForEach-Object { Write-Host "Built $($_.FullName) ($($_.Length) bytes)" }
 
   security-audit:
     runs-on: ubuntu-latest

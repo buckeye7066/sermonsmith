@@ -249,3 +249,50 @@ test('authenticated desktop shell fills the viewport without sidebar clipping', 
   expect(metrics.documentScrollWidth).toBe(metrics.documentClientWidth);
   expect(metrics.sidebarContentScrollWidth).toBeLessThanOrEqual(metrics.sidebarContentClientWidth);
 });
+
+test('mobile Safari and Android profiles keep navigation reachable without page overflow', async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile-'), 'mobile viewport contract');
+
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'mobile-user',
+        email: 'mobile@example.com',
+        full_name: 'Mobile Reader',
+        role: 'user',
+        onboarding_completed: true,
+        last_seen_version: 'test-version',
+        study_preferences: {},
+        content_preferences: {},
+      }),
+    });
+  });
+  await page.route('**/api/ai/invoke', (route) => route.fulfill({ status: 503, body: '{}' }));
+  await page.route('**/api/entities/**', (route) => (
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+  ));
+
+  await page.goto('/Home');
+  const navigation = page.getByRole('navigation').last();
+  await expect(navigation).toBeVisible();
+
+  const metrics = await page.evaluate(() => {
+    const mobileNavigation = [...document.querySelectorAll('nav')]
+      .find((element) => getComputedStyle(element).position === 'fixed');
+    const links = [...mobileNavigation.querySelectorAll('a')]
+      .map((link) => link.getBoundingClientRect());
+    const main = document.querySelector('main');
+    return {
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: document.documentElement.clientWidth,
+      smallestNavigationTarget: Math.min(...links.map((rect) => Math.min(rect.width, rect.height))),
+      mainBottomPadding: Number.parseFloat(getComputedStyle(main).paddingBottom),
+    };
+  });
+
+  expect(metrics.documentWidth).toBe(metrics.viewportWidth);
+  expect(metrics.smallestNavigationTarget).toBeGreaterThanOrEqual(44);
+  expect(metrics.mainBottomPadding).toBeGreaterThanOrEqual(64);
+});
