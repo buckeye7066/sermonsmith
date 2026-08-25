@@ -33,8 +33,14 @@ self.addEventListener('activate', (event) => {
             .map((name) => caches.delete(name))
         )
       )
-      .then(() => self.clients.claim())
   );
+  // Do not claim an already-running page. WebKit can finish activation while
+  // the first document is still open; taking that document over mid-session
+  // means its auth bootstrap goes directly to the network while later AI/Bible
+  // requests suddenly originate inside the worker. Besides defeating browser
+  // request controls, that creates a mixed network lifecycle for real Safari
+  // users. The active worker takes control on the next navigation/reload,
+  // where every request follows one consistent policy from the first byte.
 });
 
 // Fetch event - serve from cache, fallback to network

@@ -124,6 +124,25 @@ test('registration form is reachable from a stable public URL', async ({ page })
   await expect(page).toHaveURL(/\/Login\?mode=register$/i);
 });
 
+test('a newly activated service worker waits for reload before controlling the current page', async ({ page }) => {
+  await page.goto('/');
+
+  const lifecycle = await page.evaluate(async () => {
+    if (!('serviceWorker' in navigator)) return { supported: false, ready: false, controlled: false };
+    const registration = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((resolve) => setTimeout(() => resolve(null), 10_000)),
+    ]);
+    return {
+      supported: true,
+      ready: Boolean(registration),
+      controlled: Boolean(navigator.serviceWorker.controller),
+    };
+  });
+
+  expect(lifecycle).toEqual({ supported: true, ready: true, controlled: false });
+});
+
 // Regression guard for the 2026-08-02 "Bible reader is a broken link" report:
 // the sidebar link must navigate to /Reader and the Reader page chunk must
 // load and render scripture. (The production failure mode was a stale lazy
