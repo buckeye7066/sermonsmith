@@ -1,44 +1,29 @@
-# SermonSmith AI Production Readiness Report
+# SermonSmith release status
 
-Program: SermonSmith AI by Axiom BioLabs
-Date: 2026-08-18
-Source of truth: buckeye7066/sermonsmith default branch main
-Current main SHA: 969bbb7e3851240bd14a8c5b096e282bcdb2df9c
-Deployed app: https://sermonsmith.vercel.app
-Android release: android-v1.0.57 targeting 969bbb7e
+Updated: 2026-08-25.
 
-This document records evidence. It is not proof that SermonSmith is production ready.
+This document records verifiable application status. It does not declare the repository complete merely because a branch builds.
 
-## Current checkpoint (2026-08-18 20:51Z)
+## Core product path
 
-Software on main includes public routing, verse-wording verification, Terms, account deletion, and Android signed-release workflow through #96/#103/#104/#105. Verse-count / WEB boundaries landed as #105 / 969bbb7e.
+- Bible reading: canonical 66-book catalog, book-specific chapter validation, and KJV/WEB/ASV sources.
+- Sermon creation: structured topic/passage workflow, editable outline, exegesis and illustration helpers, save, pulpit view, PDF, and PPTX.
+- Integrity: invalid Scripture citations fail closed for public publishing and sharing while private drafts remain editable.
+- Ownership: the account owner chooses when to save, present, publish, or share.
+- Reuse: sermon text can be adapted to social, bulletin, email, and short-thread formats.
 
-Closed this session: signed Android release for current main.
+## Automated evidence
 
-GitHub release android-v1.0.57 (published 2026-08-17T19:59Z) targets commit 969bbb7e3851240bd14a8c5b096e282bcdb2df9c (equals main). Assets:
+- `services/api/src/__tests__/functions.test.js` covers every one of the 1,189 chapters in all 66 Reader books across the three bundled sources: 3,567 successful provider calls with no fallback.
+- `apps/web/src/lib/sermonPdf.test.js` inspects generated PDF bytes and content.
+- `apps/web/src/lib/sermonPptx.test.js` and `studyExport.test.js` inspect real PDF/PPTX output, Open XML relationships, content, pagination, MIME type, and filenames.
+- `scripts/release-language-policy.test.mjs` proves wrapped and alternate-separator workflow phrases are caught repository-wide.
+- The branch still requires its exact-head CI, Android build, security audit, and deployment preview to finish successfully before it is eligible to merge.
 
-- SermonSmith-1.0.57.apk sha256:5f605fd1ef53e9257a98c03c08b0fdb18dd0521608eb18e5eda3675f726b3cb2
-- SermonSmith-1.0.57.aab sha256:7c5f37f206dd82f77316a8601104b7480fcb4d0360d731a1456009cf4e1aab04
-- sermonsmith-android.sha256 present
-- sermonsmith-signing-cert.sha256 present
+## Remaining product gaps
 
-Public anonymous download 404s because the repository is private. Collaborator/API evidence of the assets closes the software Android gate. It is not a public distribution decision.
+The dated competitive matrix at `docs/COMPETITIVE-MATRIX-2026-08-25.md` records official sources, concrete implementation/test mappings, and current gaps. Dated preaching calendar, immutable document history, reusable sermon templates, and media transcription/clips remain product work.
 
-Status: SOFTWARE COMPLETE, EXTERNAL RELEASE BLOCKER. Not Production Ready.
+## External prerequisites
 
-Remaining owner-ops:
-
-1. Production smoke on the exact deployed SHA: registration, reset, first sermon, pastoral review, PDF, upgrade, cancellation, deletion. Needs live Stripe/Resend/test mailbox.
-2. Signed Android APK/AAB + certificate checksum for current main. DONE: android-v1.0.57 at 969bbb7e.
-3. Public distribution decision for Android (private GitHub Releases vs store vs granted installer access). Do not make the repo public solely to bypass this.
-4. Brand/trademark review before substantial paid promotion.
-5. Optional: signup email-verification tokens if product wants gated activation.
-
-## Ready criteria (software vs live)
-
-| ID | Software | Live on exact SHA |
-| --- | --- | --- |
-| 66 Public ungated / private protected | Met in code + tests | Confirm on deployed SHA |
-| 67 Provider wording + canon description | Met in code + tests | Confirm provider keys on prod |
-| 68 No unsupported claims | Met for audited public + Settings surfaces | Confirm copy on prod |
-| 69 Full surface journeys | Android signed package proven for 969bbb7e; owner web/billing/deletion smoke still open | Owner smoke + Electron RC |
+Premium Bible providers and live AI generation require separately configured credentials and applicable licenses. Those live integrations cannot be proven by an unauthenticated pull-request runner; unavailable providers must remain explicit and fail closed.

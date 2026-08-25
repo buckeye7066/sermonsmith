@@ -73,7 +73,7 @@ Treat the mock as a north star, not a screenshot to trace. Don't rasterize core 
 
 If a photographic, architectural, product, or place-led mock becomes generic CSS scenery, decorative diagrams, bullets, or copy, stop and fix it. That's a broken implementation, not a harmless interpretation.
 
-Don't substitute a different hero composition or visual driver post-approval without user sign-off.
+Don't substitute a different hero composition or visual driver after approval unless the user explicitly directs the change.
 
 ## Step F: Asset Slicing via the Asset Producer
 

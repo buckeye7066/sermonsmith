@@ -10,7 +10,6 @@ import { BookOpen, Save, AlertCircle, FileText, Crown, MessageCircle, Sparkles, 
 import { toast } from "sonner";
 import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
-import { apiBinaryCall } from "@/components/utils/apiCall";
 import PrintButton from "@/components/common/PrintButton";
 
 export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQuestions, isEnhancing, enhancementType }) {
@@ -22,8 +21,7 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
     user.subscription_tier === 'premium' ||
     user.premium_override === true ||
     (user.premium_until && new Date(user.premium_until) > new Date()) ||
-    ['buckeye7066@gmail.com', 'anyawhite@rocketmail.com', 'whiterobert1201@icloud.com', 'tishka1201@icloud.com'].includes(user.email?.toLowerCase()) ||
-    ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'].some(p => user.phone?.replace(/[\s\-()]/g, '').includes(p.replace(/[\s\-()+]/g, '')))
+    user.role === 'admin'
   );
 
   const handleExport = async (format) => {
@@ -43,23 +41,12 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
 
     setIsExporting(true);
     try {
-      const functionName = format === 'pdf' ? 'exportToPDF' : 'exportToPPTX';
-      const { blob, filename } = await apiBinaryCall(functionName, {
-        resourceType: 'study',
-        resourceId: studyData.id
-      });
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-      toast.success(`Study exported to ${format.toUpperCase()}!`);
+      const current = { ...studyData, title: editedTitle || studyData.title };
+      const { exportStudyToPdf, exportStudyToPptx } = await import('@/lib/studyExport');
+      const filename = format === 'pptx'
+        ? await exportStudyToPptx(current)
+        : await exportStudyToPdf(current);
+      toast.success(`Study exported to ${format.toUpperCase()}`, { description: filename });
     } catch (error) {
       console.error(`Error exporting to ${format}:`, error);
       toast.error(`Failed to export to ${format.toUpperCase()}`, {

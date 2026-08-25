@@ -257,7 +257,7 @@ const file = new File([data], 'file.txt');
 ### Enforcement
 
 - **CODEOWNERS** - `.github/CODEOWNERS` requires review for these files
-- **Code Review** - Mandatory second reviewer
+- **Code Quality** - Automated checks and focused pull-request feedback
 - **Security Scan** - Run SAST tools on PRs
 
 ---

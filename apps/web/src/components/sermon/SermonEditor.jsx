@@ -52,7 +52,7 @@ export default function SermonEditor({
   const handleExport = async (format) => {
     if (!isPremium) {
       toast.error("Export is a Premium feature", {
-        description: "Upgrade to export your sermons to PDF"
+        description: "Upgrade to export your sermons to PDF and PPTX"
       });
       return;
     }
@@ -64,26 +64,26 @@ export default function SermonEditor({
       return;
     }
 
-    if (format !== 'pdf') {
-      toast.error(`${String(format).toUpperCase()} export isn't available yet`, {
-        description: "PDF export is ready now — slide export is still in progress."
-      });
-      return;
-    }
-
     setIsExporting(true);
     try {
       // Built in the browser from the sermon currently on screen, so the export
       // reflects unsaved edits and works without a round trip.
-      const { exportSermonToPdf } = await import('@/lib/sermonPdf');
-      const filename = await exportSermonToPdf({
+      const current = {
         ...currentSermon,
         title: editedTitle || currentSermon?.title,
-      });
-      toast.success("Sermon exported to PDF", { description: filename });
+      };
+      let filename;
+      if (format === 'pptx') {
+        const { exportSermonToPptx } = await import('@/lib/sermonPptx');
+        filename = await exportSermonToPptx(current);
+      } else {
+        const { exportSermonToPdf } = await import('@/lib/sermonPdf');
+        filename = await exportSermonToPdf(current);
+      }
+      toast.success(`Sermon exported to ${format.toUpperCase()}`, { description: filename });
     } catch (error) {
       console.error(`Error exporting to ${format}:`, error);
-      toast.error("Failed to export to PDF", {
+      toast.error(`Failed to export to ${String(format).toUpperCase()}`, {
         description: error.message
       });
     } finally {
@@ -472,9 +472,9 @@ export default function SermonEditor({
                 <FileText className="w-4 h-4 mr-2" />
                 Export to PDF
               </DropdownMenuItem>
-              <DropdownMenuItem disabled className="opacity-60">
+              <DropdownMenuItem onClick={() => handleExport('pptx')}>
                 <FileText className="w-4 h-4 mr-2" />
-                Export to PPTX (coming soon)
+                Export to PPTX
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
