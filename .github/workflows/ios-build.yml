@@ -1,13 +1,22 @@
 name: iOS build
 
-# Manual trigger only — macOS runners bill at 10x, and the unsigned build
-# is only needed on demand. Produces sermonsmith-unsigned-ipa: an UNSIGNED
-# .ipa proving the iOS build works end-to-end. App Store submission
-# additionally needs Apple Developer signing (Distribution certificate +
-# provisioning profile added as secrets, and a signed archive step).
+# Produces sermonsmith-unsigned-ipa: an UNSIGNED Release/iphoneos archive and
+# IPA proving that the Capacitor wrapper builds at the exact pull-request head.
+# Distribution signing, App Store submission, and final physical-device checks
+# remain release operations that require Apple credentials and hardware.
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '.github/workflows/ios-build.yml'
+      - 'apps/mobile/**'
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - 'scripts/build-mobile-bundle.mjs'
+      - 'package.json'
+      - 'package-lock.json'
 
 permissions:
   contents: read
@@ -16,33 +25,104 @@ jobs:
   ios:
     name: Build unsigned IPA
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact requested source
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: 'npm'
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci
       # Inside Capacitor the origin is capacitor://localhost, so the API
       # base must be baked in at build time.
-      - run: npm run build -w @sermonsmith/web
+      - name: Build web app
+        run: npm run build -w @sermonsmith/web
         env:
           VITE_API_URL: https://sermonsmith-api-production.up.railway.app
-      - run: npx cap sync ios
+      - name: Sync Capacitor
+        run: npx cap sync ios
         working-directory: apps/mobile
-      - name: Archive (unsigned)
+      - name: Resolve and verify generated Xcode container
+        shell: bash
         run: |
-          xcodebuild -workspace apps/mobile/ios/App/App.xcworkspace -scheme App \
+          set -euo pipefail
+          WORKSPACE="$GITHUB_WORKSPACE/apps/mobile/ios/App/App.xcworkspace"
+          PROJECT="$GITHUB_WORKSPACE/apps/mobile/ios/App/App.xcodeproj"
+          if [ -d "$WORKSPACE" ]; then
+            CONTAINER_FLAG='-workspace'
+            CONTAINER_PATH="$WORKSPACE"
+          elif [ -d "$PROJECT" ]; then
+            CONTAINER_FLAG='-project'
+            CONTAINER_PATH="$PROJECT"
+          else
+            echo 'Capacitor sync did not create an App workspace or project' >&2
+            find "$GITHUB_WORKSPACE/apps/mobile/ios" -maxdepth 4 -print >&2 || true
+            exit 1
+          fi
+          {
+            echo "XCODE_CONTAINER_FLAG=$CONTAINER_FLAG"
+            echo "XCODE_CONTAINER_PATH=$CONTAINER_PATH"
+          } >> "$GITHUB_ENV"
+          echo "Resolved iOS container: $CONTAINER_FLAG $CONTAINER_PATH"
+          xcodebuild "$CONTAINER_FLAG" "$CONTAINER_PATH" -scheme App -list
+      - name: Archive Release/iphoneos application (unsigned)
+        run: |
+          set -euo pipefail
+          xcodebuild "$XCODE_CONTAINER_FLAG" "$XCODE_CONTAINER_PATH" -scheme App \
             -configuration Release -sdk iphoneos \
             -archivePath "$RUNNER_TEMP/App.xcarchive" archive \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+      - name: Verify unsigned archive identity and contents
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
+          test -d "$APP"
+          test -s "$APP/App"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")" = 'com.sermonsmith.app'
+          test ! -e "$APP/embedded.mobileprovision"
+          test ! -d "$APP/_CodeSignature"
       - name: Package unsigned IPA
         run: |
+          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" "$RUNNER_TEMP/Payload/"
           cd "$RUNNER_TEMP" && zip -qry SermonSmith-unsigned.ipa Payload
-      - uses: actions/upload-artifact@v4
+      - name: Inspect IPA and record reproducible evidence
+        run: |
+          set -euo pipefail
+          IPA="$RUNNER_TEMP/SermonSmith-unsigned.ipa"
+          LIST="$RUNNER_TEMP/sermonsmith-ios-ipa-files.txt"
+          EVIDENCE="$RUNNER_TEMP/sermonsmith-ios-unsigned-evidence.txt"
+          test -s "$IPA"
+          zipinfo -1 "$IPA" | tee "$LIST"
+          grep -Fx 'Payload/App.app/Info.plist' "$LIST"
+          grep -Fx 'Payload/App.app/App' "$LIST"
+          if grep -Eq '(^|/)(embedded\.mobileprovision|_CodeSignature)(/|$)' "$LIST"; then
+            echo 'Unsigned IPA unexpectedly contains signing material' >&2
+            exit 1
+          fi
+          {
+            echo "source_sha=$(git rev-parse HEAD)"
+            echo 'bundle_id=com.sermonsmith.app'
+            echo 'configuration=Release'
+            echo 'sdk=iphoneos'
+            echo 'signing=disabled'
+            echo "ipa_bytes=$(stat -f '%z' "$IPA")"
+            echo "ipa_sha256=$(shasum -a 256 "$IPA" | awk '{print $1}')"
+          } | tee "$EVIDENCE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sermonsmith-unsigned-ipa
-          path: ${{ runner.temp }}/SermonSmith-unsigned.ipa
+          path: |
+            ${{ runner.temp }}/SermonSmith-unsigned.ipa
+            ${{ runner.temp }}/sermonsmith-ios-unsigned-evidence.txt
           if-no-files-found: error
+          retention-days: 7
