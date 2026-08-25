@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Play, Pause, Volume2, VolumeX, Loader2, Crown, Settings, Globe, AlertTriangle, Info, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { readAvailableVoices, resolveSpeechSynthesis } from "@/lib/speechSynthesis";
 
 import {
   Select,
@@ -108,18 +109,28 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
     // Detect OS
     setUserOS(getOS());
 
-    // Load available voices
+    const transLang = TRANSLATION_LANGUAGES[currentTranslation] || 'en';
+    setTranslationLanguage(transLang);
+
+    // speechSynthesis is optional (SSR, hardened browsers, some WebViews).
+    // Validate it before asking for voices so Reader still renders when absent.
+    const browserScope = typeof window === 'undefined' ? undefined : window;
+    const synthesis = resolveSpeechSynthesis(browserScope);
+    if (!synthesis) {
+      setAllVoices([]);
+      setAvailableVoices([]);
+      setAvailableLanguages([]);
+      setSelectedVoice(null);
+      return undefined;
+    }
+
     const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
+      const voices = readAvailableVoices(synthesis);
       setAllVoices(voices);
       
       // Get unique languages available
       const uniqueLangs = [...new Set(voices.map(v => v.lang.split('-')[0]))];
       setAvailableLanguages(uniqueLangs);
-      
-      // Determine translation language
-      const transLang = TRANSLATION_LANGUAGES[currentTranslation] || 'en';
-      setTranslationLanguage(transLang);
       
       // Filter voices for current translation language
       const filteredVoices = voices
@@ -160,12 +171,26 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
 
     loadVoices();
     
-    // Voices may load asynchronously
-    window.speechSynthesis.onvoiceschanged = loadVoices;
+    // Voices may load asynchronously.
+    const supportsVoiceEvents = typeof synthesis.addEventListener === 'function';
+    if (supportsVoiceEvents) {
+      synthesis.addEventListener('voiceschanged', loadVoices);
+    } else {
+      synthesis.onvoiceschanged = loadVoices;
+    }
 
     return () => {
+      if (supportsVoiceEvents && typeof synthesis.removeEventListener === 'function') {
+        synthesis.removeEventListener('voiceschanged', loadVoices);
+      } else if (synthesis.onvoiceschanged === loadVoices) {
+        synthesis.onvoiceschanged = null;
+      }
       if (utteranceRef.current) {
-        window.speechSynthesis.cancel();
+        try {
+          synthesis.cancel();
+        } catch {
+          // The browser may tear down the speech engine before React unmounts.
+        }
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
@@ -212,10 +237,14 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
     const verse = verses[verseIndex];
     const text = `${verse.verse}. ${verse.text}`;
 
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+    const browserScope = typeof window === 'undefined' ? undefined : window;
+    const synthesis = resolveSpeechSynthesis(browserScope);
+    const SpeechUtterance = browserScope?.SpeechSynthesisUtterance;
+
+    if (synthesis && typeof SpeechUtterance === 'function') {
+      synthesis.cancel();
       
-      const utterance = new SpeechSynthesisUtterance(text);
+      const utterance = new SpeechUtterance(text);
       
       // Apply selected voice
       if (selectedVoice) {
@@ -250,7 +279,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
       };
 
       utteranceRef.current = utterance;
-      window.speechSynthesis.speak(utterance);
+      synthesis.speak(utterance);
     } else {
       toast.error("Audio playback not supported in this browser");
       setIsPlaying(false);
@@ -274,7 +303,8 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
     }
 
     if (isPlaying) {
-      window.speechSynthesis.cancel();
+      const browserScope = typeof window === 'undefined' ? undefined : window;
+      resolveSpeechSynthesis(browserScope)?.cancel();
       setIsPlaying(false);
     } else {
       setIsPlaying(true);
@@ -284,8 +314,10 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
 
   const handleVolumeChange = (value) => {
     setVolume(value);
-    if (utteranceRef.current && window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
+    const browserScope = typeof window === 'undefined' ? undefined : window;
+    const synthesis = resolveSpeechSynthesis(browserScope);
+    if (utteranceRef.current && synthesis?.speaking) {
+      synthesis.cancel();
       if (isPlaying) {
         speakVerse(currentVerseIndex);
       }
@@ -308,7 +340,8 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
       
       // If currently playing, restart with new voice
       if (isPlaying) {
-        window.speechSynthesis.cancel();
+        const browserScope = typeof window === 'undefined' ? undefined : window;
+        resolveSpeechSynthesis(browserScope)?.cancel();
         setTimeout(() => speakVerse(currentVerseIndex), 100);
       }
       

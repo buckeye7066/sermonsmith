@@ -108,7 +108,7 @@ describe('AuthContext', () => {
     fireEvent.click(screen.getByRole('button', { name: /logout/i }));
 
     await waitFor(() => expect(logoutRequest).toHaveBeenCalledTimes(1));
-    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    await waitFor(() => expect(screen.getByTestId('authenticated')).toHaveTextContent('false'));
     expect(screen.getByTestId('user')).toHaveTextContent('none');
     expect(hasAuthSessionHint()).toBe(false);
   });
