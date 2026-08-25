@@ -124,7 +124,7 @@ Provide:
 1. **Key Differences**: What are the main translation differences and why?
 2. **Linguistic Analysis**: Which words or phrases differ most significantly?
 3. **Theological Implications**: Do these differences affect meaning or interpretation?
-4. **Original Language Caveat**: Note whether the app has supplied enough source material for Hebrew/Greek/Aramaic claims. If not, say pastoral review and a lexicon/source check are required instead of inventing details.
+4. **Original Language Caveat**: Note whether the app has supplied enough source material for Hebrew/Greek/Aramaic claims. If not, state that the source material is insufficient and point the user to a lexicon or primary source instead of inventing details.
 5. **Recommendation**: Which translation captures the meaning best for general readers?
 
 Be scholarly yet accessible. Do not fabricate original-language claims or citations. About 300-350 words.`;

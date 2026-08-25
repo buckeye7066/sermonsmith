@@ -1,7 +1,7 @@
 {
   "name": "SermonSmith - AI-Assisted Sermon & Bible Study Drafts",
   "short_name": "SermonSmith",
-  "description": "Create editable sermon and Bible-study drafts, then verify Scripture references and theological claims before teaching.",
+  "description": "Create editable sermon and Bible-study drafts, open linked Scripture references, and control when your work is presented or shared.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",

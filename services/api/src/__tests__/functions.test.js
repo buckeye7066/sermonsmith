@@ -4,7 +4,8 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
-import { _resetPremiumCatalogCache } from '../services/premiumTranslations.js';
+import { BOOKS, _resetPremiumCatalogCache } from '../services/premiumTranslations.js';
+import { chaptersInBook } from '@sermonsmith/shared/scripture';
 
 const prisma = createPrismaMock();
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
@@ -147,26 +148,18 @@ describe('function routes - Bible source registry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('serves every chapter of every multi-token book from all pinned static datasets without fallback', async () => {
-    const affectedBooks = [
-      ['1 Samuel', 31, '1samuel'], ['2 Samuel', 24, '2samuel'],
-      ['1 Kings', 22, '1kings'], ['2 Kings', 25, '2kings'],
-      ['1 Chronicles', 29, '1chronicles'], ['2 Chronicles', 36, '2chronicles'],
-      ['Song of Solomon', 8, 'songofsolomon'],
-      ['1 Corinthians', 16, '1corinthians'], ['2 Corinthians', 13, '2corinthians'],
-      ['1 Thessalonians', 5, '1thessalonians'], ['2 Thessalonians', 3, '2thessalonians'],
-      ['1 Timothy', 6, '1timothy'], ['2 Timothy', 4, '2timothy'],
-      ['1 Peter', 5, '1peter'], ['2 Peter', 3, '2peter'],
-      ['1 John', 5, '1john'], ['2 John', 1, '2john'], ['3 John', 1, '3john'],
-    ];
+  it('serves all 1,189 chapters in all 66 Reader books from every pinned static dataset without fallback', async () => {
     const translations = ['kjv', 'web', 'asv'];
     const namesBySlug = new Map(
-      affectedBooks.map(([name, , expectedSlug]) => [expectedSlug, name]),
+      BOOKS.map((book) => [book.name.toLowerCase().replace(/[^a-z0-9]+/g, ''), book.name]),
     );
-    const chaptersPerTranslation = affectedBooks.reduce((total, [, chapters]) => total + chapters, 0);
+    const chaptersPerTranslation = BOOKS.reduce(
+      (total, book) => total + chaptersInBook(book.name),
+      0,
+    );
 
-    expect(affectedBooks).toHaveLength(18);
-    expect(chaptersPerTranslation).toBe(237);
+    expect(BOOKS).toHaveLength(66);
+    expect(chaptersPerTranslation).toBe(1189);
 
     const fetchMock = vi.fn(async (url) => {
       const value = String(url);
@@ -193,14 +186,17 @@ describe('function routes - Bible source registry', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     for (const translation of translations) {
-      for (const [book, chapterCount] of affectedBooks) {
+      for (const book of BOOKS) {
+        const chapterCount = chaptersInBook(book.name);
         for (let chapter = 1; chapter <= chapterCount; chapter += 1) {
           const res = await request(app)
             .post('/api/functions/biblePassage')
-            .send({ book, chapter, translation });
-          expect(res.status, `${translation} ${book} ${chapter}`).toBe(200);
+            // Reader.jsx sends OSIS identifiers, so the exhaustive contract
+            // intentionally exercises that exact input rather than full names.
+            .send({ bookCode: book.osis, chapter, translation });
+          expect(res.status, `${translation} ${book.name} ${chapter}`).toBe(200);
           expect(res.body).toMatchObject({
-            reference: `${book} ${chapter}`,
+            reference: `${book.name} ${chapter}`,
             cacheHit: false,
           });
         }
@@ -209,6 +205,24 @@ describe('function routes - Bible source registry', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(chaptersPerTranslation * translations.length);
     expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('bible-api.com'))).toBe(true);
+  }, 60_000);
+
+  it('rejects unknown books and book-specific chapter overflow before contacting a provider', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const unknown = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ bookCode: 'XYZ', chapter: 1, translationId: 'kjv' });
+    const overflow = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ bookCode: 'JHN', chapter: 22, translationId: 'kjv' });
+
+    expect(unknown.status).toBe(400);
+    expect(unknown.body.message).toMatch(/Unknown Bible book/i);
+    expect(overflow.status).toBe(400);
+    expect(overflow.body.message).toMatch(/John has chapters 1–21/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('still serves a chapter when the durable chapter-cache table is unavailable', async () => {

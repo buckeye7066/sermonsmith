@@ -1,17 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma, authenticateToken, requireAdmin } from '../middleware/auth.js';
-import { validateAiSermon } from '@sermonsmith/shared/scripture';
-import { canonForDenomination } from '@sermonsmith/shared/denominations';
-import {
-  PASTORAL_REVIEW_CHECKLIST_VERSION,
-  isPastoralReviewChecklistComplete,
-  missingPastoralReviewItems,
-  normalizePastoralReviewChecklist,
-} from '@sermonsmith/shared/review';
 import {
   SCRIPTURE_GATED_TYPES,
-  REVIEWABLE_TYPES,
   gateEntityWrite,
   assertAiReplyExposable,
 } from '../services/scriptureGate.js';
@@ -132,7 +123,7 @@ const SermonSchema = z.object({
   points: z.array(z.any()).max(20).optional(),
   conclusion: z.string().max(20000).optional(),
   theological_notes: z.string().max(20000).optional(),
-  status: z.enum(['draft', 'published', 'archived', 'needs_review']).optional(),
+  status: z.enum(['draft', 'published', 'archived']).optional(),
 }).passthrough();
 
 // Reader writes Highlight/Note/Bookmark records keyed off a Bible verse.
@@ -296,7 +287,7 @@ const ENTITY_SCHEMAS = {
 };
 
 // ---------------------------------------------------------------------------
-// Server-side Scripture / quality-state gate.
+// Server-side Scripture integrity gate.
 //
 // Until now the server stored whatever `scripture_validation` and `status`
 // the client sent — a buggy or malicious client (or any AI feature that
@@ -305,17 +296,13 @@ const ENTITY_SCHEMAS = {
 // one choke point every save path crosses, so trust state is computed HERE,
 // with the exact same shared validator the web client uses.
 //
-// Rules for scripture-gated types (currently Sermon):
+// Rules for scripture-gated types:
 //   - `scripture_validation` is always recomputed server-side; a client-
 //     supplied blob is ignored.
-//   - Review-only trust fields (pastor_reviewed, ready_to_present, …) are
-//     stripped: only a real human review flow may ever set them — never the
-//     generic entity API, and never the AI pipeline.
+//   - Fields from the retired attestation workflow are stripped.
 //   - A record whose references do not all verify cannot be `published`
-//     (422 — the user can fix the references and retry), and a `draft`
-//     save is honestly relabeled `needs_review`. `archived` stays allowed.
-//   - The user's work is never rejected or rewritten beyond those trust
-//     fields: imperfect content saves fine as a private needs_review draft.
+//     or publicly shared (422 — the user can fix the references and retry).
+//   - Private drafts remain editable and keep their normal `draft` status.
 //
 // Canon: references are validated against the canon of the record's
 // denomination (payload → stored record → user profile), so a Catholic
@@ -329,11 +316,11 @@ const ENTITY_SCHEMAS = {
 // `questions[].scripture_reference`, reading-plan `daily_readings[].passages[]`,
 // and the double-nested EthicsAnalysis `data.result…key_scriptures[].reference`
 // are all revalidated server-side at the durable write. The forged-blob and
-// review-field-stripping guarantees now cover these types too; a UI shape
+// field-stripping guarantees now cover these types too; a UI shape
 // change can't quietly drop a field out of validation.
 // ---------------------------------------------------------------------------
-// Gate constants + core (SCRIPTURE_GATED_TYPES, STATUS_WORKFLOW_TYPES,
-// REVIEWABLE_TYPES, REVIEW_ONLY_FIELDS, isPublicOrPublished, gateEntityWrite)
+// Gate constants + core (SCRIPTURE_GATED_TYPES, isPublicOrPublished,
+// gateEntityWrite)
 // live in ../services/scriptureGate.js so the entity save gate, the share-link
 // routes, and the community routes all share ONE implementation and cannot
 // drift. See that module.
@@ -700,96 +687,19 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
     }
 
     patch = await applyScriptureGate(req, storedType, patch, existing.data);
+    // Scripture-gated updates return the complete sanitized record so fields
+    // retired from older deployments are actually removed, not restored by a
+    // second merge with the stored JSON here.
+    const nextData = SCRIPTURE_GATED_TYPES.has(storedType)
+      ? patch
+      : { ...existing.data, ...patch };
 
     const entity = await prisma.entity.update({
       where: { id: req.params.id },
       data: {
-        data: { ...existing.data, ...patch, updated_date: new Date().toISOString() },
+        data: { ...nextData, updated_date: new Date().toISOString() },
       },
     });
-    res.json(formatEntity(entity));
-  } catch (err) {
-    next(err);
-  }
-});
-
-// --- Review acknowledgment (human-only trust transition) ---
-//
-// The generic create/update paths strip pastor_reviewed & friends so neither
-// the AI pipeline nor a forged payload can self-certify content. This is the
-// ONE way those fields get set: the record's owner explicitly acknowledges
-// they reviewed the draft. Scripture validation is recomputed at the moment
-// of acknowledgment so the stored evidence reflects what the pastor actually
-// reviewed. Acknowledging does NOT alter status or bypass the publish gate —
-// a reviewed draft with invalid references still cannot be published until
-// the references are fixed. `acknowledged: false` withdraws a review.
-router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
-  try {
-    if (!REVIEWABLE_TYPES.has(req.params.type)) {
-      return res.status(400).json({ message: `'${req.params.type}' does not support review acknowledgment.` });
-    }
-    const { acknowledged, checklist } = req.body || {};
-    if (typeof acknowledged !== 'boolean') {
-      return res.status(400).json({ message: 'Body must include { acknowledged: true | false } — review is an explicit human action.' });
-    }
-    const existing = await prisma.entity.findUnique({
-      select: { id: true, type: true, data: true, userId: true, updatedAt: true },
-      where: { id: req.params.id },
-    });
-    if (!existing || existing.type !== req.params.type) return res.status(404).json({ message: 'Not found' });
-    // Review is the OWNER's pastoral judgment — admins may read, not review
-    // on someone else's behalf.
-    if (existing.userId !== req.userId) {
-      return res.status(403).json({ message: 'Only the owner can acknowledge review of their content.' });
-    }
-    if (acknowledged && !isPastoralReviewChecklistComplete(checklist)) {
-      return res.status(400).json({
-        message: 'Complete every pastoral review checkpoint before acknowledging this sermon.',
-        missing: missingPastoralReviewItems(checklist),
-      });
-    }
-
-    const denomination = await denominationForRequest(req, existing.data?.denomination);
-    const validation = validateAiSermon(existing.data, { canon: canonForDenomination(denomination) });
-
-    const reviewFields = acknowledged
-      ? {
-          pastor_reviewed: true,
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: req.userId,
-          review_checklist: normalizePastoralReviewChecklist(checklist),
-          review_checklist_version: PASTORAL_REVIEW_CHECKLIST_VERSION,
-          scripture_validation: validation.refs,
-        }
-      : {
-          pastor_reviewed: false,
-          reviewed_at: null,
-          reviewed_by: null,
-          review_checklist: null,
-          review_checklist_version: null,
-          scripture_validation: validation.refs,
-        };
-
-    // The content validated above must be the same content we mark reviewed.
-    // Match updatedAt as an optimistic-concurrency token so a simultaneous
-    // sermon edit cannot be overwritten by this read/validate/write cycle or
-    // inherit a stale pastoral-review acknowledgment.
-    const result = await prisma.entity.updateMany({
-      where: {
-        id: existing.id,
-        type: existing.type,
-        userId: existing.userId,
-        updatedAt: existing.updatedAt,
-      },
-      data: { data: { ...existing.data, ...reviewFields, updated_date: new Date().toISOString() } },
-    });
-    if (result.count !== 1) {
-      return res.status(409).json({
-        message: 'Content changed while review was being acknowledged. Re-open the latest draft and review it again.',
-      });
-    }
-
-    const entity = await prisma.entity.findUnique({ where: { id: existing.id } });
     res.json(formatEntity(entity));
   } catch (err) {
     next(err);

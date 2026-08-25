@@ -19,6 +19,7 @@ import {
   bookByName,
 } from '../services/premiumTranslations.js';
 import { buildVerseWordingResult } from '../services/verseWording.js';
+import { chaptersInBook } from '@sermonsmith/shared/scripture';
 
 const router = Router();
 
@@ -45,6 +46,26 @@ const passageSchema = z.object({
   translationId: z.string().min(1).max(20).optional(),
   translations: z.array(z.string().min(1).max(20)).max(5).optional(),
 }).refine((d) => d.book || d.bookCode, { message: 'book or bookCode is required' });
+
+// Resolve the Reader's OSIS code, full name, alias, or numeric book id to one
+// canonical cache/provider key. Validate the chapter against that book's real
+// bounds before any source request. This prevents an early-book-only happy path
+// and guarantees every Reader navigation uses the same provider URL contract.
+export function resolveBibleLocation(bookInput, chapterInput) {
+  const book = bookByName(bookInput);
+  if (!book) {
+    throw Object.assign(new Error(`Unknown Bible book: ${String(bookInput || '').trim() || '(empty)'}`), { status: 400 });
+  }
+  const chapter = Number(chapterInput);
+  const chapterCount = chaptersInBook(book.name);
+  if (!Number.isInteger(chapter) || chapter < 1 || !chapterCount || chapter > chapterCount) {
+    throw Object.assign(
+      new Error(`${book.name} has chapters 1–${chapterCount}; received ${chapterInput}.`),
+      { status: 400 },
+    );
+  }
+  return { book, chapter, chapterCount };
+}
 
 // ---------------------------------------------------------------------------
 // Bible chapter cache.
@@ -347,8 +368,9 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
       });
     }
     const body = parsed.data;
-    const book = body.bookCode || body.book;
-    const chapter = body.chapter;
+    const location = resolveBibleLocation(body.bookCode || body.book, body.chapter);
+    const book = location.book.name;
+    const chapter = location.chapter;
     const translationRaw = body.translationId || body.translation || 'kjv';
     const verses = body.verses ?? body.verse;
 
@@ -603,8 +625,9 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
       });
     }
     const data = parsed.data;
-    const book = data.bookCode || data.book;
-    const { chapter } = data;
+    const location = resolveBibleLocation(data.bookCode || data.book, data.chapter);
+    const book = location.book.name;
+    const chapter = location.chapter;
     const verse = data.verse ?? data.verses;
 
     // Split requested translations into public-domain (free, bible-api.com) and

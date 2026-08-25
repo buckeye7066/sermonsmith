@@ -5,21 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download, ShieldCheck } from "lucide-react";
+import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/api/apiClient";
 import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 import SermonAdaptation from "./SermonAdaptation";
 import PresentationMode from "./PresentationMode";
 import TheologicalExplorer from "./TheologicalExplorer";
 import ExegesisHelper from "./ExegesisHelper";
-import {
-  PASTORAL_REVIEW_ITEMS,
-  isPastoralReviewChecklistComplete,
-} from "@sermonsmith/shared/review";
 
 export default function SermonEditor({
   sermonData,
@@ -39,15 +33,12 @@ export default function SermonEditor({
   const [showExegesisHelper, setShowExegesisHelper] = useState(false);
   const [exegesisPassage, setExegesisPassage] = useState("");
   const [isExporting, setIsExporting] = useState(false);
-  const [isReviewing, setIsReviewing] = useState(false);
-  const [reviewChecklist, setReviewChecklist] = useState({});
 
   // Update internal state when sermonData prop changes
   useEffect(() => {
     if (sermonData) {
       setCurrentSermon(sermonData);
       setEditedTitle(sermonData.title || "");
-      setReviewChecklist({});
     }
   }, [sermonData]);
 
@@ -407,47 +398,18 @@ export default function SermonEditor({
         </Card>
       )}
 
-      {/* Quality state — plain ministry language, one honest chip per proof
-          kind instead of a single misleading "verified" badge. */}
+      {/* Automatic Scripture-reference results. Saving and presenting remain
+          user-controlled; only an invalid public publish/share is blocked. */}
       {(() => {
         const refs = Array.isArray(currentSermon.scripture_validation) ? currentSermon.scripture_validation : [];
         const invalid = refs.filter((r) => r.status === 'invalid_book' || r.status === 'out_of_range' || r.status === 'unparseable');
         const deutero = refs.filter((r) => r.status === 'chapter_checked' || r.status === 'unsupported_canon');
-        const reviewed = currentSermon.pastor_reviewed === true;
-        const completedReviewItems = PASTORAL_REVIEW_ITEMS
-          .filter(({ id }) => reviewChecklist[id])
-          .map(({ id }) => id);
-        const reviewReady = isPastoralReviewChecklistComplete(completedReviewItems);
-
-        const handleReview = async (acknowledged) => {
-          if (!currentSermon.id) return;
-          setIsReviewing(true);
-          try {
-            const updated = await api.entities.Sermon.review(
-              currentSermon.id,
-              acknowledged,
-              acknowledged ? completedReviewItems : [],
-            );
-            setCurrentSermon((prev) => ({ ...prev, ...updated }));
-            toast.success(acknowledged ? 'Marked as pastor reviewed.' : 'Review withdrawn.');
-          } catch (err) {
-            toast.error(err?.message || 'Could not update review state.');
-          } finally {
-            setIsReviewing(false);
-          }
-        };
 
         return (
-          <Alert className={reviewed ? 'border-green-300' : invalid.length ? 'border-amber-300' : ''}>
+          <Alert className={invalid.length ? 'border-amber-300' : 'border-green-300'}>
             <AlertDescription>
               <div className="flex flex-wrap items-center gap-2">
-                {reviewed ? (
-                  <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                    <ShieldCheck className="w-3 h-3 mr-1" /> Pastor reviewed
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary">AI-generated draft — review before preaching</Badge>
-                )}
+                <Badge variant="secondary">Editable AI-assisted draft</Badge>
                 {invalid.length > 0 && (
                   <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
                     <AlertCircle className="w-3 h-3 mr-1" />
@@ -462,58 +424,16 @@ export default function SermonEditor({
                 {refs.length > 0 && invalid.length === 0 && deutero.length === 0 && (
                   <Badge variant="outline">{refs.length} reference{refs.length > 1 ? 's' : ''} checked</Badge>
                 )}
-                {currentSermon.id && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="ml-auto"
-                    disabled={isReviewing || (!reviewed && !reviewReady)}
-                    onClick={() => handleReview(!reviewed)}
-                  >
-                    {isReviewing ? (
-                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                    ) : (
-                      <ShieldCheck className="w-3 h-3 mr-1" />
-                    )}
-                    {reviewed ? 'Withdraw review' : "I've reviewed this sermon"}
-                  </Button>
-                )}
               </div>
               {invalid.length > 0 && (
                 <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
                   {invalid.map((r) => `${r.ref} (${r.status === 'invalid_book' ? 'unknown book' : 'out of range'})`).join(' · ')}
-                  {' — '}open the Reader to verify each passage before preaching.
+                  {' — '}open the Reader to inspect the cited passage and correct the reference.
                 </p>
               )}
-              {!reviewed && currentSermon.id && (
-                <div className="mt-4 space-y-3 border-t pt-4">
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-gray-100">Pastoral review checklist</p>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      Complete all {PASTORAL_REVIEW_ITEMS.length} checkpoints before recording your review.
-                    </p>
-                  </div>
-                  {PASTORAL_REVIEW_ITEMS.map((item) => (
-                    <label key={item.id} className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
-                      <Checkbox
-                        checked={Boolean(reviewChecklist[item.id])}
-                        onCheckedChange={(checked) => setReviewChecklist((previous) => ({
-                          ...previous,
-                          [item.id]: checked === true,
-                        }))}
-                        aria-label={item.label}
-                      />
-                      <span>
-                        <span className="block text-sm font-medium">{item.label}</span>
-                        <span className="block text-xs text-gray-600 dark:text-gray-400">{item.description}</span>
-                      </span>
-                    </label>
-                  ))}
-                  <p className="text-xs text-gray-600 dark:text-gray-400">
-                    {completedReviewItems.length} of {PASTORAL_REVIEW_ITEMS.length} checkpoints complete
-                  </p>
-                </div>
-              )}
+              <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                You choose when to save, present, publish, or share this draft.
+              </p>
             </AlertDescription>
           </Alert>
         );

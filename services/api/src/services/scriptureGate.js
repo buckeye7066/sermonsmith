@@ -1,10 +1,9 @@
 /**
- * Centralized Scripture / trust-state gate.
+ * Centralized Scripture integrity gate.
  *
  * This is the ONE place that decides, for a persisted AI-generated record:
  *   - which entity types are Scripture-gated,
  *   - how their `scripture_validation` is (re)computed (canon-aware),
- *   - which "trust" fields only a human-review flow may ever set,
  *   - and whether a record may cross a PUBLIC / PUBLISHED / SHARED surface.
  *
  * Every exposure surface — the generic entity save gate (routes/entities.js),
@@ -46,16 +45,11 @@ export const SCRIPTURE_GATED_TYPES = new Set([
 // status:'published' / visibility:'public' flag.
 export const INHERENTLY_PUBLIC_TYPES = new Set(['SharedSermon', 'SharedSeries']);
 
-// Gated types whose UI models a draft → published status lifecycle. Only these
-// get the `draft → needs_review` honest relabel; others just carry the honest
-// validation without inventing a status their UI can't render.
-export const STATUS_WORKFLOW_TYPES = new Set(['Sermon']);
-
-// Types that expose the human-only pastoral review acknowledgment endpoint.
-export const REVIEWABLE_TYPES = new Set(['Sermon']);
-
-// Trust-state fields that only a human review flow may ever set.
-export const REVIEW_ONLY_FIELDS = [
+// Fields written by the retired attestation workflow. Clients cannot restore
+// them, and touching an older record removes them from the persisted JSON.
+// Publishing remains an explicit owner action; only Scripture-reference
+// integrity is enforced automatically.
+export const LEGACY_ATTESTATION_FIELDS = [
   'pastor_reviewed',
   'ready_to_present',
   'reviewed_by',
@@ -64,9 +58,6 @@ export const REVIEW_ONLY_FIELDS = [
   'review_checklist_version',
   'verified',
 ];
-
-// Content fields whose change invalidates a prior pastoral review (Sermon).
-const CONTENT_FIELDS = ['title', 'topic', 'anchor_passage', 'big_idea', 'points', 'conclusion', 'theological_notes'];
 
 // A record crosses a PUBLIC / SHARED surface when any of these signals is set.
 // Each is a "publish" transition for gate purposes: a gated record whose
@@ -93,10 +84,9 @@ export function recomputeScriptureValidation(type, record, canon) {
 
 /**
  * Pure gate core for a create/update of a gated type. Returns a copy of
- * `incoming` with trust fields stripped, stale trust markers neutralized on the
- * merged record, `scripture_validation` recomputed, and `status` honestly
- * downgraded. Throws 422 when the record would be published OR publicly shared
- * with references that do not all verify.
+ * the merged record with retired attestation fields removed and
+ * `scripture_validation` recomputed. Throws 422 when the record would be
+ * published OR publicly shared with references that do not all verify.
  *
  * `denomination` is the already-resolved denomination string (payload → stored
  * record → user profile); the caller owns that resolution.
@@ -104,38 +94,23 @@ export function recomputeScriptureValidation(type, record, canon) {
 export function gateEntityWrite({ type, incoming, existingData = null, denomination }) {
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
 
-  const data = { ...incoming };
-  for (const field of REVIEW_ONLY_FIELDS) delete data[field];
+  const data = { ...(existingData || {}), ...incoming };
+  for (const field of LEGACY_ATTESTATION_FIELDS) delete data[field];
   delete data.scripture_validation;
   // Provider wording verification is recomputed on the entities save path —
   // never trust a client-supplied blob (same rule as scripture_validation).
   delete data.wording_verification;
   delete data.quotation_verification;
 
-  const merged = { ...(existingData || {}), ...data };
-  delete merged.scripture_validation;
-  delete merged.wording_verification;
-  delete merged.quotation_verification;
+  // Older rows may still contain the retired workflow status. Normalize it as
+  // they are edited so no approval-style state can survive a normal save.
+  if (data.status === 'needs_review') data.status = 'draft';
 
-  const canon = canonForDenomination(denomination || merged.denomination);
-  const validation = recomputeScriptureValidation(type, merged, canon);
+  const canon = canonForDenomination(denomination || data.denomination);
+  const validation = recomputeScriptureValidation(type, data, canon);
   data.scripture_validation = validation.refs;
-
-  // Neutralize stale / forged trust markers on the MERGED stored record.
-  // `verified`/`ready_to_present` are set by NO endpoint ever; the review
-  // markers are legitimate only on a type with the human-review endpoint
-  // (Sermon), whose /review flow + the stale-review rule below own them.
-  const STALE_TRUST_FIELDS = REVIEWABLE_TYPES.has(type)
-    ? ['verified', 'ready_to_present']
-    : REVIEW_ONLY_FIELDS;
-  for (const field of STALE_TRUST_FIELDS) {
-    if (field in merged) data[field] = null;
-  }
-
-  const resultRecord = { ...(existingData || {}), ...data };
-  const requestedStatus = data.status ?? existingData?.status;
   if (!validation.allValid) {
-    if (isPublicOrPublished(resultRecord) || INHERENTLY_PUBLIC_TYPES.has(type)) {
+    if (isPublicOrPublished(data) || INHERENTLY_PUBLIC_TYPES.has(type)) {
       throw Object.assign(
         new Error(
           `Cannot publish or share: ${validation.summary}. Fix the flagged references (or keep the record private) and try again.`,
@@ -143,22 +118,6 @@ export function gateEntityWrite({ type, incoming, existingData = null, denominat
         { status: 422, scripture_validation: validation.refs },
       );
     }
-    if (
-      STATUS_WORKFLOW_TYPES.has(type) &&
-      (requestedStatus === 'draft' || requestedStatus == null)
-    ) {
-      data.status = 'needs_review';
-    }
-  }
-
-  // Stale-review rule (Sermon): editing content the pastor reviewed resets the
-  // acknowledgment; a status-only change preserves it.
-  if (existingData?.pastor_reviewed && CONTENT_FIELDS.some((f) => f in data)) {
-    data.pastor_reviewed = false;
-    data.reviewed_at = null;
-    data.reviewed_by = null;
-    data.review_checklist = null;
-    data.review_checklist_version = null;
   }
 
   return data;

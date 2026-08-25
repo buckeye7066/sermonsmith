@@ -312,7 +312,7 @@ export default function Settings() {
                     <Alert className="bg-green-50 dark:bg-green-900/20 border-green-200">
                       <AlertDescription className="text-green-800 dark:text-green-200">
                         Premium unlocks configured AI and export tools for your account. Scripture wording
-                        still comes from registered providers and requires your review before teaching.
+                        remains linked to registered providers and is available in the Reader for context.
                       </AlertDescription>
                     </Alert>
 

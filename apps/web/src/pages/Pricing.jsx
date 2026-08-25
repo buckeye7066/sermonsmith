@@ -21,8 +21,8 @@ const freeFeatures = [
 const premiumFeatures = [
     "All Free features, plus:",
     "Additional Bible translations when available from configured sources",
-    "Multi-perspective study prompts for comparison and review",
-    "AI-assisted language adaptation that requires human review",
+    "Multi-perspective study prompts for comparison",
+    "AI-assisted language adaptation",
     "Worldview and ethics study tools",
     "Export sermons to PDF",
     "Interactive Bible maps and journeys",

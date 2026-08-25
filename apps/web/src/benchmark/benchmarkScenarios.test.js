@@ -124,8 +124,8 @@ describe('benchmark corpus — feature ids and server-invariant coverage', () =>
     expect(SERVER_AI_INVARIANTS).toMatch(/insufficient faith/);
     expect(SERVER_AI_INVARIANTS).toMatch(/remain in danger|counsel anyone to remain/);
     expect(SERVER_AI_INVARIANTS).toMatch(/without inventing hotline numbers/);
-    // Self-certification (quality-state honesty)
-    expect(SERVER_AI_INVARIANTS).toMatch(/requires human pastoral review/);
+    // Generated content must not claim human endorsement.
+    expect(SERVER_AI_INVARIANTS).toMatch(/Never state or imply.*created, endorsed/s);
   });
 
   it('red-line screens are lower-case substrings (live-runner contract)', () => {

@@ -435,9 +435,7 @@ Return the full adapted sermon in the same JSON format.`;
 
     try {
       // Verify every Scripture reference the model produced. Unknown books
-      // are flagged as `invalid_book` and we mark the entire sermon
-      // `needs_review` so the UI surfaces a warning instead of letting a
-      // hallucinated citation reach the pulpit.
+      // remain visible as findings while the private sermon stays editable.
       const validation = validateAiSermon(normalizedSermon, {
         canon: canonForDenomination(normalizedSermon.denomination),
       });
@@ -458,7 +456,7 @@ Return the full adapted sermon in the same JSON format.`;
         audience: normalizedSermon.audience,
         denomination: normalizedSermon.denomination,
         scripture_validation: validation.refs,
-        status: validation.allValid ? 'draft' : 'needs_review',
+        status: 'draft',
       };
 
       // If this sermon was already saved (it carries an id), UPDATE it instead
@@ -472,14 +470,12 @@ Return the full adapted sermon in the same JSON format.`;
       // Write the id (and status) back onto the in-memory sermon so the viewer
       // reflects the saved state and the Export button unlocks (it was gated on
       // `sermonData.id`, which never got set before).
-      // Prefer the server's copy of trust state: the API recomputes
-      // scripture_validation and may downgrade status at the save gate.
+      // Prefer the server's copy of automatic Scripture evidence.
       setGeneratedSermon((prev) => ({
         ...(prev || normalizedSermon),
         id: saved.id,
         status: saved.status ?? payload.status,
         scripture_validation: saved.scripture_validation ?? payload.scripture_validation,
-        pastor_reviewed: saved.pastor_reviewed ?? false,
       }));
 
       logActivity('sermon_created', {

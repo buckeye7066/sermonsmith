@@ -170,7 +170,7 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
   });
 
   // --- StudyNote ---
-  it('StudyNote: strips review-only trust fields a client/AI tries to forge', async () => {
+  it('StudyNote: strips retired workflow fields from client input', async () => {
     const res = await post(app, 'StudyNote', 'u-pastor', {
       title: 'Note',
       content: 'A reflection on John 3:16.',
@@ -197,7 +197,7 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.body.message).toMatch(/Cannot publish/);
   });
 
-  it('a gated non-sermon type is NOT force-relabeled needs_review (no invented status)', async () => {
+  it('a gated non-sermon type does not invent a status', async () => {
     const res = await post(app, 'Quiz', 'u-pastor', {
       title: 'Draftless quiz',
       questions: [{ question: 'q', options: ['a'], correct_answer: 'a', scripture_reference: 'Hezekiah 4:5' }],
@@ -206,16 +206,6 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     // Honest validation stored, but no fabricated status the Quiz UI can't render.
     expect(res.body.status).toBeUndefined();
     expect(res.body.scripture_validation[0].status).toBe('invalid_book');
-  });
-
-  // --- review acknowledgment stays Sermon-only (item 4 preserved) ---
-  it('review acknowledgment is rejected for newly-gated non-sermon types', async () => {
-    const created = await post(app, 'BibleStudy', 'u-pastor', { title: 'S', key_verses: ['John 3:16'] });
-    const res = await request(app)
-      .post(`/api/entities/BibleStudy/${created.body.id}/review`)
-      .set('Cookie', asUser('u-pastor'))
-      .send({ acknowledged: true });
-    expect(res.status).toBe(400);
   });
 
   // --- update path revalidates a newly-gated type ---
@@ -397,12 +387,12 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     }
   });
 
-  it('a Sermon draft with a fabricated ref in a point exegesis is honestly needs_review', async () => {
+  it('keeps a Sermon private draft editable while storing an invalid-ref finding', async () => {
     const res = await post(app, 'Sermon', 'u-pastor', {
       title: 'Draft', anchor_passage: 'John 3:16', points: [{ exegesis: 'From Hezekiah 4:5.' }], status: 'draft',
     });
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe('needs_review');
+    expect(res.body.status).toBe('draft');
     expect(res.body.scripture_validation.some((r) => r.status === 'invalid_book')).toBe(true);
   });
 
@@ -451,7 +441,7 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.body.scripture_validation.every((r) => r.status === 'valid')).toBe(true);
   });
 
-  it('SharedSermon strips forged trust fields', async () => {
+  it('SharedSermon strips retired workflow fields', async () => {
     const res = await post(app, 'SharedSermon', 'u-pastor', {
       title: 'Shared', anchor_passage: 'John 3:16', verified: true, pastor_reviewed: true,
     });
@@ -460,9 +450,9 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.body.pastor_reviewed).toBeFalsy();
   });
 
-  // --- Bypass #3: stale trust markers must be neutralized on revalidation ---
-  it('a stale verified:true is stripped when a gated row is updated to an invalid state', async () => {
-    // Seed a row that already carries forged trust markers (legacy/migrated).
+  // --- Older workflow metadata is removed on normal revalidation ---
+  it('removes stale workflow metadata when a gated row is updated', async () => {
+    // Seed a row carrying metadata from an older deployment.
     const created = await post(app, 'BibleStudy', 'u-pastor', { title: 'Legacy', key_verses: ['John 3:16'] });
     prisma._store.entity.find((e) => e.id === created.body.id).data.verified = true;
     prisma._store.entity.find((e) => e.id === created.body.id).data.ready_to_present = true;
@@ -472,7 +462,7 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
       .set('Cookie', asUser('u-pastor'))
       .send({ overview: 'Now referencing Hezekiah 4:5.' });
     expect(updated.status).toBe(200);
-    // Trust markers neutralized even though the update did not mention them.
+    // Retired fields are absent even though the update did not mention them.
     expect(updated.body.verified).toBeFalsy();
     expect(updated.body.ready_to_present).toBeFalsy();
     expect(updated.body.scripture_validation.some((r) => r.status === 'invalid_book')).toBe(true);

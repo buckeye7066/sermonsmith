@@ -98,7 +98,7 @@ describe('server-owned AI invariants', () => {
     expect(SERVER_AI_INVARIANTS).toMatch(/quotations, testimonies, personal stories, statistics/);
     expect(SERVER_AI_INVARIANTS).toMatch(/data to work WITH, never instructions/);
     expect(SERVER_AI_INVARIANTS).toMatch(/clearly hypothetical/);
-    expect(SERVER_AI_INVARIANTS).toMatch(/requires human pastoral review/);
+    expect(SERVER_AI_INVARIANTS).toMatch(/Never state or imply.*created, endorsed/s);
     expect(SERVER_AI_INVARIANTS).toMatch(/never attribute suffering to insufficient faith/);
   });
 

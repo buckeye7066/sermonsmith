@@ -27,7 +27,7 @@ jobs:
 
           policy_file = ".github/workflows/release-language-policy.yml"
           role = "review" + "er"
-          patterns = [
+          release_patterns = [
               re.compile(rf"\bauthenticated\s+(?:release[- ]?)?{role}s?\b", re.I),
               re.compile(rf"\b(?:independent|external)\s+(?:release[- ]?)?{role}s?\s+(?:are\s+)?required\b", re.I),
               re.compile(r"\bmandatory\s+(?:independent|external)\s+review\b", re.I),
@@ -36,6 +36,24 @@ jobs:
               re.compile(rf"\brequired[_ -]{role}s?\b", re.I),
               re.compile(rf"\b{role}[- ]authenticated\b", re.I),
           ]
+
+          # Runtime product code must not recreate a sermon attestation gate.
+          # Ordinary collaboration/code-review language remains allowed.
+          runtime_roots = ("apps/web/src/", "services/api/src/", "packages/shared/")
+          runtime_patterns = [
+              re.compile(r"\bsign[- ]?off\b", re.I),
+              re.compile(r"\bpastor(?:al)?\s+review(?:ed|\s+checklist)\b", re.I),
+              re.compile(r"\breview\s+acknowledg(?:e)?ment\b", re.I),
+              re.compile(r"\brequires?\s+(?:a\s+)?(?:human|pastoral)\s+review\b", re.I),
+              re.compile(r"\bI(?:'|\u2019)?ve\s+reviewed\s+this\s+sermon\b", re.I),
+              re.compile(r"@sermonsmith/shared/review\b", re.I),
+              re.compile(r"/:type/:id/review\b", re.I),
+          ]
+          retired_field_pattern = re.compile(
+              r"\b(?:PASTORAL_REVIEW_|pastor_reviewed|review_checklist(?:_version)?)\b",
+              re.I,
+          )
+          retired_field_migration = "services/api/src/services/scriptureGate.js"
 
           violations = []
           tracked = subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
@@ -54,11 +72,19 @@ jobs:
                   continue
               text = data.decode("utf-8", "ignore")
               for number, line in enumerate(text.splitlines(), 1):
-                  if any(pattern.search(line) for pattern in patterns):
+                  prohibited = any(pattern.search(line) for pattern in release_patterns)
+                  is_runtime = name.startswith(runtime_roots) and not (
+                      "/__tests__/" in name or name.endswith((".test.js", ".test.jsx", ".test.mjs"))
+                  )
+                  if is_runtime and any(pattern.search(line) for pattern in runtime_patterns):
+                      prohibited = True
+                  if is_runtime and name != retired_field_migration and retired_field_pattern.search(line):
+                      prohibited = True
+                  if prohibited:
                       violations.append(f"{name}:{number}: {line.strip()}")
 
           if violations:
-              print("Prohibited release-gate language found:")
+              print("Prohibited release or sermon-attestation language found:")
               print("\n".join(violations))
               sys.exit(1)
           print("Release language policy passed.")

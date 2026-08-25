@@ -41,10 +41,10 @@ import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import { logActivity } from "../components/admin/UserActivityLogger";
 import { WORLDVIEWS_LABEL } from "@/lib/appStats";
 
-const reviewPrinciples = [
+const draftPrinciples = [
   {
     title: "Your judgment stays final",
-    text: "Treat every generated outline, illustration, application, and theological statement as a draft to review.",
+    text: "Edit, expand, or discard every generated outline, illustration, application, and theological statement.",
   },
   {
     title: "Check every Scripture reference",
@@ -156,11 +156,11 @@ export default function Home() {
   ];
 
   const aiCapabilities = [
-    { icon: Sparkles, text: "Draft sermon & lesson generation for review", highlight: true },
+    { icon: Sparkles, text: "Editable sermon & lesson drafting", highlight: true },
     { icon: Lightbulb, text: "AI-drafted illustrations and anecdotes to verify" },
     { icon: BookOpen, text: "Scripture references to open and verify in context" },
     { icon: Users, text: "Audience adaptation prompts (youth, adults, seniors, children)" },
-    { icon: Languages, text: `AI-assisted language adaptation for human review` },
+    { icon: Languages, text: `AI-assisted language adaptation` },
     { icon: TrendingUp, text: "Theological trajectory planning" },
     { icon: Clock, text: "Elapsed-time presentation coaching; no microphone used" },
     { icon: MessageSquare, text: "Counter-arguments and Q&A prep" },
@@ -235,7 +235,7 @@ export default function Home() {
               <p className="text-xl text-gray-500 dark:text-gray-400 max-w-3xl mx-auto mb-12">
               Meet <strong className="text-blue-600">Larry</strong> and <strong className="text-purple-600">Arlynn</strong> - 
               your AI teaching assistants. Perfect for pastors, Sunday School teachers, VBS leaders, and Christian educators. 
-              Generate review-ready lesson drafts, study Scripture through multiple interpretive lenses,
+              Generate editable lesson drafts, study Scripture through multiple interpretive lenses,
               explore {WORLDVIEWS_LABEL} worldviews, and share with your community.
             </p>
 
@@ -450,7 +450,7 @@ export default function Home() {
                       👋 Hi! I'm Larry, your Teaching & Sermon Assistant.
                     </p>
                     <p className="text-gray-700 dark:text-gray-300">
-                      I help pastors and teachers create review-ready biblical lesson drafts. Whether you're preparing for Sunday service, VBS, Sunday School, or Christian schools, I'll help shape sermons with illustrations, applications, and supporting scriptures. I can adapt content for children, youth, or adults, and provide coaching prompts while you're teaching. Think of me as your ministry prep partner: useful, denominationally aware, and always expecting your final judgment.
+                      I help pastors and teachers create editable biblical lesson drafts. Whether you're preparing for Sunday service, VBS, Sunday School, or Christian schools, I'll help shape sermons with illustrations, applications, and supporting scriptures. I can adapt content for children, youth, or adults, and provide coaching prompts while you're teaching. Think of me as your ministry prep partner: useful, denominationally aware, and always under your control.
                     </p>
                   </div>
                 </div>
@@ -481,7 +481,7 @@ export default function Home() {
                 <div className="flex-1">
                   <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-tl-none p-4 shadow-md">
                     <p className="text-gray-700 dark:text-gray-300">
-                      The Bible Reader supports search, highlighting, and personal notes. Translation availability depends on configured sources and licenses. Community tools can help signed-in users share and adapt material, with attribution and their own pastoral review.
+                      The Bible Reader supports search, highlighting, and personal notes. Translation availability depends on configured sources and licenses. Community tools let signed-in users decide when to share or adapt their material, with attribution.
                     </p>
                   </div>
                 </div>
@@ -545,7 +545,7 @@ export default function Home() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-gray-700 dark:text-gray-300 text-lg">
-                  Your personal teaching and preaching partner. Larry creates review-ready biblical lesson and sermon drafts for church services, Sunday School, VBS, and Christian schools.
+                  Your personal teaching and preaching partner. Larry creates editable biblical lesson and sermon drafts for church services, Sunday School, VBS, and Christian schools.
                 </p>
                 
                 <div className="space-y-3">
@@ -781,18 +781,18 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Responsible-use guidance */}
+      {/* User-control and source guidance */}
       <div className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white text-center mb-4">
-            Built for Pastoral Review
+            Built for Pastor-Controlled Drafting
           </h2>
           <p className="text-center text-gray-600 dark:text-gray-400 max-w-3xl mx-auto mb-10">
             SermonSmith helps with drafts and organization. It does not replace careful exegesis,
             trusted sources, prayer, or accountability to your faith community.
           </p>
           <div className="grid md:grid-cols-3 gap-6">
-            {reviewPrinciples.map((principle) => (
+            {draftPrinciples.map((principle) => (
               <Card key={principle.title} className="bg-white dark:bg-gray-800 shadow-lg">
                 <CardContent className="pt-6">
                   <CheckCircle2 className="w-7 h-7 text-indigo-600 mb-3" />
@@ -821,16 +821,16 @@ export default function Home() {
               How It Works
             </h2>
             <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
-              A guided path from passage or topic to an editable, review-ready draft
+              A guided path from passage or topic to an editable draft
             </p>
           </motion.div>
 
           <div className="grid md:grid-cols-4 gap-8">
             {[
               { step: "1", title: "Choose Your Topic", description: "Enter a scripture passage or sermon theme", icon: BookOpen },
-              { step: "2", title: "AI Drafts Content", description: "Larry or Arlynn prepares a sermon draft for review", icon: Sparkles },
-              { step: "3", title: "Customize & Enhance", description: "Review, edit, and add your personal touches", icon: Lightbulb },
-              { step: "4", title: "Present & Review", description: "Use outline navigation and elapsed-time pacing cues, then capture revisions", icon: Presentation }
+              { step: "2", title: "AI Drafts Content", description: "Larry or Arlynn prepares an editable sermon draft", icon: Sparkles },
+              { step: "3", title: "Customize & Enhance", description: "Edit and add your personal touches", icon: Lightbulb },
+              { step: "4", title: "Present & Revise", description: "Use outline navigation and elapsed-time pacing cues, then capture revisions", icon: Presentation }
             ].map((step, index) => {
               const Icon = step.icon;
               return (
@@ -957,7 +957,7 @@ export default function Home() {
             viewport={{ once: true }}
           >
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
-              Ready to Start a Review-Ready Draft?
+              Ready to Start an Editable Draft?
             </h2>
             <p className="text-xl text-indigo-100 mb-10">
               Use SermonSmith to organize a first draft while keeping study, prayer, and pastoral judgment at the center

@@ -505,9 +505,8 @@ Include:
         supporting_scriptures: asArray(point.supporting_scriptures),
       }));
 
-      // Run the same Scripture validation Larry's path uses so an outline
-      // with hallucinated book names is saved as needs_review rather than
-      // silently shipping to the user's library as draft.
+      // Run the same Scripture validation Larry's path uses so invalid book
+      // names remain visible without changing the user's private-draft state.
       const validation = validateAiSermon({
         anchor_passage: outlinePassage,
         points,
@@ -526,7 +525,7 @@ Include:
         big_idea: outline.big_idea,
         points,
         scripture_validation: validation.refs,
-        status: validation.allValid ? 'draft' : 'needs_review',
+        status: 'draft',
       });
 
       toast.success("Sermon outline saved! 🎉");
@@ -557,7 +556,7 @@ Include:
           conclusion: normalized.conclusion,
           discussion_questions: normalized.discussion_questions,
           scripture_validation: validation.refs,
-          status: validation.allValid ? 'draft' : 'needs_review',
+          status: 'draft',
         };
       });
 

@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 // Browser proof for the core sermon flow (spec: generate → validate → save →
-// reopen) and for the invalid-Scripture warning flow (visible finding, draft
-// stays editable, save is honestly downgraded — never silently clean).
+// reopen) and for the invalid-Scripture warning flow (visible finding and an
+// editable private draft, never silently clean).
 //
 // The AI and entity APIs are route-mocked: this is UI-truth evidence
 // (rendering, wiring, validation surfacing, save payloads), not live-model
@@ -105,37 +105,15 @@ test('core flow: generate → validation → save as clean draft → reopen from
   expect(captured[0].scripture_validation.length).toBeGreaterThan(0);
   expect(captured[0].scripture_validation.every((r) => r.status === 'valid')).toBe(true);
 
-  // The quality chip is honest: a draft, not a green "verified" badge.
-  await expect(page.getByText(/AI-generated draft — review before preaching/i)).toBeVisible();
-
-  // Explicit human review via the acknowledgment endpoint.
-  await page.route('**/api/entities/Sermon/*/review', (route) => {
-    const { acknowledged } = route.request().postDataJSON();
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ ...saved[0], pastor_reviewed: acknowledged, reviewed_by: USER.id }),
-    });
-  });
-  for (const checkpoint of [
-    'Scripture in context',
-    'Theological claims',
-    'Illustrations and facts',
-    'Pastoral application',
-  ]) {
-    await page.getByRole('checkbox', { name: checkpoint }).check();
-  }
-  await page.getByRole('button', { name: /I've reviewed this sermon/i }).click();
-  // Case-sensitive, unanchored: matches the chip ("Pastor reviewed"), not
-  // the lowercase toast copy ("Marked as pastor reviewed.").
-  await expect(page.getByText(/Pastor reviewed/).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/Editable AI-assisted draft/i)).toBeVisible();
+  await expect(page.getByText(/You choose when to save, present, publish, or share/i)).toBeVisible();
 
   // Reopen from the library.
   await page.goto('/MySermons');
   await expect(page.getByText('Amazing Grace for Every Day').first()).toBeVisible({ timeout: 15_000 });
 });
 
-test('warning flow: invalid Scripture → visible finding → still editable → honest needs_review save', async ({ page }) => {
+test('warning flow: invalid Scripture → visible finding → editable private draft', async ({ page }) => {
   const saved = [];
   await mockCommonRoutes(page, { aiSermon: sermonPayload({ badRef: true }) });
   const captured = mockSermonEntity(page, { saved });
@@ -152,9 +130,9 @@ test('warning flow: invalid Scripture → visible finding → still editable →
   await expect(page.getByText(/Scripture references look invalid/i)).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText(/Sermon saved successfully/i)).toBeVisible({ timeout: 10_000 });
 
-  // The stored record is honestly flagged, with the invalid ref recorded.
+  // The draft status stays user-controlled, with the invalid ref recorded.
   expect(captured).toHaveLength(1);
-  expect(captured[0].status).toBe('needs_review');
+  expect(captured[0].status).toBe('draft');
   const statuses = captured[0].scripture_validation.map((r) => r.status);
   expect(statuses).toContain('invalid_book');
 

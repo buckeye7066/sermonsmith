@@ -48,12 +48,11 @@ export default function TermsOfUse() {
           </p>
         </Section>
 
-        <Section title="AI drafts and human review">
+        <Section title="AI-assisted drafts">
           <p>
             AI features produce editable drafts and suggestions. They are not autonomous
-            sermons, not doctrinal authority, and not a substitute for human review. Before
-            teaching, verify references, context, theology, and wording against your chosen
-            sources.
+            sermons or doctrinal authority. You control whether and how drafts are saved,
+            presented, published, or shared.
           </p>
         </Section>
 

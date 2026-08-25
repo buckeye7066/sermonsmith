@@ -4,21 +4,15 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
-import { PASTORAL_REVIEW_ITEM_IDS } from '@sermonsmith/shared/review';
 
-// Server-side Scripture / quality-state gate tests.
+// Server-side Scripture integrity gate tests.
 //
 // The durable entity write is the one choke point every save path crosses,
-// so trust state (scripture_validation, status, review-only fields) must be
-// computed server-side there — a client-supplied validation blob or a
+// so validation evidence must be computed server-side there — a
+// client-supplied validation blob or a
 // premature `published` status must never be stored as authoritative.
 
 const prisma = createPrismaMock();
-const completedReview = () => ({
-  acknowledged: true,
-  checklist: [...PASTORAL_REVIEW_ITEM_IDS],
-});
-
 vi.mock('../middleware/auth.js', () => ({
   prisma,
   AUTH_COOKIE: 'ss_token',
@@ -67,7 +61,7 @@ const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 const tokenFor = (userId) => jwt.sign({ userId }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
 const asUser = (id) => [`ss_token=${tokenFor(id)}`];
 
-describe('entities — server-side Scripture / quality-state gate (Sermon)', () => {
+describe('entities — server-side Scripture integrity gate (Sermon)', () => {
   let app;
   beforeEach(() => {
     prisma._reset();
@@ -95,8 +89,7 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     const stored = res.body.scripture_validation;
     expect(stored).toHaveLength(1);
     expect(stored[0].status).toBe('invalid_book');
-    // And the record cannot masquerade as a clean draft.
-    expect(res.body.status).toBe('needs_review');
+    expect(res.body.status).toBe('draft');
   });
 
   it('accepts a clean sermon as draft with server-computed validation', async () => {
@@ -120,7 +113,7 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
       .set('Cookie', asUser('u-pastor'))
       .send({ title: 'Overrun', anchor_passage: 'John 3:16-999', status: 'draft' });
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe('needs_review');
+    expect(res.body.status).toBe('draft');
     expect(res.body.scripture_validation[0].status).toBe('out_of_range');
   });
 
@@ -142,12 +135,12 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     expect(res.body.status).toBe('published');
   });
 
-  it('strips review-only trust fields the AI or a client tries to set', async () => {
+  it('strips fields from the retired attestation workflow', async () => {
     const res = await request(app)
       .post('/api/entities/Sermon')
       .set('Cookie', asUser('u-pastor'))
       .send({
-        title: 'Self-certified',
+        title: 'Client supplied metadata',
         anchor_passage: 'John 3:16',
         pastor_reviewed: true,
         ready_to_present: true,
@@ -169,9 +162,9 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
       .send({ title: 'Funeral homily', anchor_passage: 'Wisdom 3:1-9', status: 'draft' });
     expect(res.status).toBe(200);
     // Real Scripture in this canon, chapter verified, verse level pending a
-    // text source — honest review state, not a fabrication accusation.
+    // text source — not a fabrication accusation.
     expect(res.body.scripture_validation[0].status).toBe('chapter_checked');
-    expect(res.body.status).toBe('needs_review');
+    expect(res.body.status).toBe('draft');
   });
 
   it('a payload denomination overrides the profile denomination for canon resolution', async () => {
@@ -195,10 +188,10 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
       .send({ title: 'Wisdom quote', anchor_passage: 'Wisdom 3:1', status: 'draft' });
     expect(res.status).toBe(200);
     expect(res.body.scripture_validation[0].status).toBe('unsupported_canon');
-    expect(res.body.status).toBe('needs_review');
+    expect(res.body.status).toBe('draft');
   });
 
-  it('update revalidates the merged record and downgrades a corrupted draft', async () => {
+  it('update revalidates the merged record while preserving a private draft', async () => {
     const created = await request(app)
       .post('/api/entities/Sermon')
       .set('Cookie', asUser('u-pastor'))
@@ -210,7 +203,7 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
       .set('Cookie', asUser('u-pastor'))
       .send({ conclusion: 'And as Hezekiah 4:5 reminds us...' });
     expect(updated.status).toBe(200);
-    expect(updated.body.status).toBe('needs_review');
+    expect(updated.body.status).toBe('draft');
     const statuses = updated.body.scripture_validation.map((r) => r.status).sort();
     expect(statuses).toEqual(['invalid_book', 'valid']);
   });
@@ -254,7 +247,7 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
       });
     expect(res.status).toBe(200);
     expect(res.body[0].status).toBe('draft');
-    expect(res.body[1].status).toBe('needs_review');
+    expect(res.body[1].status).toBe('draft');
     expect(res.body[1].pastor_reviewed).toBeUndefined();
   });
 
@@ -267,151 +260,29 @@ describe('entities — server-side Scripture / quality-state gate (Sermon)', () 
     expect(res.body.scripture_validation).toBeUndefined();
   });
 
-  // --- Review acknowledgment (human-only trust transition) ---
-
-  async function createSermon(userId, body) {
-    const res = await request(app)
+  it('removes retired workflow data from an older row on its next normal edit', async () => {
+    const created = await request(app)
       .post('/api/entities/Sermon')
-      .set('Cookie', asUser(userId))
-      .send(body);
-    expect(res.status).toBe(200);
-    return res.body;
-  }
-
-  it('review acknowledgment: owner marks a sermon reviewed; validation evidence is refreshed', async () => {
-    const sermon = await createSermon('u-pastor', { title: 'Reviewed', anchor_passage: 'John 3:16', status: 'draft' });
-    const res = await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
       .set('Cookie', asUser('u-pastor'))
-      .send(completedReview());
-    expect(res.status).toBe(200);
-    expect(res.body.pastor_reviewed).toBe(true);
-    expect(res.body.reviewed_by).toBe('u-pastor');
-    expect(res.body.reviewed_at).toBeTruthy();
-    expect(res.body.review_checklist).toEqual(PASTORAL_REVIEW_ITEM_IDS);
-    expect(res.body.review_checklist_version).toBe(1);
-    expect(res.body.scripture_validation[0].status).toBe('valid');
-  });
+      .send({ title: 'Older row', anchor_passage: 'John 3:16', status: 'draft' });
+    const stored = prisma._store.entity.find((item) => item.id === created.body.id);
+    stored.data = {
+      ...stored.data,
+      status: 'needs_review',
+      pastor_reviewed: true,
+      reviewed_by: 'u-pastor',
+      ready_to_present: true,
+    };
 
-  it('returns 409 instead of overwriting a sermon edited during review acknowledgment', async () => {
-    const sermon = await createSermon('u-pastor', {
-      title: 'Original draft',
-      anchor_passage: 'John 3:16',
-      status: 'draft',
-    });
-    const updateMany = prisma.entity.updateMany.getMockImplementation();
-
-    prisma.entity.updateMany.mockImplementationOnce(async (args) => {
-      const row = prisma._store.entity.find((item) => item.id === sermon.id);
-      row.data = { ...row.data, title: 'Concurrent pastoral edit' };
-      row.updatedAt = new Date(row.updatedAt.getTime() + 1_000);
-      return updateMany(args);
-    });
-
-    const res = await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
+    const updated = await request(app)
+      .put(`/api/entities/Sermon/${created.body.id}`)
       .set('Cookie', asUser('u-pastor'))
-      .send(completedReview());
+      .send({ title: 'Normal draft' });
 
-    expect(res.status).toBe(409);
-    expect(res.body.message).toMatch(/content changed/i);
-    const stored = prisma._store.entity.find((item) => item.id === sermon.id);
-    expect(stored.data.title).toBe('Concurrent pastoral edit');
-    expect(stored.data.pastor_reviewed).toBeUndefined();
-  });
-
-  it('review acknowledgment requires an explicit boolean', async () => {
-    const sermon = await createSermon('u-pastor', { title: 'X', anchor_passage: 'John 3:16' });
-    const res = await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
-      .set('Cookie', asUser('u-pastor'))
-      .send({});
-    expect(res.status).toBe(400);
-  });
-
-  it('review acknowledgment requires every pastoral checkpoint', async () => {
-    const sermon = await createSermon('u-pastor', { title: 'Incomplete review', anchor_passage: 'John 3:16' });
-    const res = await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
-      .set('Cookie', asUser('u-pastor'))
-      .send({ acknowledged: true, checklist: PASTORAL_REVIEW_ITEM_IDS.slice(0, -1) });
-    expect(res.status).toBe(400);
-    expect(res.body.missing).toEqual(['pastoral_application']);
-  });
-
-  it('only the owner may acknowledge review', async () => {
-    const sermon = await createSermon('u-pastor', { title: 'Mine', anchor_passage: 'John 3:16' });
-    const res = await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
-      .set('Cookie', asUser('u-catholic'))
-      .send(completedReview());
-    expect(res.status).toBe(403);
-  });
-
-  it('review acknowledgment is rejected for non-gated types', async () => {
-    const res = await request(app)
-      .post('/api/entities/Note/some-id/review')
-      .set('Cookie', asUser('u-pastor'))
-      .send(completedReview());
-    expect(res.status).toBe(400);
-  });
-
-  it('editing content after review resets pastor_reviewed (stale-review rule)', async () => {
-    const sermon = await createSermon('u-pastor', { title: 'Will edit', anchor_passage: 'John 3:16', status: 'draft' });
-    await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
-      .set('Cookie', asUser('u-pastor'))
-      .send(completedReview());
-
-    const edited = await request(app)
-      .put(`/api/entities/Sermon/${sermon.id}`)
-      .set('Cookie', asUser('u-pastor'))
-      .send({ conclusion: 'A new ending the pastor has not read yet.' });
-    expect(edited.status).toBe(200);
-    expect(edited.body.pastor_reviewed).toBe(false);
-    expect(edited.body.reviewed_by).toBeNull();
-  });
-
-  it('a status-only change (archive) does not reset an acknowledged review', async () => {
-    const sermon = await createSermon('u-pastor', { title: 'Keep review', anchor_passage: 'John 3:16', status: 'draft' });
-    await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
-      .set('Cookie', asUser('u-pastor'))
-      .send(completedReview());
-
-    const archived = await request(app)
-      .put(`/api/entities/Sermon/${sermon.id}`)
-      .set('Cookie', asUser('u-pastor'))
-      .send({ status: 'archived' });
-    expect(archived.status).toBe(200);
-    expect(archived.body.pastor_reviewed).toBe(true);
-  });
-
-  it('review does not bypass the publish gate: reviewed content with invalid refs still cannot publish', async () => {
-    const sermon = await createSermon('u-pastor', { title: 'Reviewed but broken', anchor_passage: 'John 99:1', status: 'draft' });
-    await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
-      .set('Cookie', asUser('u-pastor'))
-      .send(completedReview());
-
-    const publish = await request(app)
-      .put(`/api/entities/Sermon/${sermon.id}`)
-      .set('Cookie', asUser('u-pastor'))
-      .send({ status: 'published' });
-    expect(publish.status).toBe(422);
-  });
-
-  it('acknowledged: false withdraws a review', async () => {
-    const sermon = await createSermon('u-pastor', { title: 'Withdraw', anchor_passage: 'John 3:16' });
-    await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
-      .set('Cookie', asUser('u-pastor'))
-      .send(completedReview());
-    const res = await request(app)
-      .post(`/api/entities/Sermon/${sermon.id}/review`)
-      .set('Cookie', asUser('u-pastor'))
-      .send({ acknowledged: false });
-    expect(res.status).toBe(200);
-    expect(res.body.pastor_reviewed).toBe(false);
+    expect(updated.status).toBe(200);
+    expect(updated.body.status).toBe('draft');
+    expect(updated.body.pastor_reviewed).toBeUndefined();
+    expect(updated.body.reviewed_by).toBeUndefined();
+    expect(updated.body.ready_to_present).toBeUndefined();
   });
 });

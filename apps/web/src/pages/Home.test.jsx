@@ -61,7 +61,7 @@ describe('public Home', () => {
     );
 
     expect(screen.getAllByRole('heading', { name: 'SermonSmith' }).length).toBeGreaterThan(0);
-    expect(screen.getByText('Built for Pastoral Review')).toBeInTheDocument();
+    expect(screen.getByText('Built for Pastor-Controlled Drafting')).toBeInTheDocument();
     expect(
       screen.getByText('Elapsed-time presentation coaching; no microphone used'),
     ).toBeInTheDocument();

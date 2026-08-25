@@ -24,7 +24,7 @@ describe('public product claims', () => {
       expect(home, `unsupported Home claim: ${unsupported}`).not.toContain(unsupported);
     }
 
-    expect(home).toContain('Built for Pastoral Review');
+    expect(home).toContain('Built for Pastor-Controlled Drafting');
     expect(home).toContain('Your judgment stays final');
     expect(home).toContain('View Example Draft');
   });
@@ -46,7 +46,6 @@ describe('public product claims', () => {
     }
 
     expect(publicCopy).toContain('configured source');
-    expect(publicCopy).toContain('verify');
   });
 
   it('labels presentation coaching and AI Scripture suggestions honestly', () => {
