@@ -107,9 +107,51 @@ test('decodes escapes in standalone JavaScript literals', () => {
     String.raw`const copy = "pastoral\u0020review";`,
     String.raw`const copy = "owner signs\x20off";`,
     String.raw`const copy = 'sign\u{20}offs';`,
+    String.raw`const copy = 'pastoral\u{000020}review';`,
   ]) {
     assert.ok(scan(fixture).length > 0, fixture);
   }
+});
+
+test('removes default-ignorable characters and variation selectors before matching', () => {
+  for (const fixture of [
+    'pa\u200bstoral review',
+    'pastoral rev\ufe0fiew',
+    'owner si\u2060gns off',
+    'sign\u{e0100}offs',
+  ]) {
+    assert.ok(scan(fixture).length > 0, fixture);
+  }
+});
+
+test('decodes every JavaScript line continuation without crossing an even backslash', () => {
+  for (const terminator of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
+    const fixture = `const copy = "owner si\\${terminator}gns off";`;
+    assert.ok(scan(fixture).some(({ rule }) => rule === 'manual-release-endorsement'), JSON.stringify(fixture));
+  }
+  assert.deepEqual(scan(String.raw`const copy = "owner si\\gns off";`), []);
+});
+
+test('decodes JavaScript identity escapes while preserving backslash parity', () => {
+  assert.ok(scan(String.raw`const copy = "owner si\gns off";`).length > 0);
+  assert.deepEqual(scan(String.raw`const copy = "pastoral re\\view";`), []);
+});
+
+test('resolves constant string substitutions inside template literals', () => {
+  for (const fixture of [
+    "const copy = `owner ${'signs'} off`;",
+    'const copy = `pastoral ${/* constant */ "review"}`;',
+  ]) {
+    assert.ok(scan(fixture).length > 0, fixture);
+  }
+  assert.deepEqual(scan('const copy = `sign ${runtimeValue} off`;'), []);
+});
+
+test('joins literal fragments across comments and visible markup around hidden bodies', () => {
+  const commented = "const copy = 'owner si' /* first */ + // second\r\n 'gns off';";
+  const markup = '<span>owner signs</span><script>ignored noise</script><style>more noise</style><template>hidden</template><span>off</span>';
+  assert.ok(scan(commented).length > 0);
+  assert.ok(scan(markup).length > 0);
 });
 
 test('keeps lexical boundaries around nearby ordinary words', () => {

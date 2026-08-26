@@ -89,23 +89,152 @@ const STRING_LITERAL_PATTERN = String.raw`(?:'(?:\\[\s\S]|[^'\\])*'|"(?:\\[\s\S]
 const CHAIN_SEPARATOR_PATTERN = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*\+(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*`;
 const STRING_LITERAL_CHAIN = new RegExp(`(${STRING_LITERAL_PATTERN})(?:${CHAIN_SEPARATOR_PATTERN}(${STRING_LITERAL_PATTERN}))+`, 'gu');
 const STRING_LITERAL = new RegExp(STRING_LITERAL_PATTERN, 'gu');
+const EXACT_STRING_LITERAL = new RegExp(`^${STRING_LITERAL_PATTERN}$`, 'u');
+
+function decodedCodePoint(encoded) {
+  const codePoint = Number.parseInt(encoded, 16);
+  if (!Number.isSafeInteger(codePoint) || codePoint > 0x10ffff) return null;
+  try {
+    return String.fromCodePoint(codePoint);
+  } catch {
+    return null;
+  }
+}
+
+// Decode one JavaScript string body with a small scanner rather than a regex.
+// Consuming escapes from left to right preserves backslash parity: an escaped
+// backslash remains a visible separator and can never expose a second escape.
+function decodeJavascriptEscapes(body) {
+  let decoded = '';
+  for (let index = 0; index < body.length;) {
+    if (body[index] !== '\\') {
+      decoded += body[index];
+      index += 1;
+      continue;
+    }
+
+    const next = body[index + 1];
+    if (next === undefined) {
+      decoded += '\\';
+      break;
+    }
+    if (next === '\r' && body[index + 2] === '\n') {
+      index += 3;
+      continue;
+    }
+    if (next === '\n' || next === '\r' || next === '\u2028' || next === '\u2029') {
+      index += 2;
+      continue;
+    }
+
+    if (next === 'u' && body[index + 2] === '{') {
+      const close = body.indexOf('}', index + 3);
+      const encoded = close < 0 ? '' : body.slice(index + 3, close);
+      const value = /^[\da-f]{1,6}$/iu.test(encoded) ? decodedCodePoint(encoded) : null;
+      if (value !== null) {
+        decoded += value;
+        index = close + 1;
+        continue;
+      }
+    } else if (next === 'u') {
+      const encoded = body.slice(index + 2, index + 6);
+      const value = /^[\da-f]{4}$/iu.test(encoded) ? decodedCodePoint(encoded) : null;
+      if (value !== null) {
+        decoded += value;
+        index += 6;
+        continue;
+      }
+    } else if (next === 'x') {
+      const encoded = body.slice(index + 2, index + 4);
+      const value = /^[\da-f]{2}$/iu.test(encoded) ? decodedCodePoint(encoded) : null;
+      if (value !== null) {
+        decoded += value;
+        index += 4;
+        continue;
+      }
+    }
+
+    const simple = ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v', 0: '\0' })[next];
+    // Quotes, backticks, backslashes, and legacy identity escapes all evaluate
+    // to the escaped character. The left-to-right scanner makes this safe for
+    // even backslashes: \\\\ becomes one literal backslash, not an escape for
+    // the character that follows it.
+    decoded += simple ?? next;
+    index += 2;
+  }
+  return decoded;
+}
+
+function templateExpressionEnd(body, start) {
+  let depth = 0;
+  let quote = '';
+  for (let index = start; index < body.length; index += 1) {
+    const character = body[index];
+    if (quote) {
+      if (character === '\\') index += 1;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character;
+    } else if (character === '{') {
+      depth += 1;
+    } else if (character === '}' && depth > 0) {
+      depth -= 1;
+    } else if (character === '}') {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function trimExpressionComments(expression) {
+  return expression
+    .replace(/^\s*(?:\/\*[\s\S]*?\*\/\s*)*/u, '')
+    .replace(/(?:\s*\/\*[\s\S]*?\*\/)*\s*$/u, '');
+}
+
+function decodeConstantTemplate(literal) {
+  const body = literal.slice(1, -1);
+  let decoded = '';
+  let raw = '';
+  for (let index = 0; index < body.length;) {
+    if (body[index] === '\\') {
+      raw += body[index];
+      if (body[index + 1] === '\r' && body[index + 2] === '\n') {
+        raw += '\r\n';
+        index += 3;
+      } else if (body[index + 1] !== undefined) {
+        raw += body[index + 1];
+        index += 2;
+      } else {
+        index += 1;
+      }
+      continue;
+    }
+    if (body[index] !== '$' || body[index + 1] !== '{') {
+      raw += body[index];
+      index += 1;
+      continue;
+    }
+
+    const end = templateExpressionEnd(body, index + 2);
+    if (end < 0) return null;
+    const expression = trimExpressionComments(body.slice(index + 2, end));
+    if (!EXACT_STRING_LITERAL.test(expression)) return null;
+    const value = decodeJavascriptStringBody(expression);
+    if (value === null) return null;
+    decoded += decodeJavascriptEscapes(raw) + value;
+    raw = '';
+    index = end + 1;
+  }
+  return decoded + decodeJavascriptEscapes(raw);
+}
 
 function decodeJavascriptStringBody(literal) {
-  if (literal.startsWith('`') && literal.includes('${')) return null;
-  const body = literal.slice(1, -1);
-  return body.replace(/\\(?:u\{([\da-f]+)\}|u([\da-f]{4})|x([\da-f]{2})|([nrtbfv0\\'"`]))/giu,
-    (escape, unicodeLong, unicodeShort, hexadecimal, simple) => {
-      const encoded = unicodeLong || unicodeShort || hexadecimal;
-      if (encoded) {
-        const codePoint = Number.parseInt(encoded, 16);
-        try {
-          return String.fromCodePoint(codePoint);
-        } catch {
-          return escape;
-        }
-      }
-      return ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v', 0: '\0' })[simple] ?? simple;
-    });
+  return literal.startsWith('`') && literal.includes('${')
+    ? decodeConstantTemplate(literal)
+    : decodeJavascriptEscapes(literal.slice(1, -1));
 }
 
 /** Join only actual adjacent JavaScript string literals, never arbitrary tokens. */
@@ -134,11 +263,24 @@ export function decodeJavascriptLiterals(source) {
 export function normalizePolicyText(text) {
   return decodeCharacterReferences(text)
     .normalize('NFKC')
+    // Default-ignorable characters and variation selectors render with no
+    // separating glyph, so remove them rather than turning them into spaces.
+    .replace(/[\p{Default_Ignorable_Code_Point}\uFE00-\uFE0F\u{E0100}-\u{E01EF}]+/gu, '')
     .replace(/([\p{Ll}\d])([\p{Lu}])/gu, '$1 $2')
     .toLocaleLowerCase('en-US')
     .replace(/[\u2018\u2019]/gu, "'")
     .replace(/[^\p{L}\p{N}']+/gu, ' ')
     .trim();
+}
+
+function renderedMarkupView(text) {
+  return String(text)
+    // These element bodies do not contribute visible page text. Removing the
+    // whole body also reconnects visible siblings on either side.
+    .replace(/<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, ' ')
+    .replace(/<!--[\s\S]*?-->/gu, ' ')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/gu, ' ')
+    .replace(/<[^>]*>/gu, ' ');
 }
 
 function policyTextViews(source) {
@@ -150,7 +292,7 @@ function policyTextViews(source) {
     normalizePolicyText(text.replace(/['"`]/gu, ' ')),
     // A phrase split across JSX/HTML nodes must read as adjacent user copy,
     // while the raw view above still preserves phrases inside attributes.
-    normalizePolicyText(text.replace(/<[^>]*>/gu, ' ')),
+    normalizePolicyText(renderedMarkupView(text)),
     normalizePolicyText(collapsedLiterals.replace(/['"`]/gu, ' ')),
     normalizePolicyText(decodedLiterals),
   ];
