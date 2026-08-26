@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { mediaJobToSermonDraft, SERMON_CONCLUSION_MAX_CHARACTERS } from './mediaDrafts';
+import {
+  mediaJobToSermonDraft,
+  SERMON_CONCLUSION_MAX_CHARACTERS,
+  SERMON_TITLE_MAX_CHARACTERS,
+} from './mediaDrafts';
 
 describe('media transcript sermon drafts', () => {
   const job = {
@@ -43,6 +47,15 @@ describe('media transcript sermon drafts', () => {
     expect(draft.source_media_job_id).toBe(job.id);
     expect(draft.source_transcript_character_count).toBe(transcript.length);
     expect(draft.source_transcript_truncated).toBe(true);
+  });
+
+  it('bounds imported clip titles to the Sermon schema maximum', () => {
+    const longTitleJob = {
+      ...job,
+      clip_drafts: [{ ...job.clip_drafts[0], title: 'x'.repeat(350) }],
+    };
+    const draft = mediaJobToSermonDraft(longTitleJob, 'clip-1');
+    expect(draft.title).toHaveLength(SERMON_TITLE_MAX_CHARACTERS);
   });
 
   it('rejects incomplete jobs', () => {

@@ -118,9 +118,25 @@ function isAdmin(req) {
 //
 // Unknown types are rejected outright with HTTP 400.
 // ---------------------------------------------------------------------------
+function isRealCalendarDate(value) {
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/u);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1];
+}
+
 const ScheduledDateSchema = z.union([
-  z.string().regex(/^\d{4}-\d{2}-\d{2}$/u, 'Expected YYYY-MM-DD'),
-  z.string().datetime({ offset: true }),
+  z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/u, 'Expected YYYY-MM-DD')
+    .refine(isRealCalendarDate, 'Expected a real calendar date'),
+  z.string()
+    .datetime({ offset: true })
+    .refine(isRealCalendarDate, 'Expected a real calendar date'),
 ]);
 
 const SermonSchema = z.object({
@@ -899,7 +915,24 @@ router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
       return res.status(403).json({ message: 'You can only delete your own items' });
     }
 
-    await prisma.entity.delete({ where: { id: req.params.id } });
+    const deleteSource = prisma.entity.delete({ where: { id: req.params.id } });
+    if (REVISIONED_TYPES.has(existing.type)) {
+      await prisma.$transaction([
+        prisma.entity.deleteMany({
+          where: {
+            type: 'EntityRevision',
+            userId: existing.userId,
+            AND: [
+              { data: { path: ['source_type'], equals: existing.type } },
+              { data: { path: ['source_id'], equals: existing.id } },
+            ],
+          },
+        }),
+        deleteSource,
+      ]);
+    } else {
+      await deleteSource;
+    }
     res.status(204).send();
   } catch (err) {
     next(err);

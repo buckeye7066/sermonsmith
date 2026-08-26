@@ -64,6 +64,14 @@ describe('media transcription providers', () => {
     });
   });
 
+  it('keeps generated clip titles inside the Sermon title schema bound', () => {
+    const clips = draftClipSegments({
+      text: `${'x'.repeat(350)}. A second sentence makes a complete excerpt.`,
+      provider: 'plain-text',
+    });
+    expect(clips[0].title.length).toBeLessThanOrEqual(200);
+  });
+
   it('rejects empty provider output', () => {
     expect(() => normalizeTranscription({ text: '  ' })).toThrow(MediaTranscriptionError);
   });

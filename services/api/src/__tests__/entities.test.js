@@ -227,9 +227,24 @@ describe('entities — allowlist (regression for broken creates)', () => {
       .post('/api/entities/Sermon')
       .send({ title: 'Ambiguous', scheduled_date: 'next Sunday', status: 'draft' })
       .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const leapDay = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Leap day', scheduled_date: '2024-02-29', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const impossibleDay = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Impossible day', scheduled_date: '2026-02-31', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const nonLeapDay = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Non-leap day', scheduled_date: '2026-02-29', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
     expect(scheduled.status).toBe(200);
     expect(legacyDate.status).toBe(200);
+    expect(leapDay.status).toBe(200);
     expect(invalid.status).toBe(400);
+    expect(impossibleDay.status).toBe(400);
+    expect(nonLeapDay.status).toBe(400);
   });
 
   it('stores reusable sermon and series templates with bounded content', async () => {

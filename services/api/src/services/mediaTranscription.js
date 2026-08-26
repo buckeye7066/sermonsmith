@@ -3,6 +3,7 @@ import OpenAI, { toFile } from 'openai';
 const MAX_TRANSCRIPT_CHARACTERS = 500_000;
 const MAX_PROVIDER_SEGMENTS = 10_000;
 const MAX_CLIP_DRAFTS = 8;
+const MAX_CLIP_TITLE_CHARACTERS = 200;
 
 export class MediaTranscriptionError extends Error {
   constructor(message, { code = 'MEDIA_TRANSCRIPTION_FAILED', status = 502 } = {}) {
@@ -66,7 +67,8 @@ export function normalizeTranscription(result, fallbackProvider = 'unknown') {
 
 function clipTitle(text, index) {
   const words = cleanText(text).split(/\s+/).slice(0, 8).join(' ');
-  return words ? `${words}${cleanText(text).split(/\s+/).length > 8 ? '…' : ''}` : `Clip ${index + 1}`;
+  const title = words ? `${words}${cleanText(text).split(/\s+/).length > 8 ? '…' : ''}` : `Clip ${index + 1}`;
+  return title.slice(0, MAX_CLIP_TITLE_CHARACTERS);
 }
 
 /**

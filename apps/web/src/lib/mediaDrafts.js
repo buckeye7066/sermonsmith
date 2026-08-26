@@ -3,6 +3,7 @@ function baseName(fileName) {
 }
 
 export const SERMON_CONCLUSION_MAX_CHARACTERS = 20_000;
+export const SERMON_TITLE_MAX_CHARACTERS = 200;
 
 export function mediaJobToSermonDraft(job, clipId = null) {
   if (!job || job.status !== 'completed' || !job.transcript) {
@@ -15,7 +16,7 @@ export function mediaJobToSermonDraft(job, clipId = null) {
   const transcript = selected?.excerpt || job.transcript;
   const fullTranscriptLength = job.transcript.length;
   return {
-    title: selected?.title || baseName(job.file_name),
+    title: String(selected?.title || baseName(job.file_name)).slice(0, SERMON_TITLE_MAX_CHARACTERS),
     topic: 'Imported message',
     big_idea: transcript.slice(0, 500),
     points: drafts.map((clip) => ({

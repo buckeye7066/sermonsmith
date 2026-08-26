@@ -22,6 +22,7 @@ export default function MediaWorkbench({ onDraftCreated }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [busyId, setBusyId] = useState('');
+  const [detailsLoadingId, setDetailsLoadingId] = useState('');
   const [error, setError] = useState('');
 
   const load = useCallback(async () => setJobs(await api.media.jobs()), []);
@@ -32,6 +33,18 @@ export default function MediaWorkbench({ onDraftCreated }) {
       setError('Media jobs could not be loaded.');
     });
   }, [load]);
+
+  const loadDetails = async (job) => {
+    if (job.status !== 'completed' || job.transcript) return job;
+    setDetailsLoadingId(job.id);
+    try {
+      const details = await api.media.job(job.id);
+      setJobs((current) => current.map((candidate) => candidate.id === details.id ? details : candidate));
+      return details;
+    } finally {
+      setDetailsLoadingId('');
+    }
+  };
 
   const upload = async () => {
     if (!file) return toast.error('Choose a supported transcript, audio, or video file');
@@ -58,7 +71,8 @@ export default function MediaWorkbench({ onDraftCreated }) {
   const createDraft = async (job, clipId = null) => {
     setBusyId(`${job.id}:${clipId || 'all'}`);
     try {
-      await api.entities.Sermon.create(mediaJobToSermonDraft(job, clipId));
+      const details = await loadDetails(job);
+      await api.entities.Sermon.create(mediaJobToSermonDraft(details, clipId));
       await onDraftCreated?.();
       toast.success(clipId ? 'Clip sermon draft created' : 'Transcript sermon draft created');
     } catch (draftError) {
@@ -130,16 +144,29 @@ export default function MediaWorkbench({ onDraftCreated }) {
             {job.status === 'failed' && <Alert variant="destructive"><AlertDescription>{job.error_message}</AlertDescription></Alert>}
             {job.status === 'completed' && (
               <>
-                <details className="rounded border p-3">
+                <details
+                  className="rounded border p-3"
+                  onToggle={(event) => {
+                    if (!event.currentTarget.open || job.transcript) return;
+                    loadDetails(job).catch((detailsError) => {
+                      console.error('Unable to load media-job details:', detailsError);
+                      setError('The complete transcript could not be loaded.');
+                    });
+                  }}
+                >
                   <summary className="cursor-pointer font-medium">Transcript</summary>
-                  <p className="mt-3 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200">{job.transcript}</p>
+                  {detailsLoadingId === job.id
+                    ? <p className="mt-3 text-sm text-gray-500">Loading transcript…</p>
+                    : job.transcript
+                      ? <p className="mt-3 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200">{job.transcript}</p>
+                      : <p className="mt-3 text-sm text-gray-500">Open this section to load the complete transcript.</p>}
                 </details>
                 <Button variant="outline" onClick={() => createDraft(job)} disabled={Boolean(busyId)}>
                   {busyId === `${job.id}:all` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Create sermon draft from transcript
                 </Button>
                 <div>
-                  <h3 className="mb-2 flex items-center gap-2 font-semibold"><Scissors className="h-4 w-4" /> Clip drafts ({job.clip_drafts?.length || 0})</h3>
+                  <h3 className="mb-2 flex items-center gap-2 font-semibold"><Scissors className="h-4 w-4" /> Clip drafts ({job.clip_drafts?.length ?? job.clip_draft_count ?? 0})</h3>
                   <div className="grid gap-3 md:grid-cols-2">
                     {(job.clip_drafts || []).map((clip) => (
                       <div key={clip.id} className="rounded border p-3">
@@ -156,6 +183,9 @@ export default function MediaWorkbench({ onDraftCreated }) {
                         </Button>
                       </div>
                     ))}
+                    {!job.clip_drafts && (job.clip_draft_count || 0) > 0 && (
+                      <p className="text-sm text-gray-500">Open the transcript to load its clip drafts.</p>
+                    )}
                   </div>
                 </div>
               </>

@@ -18,6 +18,7 @@ vi.mock('../middleware/auth.js', () => ({
       if (!user) return res.status(401).json({ message: 'User account not found' });
       req.userId = user.id;
       req.userRole = user.role;
+      req.userPremium = !!user.premium;
       return next();
     } catch {
       return res.status(401).json({ message: 'Authentication required' });
@@ -25,7 +26,7 @@ vi.mock('../middleware/auth.js', () => ({
   },
 }));
 
-const { buildMediaRouter } = await import('../routes/media.js');
+const { buildMediaRouter, MEDIA_DAILY_TRANSCRIPTION_LIMIT } = await import('../routes/media.js');
 
 function tokenFor(userId) {
   return jwt.sign({ userId }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
@@ -46,7 +47,11 @@ function buildApp(provider) {
 describe('media jobs', () => {
   beforeEach(() => {
     prisma._reset();
-    prisma._store.user.push({ id: 'owner', role: 'user' }, { id: 'other', role: 'user' });
+    prisma._store.user.push(
+      { id: 'owner', role: 'user', premium: true },
+      { id: 'other', role: 'user', premium: true },
+      { id: 'free', role: 'user', premium: false },
+    );
   });
 
   it('keeps upload bytes transient and persists a completed transcript with clip drafts', async () => {
@@ -100,6 +105,57 @@ describe('media jobs', () => {
       status: 'failed',
       error_code: 'MEDIA_PROVIDER_UNAVAILABLE',
     });
+    expect(prisma._store.aiUsage[0]).toMatchObject({ count: 0 });
+  });
+
+  it('requires premium access before invoking an audio/video provider', async () => {
+    const provider = { transcribe: vi.fn() };
+    const app = buildApp(provider);
+    const response = await request(app)
+      .post('/api/media/jobs')
+      .set('Cookie', asUser('free'))
+      .set('Content-Type', 'audio/mpeg')
+      .send(Buffer.from([0x49, 0x44, 0x33]));
+
+    expect(response.status).toBe(402);
+    expect(provider.transcribe).not.toHaveBeenCalled();
+    expect(prisma._store.entity).toHaveLength(0);
+    expect(prisma._store.aiUsage).toHaveLength(0);
+  });
+
+  it('uses a durable daily account quota and refunds denied attempts', async () => {
+    const bucket = `media:${new Date().toISOString().slice(0, 10)}`;
+    prisma._store.aiUsage.push({ id: 'usage-1', userId: 'owner', bucket, count: MEDIA_DAILY_TRANSCRIPTION_LIMIT });
+    const provider = { transcribe: vi.fn() };
+    const app = buildApp(provider);
+    const response = await request(app)
+      .post('/api/media/jobs')
+      .set('Cookie', asUser('owner'))
+      .set('Content-Type', 'audio/mpeg')
+      .send(Buffer.from([0x49, 0x44, 0x33]));
+
+    expect(response.status).toBe(429);
+    expect(provider.transcribe).not.toHaveBeenCalled();
+    expect(prisma._store.entity).toHaveLength(0);
+    expect(prisma._store.aiUsage[0].count).toBe(MEDIA_DAILY_TRANSCRIPTION_LIMIT);
+  });
+
+  it('counts a successful premium provider request against the account quota', async () => {
+    const app = buildApp({
+      transcribe: vi.fn(async () => ({ text: 'Audio transcript', provider: 'fixture' })),
+    });
+    const response = await request(app)
+      .post('/api/media/jobs')
+      .set('Cookie', asUser('owner'))
+      .set('Content-Type', 'audio/mpeg')
+      .send(Buffer.from([0x49, 0x44, 0x33]));
+
+    expect(response.status).toBe(201);
+    expect(prisma._store.aiUsage[0]).toMatchObject({
+      userId: 'owner',
+      count: 1,
+    });
+    expect(prisma._store.aiUsage[0].bucket).toMatch(/^media:\d{4}-\d{2}-\d{2}$/u);
   });
 
   it('rejects unsupported types before creating a job', async () => {
@@ -128,6 +184,9 @@ describe('media jobs', () => {
     const hidden = await request(app)
       .get(`/api/media/jobs/${created.body.id}`)
       .set('Cookie', asUser('other'));
+    const ownerDetail = await request(app)
+      .get(`/api/media/jobs/${created.body.id}`)
+      .set('Cookie', asUser('owner'));
     const wrongDelete = await request(app)
       .delete(`/api/media/jobs/${created.body.id}`)
       .set('Cookie', asUser('other'));
@@ -138,5 +197,13 @@ describe('media jobs', () => {
     expect(hidden.status).toBe(404);
     expect(wrongDelete.status).toBe(404);
     expect(ownerList.body).toHaveLength(1);
+    expect(ownerList.body[0]).not.toHaveProperty('transcript');
+    expect(ownerList.body[0]).not.toHaveProperty('segments');
+    expect(ownerList.body[0]).not.toHaveProperty('clip_drafts');
+    expect(ownerList.body[0]).toMatchObject({
+      transcript_character_count: 'Transcript'.length,
+      segment_count: 0,
+    });
+    expect(ownerDetail.body.transcript).toBe('Transcript');
   });
 });

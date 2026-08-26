@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MediaWorkbench from './MediaWorkbench';
 import RevisionHistory from './RevisionHistory';
@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   seriesCreate: vi.fn(),
   seriesDelete: vi.fn(),
   mediaJobs: vi.fn(),
+  mediaJob: vi.fn(),
   mediaUpload: vi.fn(),
   mediaDelete: vi.fn(),
 }));
@@ -55,6 +56,7 @@ vi.mock('@/api/apiClient', () => ({
     },
     media: {
       jobs: mocks.mediaJobs,
+      job: mocks.mediaJob,
       upload: mocks.mediaUpload,
       deleteJob: mocks.mediaDelete,
     },
@@ -65,6 +67,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 describe('sermon planning workflows', () => {
   beforeEach(() => {
+    cleanup();
     vi.clearAllMocks();
     vi.stubGlobal('confirm', vi.fn(() => true));
     mocks.sermonUpdate.mockResolvedValue({});
@@ -74,6 +77,7 @@ describe('sermon planning workflows', () => {
     mocks.seriesTemplateList.mockResolvedValue([]);
     mocks.seriesList.mockResolvedValue([]);
     mocks.mediaJobs.mockResolvedValue([]);
+    mocks.seriesDelete.mockResolvedValue();
   });
 
   it('schedules a sermon through the keyboard-accessible date control', async () => {
@@ -154,5 +158,69 @@ describe('sermon planning workflows', () => {
       source_media_job_id: 'job-1',
       status: 'draft',
     })));
+  });
+
+  it('loads full transcript details only when a summary job is used', async () => {
+    const summary = {
+      id: 'job-summary',
+      status: 'completed',
+      file_name: 'Sunday.mp3',
+      provider: 'fixture',
+      transcript_character_count: 22,
+      clip_draft_count: 0,
+    };
+    const details = {
+      ...summary,
+      transcript: 'Lazy loaded transcript.',
+      clip_drafts: [],
+    };
+    mocks.mediaJobs.mockResolvedValue([summary]);
+    mocks.mediaJob.mockResolvedValue(details);
+
+    render(<MediaWorkbench />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create sermon draft from transcript' }));
+
+    await waitFor(() => expect(mocks.mediaJob).toHaveBeenCalledWith('job-summary'));
+    expect(mocks.sermonCreate).toHaveBeenCalledWith(expect.objectContaining({
+      source_media_job_id: 'job-summary',
+      conclusion: 'Lazy loaded transcript.',
+    }));
+  });
+
+  it('removes an empty series if creating its template sermons fails', async () => {
+    mocks.seriesTemplateList.mockResolvedValue([{
+      id: 'series-template-1',
+      name: 'Reusable series',
+      content: {
+        title: 'New series',
+        sermon_blueprints: [{ title: 'Week one' }],
+      },
+    }]);
+    mocks.seriesCreate.mockResolvedValue({ id: 'new-series' });
+    mocks.sermonBulkCreate.mockRejectedValue(new Error('bulk failed'));
+
+    render(<TemplateLibrary sermons={[]} userId="owner" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create drafts' }));
+
+    await waitFor(() => expect(mocks.seriesDelete).toHaveBeenCalledWith('new-series'));
+  });
+
+  it('does not remove completed template content when only the refresh callback fails', async () => {
+    mocks.seriesTemplateList.mockResolvedValue([{
+      id: 'series-template-2',
+      name: 'Completed series',
+      content: {
+        title: 'Completed series',
+        sermon_blueprints: [{ title: 'Week one' }],
+      },
+    }]);
+    mocks.seriesCreate.mockResolvedValue({ id: 'completed-series' });
+    mocks.sermonBulkCreate.mockResolvedValue([{ id: 'sermon-1' }]);
+
+    render(<TemplateLibrary sermons={[]} userId="owner" onCreated={() => Promise.reject(new Error('refresh failed'))} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create drafts' }));
+
+    await waitFor(() => expect(mocks.sermonBulkCreate).toHaveBeenCalled());
+    expect(mocks.seriesDelete).not.toHaveBeenCalled();
   });
 });

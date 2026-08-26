@@ -125,6 +125,36 @@ describe('entity revision history', () => {
     expect(wrongSource.status).toBe(404);
   });
 
+  it('removes source revision snapshots transactionally when the source is deleted', async () => {
+    const source = await request(app)
+      .post('/api/entities/Series')
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Delete me' });
+    await request(app)
+      .put(`/api/entities/Series/${source.body.id}`)
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Delete me later' });
+    prisma._store.entity.push({
+      id: 'unrelated-revision',
+      type: 'EntityRevision',
+      userId: 'owner',
+      data: { source_type: 'Series', source_id: 'unrelated-source', snapshot: {} },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const deleted = await request(app)
+      .delete(`/api/entities/Series/${source.body.id}`)
+      .set('Cookie', asUser('owner'));
+
+    expect(deleted.status).toBe(204);
+    expect(prisma._store.entity.some((entity) => entity.id === source.body.id)).toBe(false);
+    expect(prisma._store.entity.some((entity) => (
+      entity.type === 'EntityRevision' && entity.data?.source_id === source.body.id
+    ))).toBe(false);
+    expect(prisma._store.entity.some((entity) => entity.id === 'unrelated-revision')).toBe(true);
+  });
+
   it('blocks generic mutation of server-owned revision records', async () => {
     const forbiddenCreate = await request(app)
       .post('/api/entities/EntityRevision')

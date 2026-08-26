@@ -8,6 +8,10 @@ import {
 } from '../services/mediaTranscription.js';
 
 export const MEDIA_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
+export const MEDIA_DAILY_TRANSCRIPTION_LIMIT = Math.max(
+  1,
+  Math.min(100, Math.floor(Number(process.env.MEDIA_DAILY_TRANSCRIPTION_LIMIT || 20) || 20)),
+);
 export const SUPPORTED_MEDIA_TYPES = new Set([
   'text/plain',
   'text/markdown',
@@ -31,6 +35,55 @@ function safeFileName(raw) {
 
 function jobResponse(entity) {
   return { id: entity.id, ...entity.data, created_date: entity.createdAt, updated_date: entity.updatedAt };
+}
+
+function jobSummaryResponse(entity) {
+  const data = { ...(entity.data || {}) };
+  const transcriptCharacters = typeof data.transcript === 'string' ? data.transcript.length : 0;
+  const segmentCount = Array.isArray(data.segments) ? data.segments.length : 0;
+  const clipDraftCount = Array.isArray(data.clip_drafts) ? data.clip_drafts.length : 0;
+  delete data.transcript;
+  delete data.segments;
+  delete data.clip_drafts;
+  return {
+    id: entity.id,
+    ...data,
+    transcript_character_count: transcriptCharacters,
+    segment_count: segmentCount,
+    clip_draft_count: clipDraftCount,
+    created_date: entity.createdAt,
+    updated_date: entity.updatedAt,
+  };
+}
+
+function mediaUsageBucket() {
+  return `media:${new Date().toISOString().slice(0, 10)}`;
+}
+
+export async function consumeMediaUsage(userId, db = prisma) {
+  const bucket = mediaUsageBucket();
+  const row = await db.aiUsage.upsert({
+    where: { userId_bucket: { userId, bucket } },
+    create: { userId, bucket, count: 1 },
+    update: { count: { increment: 1 } },
+    select: { count: true },
+  });
+  return {
+    allowed: row.count <= MEDIA_DAILY_TRANSCRIPTION_LIMIT,
+    count: row.count,
+    limit: MEDIA_DAILY_TRANSCRIPTION_LIMIT,
+  };
+}
+
+export async function refundMediaUsage(userId, db = prisma) {
+  try {
+    await db.aiUsage.update({
+      where: { userId_bucket: { userId, bucket: mediaUsageBucket() } },
+      data: { count: { decrement: 1 } },
+    });
+  } catch {
+    // Best effort: a quota refund must never hide the original provider error.
+  }
 }
 
 function safeFailure(error) {
@@ -71,7 +124,26 @@ export function buildMediaRouter({ provider = createDefaultMediaTranscriptionPro
       const fileName = safeFileName(req.get('x-file-name'));
       const createdAt = new Date().toISOString();
       let job;
+      let usageConsumed = false;
       try {
+        const usesPaidProvider = !req.mediaMimeType.startsWith('text/');
+        if (usesPaidProvider) {
+          const hasPaidAccess = req.userPremium || req.userRole === 'admin' || req.userRole === 'dev';
+          if (!hasPaidAccess) {
+            return res.status(402).json({ message: 'Audio and video transcription requires premium access.' });
+          }
+          const usage = await consumeMediaUsage(req.userId);
+          if (!usage.allowed) {
+            // The atomic increment above is the concurrency boundary. A denied
+            // attempt is not billable usage, so return its slot immediately.
+            await refundMediaUsage(req.userId);
+            return res.status(429).json({
+              message: `Daily media transcription limit reached (${usage.limit}). Try again tomorrow.`,
+            });
+          }
+          usageConsumed = true;
+        }
+
         job = await prisma.entity.create({
           data: {
             type: 'MediaJob',
@@ -107,6 +179,7 @@ export function buildMediaRouter({ provider = createDefaultMediaTranscriptionPro
         const completed = await prisma.entity.update({ where: { id: job.id }, data: { data } });
         return res.status(201).json(jobResponse(completed));
       } catch (error) {
+        if (usageConsumed) await refundMediaUsage(req.userId);
         const failure = safeFailure(error);
         if (job) {
           await prisma.entity.update({
@@ -135,7 +208,7 @@ export function buildMediaRouter({ provider = createDefaultMediaTranscriptionPro
         orderBy: { createdAt: 'desc' },
         take: 100,
       });
-      return res.json(jobs.map(jobResponse));
+      return res.json(jobs.map(jobSummaryResponse));
     } catch (error) {
       return next(error);
     }

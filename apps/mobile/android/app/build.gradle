@@ -8,11 +8,10 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // NOTE: keep these as pre-computed locals. The previous inline form
-        // `versionCode (System.getenv(...) ?: "1").toInteger()` parses in
-        // Groovy as `versionCode(env).toInteger()` and crashes every local
-        // build with "Value is null".
-        def resolvedVersionCode = (System.getenv("ANDROID_VERSION_CODE") ?: "2") as Integer
-        def resolvedVersionName = System.getenv("ANDROID_VERSION_NAME") ?: "1.1"
+        // parses in Groovy as a method result followed by toInteger() and can
+        // crash local builds when the environment value is absent.
+        def resolvedVersionCode = (System.getenv("ANDROID_VERSION_CODE") ?: "3") as Integer
+        def resolvedVersionName = System.getenv("ANDROID_VERSION_NAME") ?: "2.0.0"
         versionCode resolvedVersionCode
         versionName resolvedVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
