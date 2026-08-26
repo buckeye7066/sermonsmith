@@ -97,6 +97,31 @@ describe('entity revision history', () => {
     expect(history.body[0].snapshot.title).toBe('First title');
   });
 
+  it('restores a sermon snapshot as a complete replacement', async () => {
+    const created = await request(app)
+      .post('/api/entities/Sermon')
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Original sermon', introduction: 'Opening', status: 'draft' });
+    const updated = await request(app)
+      .put(`/api/entities/Sermon/${created.body.id}`)
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Reworked sermon', conclusion: 'Added later' });
+    expect(updated.status).toBe(200);
+    expect(updated.body.conclusion).toBe('Added later');
+
+    const history = await request(app)
+      .get(`/api/entities/Sermon/${created.body.id}/revisions`)
+      .set('Cookie', asUser('owner'));
+    const restored = await request(app)
+      .post(`/api/entities/Sermon/${created.body.id}/revisions/${history.body[0].id}/restore`)
+      .set('Cookie', asUser('owner'));
+
+    expect(restored.status).toBe(200);
+    expect(restored.body.title).toBe('Original sermon');
+    expect(restored.body.introduction).toBe('Opening');
+    expect(restored.body).not.toHaveProperty('conclusion');
+  });
+
   it('keeps history tenant-scoped and rejects a revision from another source', async () => {
     const first = await request(app)
       .post('/api/entities/Series')

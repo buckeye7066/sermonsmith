@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { decodeHTML } from 'entities';
 
 // These two files necessarily contain the policy vocabulary as executable
 // rule data and test fixtures. They are never shipped as product copy.
@@ -38,47 +39,13 @@ const RAW_RULES = [
   ['removed-review-route', /\/:type\/:id\/review\b/iu],
 ];
 
-const NAMED_CHARACTER_REFERENCES = new Map([
-  ['amp', '&'],
-  ['apos', "'"],
-  ['ensp', ' '],
-  ['emsp', ' '],
-  ['hairsp', ' '],
-  ['hyphen', '-'],
-  ['ldquo', '"'],
-  ['lsquo', "'"],
-  ['mdash', '-'],
-  ['nbsp', ' '],
-  ['ndash', '-'],
-  ['newline', '\n'],
-  ['quot', '"'],
-  ['rdquo', '"'],
-  ['rsquo', "'"],
-  ['tab', '\t'],
-  ['thinsp', ' '],
-  ['zwnj', ' '],
-  ['zwj', ' '],
-]);
-
 /** Decode the character references browsers render before a user sees copy. */
 export function decodeCharacterReferences(value) {
   let decoded = String(value);
   // A bounded repeat catches nested forms such as &amp;#32; without allowing
   // deliberately recursive input to consume unbounded work.
   for (let pass = 0; pass < 3; pass += 1) {
-    const next = decoded
-      .replace(/&#(?:x([\da-f]+)|(\d+));?/giu, (reference, hexadecimal, decimal) => {
-        const codePoint = Number.parseInt(hexadecimal || decimal, hexadecimal ? 16 : 10);
-        if (!Number.isSafeInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return reference;
-        try {
-          return String.fromCodePoint(codePoint);
-        } catch {
-          return reference;
-        }
-      })
-      .replace(/&([a-z]+);?/giu, (reference, name) => (
-        NAMED_CHARACTER_REFERENCES.get(name.toLocaleLowerCase('en-US')) ?? reference
-      ));
+    const next = decodeHTML(decoded);
     if (next === decoded) break;
     decoded = next;
   }
@@ -86,7 +53,8 @@ export function decodeCharacterReferences(value) {
 }
 
 const STRING_LITERAL_PATTERN = String.raw`(?:'(?:\\[\s\S]|[^'\\])*'|"(?:\\[\s\S]|[^"\\])*"|\x60(?:\\[\s\S]|[^\x60\\])*\x60)`;
-const CHAIN_SEPARATOR_PATTERN = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*\+(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*`;
+const LINE_COMMENT_PATTERN = String.raw`\/\/[^\n\r\u2028\u2029]*(?:\r\n|[\n\r\u2028\u2029]|$)`;
+const CHAIN_SEPARATOR_PATTERN = String.raw`(?:\s|\/\*[\s\S]*?\*\/|${LINE_COMMENT_PATTERN})*\+(?:\s|\/\*[\s\S]*?\*\/|${LINE_COMMENT_PATTERN})*`;
 const STRING_LITERAL_CHAIN = new RegExp(`(${STRING_LITERAL_PATTERN})(?:${CHAIN_SEPARATOR_PATTERN}(${STRING_LITERAL_PATTERN}))+`, 'gu');
 const STRING_LITERAL = new RegExp(STRING_LITERAL_PATTERN, 'gu');
 const EXACT_STRING_LITERAL = new RegExp(`^${STRING_LITERAL_PATTERN}$`, 'u');
@@ -130,7 +98,7 @@ function decodeJavascriptEscapes(body) {
     if (next === 'u' && body[index + 2] === '{') {
       const close = body.indexOf('}', index + 3);
       const encoded = close < 0 ? '' : body.slice(index + 3, close);
-      const value = /^[\da-f]{1,6}$/iu.test(encoded) ? decodedCodePoint(encoded) : null;
+      const value = /^[\da-f]+$/iu.test(encoded) ? decodedCodePoint(encoded) : null;
       if (value !== null) {
         decoded += value;
         index = close + 1;
@@ -154,7 +122,20 @@ function decodeJavascriptEscapes(body) {
       }
     }
 
-    const simple = ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v', 0: '\0' })[next];
+    // Classic scripts still accept Annex B octal escapes. Decode their exact
+    // runtime value so legacy source cannot hide visible release copy.
+    if (/^[0-7]$/u.test(next)) {
+      const maxDigits = next <= '3' ? 3 : 2;
+      let encoded = next;
+      while (encoded.length < maxDigits && /^[0-7]$/u.test(body[index + 1 + encoded.length] || '')) {
+        encoded += body[index + 1 + encoded.length];
+      }
+      decoded += String.fromCharCode(Number.parseInt(encoded, 8));
+      index += encoded.length + 1;
+      continue;
+    }
+
+    const simple = ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v' })[next];
     // Quotes, backticks, backslashes, and legacy identity escapes all evaluate
     // to the escaped character. The left-to-right scanner makes this safe for
     // even backslashes: \\\\ becomes one literal backslash, not an escape for
@@ -273,14 +254,14 @@ export function normalizePolicyText(text) {
     .trim();
 }
 
-function renderedMarkupView(text) {
+function renderedMarkupView(text, separator = ' ') {
   return String(text)
     // These element bodies do not contribute visible page text. Removing the
     // whole body also reconnects visible siblings on either side.
-    .replace(/<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, ' ')
-    .replace(/<!--[\s\S]*?-->/gu, ' ')
-    .replace(/\{\/\*[\s\S]*?\*\/\}/gu, ' ')
-    .replace(/<[^>]*>/gu, ' ');
+    .replace(/<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, separator)
+    .replace(/<!--[\s\S]*?-->/gu, separator)
+    .replace(/\{\/\*[\s\S]*?\*\/\}/gu, separator)
+    .replace(/<[^>]*>/gu, separator);
 }
 
 function policyTextViews(source) {
@@ -293,27 +274,45 @@ function policyTextViews(source) {
     // A phrase split across JSX/HTML nodes must read as adjacent user copy,
     // while the raw view above still preserves phrases inside attributes.
     normalizePolicyText(renderedMarkupView(text)),
+    // Inline elements have no implicit separator in rendered text. Keep a
+    // compact reconstruction as well as the conservative spaced view above.
+    normalizePolicyText(renderedMarkupView(text, '')),
     normalizePolicyText(collapsedLiterals.replace(/['"`]/gu, ' ')),
     normalizePolicyText(decodedLiterals),
   ];
 }
 
 function scrubberRange(source) {
-  const marker = source.includes('export const LEGACY_ATTESTATION_FIELDS = [')
+  const legacyArray = source.includes('export const LEGACY_ATTESTATION_FIELDS = [');
+  const marker = legacyArray
     ? 'export const LEGACY_ATTESTATION_FIELDS = ['
     : 'const RETIRED_REVIEW_FIELDS = new Set([';
+  const identifier = legacyArray ? 'LEGACY_ATTESTATION_FIELDS' : 'RETIRED_REVIEW_FIELDS';
   const start = source.indexOf(marker);
   if (start < 0) return null;
   const terminator = marker.includes('new Set') ? ']);' : '];';
   const end = source.indexOf(terminator, start);
-  if (end < 0 || !/delete\s+data\[(?:key|field)\]/u.test(source)) return null;
+  const cleanupLoop = new RegExp(
+    `for\\s*\\(\\s*const\\s+(key|field)\\s+of\\s+${identifier}\\s*\\)\\s*delete\\s+data\\[\\s*\\1\\s*\\]`,
+    'u',
+  );
+  if (end < 0 || !cleanupLoop.test(source)) return null;
   return { start, end: end + terminator.length };
+}
+
+function isExactScrubberListMember(source, match, range) {
+  if (!range || match.index < range.start || match.index >= range.end) return false;
+  const quote = source[match.index - 1];
+  if ((quote !== "'" && quote !== '"') || source[match.index + match[0].length] !== quote) return false;
+  const before = source.slice(range.start, match.index - 1).trimEnd().at(-1);
+  const after = source.slice(match.index + match[0].length + 1, range.end).trimStart()[0];
+  return (before === '[' || before === ',') && (after === ',' || after === ']');
 }
 
 function isCleanupOnlyRetiredOccurrence(path, source, match) {
   if (path !== RETIRED_FIELD_SCRUBBER_PATH) return false;
   const range = scrubberRange(source);
-  if (range && match.index >= range.start && match.index < range.end) return true;
+  if (isExactScrubberListMember(source, match, range)) return true;
 
   // The one retired lifecycle value is accepted only in the explicit rewrite
   // from that value to a normal private draft.
@@ -331,9 +330,23 @@ export function findReleaseLanguageViolations(path, source) {
 
   const text = String(source);
   const violations = [];
-  const retiredMatches = [...text.matchAll(RETIRED_FIELD)];
-  for (const match of retiredMatches) {
-    if (!isCleanupOnlyRetiredOccurrence(path, text, match)) {
+  // Remove only exact raw cleanup literals before constructing executable
+  // views. Encoded spellings are deliberately not eligible for the exception.
+  const naturalSource = text.replace(RETIRED_FIELD, (field, offset) => {
+    const syntheticMatch = { 0: field, index: offset };
+    return isCleanupOnlyRetiredOccurrence(path, text, syntheticMatch)
+      ? ' retired migration key '
+      : field;
+  });
+  const decodedReferences = decodeCharacterReferences(naturalSource);
+  const retiredViews = [
+    naturalSource,
+    decodedReferences,
+    collapseLiteralChains(decodedReferences),
+    decodeJavascriptLiterals(decodedReferences),
+  ];
+  for (const retiredView of retiredViews) {
+    for (const match of retiredView.matchAll(RETIRED_FIELD)) {
       violations.push({
         path,
         rule: 'retired-attestation-field',
@@ -344,12 +357,6 @@ export function findReleaseLanguageViolations(path, source) {
 
   // Cleanup-only exact occurrences do not become natural-language matches;
   // every spelling variant elsewhere remains subject to all normalized views.
-  const naturalSource = text.replace(RETIRED_FIELD, (field, offset) => {
-    const syntheticMatch = { 0: field, index: offset };
-    return isCleanupOnlyRetiredOccurrence(path, text, syntheticMatch)
-      ? ' retired migration key '
-      : field;
-  });
   for (const normalized of policyTextViews(naturalSource)) {
     for (const [rule, pattern] of NORMALIZED_RULES) {
       const match = normalized.match(pattern);

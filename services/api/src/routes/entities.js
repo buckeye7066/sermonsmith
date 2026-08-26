@@ -545,7 +545,9 @@ router.post('/:type/:id/revisions/:revisionId/restore', authenticateToken, async
 
     const snapshot = revision.data?.snapshot;
     const validated = validateEntityPayload(source.type, snapshot);
-    const gated = await applyScriptureGate(req, source.type, validated, source.data);
+    // A restore is a complete replacement, not a patch. Supplying the current
+    // record here would merge fields added after the snapshot back into it.
+    const gated = await applyScriptureGate(req, source.type, validated);
     const now = new Date().toISOString();
     const restoredData = {
       ...gated,

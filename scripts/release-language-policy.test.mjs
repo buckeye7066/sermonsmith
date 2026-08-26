@@ -55,10 +55,22 @@ test('retired fields are allowed only inside the deletion list of the migration 
     .some(({ rule }) => rule === 'retired-attestation-field'));
   assert.ok(scan(`enable('${field}')`, 'services/api/src/services/scriptureGate.js')
     .some(({ rule }) => rule === 'retired-attestation-field'));
+  const executableMember = `const RETIRED_REVIEW_FIELDS = new Set(['safe' + '${field}']);\nfor (const key of RETIRED_REVIEW_FIELDS) delete data[key];`;
+  assert.ok(scan(executableMember, 'services/api/src/services/scriptureGate.js')
+    .some(({ rule }) => rule === 'retired-attestation-field'));
+  const unrelatedCleanup = `const RETIRED_REVIEW_FIELDS = new Set(['${field}']);\nfor (const key of OTHER_FIELDS) delete data[key];`;
+  assert.ok(scan(unrelatedCleanup, 'services/api/src/services/scriptureGate.js')
+    .some(({ rule }) => rule === 'retired-attestation-field'));
+  const encodedMember = String.raw`const RETIRED_REVIEW_FIELDS = new Set(['pastor\u005freviewed']);
+for (const key of RETIRED_REVIEW_FIELDS) delete data[key];`;
+  assert.ok(scan(encodedMember, 'services/api/src/services/scriptureGate.js')
+    .some(({ rule }) => rule === 'retired-attestation-field'));
   assert.ok(scan(field, 'apps/web/src/example.js').some(({ rule }) => rule === 'retired-attestation-field'));
   const oldState = ['needs', 'review'].join('_');
   assert.equal(scan(`if (data.status === '${oldState}') data.status = 'draft';`, 'services/api/src/services/scriptureGate.js').length, 0);
   assert.ok(scan(`data.status = '${oldState}';`, 'services/api/src/services/scriptureGate.js')
+    .some(({ rule }) => rule === 'retired-attestation-field'));
+  assert.ok(scan(String.raw`data.status = "needs\u005freview";`, 'services/api/src/services/scriptureGate.js')
     .some(({ rule }) => rule === 'retired-attestation-field'));
 });
 
@@ -88,6 +100,7 @@ test('decodes rendered character references before applying the rules', () => {
     'owner signs&#x20;off',
     'owner signs&nbsp;off',
     'owner signs&Tab;off',
+    'owner si&NoBreak;gns off',
     'owner&#32;signs&amp;#32;off',
     '&#115;&#105;&#103;&#110;&#115;&#32;&#111;&#102;&#102;',
   ]) {
@@ -108,6 +121,9 @@ test('decodes escapes in standalone JavaScript literals', () => {
     String.raw`const copy = "owner signs\x20off";`,
     String.raw`const copy = 'sign\u{20}offs';`,
     String.raw`const copy = 'pastoral\u{000020}review';`,
+    String.raw`const copy = 'pastoral\u{00000020}review';`,
+    String.raw`const copy = 'owner signs\40off';`,
+    String.raw`const copy = 'owner si\147ns off';`,
   ]) {
     assert.ok(scan(fixture).length > 0, fixture);
   }
@@ -152,6 +168,12 @@ test('joins literal fragments across comments and visible markup around hidden b
   const markup = '<span>owner signs</span><script>ignored noise</script><style>more noise</style><template>hidden</template><span>off</span>';
   assert.ok(scan(commented).length > 0);
   assert.ok(scan(markup).length > 0);
+  for (const terminator of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
+    const chain = `const copy = 'owner si' + // ignored${terminator} 'gns off';`;
+    assert.ok(scan(chain).length > 0, JSON.stringify(chain));
+  }
+  const compactMarkup = '<span>owner si</span><script>ignored noise</script><span>gns off</span>';
+  assert.ok(scan(compactMarkup).length > 0);
 });
 
 test('keeps lexical boundaries around nearby ordinary words', () => {
