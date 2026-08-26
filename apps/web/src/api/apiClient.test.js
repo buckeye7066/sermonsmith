@@ -139,7 +139,7 @@ describe('apiClient base URL resolution', () => {
         }),
       }),
     ]);
-    expect(fetchMock.mock.calls[3][0]).toBe('https://api.example/api/media/jobs');
+    expect(fetchMock.mock.calls[3][0]).toBe('https://api.example/api/media/jobs?limit=100&offset=0');
   });
 
   it('retries series-template instantiation with the same idempotency key after a lost response', async () => {
