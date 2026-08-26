@@ -12,13 +12,18 @@ describe('reusable sermon and series templates', () => {
       id: 'source-id',
       user_id: 'owner',
       title: 'Original',
+      introduction: 'Opening movement',
       points: [{ title: 'Point' }],
       status: 'published',
       scheduled_date: '2026-08-25T12:00:00Z',
       scripture_validation: [{ reference: 'John 3:16' }],
     };
     const template = sermonTemplateFromSermon(source, 'Reusable');
-    expect(template.content).toEqual({ title: 'Original', points: [{ title: 'Point' }] });
+    expect(template.content).toEqual({
+      title: 'Original',
+      introduction: 'Opening movement',
+      points: [{ title: 'Point' }],
+    });
     source.points[0].title = 'Changed later';
     expect(template.content.points[0].title).toBe('Point');
   });

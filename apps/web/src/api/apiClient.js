@@ -266,6 +266,15 @@ function createEntityMethods(entityName) {
         method: 'POST',
       }),
 
+    instantiate: (id, requestId) =>
+      apiFetch(`${base}/${safeId(id)}/instantiate`, {
+        method: 'POST',
+        body: JSON.stringify({ request_id: requestId }),
+        // This endpoint is server-idempotent on request_id, so retrying a
+        // dropped response cannot duplicate a series or any sermon drafts.
+        retry: true,
+      }),
+
     filter: (query = {}, orderBy = '-created_date', limit = 200, offset = 0) =>
       apiFetch(`${base}/filter`, {
         method: 'POST',

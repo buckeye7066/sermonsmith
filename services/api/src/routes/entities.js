@@ -156,6 +156,7 @@ const SermonTemplateContentSchema = z.object({
   topic: z.string().max(200).optional(),
   anchor_passage: z.string().max(200).optional(),
   big_idea: z.string().max(2000).optional(),
+  introduction: z.string().max(20000).optional(),
   points: z.array(z.any()).max(20).optional(),
   conclusion: z.string().max(20000).optional(),
   theological_notes: z.string().max(20000).optional(),
@@ -170,6 +171,10 @@ const SeriesTemplateContentSchema = z.object({
   denomination: z.string().max(120).optional(),
   length: z.coerce.number().int().min(1).max(52).optional(),
   sermon_blueprints: z.array(SermonTemplateContentSchema).max(52).optional(),
+}).strict();
+
+const InstantiateSeriesTemplateSchema = z.object({
+  request_id: z.string().uuid(),
 }).strict();
 
 // Reader writes Highlight/Note/Bookmark records keyed off a Bible verse.
@@ -381,12 +386,12 @@ const ENTITY_SCHEMAS = {
 // routes, and the community routes all share ONE implementation and cannot
 // drift. See that module.
 
-async function denominationForRequest(req, ...candidates) {
+async function denominationForRequest(req, ownerUserId, ...candidates) {
   for (const c of candidates) {
     if (typeof c === 'string' && c.trim()) return c;
   }
   const user = await prisma.user.findUnique({
-    where: { id: req.userId },
+    where: { id: ownerUserId || req.userId },
     select: { profile: true },
   });
   const fromProfile = user?.profile?.denomination;
@@ -401,7 +406,7 @@ async function denominationForRequest(req, ...candidates) {
  * call. Throws 422 on an attempt to publish OR publicly share a record whose
  * references do not all verify.
  */
-async function applyScriptureGate(req, type, incoming, existingData = null) {
+async function applyScriptureGate(req, type, incoming, existingData = null, ownerUserId = req.userId) {
   // AI-generated community replies are gated even though CommunityReply is not a
   // first-class gated entity type. The dedicated /community/posts/:id/reply route
   // gates is_ai_response replies, but the generic entity API would otherwise
@@ -411,6 +416,7 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
   if (type === 'CommunityReply' && (incoming?.is_ai_response === true || existingData?.is_ai_response === true)) {
     const denomination = await denominationForRequest(
       req,
+      ownerUserId,
       incoming?.denomination,
       existingData?.denomination,
     );
@@ -421,6 +427,7 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
   const denomination = await denominationForRequest(
     req,
+    ownerUserId,
     incoming?.denomination,
     existingData?.denomination,
   );
@@ -494,6 +501,123 @@ function ownerScopedSourceWhere(req) {
     : { id: req.params.id, type: req.params.type, userId: req.userId };
 }
 
+async function instantiatedSeriesResult({ requestId, templateId, userId }) {
+  const series = await prisma.entity.findFirst({
+    where: {
+      id: requestId,
+      type: 'SermonSeries',
+      userId,
+      AND: [
+        { data: { path: ['template_instantiation_id'], equals: requestId } },
+        { data: { path: ['template_id'], equals: templateId } },
+      ],
+    },
+  });
+  if (!series) return null;
+  const sermons = await prisma.entity.findMany({
+    where: {
+      type: 'Sermon',
+      userId,
+      AND: [
+        { data: { path: ['template_instantiation_id'], equals: requestId } },
+        { data: { path: ['template_id'], equals: templateId } },
+      ],
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  return { series: formatEntity(series), sermons: sermons.map(formatEntity) };
+}
+
+// One idempotent server transaction owns the series plus every sermon draft.
+// The caller-generated request UUID is also the series primary key, so a lost
+// response can be retried safely and concurrent duplicates converge on the
+// same complete result instead of creating orphaned or duplicate drafts.
+router.post('/SeriesTemplate/:id/instantiate', authenticateToken, async (req, res, next) => {
+  try {
+    const parsedRequest = InstantiateSeriesTemplateSchema.safeParse(req.body || {});
+    if (!parsedRequest.success) {
+      return res.status(400).json({ message: 'A valid request_id UUID is required.' });
+    }
+    const requestId = parsedRequest.data.request_id;
+    const template = await prisma.entity.findFirst({
+      where: { id: req.params.id, type: 'SeriesTemplate', userId: req.userId },
+    });
+    if (!template) return res.status(404).json({ message: 'Series template not found' });
+
+    const replay = await instantiatedSeriesResult({
+      requestId,
+      templateId: template.id,
+      userId: req.userId,
+    });
+    if (replay) return res.json(replay);
+
+    const content = structuredClone(template.data?.content || {});
+    const blueprints = Array.isArray(content.sermon_blueprints) ? content.sermon_blueprints : [];
+    delete content.sermon_blueprints;
+    const seriesData = validateEntityPayload('SermonSeries', {
+      ...content,
+      title: content.title || template.data?.name || 'Untitled series',
+      description: content.description ?? template.data?.description ?? '',
+      length: content.length || blueprints.length || 1,
+      status: 'in_progress',
+      template_id: template.id,
+      template_instantiation_id: requestId,
+    });
+    const sermonData = await Promise.all(blueprints.map(async (blueprint, index) => {
+      const draft = validateEntityPayload('Sermon', {
+        ...structuredClone(blueprint),
+        title: blueprint?.title || `Sermon ${index + 1}`,
+        status: 'draft',
+        scheduled_date: null,
+        series_id: requestId,
+        series_order: index + 1,
+        template_id: template.id,
+        template_instantiation_id: requestId,
+      });
+      return applyScriptureGate(req, 'Sermon', draft);
+    }));
+    const createdAt = new Date().toISOString();
+
+    try {
+      const created = await prisma.$transaction(async (tx) => {
+        const series = await tx.entity.create({
+          data: {
+            id: requestId,
+            type: 'SermonSeries',
+            userId: req.userId,
+            data: { ...seriesData, user_id: req.userId, created_date: createdAt },
+          },
+        });
+        const sermons = [];
+        for (const sermon of sermonData) {
+          sermons.push(await tx.entity.create({
+            data: {
+              type: 'Sermon',
+              userId: req.userId,
+              data: { ...sermon, user_id: req.userId, created_date: createdAt },
+            },
+          }));
+        }
+        return { series: formatEntity(series), sermons: sermons.map(formatEntity) };
+      });
+      return res.json(created);
+    } catch (error) {
+      if (error?.code === 'P2002') {
+        const concurrentReplay = await instantiatedSeriesResult({
+          requestId,
+          templateId: template.id,
+          userId: req.userId,
+        });
+        if (concurrentReplay) return res.json(concurrentReplay);
+        throw Object.assign(new Error('That request identifier is already in use.'), { status: 409 });
+      }
+      throw error;
+    }
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // Revision routes are dedicated so immutable snapshots can never be minted,
 // changed, or removed through generic entity CRUD.
 router.get('/:type/:id/revisions', authenticateToken, async (req, res, next) => {
@@ -547,7 +671,7 @@ router.post('/:type/:id/revisions/:revisionId/restore', authenticateToken, async
     const validated = validateEntityPayload(source.type, snapshot);
     // A restore is a complete replacement, not a patch. Supplying the current
     // record here would merge fields added after the snapshot back into it.
-    const gated = await applyScriptureGate(req, source.type, validated);
+    const gated = await applyScriptureGate(req, source.type, validated, null, source.userId);
     const now = new Date().toISOString();
     const restoredData = {
       ...gated,
@@ -555,16 +679,29 @@ router.post('/:type/:id/revisions/:revisionId/restore', authenticateToken, async
       created_date: source.data?.created_date || source.createdAt?.toISOString?.() || now,
       updated_date: now,
     };
-    const [restored] = await prisma.$transaction([
-      prisma.entity.update({ where: { id: source.id }, data: { data: restoredData } }),
-      prisma.entity.create({
+    const restored = await prisma.$transaction(async (tx) => {
+      // Guard the snapshot we are about to replace. If another save lands
+      // after the source/history reads above, updateMany affects zero rows and
+      // the transaction leaves both the newer content and history untouched.
+      const updated = await tx.entity.updateMany({
+        where: { id: source.id, updatedAt: source.updatedAt },
+        data: { data: restoredData },
+      });
+      if (updated.count !== 1) {
+        throw Object.assign(
+          new Error('This item changed while the revision was being restored. Reload and try again.'),
+          { status: 409 },
+        );
+      }
+      await tx.entity.create({
         data: {
           type: 'EntityRevision',
           userId: source.userId,
           data: { ...revisionPayload(source, 'before_restore'), created_by: req.userId },
         },
-      }),
-    ]);
+      });
+      return tx.entity.findUnique({ where: { id: source.id } });
+    });
     return res.json(formatEntity(restored));
   } catch (err) {
     return next(err);
@@ -850,7 +987,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       patch = parsed.data;
     }
 
-    patch = await applyScriptureGate(req, storedType, patch, existing.data);
+    patch = await applyScriptureGate(req, storedType, patch, existing.data, existing.userId);
     // Scripture-gated updates return the complete sanitized record so fields
     // retired from older deployments are actually removed, not restored by a
     // second merge with the stored JSON here.

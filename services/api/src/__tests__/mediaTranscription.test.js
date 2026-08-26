@@ -36,7 +36,7 @@ describe('media transcription providers', () => {
   });
 
   it('uses provider timestamps for timed clip drafts', () => {
-    const clips = draftClipSegments({
+    const persisted = normalizeTranscription({
       text: 'Opening thought. Main idea.',
       provider: 'fixture',
       segments: [
@@ -44,6 +44,7 @@ describe('media transcription providers', () => {
         { id: 2, start: 15.1, end: 31.5, text: 'Main idea.' },
       ],
     });
+    const clips = draftClipSegments(persisted);
     expect(clips).toHaveLength(1);
     expect(clips[0]).toMatchObject({
       start_seconds: 4.2,

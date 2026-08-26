@@ -19,9 +19,8 @@ const mocks = vi.hoisted(() => ({
   seriesTemplateList: vi.fn(),
   seriesTemplateCreate: vi.fn(),
   seriesTemplateDelete: vi.fn(),
+  seriesTemplateInstantiate: vi.fn(),
   seriesList: vi.fn(),
-  seriesCreate: vi.fn(),
-  seriesDelete: vi.fn(),
   mediaJobs: vi.fn(),
   mediaJob: vi.fn(),
   mediaUpload: vi.fn(),
@@ -47,11 +46,10 @@ vi.mock('@/api/apiClient', () => ({
         filter: mocks.seriesTemplateList,
         create: mocks.seriesTemplateCreate,
         delete: mocks.seriesTemplateDelete,
+        instantiate: mocks.seriesTemplateInstantiate,
       },
       SermonSeries: {
         filter: mocks.seriesList,
-        create: mocks.seriesCreate,
-        delete: mocks.seriesDelete,
       },
     },
     media: {
@@ -77,7 +75,7 @@ describe('sermon planning workflows', () => {
     mocks.seriesTemplateList.mockResolvedValue([]);
     mocks.seriesList.mockResolvedValue([]);
     mocks.mediaJobs.mockResolvedValue([]);
-    mocks.seriesDelete.mockResolvedValue();
+    mocks.seriesTemplateInstantiate.mockResolvedValue({ series: { id: 'new-series' }, sermons: [] });
   });
 
   it('schedules a sermon through the keyboard-accessible date control', async () => {
@@ -187,7 +185,7 @@ describe('sermon planning workflows', () => {
     }));
   });
 
-  it('removes an empty series if creating its template sermons fails', async () => {
+  it('uses one idempotent server request to create a complete series draft', async () => {
     mocks.seriesTemplateList.mockResolvedValue([{
       id: 'series-template-1',
       name: 'Reusable series',
@@ -196,13 +194,13 @@ describe('sermon planning workflows', () => {
         sermon_blueprints: [{ title: 'Week one' }],
       },
     }]);
-    mocks.seriesCreate.mockResolvedValue({ id: 'new-series' });
-    mocks.sermonBulkCreate.mockRejectedValue(new Error('bulk failed'));
-
     render(<TemplateLibrary sermons={[]} userId="owner" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Create drafts' }));
 
-    await waitFor(() => expect(mocks.seriesDelete).toHaveBeenCalledWith('new-series'));
+    await waitFor(() => expect(mocks.seriesTemplateInstantiate).toHaveBeenCalledWith(
+      'series-template-1',
+      expect.stringMatching(/^[0-9a-f-]{36}$/iu),
+    ));
   });
 
   it('does not remove completed template content when only the refresh callback fails', async () => {
@@ -214,13 +212,9 @@ describe('sermon planning workflows', () => {
         sermon_blueprints: [{ title: 'Week one' }],
       },
     }]);
-    mocks.seriesCreate.mockResolvedValue({ id: 'completed-series' });
-    mocks.sermonBulkCreate.mockResolvedValue([{ id: 'sermon-1' }]);
-
     render(<TemplateLibrary sermons={[]} userId="owner" onCreated={() => Promise.reject(new Error('refresh failed'))} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Create drafts' }));
 
-    await waitFor(() => expect(mocks.sermonBulkCreate).toHaveBeenCalled());
-    expect(mocks.seriesDelete).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.seriesTemplateInstantiate).toHaveBeenCalledOnce());
   });
 });

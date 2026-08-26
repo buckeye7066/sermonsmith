@@ -22,5 +22,7 @@ describe('Unicode PDF font', () => {
     const raw = new TextDecoder('latin1').decode(bytes);
     expect(raw).toContain('/ToUnicode');
     expect(bytes.byteLength).toBeGreaterThan(10_000);
+
+    expect(() => selectPdfFont(doc, '查經')).toThrow(/Unsupported characters: U\+67E5, U\+7D93/u);
   });
 });

@@ -25,6 +25,7 @@ function setElectronApiUrl(url) {
 
 describe('apiClient base URL resolution', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     Reflect.deleteProperty(window, 'electron');
@@ -139,6 +140,30 @@ describe('apiClient base URL resolution', () => {
       }),
     ]);
     expect(fetchMock.mock.calls[3][0]).toBe('https://api.example/api/media/jobs');
+  });
+
+  it('retries series-template instantiation with the same idempotency key after a lost response', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('response lost'))
+      .mockResolvedValueOnce(jsonResponse({ series: { id: 'series-1' }, sermons: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const requestId = '11111111-1111-4111-8111-111111111111';
+
+    const { api } = await loadClient();
+    const pending = api.entities.SeriesTemplate.instantiate('template/1', requestId);
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toMatchObject({ series: { id: 'series-1' } });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url, options] of fetchMock.mock.calls) {
+      expect(url).toBe('https://api.example/api/entities/SeriesTemplate/template%2F1/instantiate');
+      expect(options).toMatchObject({
+        method: 'POST',
+        body: JSON.stringify({ request_id: requestId }),
+      });
+    }
   });
 });
 

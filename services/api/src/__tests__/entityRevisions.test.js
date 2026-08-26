@@ -58,8 +58,9 @@ describe('entity revision history', () => {
   beforeEach(() => {
     prisma._reset();
     prisma._store.user.push(
-      { id: 'owner', role: 'user' },
+      { id: 'owner', role: 'user', profile: { denomination: 'Catholic' } },
       { id: 'other', role: 'user' },
+      { id: 'admin', role: 'admin', profile: { denomination: 'Protestant' } },
     );
     app = buildApp();
   });
@@ -241,5 +242,66 @@ describe('entity revision history', () => {
       .post(`/api/entities/Sermon/${source.body.id}/revisions/unsafe-revision/restore`)
       .set('Cookie', asUser('owner'));
     expect(restored.status).toBe(422);
+  });
+
+  it('rejects a stale restore without overwriting a concurrent save or recording false history', async () => {
+    const source = await request(app)
+      .post('/api/entities/Series')
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Original' });
+    await request(app)
+      .put(`/api/entities/Series/${source.body.id}`)
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Version two' });
+    const history = await request(app)
+      .get(`/api/entities/Series/${source.body.id}/revisions`)
+      .set('Cookie', asUser('owner'));
+    const historyCount = prisma._store.entity.filter((item) => item.type === 'EntityRevision').length;
+    const transaction = prisma.$transaction.getMockImplementation();
+    prisma.$transaction.mockImplementationOnce(async (callback) => {
+      const index = prisma._store.entity.findIndex((item) => item.id === source.body.id);
+      const current = prisma._store.entity[index];
+      prisma._store.entity[index] = {
+        ...current,
+        data: { ...current.data, title: 'Concurrent save' },
+        updatedAt: new Date(current.updatedAt.getTime() + 1_000),
+      };
+      return transaction(callback);
+    });
+
+    const restored = await request(app)
+      .post(`/api/entities/Series/${source.body.id}/revisions/${history.body[0].id}/restore`)
+      .set('Cookie', asUser('owner'));
+
+    expect(restored.status).toBe(409);
+    expect(prisma._store.entity.find((item) => item.id === source.body.id)?.data.title).toBe('Concurrent save');
+    expect(prisma._store.entity.filter((item) => item.type === 'EntityRevision')).toHaveLength(historyCount);
+  });
+
+  it('uses the source owner canon when an administrator restores a sermon', async () => {
+    const source = await request(app)
+      .post('/api/entities/Sermon')
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Current', status: 'draft' });
+    prisma._store.entity.push({
+      id: 'catholic-revision',
+      type: 'EntityRevision',
+      userId: 'owner',
+      data: {
+        source_type: 'Sermon',
+        source_id: source.body.id,
+        snapshot: { title: 'Wisdom', anchor_passage: 'Wisdom 1:1', status: 'draft' },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const restored = await request(app)
+      .post(`/api/entities/Sermon/${source.body.id}/revisions/catholic-revision/restore`)
+      .set('Cookie', asUser('admin'));
+
+    expect(restored.status).toBe(200);
+    expect(restored.body).toMatchObject({ title: 'Wisdom', anchor_passage: 'Wisdom 1:1' });
+    expect(restored.body.scripture_validation[0].status).toBe('chapter_checked');
   });
 });

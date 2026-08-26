@@ -4,6 +4,7 @@ import { vi } from 'vitest';
 // Each model exposes the subset of methods the route handlers use.
 export function createPrismaMock() {
   const store = {};
+  let transactionTail = Promise.resolve();
   const getStore = (model) => (store[model] = store[model] || []);
 
   function applyOrder(arr, orderBy) {
@@ -80,6 +81,11 @@ export function createPrismaMock() {
       create: vi.fn(async ({ data }) => {
         const arr = getStore(name);
         const id = data.id || `${name}-${arr.length + 1}-${Math.random().toString(36).slice(2, 8)}`;
+        if (arr.some((item) => item.id === id)) {
+          const error = new Error(`${name}.create: unique constraint failed`);
+          error.code = 'P2002';
+          throw error;
+        }
         const item = { id, createdAt: new Date(), updatedAt: new Date(), ...data };
         arr.push(item);
         return item;
@@ -190,13 +196,33 @@ export function createPrismaMock() {
     savedContent: makeModel('savedContent'),
     agentMessage: makeModel('agentMessage'),
     agentLesson: makeModel('agentLesson'),
-    $transaction: vi.fn(async (ops) => Promise.all(ops)),
+    $transaction: vi.fn(async (operations) => {
+      if (typeof operations !== 'function') return Promise.all(operations);
+      // Serialize interactive transactions so concurrency tests exercise the
+      // same uniqueness/rollback boundary deterministically instead of
+      // interleaving snapshots in the in-memory test double.
+      const previous = transactionTail;
+      let release;
+      transactionTail = new Promise((resolve) => { release = resolve; });
+      await previous;
+      const snapshot = structuredClone(store);
+      try {
+        return await operations(prisma);
+      } catch (error) {
+        for (const key of Object.keys(store)) delete store[key];
+        Object.assign(store, snapshot);
+        throw error;
+      } finally {
+        release();
+      }
+    }),
     $queryRaw: vi.fn(async () => [{ ok: 1 }]),
     _store: store,
     _reset() {
       for (const key of Object.keys(store)) {
         store[key] = [];
       }
+      transactionTail = Promise.resolve();
     },
   };
 

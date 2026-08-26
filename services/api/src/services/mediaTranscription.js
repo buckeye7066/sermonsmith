@@ -23,8 +23,11 @@ function cleanText(value) {
 
 function cleanSegment(segment, index) {
   const text = cleanText(segment?.text).slice(0, 5_000);
-  const start = Number(segment?.start);
-  const end = Number(segment?.end);
+  // Provider output uses start/end while persisted, normalized jobs use the
+  // explicit *_seconds keys. Accept both so generating clip drafts from a
+  // stored transcript does not erase valid timing during re-normalization.
+  const start = Number(segment?.start_seconds ?? segment?.start);
+  const end = Number(segment?.end_seconds ?? segment?.end);
   if (!text || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
     return null;
   }

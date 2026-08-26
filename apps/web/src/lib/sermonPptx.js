@@ -7,8 +7,22 @@ const SLIDE_HEIGHT = 6858000;
 export const PPTX_BODY_LINE_BUDGET = 12;
 const BODY_CHARACTERS_PER_LINE = 68;
 
+function isXml10CodePoint(codePoint) {
+  return codePoint === 0x09
+    || codePoint === 0x0a
+    || codePoint === 0x0d
+    || (codePoint >= 0x20 && codePoint <= 0xd7ff)
+    || (codePoint >= 0xe000 && codePoint <= 0xfffd)
+    || (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+}
+
 function xmlEscape(value) {
-  return String(value ?? '')
+  // XML 1.0 permits tab, line feed, carriage return, and the documented
+  // scalar ranges only. Strip other controls and lone surrogate code units
+  // before escaping markup delimiters so Office can always parse the deck.
+  return [...String(value ?? '')]
+    .filter((character) => isXml10CodePoint(character.codePointAt(0)))
+    .join('')
     .replace(/&/gu, '&amp;')
     .replace(/</gu, '&lt;')
     .replace(/>/gu, '&gt;')

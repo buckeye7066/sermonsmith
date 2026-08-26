@@ -67,6 +67,30 @@ describe('buildSermonPptx', () => {
     }
   });
 
+  it('removes XML-invalid controls from every serialized part', async () => {
+    const { zip } = await openDeck({
+      title: 'Control\u0001Character',
+      points: [{ title: 'Point', exegesis: 'Safe\u000Bbody' }],
+    });
+    const xmlParts = zip.getEntries()
+      .filter(({ entryName }) => entryName.endsWith('.xml'))
+      .map((entry) => entry.getData().toString('utf8'));
+
+    expect(xmlParts.join('\n')).toContain('ControlCharacter');
+    for (const xml of xmlParts) {
+      const invalid = [...xml].filter((character) => {
+        const codePoint = character.codePointAt(0);
+        return codePoint !== 0x09
+          && codePoint !== 0x0a
+          && codePoint !== 0x0d
+          && !(codePoint >= 0x20 && codePoint <= 0xd7ff)
+          && !(codePoint >= 0xe000 && codePoint <= 0xfffd)
+          && !(codePoint >= 0x10000 && codePoint <= 0x10ffff);
+      });
+      expect(invalid).toEqual([]);
+    }
+  });
+
   it('puts at least one DrawingML paragraph in every text body', async () => {
     const { zip } = await openDeck({ title: 'Sparse', points: [{ title: 'Empty point' }] });
     const xml = zip.getEntries()

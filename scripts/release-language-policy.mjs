@@ -297,7 +297,54 @@ function scrubberRange(source) {
     'u',
   );
   if (end < 0 || !cleanupLoop.test(source)) return null;
-  return { start, end: end + terminator.length };
+  return {
+    start,
+    listStart: start + marker.lastIndexOf('['),
+    end: end + terminator.length,
+  };
+}
+
+function squareBracketDepth(source, start, end) {
+  let depth = 0;
+  let quote = '';
+  let lineComment = false;
+  let blockComment = false;
+  for (let index = start; index < end; index += 1) {
+    const character = source[index];
+    const next = source[index + 1];
+    if (lineComment) {
+      if (character === '\n' || character === '\r' || character === '\u2028' || character === '\u2029') {
+        lineComment = false;
+      }
+      continue;
+    }
+    if (blockComment) {
+      if (character === '*' && next === '/') {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (character === '\\') index += 1;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '/' && next === '/') {
+      lineComment = true;
+      index += 1;
+    } else if (character === '/' && next === '*') {
+      blockComment = true;
+      index += 1;
+    } else if (character === "'" || character === '"' || character === '`') {
+      quote = character;
+    } else if (character === '[') {
+      depth += 1;
+    } else if (character === ']') {
+      depth -= 1;
+    }
+  }
+  return depth;
 }
 
 function isExactScrubberListMember(source, match, range) {
@@ -306,7 +353,9 @@ function isExactScrubberListMember(source, match, range) {
   if ((quote !== "'" && quote !== '"') || source[match.index + match[0].length] !== quote) return false;
   const before = source.slice(range.start, match.index - 1).trimEnd().at(-1);
   const after = source.slice(match.index + match[0].length + 1, range.end).trimStart()[0];
-  return (before === '[' || before === ',') && (after === ',' || after === ']');
+  return squareBracketDepth(source, range.listStart, match.index - 1) === 1
+    && (before === '[' || before === ',')
+    && (after === ',' || after === ']');
 }
 
 function isCleanupOnlyRetiredOccurrence(path, source, match) {

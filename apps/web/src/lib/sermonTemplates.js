@@ -3,6 +3,7 @@ const SERMON_FIELDS = [
   'topic',
   'anchor_passage',
   'big_idea',
+  'introduction',
   'points',
   'conclusion',
   'theological_notes',

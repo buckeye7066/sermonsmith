@@ -7,7 +7,6 @@ import { toast } from 'sonner';
 import {
   sermonDraftFromTemplate,
   sermonTemplateFromSermon,
-  seriesDraftFromTemplate,
   seriesTemplateFromSeries,
 } from '@/lib/sermonTemplates';
 
@@ -79,39 +78,18 @@ export default function TemplateLibrary({ sermons = [], onCreated, userId }) {
 
   const instantiateSeriesTemplate = async (template) => {
     setBusy(template.id);
-    let createdSeries = null;
     let creationComplete = false;
     try {
-      const drafts = seriesDraftFromTemplate(template);
-      createdSeries = await api.entities.SermonSeries.create(drafts.series);
-      if (drafts.sermons.length > 0) {
-        await api.entities.Sermon.bulkCreate(drafts.sermons.map((sermon) => ({
-          ...sermon,
-          series_id: createdSeries.id,
-        })));
-      }
-      // From this point onward the durable workflow succeeded. A callback or
-      // refresh failure must not delete the series and orphan its sermons.
+      await api.entities.SeriesTemplate.instantiate(template.id, globalThis.crypto.randomUUID());
       creationComplete = true;
       await onCreated?.();
       await load();
       toast.success('Series and sermon drafts created from template');
     } catch (error) {
       console.error('Unable to use series template:', error);
-      let rolledBack = !createdSeries;
-      if (createdSeries?.id && !creationComplete) {
-        try {
-          await api.entities.SermonSeries.delete(createdSeries.id);
-          rolledBack = true;
-        } catch (rollbackError) {
-          console.error('Unable to remove the incomplete series:', rollbackError);
-        }
-      }
       toast.error(creationComplete
         ? 'Series drafts were created, but the list could not refresh.'
-        : rolledBack
-          ? 'Unable to create a series from this template'
-          : 'Series creation was incomplete. Delete the empty series before retrying.');
+        : 'Unable to confirm series creation. Trying again is safe.');
     } finally {
       setBusy('');
     }

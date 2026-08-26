@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -57,6 +57,9 @@ test('retired fields are allowed only inside the deletion list of the migration 
     .some(({ rule }) => rule === 'retired-attestation-field'));
   const executableMember = `const RETIRED_REVIEW_FIELDS = new Set(['safe' + '${field}']);\nfor (const key of RETIRED_REVIEW_FIELDS) delete data[key];`;
   assert.ok(scan(executableMember, 'services/api/src/services/scriptureGate.js')
+    .some(({ rule }) => rule === 'retired-attestation-field'));
+  const nestedMember = `const RETIRED_REVIEW_FIELDS = new Set([['${field}']]);\nfor (const key of RETIRED_REVIEW_FIELDS) delete data[key];`;
+  assert.ok(scan(nestedMember, 'services/api/src/services/scriptureGate.js')
     .some(({ rule }) => rule === 'retired-attestation-field'));
   const unrelatedCleanup = `const RETIRED_REVIEW_FIELDS = new Set(['${field}']);\nfor (const key of OTHER_FIELDS) delete data[key];`;
   assert.ok(scan(unrelatedCleanup, 'services/api/src/services/scriptureGate.js')
@@ -197,4 +200,14 @@ test('scans the indexed blob and any different present worktree copy', () => {
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+test('installs the locked parser dependency before running the workflow probes', () => {
+  const workflow = readFileSync('.github/workflows/release-language-policy.yml', 'utf8');
+  const setup = workflow.indexOf('actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020');
+  const install = workflow.indexOf('npm ci --ignore-scripts');
+  const probes = workflow.indexOf('node --test scripts/release-language-policy.test.mjs');
+  assert.ok(setup >= 0);
+  assert.ok(install > setup);
+  assert.ok(probes > install);
 });
