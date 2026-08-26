@@ -7,6 +7,10 @@
 - **Bible Reader** - Read Scripture with multiple translations, highlights, and notes
 - **Sermon Builder (Larry)** - AI-powered sermon outline and content generation
 - **Series Builder (Arlynn)** - Multi-week sermon series planning with teaching context adaptation
+- **Preaching Calendar** - Date sermons with drag-and-drop planning and keyboard-accessible controls
+- **Revision History** - Restore prior sermon, series, and study versions without losing the current copy
+- **Reusable Templates** - Turn sermons and complete series into private draft templates
+- **Media Workbench** - Upload transcripts or configured audio/video sources, inspect clip proposals, and create sermon drafts
 - **Bible Study** - Deep study tools with multi-perspective theological analysis
 - **Worldview Explorer** - Compare interpretations across Christian traditions and world perspectives
 - **Quiz Builder** - Create Bible knowledge quizzes

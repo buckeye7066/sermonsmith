@@ -259,6 +259,13 @@ function createEntityMethods(entityName) {
     delete: (id) =>
       apiFetch(`${base}/${safeId(id)}`, { method: 'DELETE' }),
 
+    revisions: (id) => apiFetch(`${base}/${safeId(id)}/revisions`),
+
+    restoreRevision: (id, revisionId) =>
+      apiFetch(`${base}/${safeId(id)}/revisions/${safeId(revisionId)}/restore`, {
+        method: 'POST',
+      }),
+
     filter: (query = {}, orderBy = '-created_date', limit = 200, offset = 0) =>
       apiFetch(`${base}/filter`, {
         method: 'POST',
@@ -679,8 +686,31 @@ const admin = {
     }),
 };
 
+const media = {
+  jobs: () => apiFetch('/api/media/jobs'),
+  job: (id) => apiFetch(`/api/media/jobs/${encodeURIComponent(String(id))}`),
+  upload: (file) => apiFetch('/api/media/jobs', {
+    method: 'POST',
+    body: file,
+    timeoutMs: 180_000,
+    headers: {
+      'Content-Type': file.type || ({
+        txt: 'text/plain',
+        md: 'text/markdown',
+        mp3: 'audio/mpeg',
+        m4a: 'audio/mp4',
+        mp4: 'video/mp4',
+        wav: 'audio/wav',
+        webm: 'audio/webm',
+      })[String(file.name || '').split('.').pop().toLowerCase()] || 'application/octet-stream',
+      'X-File-Name': encodeURIComponent(file.name || 'upload'),
+    },
+  }),
+  deleteJob: (id) => apiFetch(`/api/media/jobs/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
+};
+
 // ---------------------------------------------------------------------------
 // Public exports
 // ---------------------------------------------------------------------------
 
-export const api = { auth, entities: entitiesProxy, integrations, functions, community, admin };
+export const api = { auth, entities: entitiesProxy, integrations, functions, community, admin, media };

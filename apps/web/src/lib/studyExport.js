@@ -1,4 +1,15 @@
-import { buildPresentationPptx, downloadPptx } from './sermonPptx.js';
+import {
+  buildPresentationPptx,
+  downloadPptx,
+  paginateSlideParagraphs,
+  splitSlideText,
+} from './sermonPptx.js';
+import { saveExportFile } from './downloadBlob.js';
+import {
+  installUnicodePdfFont,
+  PDF_UNICODE_TEXT_OPTIONS,
+  selectPdfFont,
+} from './pdfUnicodeFont.js';
 
 function normalizeText(value) {
   return String(value ?? '').replace(/\s+/gu, ' ').trim();
@@ -6,35 +17,11 @@ function normalizeText(value) {
 
 function sanitizeFilename(text, fallback) {
   const cleaned = String(text || '')
-    .replace(/[^\w\s-]/gu, '')
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
     .trim()
     .replace(/\s+/gu, '-')
     .slice(0, 60);
   return cleaned || fallback;
-}
-
-function chunks(value, maximum = 310) {
-  let remaining = normalizeText(value);
-  const result = [];
-  while (remaining.length > maximum) {
-    let split = remaining.lastIndexOf(' ', maximum);
-    if (split < Math.floor(maximum * 0.55)) split = maximum;
-    result.push(remaining.slice(0, split).trim());
-    remaining = remaining.slice(split).trim();
-  }
-  if (remaining) result.push(remaining);
-  return result;
-}
-
-function page(title, paragraphs, limit = 5) {
-  const slides = [];
-  for (let index = 0; index < paragraphs.length; index += limit) {
-    slides.push({
-      title: index ? `${title} (continued)` : title,
-      paragraphs: paragraphs.slice(index, index + limit),
-    });
-  }
-  return slides.length ? slides : [{ title, paragraphs: [] }];
 }
 
 export function studyToSlides(study) {
@@ -47,29 +34,27 @@ export function studyToSlides(study) {
     paragraphs: [],
   }];
 
-  const overview = chunks(study.overview).map((text) => ({ text }));
-  if (overview.length) slides.push(...page('Overview', overview));
+  const overview = splitSlideText(study.overview).map((text) => ({ text }));
+  if (overview.length) slides.push(...paginateSlideParagraphs('Overview', overview));
 
   const keyVerses = (Array.isArray(study.key_verses) ? study.key_verses : [])
-    .map(normalizeText)
-    .filter(Boolean)
-    .map((text) => ({ text, bullet: true }));
-  if (keyVerses.length) slides.push(...page('Key Verses', keyVerses, 6));
+    .flatMap((verse) => splitSlideText(verse).map((text) => ({ text, bullet: true })));
+  if (keyVerses.length) slides.push(...paginateSlideParagraphs('Key Verses', keyVerses));
 
   const sections = Array.isArray(study.study_sections) ? study.study_sections : [];
   sections.forEach((section, index) => {
     const paragraphs = [];
-    for (const part of chunks(section?.scripture)) paragraphs.push({ text: `Scripture — ${part}`, emphasis: true });
-    for (const part of chunks(section?.insights)) paragraphs.push({ text: `Insights — ${part}` });
+    for (const part of splitSlideText(section?.scripture)) paragraphs.push({ text: `Scripture — ${part}`, emphasis: true });
+    for (const part of splitSlideText(section?.insights)) paragraphs.push({ text: `Insights — ${part}` });
     for (const question of (Array.isArray(section?.questions) ? section.questions : [])) {
-      for (const part of chunks(question)) paragraphs.push({ text: `Question — ${part}`, bullet: true });
+      for (const part of splitSlideText(question)) paragraphs.push({ text: `Question — ${part}`, bullet: true });
     }
-    for (const part of chunks(section?.application)) paragraphs.push({ text: `Application — ${part}`, emphasis: true });
-    slides.push(...page(`${index + 1}. ${normalizeText(section?.title) || 'Study section'}`, paragraphs));
+    for (const part of splitSlideText(section?.application)) paragraphs.push({ text: `Application — ${part}`, emphasis: true });
+    slides.push(...paginateSlideParagraphs(`${index + 1}. ${normalizeText(section?.title) || 'Study section'}`, paragraphs));
   });
 
-  const conclusion = chunks(study.conclusion).map((text) => ({ text }));
-  if (conclusion.length) slides.push(...page('Conclusion', conclusion));
+  const conclusion = splitSlideText(study.conclusion).map((text) => ({ text }));
+  if (conclusion.length) slides.push(...paginateSlideParagraphs('Conclusion', conclusion));
   return slides;
 }
 
@@ -88,6 +73,7 @@ export async function renderStudyPdf(study) {
   if (!study || typeof study !== 'object') throw new Error('No study to export');
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF();
+  installUnicodePdfFont(doc);
   const margin = 20;
   const footer = 18;
   const lineHeight = 5;
@@ -105,12 +91,12 @@ export async function renderStudyPdf(study) {
     const value = normalizeText(text);
     if (!value) return;
     doc.setFontSize(size);
-    doc.setFont(undefined, style);
+    selectPdfFont(doc, value, style);
     const lines = doc.splitTextToSize(value, maxWidth - indent);
     checkPage(Math.min(lines.length, 2) * lineHeight + gap);
     for (const line of lines) {
       checkPage(lineHeight);
-      doc.text(line, margin + indent, y);
+      doc.text(line, margin + indent, y, PDF_UNICODE_TEXT_OPTIONS);
       y += lineHeight;
     }
     y += gap;
@@ -162,8 +148,12 @@ export async function renderStudyPdf(study) {
     doc.setPage(current);
     doc.setFontSize(8);
     doc.setTextColor(130);
-    doc.text('SermonSmith Bible Study', margin, pageHeight - 10);
-    doc.text(`Page ${current} of ${pageCount}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+    selectPdfFont(doc, 'SermonSmith Bible Study', 'normal');
+    doc.text('SermonSmith Bible Study', margin, pageHeight - 10, PDF_UNICODE_TEXT_OPTIONS);
+    doc.text(`Page ${current} of ${pageCount}`, pageWidth - margin, pageHeight - 10, {
+      ...PDF_UNICODE_TEXT_OPTIONS,
+      align: 'right',
+    });
     doc.setTextColor(0);
   }
   return doc;
@@ -176,13 +166,13 @@ export function buildStudyPdfFilename(study) {
 export async function exportStudyToPdf(study) {
   const doc = await renderStudyPdf(study);
   const filename = buildStudyPdfFilename(study);
-  doc.save(filename);
+  await saveExportFile(doc.output('blob'), filename);
   return filename;
 }
 
 export async function exportStudyToPptx(study) {
   const blob = buildStudyPptx(study);
   const filename = buildStudyPptxFilename(study);
-  downloadPptx(blob, filename);
+  await downloadPptx(blob, filename);
   return filename;
 }

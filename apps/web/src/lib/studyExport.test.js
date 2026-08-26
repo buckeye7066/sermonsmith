@@ -9,6 +9,7 @@ import {
   renderStudyPdf,
   studyToSlides,
 } from './studyExport';
+import { PPTX_BODY_LINE_BUDGET, slideBodyLineCount } from './sermonPptx';
 
 const STUDY = {
   title: 'Grace in John',
@@ -43,6 +44,20 @@ describe('study export', () => {
     expect(zip.getEntry('ppt/presentation.xml')).toBeTruthy();
     expect(slideXml).toContain('The Word Dwells With Us');
     expect(slideXml).toContain('What does it mean');
+    const bodies = slideXml.match(/<p:txBody>[\s\S]*?<\/p:txBody>/gu) || [];
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies.every((body) => body.includes('<a:p>'))).toBe(true);
+  });
+
+  it('paginates every study body by estimated rendered lines', () => {
+    const long = 'A long study observation with enough words to wrap across several rendered lines. '.repeat(100);
+    const slides = studyToSlides({
+      title: 'Long study',
+      overview: long,
+      study_sections: [{ title: 'Section', insights: long, questions: [long], application: long }],
+    });
+    expect(slides.length).toBeGreaterThan(10);
+    expect(slides.every((slide) => slideBodyLineCount(slide) <= PPTX_BODY_LINE_BUDGET)).toBe(true);
   });
 
   it('renders a real PDF with the section content', async () => {
@@ -51,6 +66,17 @@ describe('study export', () => {
     const raw = String.fromCharCode(...bytes.slice(0, 5));
     expect(raw).toBe('%PDF-');
     expect(bytes.byteLength).toBeGreaterThan(2000);
+  });
+
+  it('preserves Greek and Hebrew study text with the embedded Unicode font', async () => {
+    const doc = await renderStudyPdf({
+      title: 'χάρις וֶאֱמֶת',
+      overview: 'Greek: λόγος. Hebrew: בְּרֵאשִׁית.',
+    });
+    const bytes = new Uint8Array(doc.output('arraybuffer'));
+    const raw = new TextDecoder('latin1').decode(bytes);
+    expect(raw).toContain('/ToUnicode');
+    expect(bytes.byteLength).toBeGreaterThan(10_000);
   });
 
   it('uses safe filenames and rejects absent content', async () => {

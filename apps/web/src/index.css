@@ -176,6 +176,14 @@ button:focus-visible {
   /* Never let descendant content scroll the whole shell sideways; genuinely
      wide widgets opt into their own `overflow-x-auto` container. */
   overflow-x: hidden;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Keep fixed mobile navigation clear of device home indicators. The zero
+   fallback also makes the rule safe in browsers without env() support. */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media print {

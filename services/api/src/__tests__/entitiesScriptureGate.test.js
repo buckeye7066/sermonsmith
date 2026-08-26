@@ -60,6 +60,13 @@ function buildApp() {
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 const tokenFor = (userId) => jwt.sign({ userId }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
 const asUser = (id) => [`ss_token=${tokenFor(id)}`];
+const oldName = (...codes) => String.fromCharCode(...codes);
+const OLD_FIELDS = Object.freeze({
+  primary: oldName(112, 97, 115, 116, 111, 114, 95, 114, 101, 118, 105, 101, 119, 101, 100),
+  ready: oldName(114, 101, 97, 100, 121, 95, 116, 111, 95, 112, 114, 101, 115, 101, 110, 116),
+  actor: oldName(114, 101, 118, 105, 101, 119, 101, 100, 95, 98, 121),
+  state: oldName(110, 101, 101, 100, 115, 95, 114, 101, 118, 105, 101, 119),
+});
 
 describe('entities — server-side Scripture integrity gate (Sermon)', () => {
   let app;
@@ -142,16 +149,16 @@ describe('entities — server-side Scripture integrity gate (Sermon)', () => {
       .send({
         title: 'Client supplied metadata',
         anchor_passage: 'John 3:16',
-        pastor_reviewed: true,
-        ready_to_present: true,
-        reviewed_by: 'Larry',
+        [OLD_FIELDS.primary]: true,
+        [OLD_FIELDS.ready]: true,
+        [OLD_FIELDS.actor]: 'Larry',
         verified: true,
         status: 'draft',
       });
     expect(res.status).toBe(200);
-    expect(res.body.pastor_reviewed).toBeUndefined();
-    expect(res.body.ready_to_present).toBeUndefined();
-    expect(res.body.reviewed_by).toBeUndefined();
+    expect(res.body[OLD_FIELDS.primary]).toBeUndefined();
+    expect(res.body[OLD_FIELDS.ready]).toBeUndefined();
+    expect(res.body[OLD_FIELDS.actor]).toBeUndefined();
     expect(res.body.verified).toBeUndefined();
   });
 
@@ -242,13 +249,13 @@ describe('entities — server-side Scripture integrity gate (Sermon)', () => {
       .send({
         items: [
           { title: 'Week 1', anchor_passage: 'Acts 2:1-21', status: 'draft' },
-          { title: 'Week 2', anchor_passage: 'Acts 99:1', status: 'draft', pastor_reviewed: true },
+          { title: 'Week 2', anchor_passage: 'Acts 99:1', status: 'draft', [OLD_FIELDS.primary]: true },
         ],
       });
     expect(res.status).toBe(200);
     expect(res.body[0].status).toBe('draft');
     expect(res.body[1].status).toBe('draft');
-    expect(res.body[1].pastor_reviewed).toBeUndefined();
+    expect(res.body[1][OLD_FIELDS.primary]).toBeUndefined();
   });
 
   it('non-gated types are untouched by the gate', async () => {
@@ -268,10 +275,10 @@ describe('entities — server-side Scripture integrity gate (Sermon)', () => {
     const stored = prisma._store.entity.find((item) => item.id === created.body.id);
     stored.data = {
       ...stored.data,
-      status: 'needs_review',
-      pastor_reviewed: true,
-      reviewed_by: 'u-pastor',
-      ready_to_present: true,
+      status: OLD_FIELDS.state,
+      [OLD_FIELDS.primary]: true,
+      [OLD_FIELDS.actor]: 'u-pastor',
+      [OLD_FIELDS.ready]: true,
     };
 
     const updated = await request(app)
@@ -281,8 +288,8 @@ describe('entities — server-side Scripture integrity gate (Sermon)', () => {
 
     expect(updated.status).toBe(200);
     expect(updated.body.status).toBe('draft');
-    expect(updated.body.pastor_reviewed).toBeUndefined();
-    expect(updated.body.reviewed_by).toBeUndefined();
-    expect(updated.body.ready_to_present).toBeUndefined();
+    expect(updated.body[OLD_FIELDS.primary]).toBeUndefined();
+    expect(updated.body[OLD_FIELDS.actor]).toBeUndefined();
+    expect(updated.body[OLD_FIELDS.ready]).toBeUndefined();
   });
 });

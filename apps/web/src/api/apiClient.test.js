@@ -111,6 +111,35 @@ describe('apiClient base URL resolution', () => {
       },
     ]);
   });
+
+  it('exposes revision restore and binary media job contracts', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['transcript'], 'Sunday notes.txt', { type: 'text/plain' });
+
+    const { api } = await loadClient();
+    await api.entities.Sermon.revisions('sermon/1');
+    await api.entities.Sermon.restoreRevision('sermon/1', 'revision/1');
+    await api.media.upload(file);
+    await api.media.jobs();
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example/api/entities/Sermon/sermon%2F1/revisions');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.example/api/entities/Sermon/sermon%2F1/revisions/revision%2F1/restore');
+    expect(fetchMock.mock.calls[1][1].method).toBe('POST');
+    expect(fetchMock.mock.calls[2]).toEqual([
+      'https://api.example/api/media/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        body: file,
+        headers: expect.objectContaining({
+          'Content-Type': 'text/plain',
+          'X-File-Name': 'Sunday%20notes.txt',
+        }),
+      }),
+    ]);
+    expect(fetchMock.mock.calls[3][0]).toBe('https://api.example/api/media/jobs');
+  });
 });
 
 

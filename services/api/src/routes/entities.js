@@ -39,7 +39,9 @@ const PUBLIC_TYPES = new Set(['Verse']);
 // which verifies the caller owns the resource being shared. Allowing it here
 // let any user forge a link pointing at another user's private entity. The
 // /share/:slug route now also re-checks sharer ownership (defense in depth).
-const SERVER_MANAGED_TYPES = new Set(['SharedLink']);
+const SERVER_MANAGED_TYPES = new Set(['SharedLink', 'EntityRevision', 'MediaJob']);
+const REVISIONED_TYPES = new Set(['Sermon', 'Series', 'SermonSeries', 'BibleStudy']);
+const MAX_REVISIONS_RETURNED = 100;
 
 function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
@@ -115,6 +117,11 @@ function isAdmin(req) {
 //
 // Unknown types are rejected outright with HTTP 400.
 // ---------------------------------------------------------------------------
+const ScheduledDateSchema = z.union([
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/u, 'Expected YYYY-MM-DD'),
+  z.string().datetime({ offset: true }),
+]);
+
 const SermonSchema = z.object({
   title: z.string().min(1).max(200),
   topic: z.string().max(200).optional(),
@@ -123,8 +130,30 @@ const SermonSchema = z.object({
   points: z.array(z.any()).max(20).optional(),
   conclusion: z.string().max(20000).optional(),
   theological_notes: z.string().max(20000).optional(),
+  scheduled_date: ScheduledDateSchema.nullable().optional(),
   status: z.enum(['draft', 'published', 'archived']).optional(),
 }).passthrough();
+
+const SermonTemplateContentSchema = z.object({
+  title: z.string().max(200).optional(),
+  topic: z.string().max(200).optional(),
+  anchor_passage: z.string().max(200).optional(),
+  big_idea: z.string().max(2000).optional(),
+  points: z.array(z.any()).max(20).optional(),
+  conclusion: z.string().max(20000).optional(),
+  theological_notes: z.string().max(20000).optional(),
+  tone: z.string().max(100).optional(),
+  audience: z.string().max(200).optional(),
+  denomination: z.string().max(120).optional(),
+}).strict();
+
+const SeriesTemplateContentSchema = z.object({
+  title: z.string().max(200).optional(),
+  description: z.string().max(2000).optional(),
+  denomination: z.string().max(120).optional(),
+  length: z.coerce.number().int().min(1).max(52).optional(),
+  sermon_blueprints: z.array(SermonTemplateContentSchema).max(52).optional(),
+}).strict();
 
 // Reader writes Highlight/Note/Bookmark records keyed off a Bible verse.
 // Pulling the shared identifier shape out keeps the three schemas in sync
@@ -255,6 +284,16 @@ const ENTITY_SCHEMAS = {
     title: z.string().min(1).max(200),
     description: z.string().max(2000).optional(),
   }).passthrough(),
+  SermonTemplate: z.object({
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    content: SermonTemplateContentSchema,
+  }).strict(),
+  SeriesTemplate: z.object({
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    content: SeriesTemplateContentSchema,
+  }).strict(),
   SharedSermon: z.object({}).passthrough(),
   SharedSeries: z.object({}).passthrough(),
   SharedPlanRating: z.object({
@@ -420,6 +459,99 @@ function validateEntityPayload(type, body) {
   return parsed.data;
 }
 
+function revisionPayload(entity, reason = 'update') {
+  return {
+    source_type: entity.type,
+    source_id: entity.id,
+    reason,
+    snapshot: structuredClone(entity.data || {}),
+    source_updated_date: entity.updatedAt instanceof Date
+      ? entity.updatedAt.toISOString()
+      : entity.updatedAt,
+  };
+}
+
+function ownerScopedSourceWhere(req) {
+  return isAdmin(req)
+    ? { id: req.params.id, type: req.params.type }
+    : { id: req.params.id, type: req.params.type, userId: req.userId };
+}
+
+// Revision routes are dedicated so immutable snapshots can never be minted,
+// changed, or removed through generic entity CRUD.
+router.get('/:type/:id/revisions', authenticateToken, async (req, res, next) => {
+  try {
+    if (!REVISIONED_TYPES.has(req.params.type)) {
+      return res.status(400).json({ message: `Revision history is not supported for '${req.params.type}'.` });
+    }
+    const source = await prisma.entity.findFirst({ where: ownerScopedSourceWhere(req) });
+    if (!source) return res.status(404).json({ message: 'Not found' });
+
+    const revisions = await prisma.entity.findMany({
+      where: {
+        type: 'EntityRevision',
+        userId: source.userId,
+        AND: [
+          { data: { path: ['source_type'], equals: source.type } },
+          { data: { path: ['source_id'], equals: source.id } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: MAX_REVISIONS_RETURNED,
+    });
+    return res.json(revisions.map(formatEntity));
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/:type/:id/revisions/:revisionId/restore', authenticateToken, async (req, res, next) => {
+  try {
+    if (!REVISIONED_TYPES.has(req.params.type)) {
+      return res.status(400).json({ message: `Revision history is not supported for '${req.params.type}'.` });
+    }
+    const source = await prisma.entity.findFirst({ where: ownerScopedSourceWhere(req) });
+    if (!source) return res.status(404).json({ message: 'Not found' });
+
+    const revision = await prisma.entity.findFirst({
+      where: {
+        id: req.params.revisionId,
+        type: 'EntityRevision',
+        userId: source.userId,
+        AND: [
+          { data: { path: ['source_type'], equals: source.type } },
+          { data: { path: ['source_id'], equals: source.id } },
+        ],
+      },
+    });
+    if (!revision) return res.status(404).json({ message: 'Revision not found' });
+
+    const snapshot = revision.data?.snapshot;
+    const validated = validateEntityPayload(source.type, snapshot);
+    const gated = await applyScriptureGate(req, source.type, validated, source.data);
+    const now = new Date().toISOString();
+    const restoredData = {
+      ...gated,
+      user_id: source.userId,
+      created_date: source.data?.created_date || source.createdAt?.toISOString?.() || now,
+      updated_date: now,
+    };
+    const [restored] = await prisma.$transaction([
+      prisma.entity.update({ where: { id: source.id }, data: { data: restoredData } }),
+      prisma.entity.create({
+        data: {
+          type: 'EntityRevision',
+          userId: source.userId,
+          data: { ...revisionPayload(source, 'before_restore'), created_by: req.userId },
+        },
+      }),
+    ]);
+    return res.json(formatEntity(restored));
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // --- Filter (must be registered before /:type/:id to avoid route collision) ---
 router.post('/:type/filter', authenticateToken, async (req, res, next) => {
   try {
@@ -443,6 +575,9 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
         skip,
       });
       return res.json(users.map(sanitizeUser));
+    }
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' is available only through its dedicated API.` });
     }
 
     const where = { type: req.params.type };
@@ -585,6 +720,9 @@ router.get('/:type', authenticateToken, async (req, res, next) => {
       });
       return res.json(users.map(sanitizeUser));
     }
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' is available only through its dedicated API.` });
+    }
 
     const where = { type: req.params.type };
     if (!PUBLIC_TYPES.has(req.params.type) && !isAdmin(req)) {
@@ -615,6 +753,9 @@ router.get('/:type/:id', authenticateToken, async (req, res, next) => {
       if (!user) return res.status(404).json({ message: 'User not found' });
       return res.json(sanitizeUser(user));
     }
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' is available only through its dedicated API.` });
+    }
 
     const entity = await prisma.entity.findUnique({ where: { id: req.params.id } });
     if (!entity) return res.status(404).json({ message: 'Not found' });
@@ -641,6 +782,10 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
           res.json(sanitizeUser(user));
         } catch (err) { next(err); }
       });
+    }
+
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' cannot be updated through the generic entity API.` });
     }
 
     const existing = await prisma.entity.findUnique({
@@ -694,12 +839,25 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       ? patch
       : { ...existing.data, ...patch };
 
-    const entity = await prisma.entity.update({
+    const updateOperation = prisma.entity.update({
       where: { id: req.params.id },
-      data: {
-        data: { ...nextData, updated_date: new Date().toISOString() },
-      },
+      data: { data: { ...nextData, updated_date: new Date().toISOString() } },
     });
+    let entity;
+    if (REVISIONED_TYPES.has(storedType)) {
+      [entity] = await prisma.$transaction([
+        updateOperation,
+        prisma.entity.create({
+          data: {
+            type: 'EntityRevision',
+            userId: existing.userId,
+            data: { ...revisionPayload(existing), created_by: req.userId },
+          },
+        }),
+      ]);
+    } else {
+      entity = await updateOperation;
+    }
     res.json(formatEntity(entity));
   } catch (err) {
     next(err);
@@ -716,6 +874,11 @@ router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
           res.status(204).send();
         } catch (err) { next(err); }
       });
+    }
+
+
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' cannot be deleted through the generic entity API.` });
     }
 
     const existing = await prisma.entity.findUnique({

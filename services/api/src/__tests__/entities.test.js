@@ -214,6 +214,58 @@ describe('entities — allowlist (regression for broken creates)', () => {
     expect(plan.status).toBe(200);
   });
 
+  it('accepts canonical schedule dates and rejects ambiguous values', async () => {
+    const scheduled = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Christmas Eve', scheduled_date: '2026-12-24T12:00:00.000Z', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const legacyDate = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Date only', scheduled_date: '2026-12-25', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const invalid = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Ambiguous', scheduled_date: 'next Sunday', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(scheduled.status).toBe(200);
+    expect(legacyDate.status).toBe(200);
+    expect(invalid.status).toBe(400);
+  });
+
+  it('stores reusable sermon and series templates with bounded content', async () => {
+    const sermonTemplate = await request(app)
+      .post('/api/entities/SermonTemplate')
+      .send({
+        name: 'Three-point outline',
+        content: { title: 'Reusable outline', points: [{ title: 'First point' }] },
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const seriesTemplate = await request(app)
+      .post('/api/entities/SeriesTemplate')
+      .send({
+        name: 'Four-week series',
+        content: {
+          title: 'Reusable series',
+          length: 4,
+          sermon_blueprints: [{ title: 'Week one', anchor_passage: 'John 1:1' }],
+        },
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(sermonTemplate.status).toBe(200);
+    expect(seriesTemplate.status).toBe(200);
+  });
+
+  it('rejects identity and lifecycle fields inside template content', async () => {
+    const res = await request(app)
+      .post('/api/entities/SermonTemplate')
+      .send({
+        name: 'Unsafe copy',
+        content: { title: 'Copy', user_id: 'another-user', status: 'published' },
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(res.status).toBe(400);
+  });
+
   it('still rejects a genuinely unknown entity type', async () => {
     const res = await request(app)
       .post('/api/entities/TotallyMadeUpType')

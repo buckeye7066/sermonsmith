@@ -37,4 +37,7 @@ Old entities may contain metadata from a retired workflow. The service removes t
 - Premium translation sources depend on provider credentials and content licensing.
 - Live-model quality changes with the configured provider and model.
 - Automated Scripture checks cannot adjudicate theological interpretation.
-- Media transcription and clip generation are not implemented.
+- Media transcription uses a provider interface with an offline plain-text implementation and an
+  optional OpenAI audio/video implementation. Raw upload bytes are discarded after processing;
+  only the transcript, provider timestamps, editable clip proposals, safe metadata, and failure
+  state are persisted. Text-only clip proposals carry no invented timestamps.

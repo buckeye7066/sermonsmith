@@ -1,8 +1,11 @@
 import { strToU8, zipSync } from 'fflate';
+import { saveExportFile } from './downloadBlob.js';
 
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 const SLIDE_WIDTH = 12192000;
 const SLIDE_HEIGHT = 6858000;
+export const PPTX_BODY_LINE_BUDGET = 12;
+const BODY_CHARACTERS_PER_LINE = 68;
 
 function xmlEscape(value) {
   return String(value ?? '')
@@ -32,7 +35,7 @@ function normalizeText(value) {
   return String(value ?? '').replace(/\s+/gu, ' ').trim();
 }
 
-function chunkText(value, maximum = 310) {
+export function splitSlideText(value, maximum = 310) {
   const text = normalizeText(value);
   if (!text) return [];
   const chunks = [];
@@ -47,14 +50,51 @@ function chunkText(value, maximum = 310) {
   return chunks;
 }
 
-function paginate(title, paragraphs, limit = 5) {
+export function estimatedParagraphLines(paragraph) {
+  const value = typeof paragraph === 'string' ? { text: paragraph } : (paragraph || {});
+  const charactersPerLine = value.bullet ? BODY_CHARACTERS_PER_LINE - 5 : BODY_CHARACTERS_PER_LINE;
+  const logicalLines = normalizeText(value.text).split(/\n/gu);
+  const wrapped = logicalLines.reduce(
+    (total, line) => total + Math.max(1, Math.ceil(line.length / charactersPerLine)),
+    0,
+  );
+  // Reserve one line of inter-paragraph leading. This deliberately errs on
+  // the side of an extra slide instead of clipping pulpit text.
+  return wrapped + 1;
+}
+
+export function slideBodyLineCount(slide) {
+  return (slide?.paragraphs || []).reduce((total, paragraph) => total + estimatedParagraphLines(paragraph), 0);
+}
+
+export function paginateSlideParagraphs(title, paragraphs, lineBudget = PPTX_BODY_LINE_BUDGET) {
   const pages = [];
-  for (let index = 0; index < paragraphs.length; index += limit) {
+  let current = [];
+  let used = 0;
+  const pushPage = () => {
+    if (!current.length) return;
     pages.push({
-      title: index ? `${title} (continued)` : title,
-      paragraphs: paragraphs.slice(index, index + limit),
+      title: pages.length ? `${title} (continued)` : title,
+      paragraphs: current,
     });
+    current = [];
+    used = 0;
+  };
+
+  for (const paragraph of paragraphs) {
+    const value = typeof paragraph === 'string' ? { text: paragraph } : paragraph;
+    const pieces = estimatedParagraphLines(value) > lineBudget
+      ? splitSlideText(value?.text, BODY_CHARACTERS_PER_LINE * (lineBudget - 2))
+        .map((text) => ({ ...value, text }))
+      : [value];
+    for (const piece of pieces) {
+      const cost = estimatedParagraphLines(piece);
+      if (current.length && used + cost > lineBudget) pushPage();
+      current.push(piece);
+      used += cost;
+    }
   }
+  pushPage();
   return pages.length ? pages : [{ title, paragraphs: [] }];
 }
 
@@ -70,9 +110,9 @@ export function sermonToSlides(sermon) {
   const slides = [{ title, subtitle, kind: 'title', paragraphs: [] }];
 
   const opening = [];
-  for (const part of chunkText(sermon.big_idea)) opening.push({ text: `Big idea — ${part}`, emphasis: true });
-  for (const part of chunkText(sermon.introduction)) opening.push({ text: part });
-  if (opening.length) slides.push(...paginate('Opening', opening));
+  for (const part of splitSlideText(sermon.big_idea)) opening.push({ text: `Big idea — ${part}`, emphasis: true });
+  for (const part of splitSlideText(sermon.introduction)) opening.push({ text: part });
+  if (opening.length) slides.push(...paginateSlideParagraphs('Opening', opening));
 
   const points = Array.isArray(sermon.points) ? sermon.points : [];
   points.forEach((point, index) => {
@@ -83,22 +123,26 @@ export function sermonToSlides(sermon) {
       ['Application', point?.application],
     ];
     for (const [label, value] of fields) {
-      for (const part of chunkText(value)) paragraphs.push({ text: `${label} — ${part}` });
+      for (const part of splitSlideText(value)) paragraphs.push({ text: `${label} — ${part}` });
     }
     const references = (Array.isArray(point?.supporting_scriptures) ? point.supporting_scriptures : [])
       .map(scriptureLabel)
       .filter(Boolean);
-    if (references.length) paragraphs.push({ text: `Scripture — ${references.join(' • ')}`, emphasis: true });
-    slides.push(...paginate(`${index + 1}. ${normalizeText(point?.title) || 'Untitled point'}`, paragraphs));
+    if (references.length) {
+      for (const part of splitSlideText(references.join(' • '))) {
+        paragraphs.push({ text: `Scripture — ${part}`, emphasis: true });
+      }
+    }
+    slides.push(...paginateSlideParagraphs(`${index + 1}. ${normalizeText(point?.title) || 'Untitled point'}`, paragraphs));
   });
 
-  const closing = chunkText(sermon.conclusion).map((text) => ({ text }));
-  if (closing.length) slides.push(...paginate('Conclusion', closing));
+  const closing = splitSlideText(sermon.conclusion).map((text) => ({ text }));
+  if (closing.length) slides.push(...paginateSlideParagraphs('Conclusion', closing));
 
   const questions = Array.isArray(sermon.discussion_questions)
-    ? sermon.discussion_questions.map(normalizeText).filter(Boolean).map((text) => ({ text, bullet: true }))
+    ? sermon.discussion_questions.flatMap((question) => splitSlideText(question).map((text) => ({ text, bullet: true })))
     : [];
-  if (questions.length) slides.push(...paginate('Discussion Questions', questions, 6));
+  if (questions.length) slides.push(...paginateSlideParagraphs('Discussion Questions', questions));
 
   return slides;
 }
@@ -119,7 +163,8 @@ function paragraphXml(paragraph, options = {}) {
 }
 
 function shapeXml({ id, name, x, y, cx, cy, paragraphs, fontSize, color, bold, align = 'l', anchor = 't' }) {
-  const content = paragraphs.map((paragraph) => paragraphXml(paragraph, {
+  const safeParagraphs = Array.isArray(paragraphs) && paragraphs.length ? paragraphs : [{ text: '' }];
+  const content = safeParagraphs.map((paragraph) => paragraphXml(paragraph, {
     size: fontSize,
     color,
     bold,
@@ -231,22 +276,14 @@ export function buildSermonPptx(sermon, options) {
   return buildPresentationPptx({ title: sermon.title || 'Untitled Sermon', slides }, options);
 }
 
-export function downloadPptx(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.style.display = 'none';
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+export async function downloadPptx(blob, filename) {
+  return saveExportFile(blob, filename);
 }
 
 /** Build and download a real Open XML presentation. Returns its filename. */
 export async function exportSermonToPptx(sermon) {
   const blob = buildSermonPptx(sermon);
   const filename = buildSermonPptxFilename(sermon);
-  downloadPptx(blob, filename);
+  await downloadPptx(blob, filename);
   return filename;
 }

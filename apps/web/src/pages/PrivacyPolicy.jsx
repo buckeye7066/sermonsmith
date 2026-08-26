@@ -6,7 +6,7 @@
 
 import React from 'react';
 
-const EFFECTIVE_DATE = 'August 5, 2026';
+const EFFECTIVE_DATE = 'August 25, 2026';
 
 function Section({ title, children }) {
   return (
@@ -52,6 +52,13 @@ export default function PrivacyPolicy() {
               highlights, messages, community posts, uploads, and other material you submit or save.
               Material you choose to share through a community or sharing feature can be visible to
               the audience indicated by that feature.
+            </li>
+            <li>
+              <strong>Media transcription</strong> — when you choose a transcript, audio, or video
+              file, its bytes are processed transiently and are not saved in the SermonSmith
+              database. We save the resulting transcript, timing segments when supplied by the
+              provider, editable clip proposals, file name, media type, size, and a cryptographic
+              digest to your account until you delete that media job or the account data is removed.
             </li>
             <li>
               <strong>AI requests and results</strong> — prompts and relevant content sent to an AI
@@ -101,6 +108,12 @@ export default function PrivacyPolicy() {
             processing.
           </p>
           <p>
+            Audio or video is sent to a configured transcription provider only after you select the
+            file and start transcription. Plain-text transcripts are processed locally by the API
+            without an external transcription provider. Clip timing is included only when the
+            provider supplies timestamps; the Service does not invent timing for text-only uploads.
+          </p>
+          <p>
             AI output can be incomplete or wrong. Scripture references, quotations, translations,
             historical claims, citations, and theological interpretations must be checked against
             an authorized translation, surrounding context, and trusted sources before use.
@@ -110,7 +123,7 @@ export default function PrivacyPolicy() {
         <Section title="Service Providers and Sharing">
           <p>We use providers only as needed to operate the Service, including:</p>
           <ul className="list-disc pl-6 space-y-2">
-            <li><strong>OpenAI or the configured AI provider</strong> — processes AI requests.</li>
+            <li><strong>OpenAI or the configured AI/transcription provider</strong> — processes AI requests and selected audio or video transcription uploads.</li>
             <li><strong>Stripe</strong> — processes website subscription payments.</li>
             <li><strong>Resend</strong> — delivers transactional email such as password resets.</li>
             <li><strong>Vercel and Railway</strong> — host application, API, logs, and data services.</li>

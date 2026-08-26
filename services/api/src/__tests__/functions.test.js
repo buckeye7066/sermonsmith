@@ -5,7 +5,7 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
 import { BOOKS, _resetPremiumCatalogCache } from '../services/premiumTranslations.js';
-import { chaptersInBook } from '@sermonsmith/shared/scripture';
+import { chaptersInBook, versesInChapter } from '@sermonsmith/shared/scripture';
 
 const prisma = createPrismaMock();
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
@@ -170,16 +170,20 @@ describe('function routes - Bible source registry', () => {
       if (!match || !namesBySlug.has(match[2])) {
         throw new Error(`Unexpected static Bible URL: ${value}`);
       }
-      const [, translation, slug, chapter] = match;
+      const [, translation, slug, chapterText] = match;
+      const chapter = Number(chapterText);
+      const bookName = namesBySlug.get(slug);
+      const verseCount = versesInChapter(bookName, chapter, translation);
+      if (!verseCount) throw new Error(`Missing canonical verse count: ${translation} ${bookName} ${chapter}`);
       return {
         ok: true,
         json: async () => ({
-          data: [{
-            book: namesBySlug.get(slug),
-            chapter,
-            verse: '1',
-            text: `${translation} ${slug} ${chapter}`,
-          }],
+          data: Array.from({ length: verseCount }, (_, index) => ({
+            book: bookName,
+            chapter: String(chapter),
+            verse: String(index + 1),
+            text: `${translation} ${slug} ${chapter}:${index + 1}`,
+          })),
         }),
       };
     });
@@ -199,13 +203,18 @@ describe('function routes - Bible source registry', () => {
             reference: `${book.name} ${chapter}`,
             cacheHit: false,
           });
+          const expectedVerseCount = versesInChapter(book.name, chapter, translation);
+          expect(res.body.verses, `${translation} ${book.name} ${chapter} verse count`)
+            .toHaveLength(expectedVerseCount);
+          expect(res.body.verses.map((verse) => verse.verse))
+            .toEqual(Array.from({ length: expectedVerseCount }, (_, index) => index + 1));
         }
       }
     }
 
     expect(fetchMock).toHaveBeenCalledTimes(chaptersPerTranslation * translations.length);
     expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('bible-api.com'))).toBe(true);
-  }, 60_000);
+  }, 120_000);
 
   it('rejects unknown books and book-specific chapter overflow before contacting a provider', async () => {
     const fetchMock = vi.fn();

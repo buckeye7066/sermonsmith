@@ -12,13 +12,20 @@
  * they are findable at a glance while preaching.
  */
 
+import { saveExportFile } from './downloadBlob.js';
+import {
+  installUnicodePdfFont,
+  PDF_UNICODE_TEXT_OPTIONS,
+  selectPdfFont,
+} from './pdfUnicodeFont.js';
+
 const MARGIN = 20;
 const LINE = 5;
 const FOOT = 18;
 
 function sanitizeFilename(text, fallback) {
   const cleaned = String(text || '')
-    .replace(/[^\w\s-]/g, '')
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
     .trim()
     .replace(/\s+/g, '-')
     .slice(0, 60);
@@ -47,9 +54,9 @@ export async function renderSermonPdf(sermon) {
   if (!sermon || typeof sermon !== 'object') {
     throw new Error('No sermon to export');
   }
-
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF();
+  installUnicodePdfFont(doc);
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const maxWidth = pageWidth - MARGIN * 2;
@@ -68,13 +75,13 @@ export async function renderSermonPdf(sermon) {
     const value = String(text ?? '').trim();
     if (!value) return;
     doc.setFontSize(size);
-    doc.setFont(undefined, style);
+    selectPdfFont(doc, value, style);
     const lines = doc.splitTextToSize(value, maxWidth - indent);
     // Keep at least the first two lines of a block with its heading.
     checkPage(Math.min(lines.length, 2) * LINE + gap);
     for (const line of lines) {
       checkPage(LINE);
-      doc.text(line, MARGIN + indent, y);
+      doc.text(line, MARGIN + indent, y, PDF_UNICODE_TEXT_OPTIONS);
       y += LINE;
     }
     y += gap;
@@ -197,12 +204,13 @@ export async function renderSermonPdf(sermon) {
   for (let page = 1; page <= pageCount; page += 1) {
     doc.setPage(page);
     doc.setFontSize(8);
-    doc.setFont(undefined, 'normal');
+    selectPdfFont(doc, `Page ${page} of ${pageCount}`, 'normal');
     doc.setTextColor(130);
     doc.text(`Page ${page} of ${pageCount}`, pageWidth - MARGIN, pageHeight - 10, {
+      ...PDF_UNICODE_TEXT_OPTIONS,
       align: 'right',
     });
-    doc.text('SermonSmith', MARGIN, pageHeight - 10);
+    doc.text('SermonSmith', MARGIN, pageHeight - 10, PDF_UNICODE_TEXT_OPTIONS);
     doc.setTextColor(0);
   }
 
@@ -213,6 +221,6 @@ export async function renderSermonPdf(sermon) {
 export async function exportSermonToPdf(sermon) {
   const doc = await renderSermonPdf(sermon);
   const filename = buildSermonFilename(sermon);
-  doc.save(filename);
+  await saveExportFile(doc.output('blob'), filename);
   return filename;
 }

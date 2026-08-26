@@ -102,10 +102,10 @@ export default function Layout({ children, currentPageName }) {
     addAppleTouchIcon('120x120');
     addAppleTouchIcon('76x76');
 
-    // Prevent zoom on input focus (mobile)
+    // Keep pinch zoom available for accessibility while honoring display cutouts.
     const viewport = document.querySelector('meta[name="viewport"]');
     if (viewport) {
-      viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
+      viewport.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
     }
 
     // Handle deep links from URL parameters

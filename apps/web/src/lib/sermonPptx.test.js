@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSermonPptx,
   buildSermonPptxFilename,
+  PPTX_BODY_LINE_BUDGET,
   sermonToSlides,
+  slideBodyLineCount,
 } from './sermonPptx';
 
 const SERMON = {
@@ -62,10 +64,22 @@ describe('buildSermonPptx', () => {
     }
   });
 
+  it('puts at least one DrawingML paragraph in every text body', async () => {
+    const { zip } = await openDeck({ title: 'Sparse', points: [{ title: 'Empty point' }] });
+    const xml = zip.getEntries()
+      .filter(({ entryName }) => /^ppt\/slides\/slide\d+\.xml$/u.test(entryName))
+      .map((entry) => entry.getData().toString('utf8'))
+      .join('\n');
+    const textBodies = xml.match(/<p:txBody>[\s\S]*?<\/p:txBody>/gu) || [];
+    expect(textBodies.length).toBeGreaterThan(0);
+    expect(textBodies.every((body) => body.includes('<a:p>'))).toBe(true);
+  });
+
   it('paginates long point content instead of overflowing one slide', () => {
     const long = 'A deliberately long pastoral sentence. '.repeat(90);
     const slides = sermonToSlides({ title: 'Long', points: [{ title: 'Point', exegesis: long }] });
     expect(slides.filter(({ title }) => title.includes('Point')).length).toBeGreaterThan(1);
+    expect(slides.every((slide) => slideBodyLineCount(slide) <= PPTX_BODY_LINE_BUDGET)).toBe(true);
   });
 
   it('survives a sparse sermon and refuses an absent one', async () => {

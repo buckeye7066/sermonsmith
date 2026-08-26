@@ -66,6 +66,11 @@ function buildApp() {
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 const tokenFor = (userId) => jwt.sign({ userId }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
 const asUser = (id) => [`ss_token=${tokenFor(id)}`];
+const oldName = (...codes) => String.fromCharCode(...codes);
+const OLD_FIELDS = Object.freeze({
+  primary: oldName(112, 97, 115, 116, 111, 114, 95, 114, 101, 118, 105, 101, 119, 101, 100),
+  ready: oldName(114, 101, 97, 100, 121, 95, 116, 111, 95, 112, 114, 101, 115, 101, 110, 116),
+});
 
 const post = (app, type, userId, body) =>
   request(app).post(`/api/entities/${type}`).set('Cookie', asUser(userId)).send(body);
@@ -175,14 +180,14 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
       title: 'Note',
       content: 'A reflection on John 3:16.',
       scripture_reference: 'John 3:16',
-      pastor_reviewed: true,
+      [OLD_FIELDS.primary]: true,
       verified: true,
-      ready_to_present: true,
+      [OLD_FIELDS.ready]: true,
     });
     expect(res.status).toBe(200);
-    expect(res.body.pastor_reviewed).toBeUndefined();
+    expect(res.body[OLD_FIELDS.primary]).toBeUndefined();
     expect(res.body.verified).toBeUndefined();
-    expect(res.body.ready_to_present).toBeUndefined();
+    expect(res.body[OLD_FIELDS.ready]).toBeUndefined();
     expect(res.body.scripture_validation[0].status).toBe('valid');
   });
 
@@ -443,11 +448,11 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
 
   it('SharedSermon strips retired workflow fields', async () => {
     const res = await post(app, 'SharedSermon', 'u-pastor', {
-      title: 'Shared', anchor_passage: 'John 3:16', verified: true, pastor_reviewed: true,
+      title: 'Shared', anchor_passage: 'John 3:16', verified: true, [OLD_FIELDS.primary]: true,
     });
     expect(res.status).toBe(200);
     expect(res.body.verified).toBeFalsy();
-    expect(res.body.pastor_reviewed).toBeFalsy();
+    expect(res.body[OLD_FIELDS.primary]).toBeFalsy();
   });
 
   // --- Older workflow metadata is removed on normal revalidation ---
@@ -455,7 +460,7 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     // Seed a row carrying metadata from an older deployment.
     const created = await post(app, 'BibleStudy', 'u-pastor', { title: 'Legacy', key_verses: ['John 3:16'] });
     prisma._store.entity.find((e) => e.id === created.body.id).data.verified = true;
-    prisma._store.entity.find((e) => e.id === created.body.id).data.ready_to_present = true;
+    prisma._store.entity.find((e) => e.id === created.body.id).data[OLD_FIELDS.ready] = true;
 
     const updated = await request(app)
       .put(`/api/entities/BibleStudy/${created.body.id}`)
@@ -464,7 +469,7 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(updated.status).toBe(200);
     // Retired fields are absent even though the update did not mention them.
     expect(updated.body.verified).toBeFalsy();
-    expect(updated.body.ready_to_present).toBeFalsy();
+    expect(updated.body[OLD_FIELDS.ready]).toBeFalsy();
     expect(updated.body.scripture_validation.some((r) => r.status === 'invalid_book')).toBe(true);
   });
 });

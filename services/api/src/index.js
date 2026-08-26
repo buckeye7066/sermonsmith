@@ -13,6 +13,7 @@ import aiRoutes from './routes/ai.js';
 import functionRoutes from './routes/functions.js';
 import communityRoutes from './routes/community.js';
 import clientErrorRoutes from './routes/clientErrors.js';
+import { buildMediaRouter } from './routes/media.js';
 import { handleStripeWebhook } from './routes/functions.js';
 import { prisma } from './middleware/auth.js';
 import { reportErrorToOwner } from './services/errorReporter.js';
@@ -153,6 +154,7 @@ export function buildApp(opts = {}) {
   app.use('/api/auth', authRoutes);
   app.use('/api/entities', entityRoutes);
   app.use('/api/ai', aiRoutes);
+  app.use('/api/media', aiLimiter, buildMediaRouter({ provider: opts.mediaProvider }));
   app.use('/api/functions', functionRoutes);
   app.use('/api/community', communityRoutes);
   app.use('/api', clientErrorRoutes);

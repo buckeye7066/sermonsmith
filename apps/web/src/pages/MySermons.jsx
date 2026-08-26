@@ -13,7 +13,7 @@ import {
   DialogHeader as ShadcnDialogHeader,
   DialogTitle as ShadcnDialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, Printer, Trash2, Loader2, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation, Users, MessageSquare, Edit3 } from "lucide-react";
+import { FileText, Printer, Trash2, Loader2, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation, Users, MessageSquare, Edit3, CalendarDays, CopyPlus, FileAudio } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router";
 import { createPageUrl } from "@/utils";
@@ -24,6 +24,9 @@ import SermonAdaptation from "@/components/sermon/SermonAdaptation";
 import PresentationMode from "@/components/sermon/PresentationMode";
 import CollaboratorManager from "@/components/collaboration/CollaboratorManager";
 import CommentPanel from "@/components/collaboration/CommentPanel";
+import SermonCalendarPlanner from "@/components/sermon/SermonCalendarPlanner";
+import TemplateLibrary from "@/components/sermon/TemplateLibrary";
+import MediaWorkbench from "@/components/sermon/MediaWorkbench";
 
 export default function MySermons() {
   const [searchParams] = useSearchParams();
@@ -37,7 +40,7 @@ export default function MySermons() {
   const [showTagManager, setShowTagManager] = useState(false);
   const [showCollectionManager, setShowCollectionManager] = useState(false);
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
-  const [activeView, setActiveView] = useState('all'); // 'all', 'collections'
+  const [activeView, setActiveView] = useState('all');
   const [selectedCollection, setSelectedCollection] = useState(null);
   const [adaptingSermon, setAdaptingSermon] = useState(null);
   const [showAdaptDialog, setShowAdaptDialog] = useState(false);
@@ -418,9 +421,12 @@ export default function MySermons() {
         </div>
 
         <Tabs value={activeView} onValueChange={setActiveView} className="mb-6">
-          <TabsList>
+          <TabsList className="h-auto flex-wrap">
             <TabsTrigger value="all">All Sermons</TabsTrigger>
             <TabsTrigger value="collections">Collections ({collections.length})</TabsTrigger>
+            <TabsTrigger value="calendar"><CalendarDays className="w-4 h-4 mr-2" />Calendar</TabsTrigger>
+            <TabsTrigger value="templates"><CopyPlus className="w-4 h-4 mr-2" />Templates</TabsTrigger>
+            <TabsTrigger value="media"><FileAudio className="w-4 h-4 mr-2" />Media</TabsTrigger>
           </TabsList>
 
           <TabsContent value="all">
@@ -479,6 +485,12 @@ export default function MySermons() {
                               </Badge>
                             )}
                           </div>
+                        )}
+                        {sermon.scheduled_date && (
+                          <Badge variant="outline" className="mt-2 w-fit text-xs">
+                            <CalendarDays className="mr-1 h-3 w-3" />
+                            {String(sermon.scheduled_date).slice(0, 10)}
+                          </Badge>
                         )}
                       </CardHeader>
                       <CardContent>
@@ -638,6 +650,18 @@ export default function MySermons() {
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="calendar">
+            <SermonCalendarPlanner sermons={sermons} onChanged={loadSermons} />
+          </TabsContent>
+
+          <TabsContent value="templates">
+            <TemplateLibrary sermons={sermons} onCreated={loadSermons} />
+          </TabsContent>
+
+          <TabsContent value="media">
+            <MediaWorkbench onDraftCreated={loadSermons} />
           </TabsContent>
         </Tabs>
 
