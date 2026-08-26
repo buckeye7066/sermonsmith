@@ -278,6 +278,69 @@ describe('entity revision history', () => {
     expect(prisma._store.entity.filter((item) => item.type === 'EntityRevision')).toHaveLength(historyCount);
   });
 
+  it('rejects a stale ordinary save without overwriting concurrent work or recording false history', async () => {
+    const source = await request(app)
+      .post('/api/entities/Series')
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Original' });
+    const historyCount = prisma._store.entity.filter((item) => item.type === 'EntityRevision').length;
+    const transaction = prisma.$transaction.getMockImplementation();
+    prisma.$transaction.mockImplementationOnce(async (callback) => {
+      const index = prisma._store.entity.findIndex((item) => item.id === source.body.id);
+      const current = prisma._store.entity[index];
+      prisma._store.entity[index] = {
+        ...current,
+        data: { ...current.data, title: 'Concurrent save' },
+        updatedAt: new Date(current.updatedAt.getTime() + 1_000),
+      };
+      return transaction(callback);
+    });
+
+    const staleSave = await request(app)
+      .put(`/api/entities/Series/${source.body.id}`)
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Stale edit' });
+
+    expect(staleSave.status).toBe(409);
+    expect(prisma._store.entity.find((item) => item.id === source.body.id)?.data.title).toBe('Concurrent save');
+    expect(prisma._store.entity.filter((item) => item.type === 'EntityRevision')).toHaveLength(historyCount);
+  });
+
+  it('paginates revision history so versions older than the first page remain reachable', async () => {
+    const source = await request(app)
+      .post('/api/entities/Series')
+      .set('Cookie', asUser('owner'))
+      .send({ title: 'Long-running series' });
+    for (let index = 0; index < 105; index += 1) {
+      prisma._store.entity.push({
+        id: `revision-${index}`,
+        type: 'EntityRevision',
+        userId: 'owner',
+        data: {
+          source_type: 'Series',
+          source_id: source.body.id,
+          snapshot: { title: `Version ${index}` },
+        },
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
+        updatedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
+      });
+    }
+
+    const older = await request(app)
+      .get(`/api/entities/Series/${source.body.id}/revisions?limit=100&offset=100`)
+      .set('Cookie', asUser('owner'));
+
+    expect(older.status).toBe(200);
+    expect(older.body).toHaveLength(5);
+    expect(older.body.map((revision) => revision.id)).toEqual([
+      'revision-4',
+      'revision-3',
+      'revision-2',
+      'revision-1',
+      'revision-0',
+    ]);
+  });
+
   it('uses the source owner canon when an administrator restores a sermon', async () => {
     const source = await request(app)
       .post('/api/entities/Sermon')

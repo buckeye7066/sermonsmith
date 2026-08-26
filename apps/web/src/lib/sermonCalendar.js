@@ -14,9 +14,16 @@ export function dateKey(value) {
     : `${parsed.getUTCFullYear()}-${pad(parsed.getUTCMonth() + 1)}-${pad(parsed.getUTCDate())}`;
 }
 
-export function monthKey(value = new Date()) {
-  const key = dateKey(value);
-  return key ? key.slice(0, 7) : monthKey(new Date());
+export function localDateKey(value = new Date()) {
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+}
+
+export function monthKey(value) {
+  const key = value === undefined ? localDateKey() : dateKey(value);
+  return (key || localDateKey()).slice(0, 7);
 }
 
 export function shiftMonth(month, amount) {
@@ -35,6 +42,7 @@ export function monthGrid(month) {
   const [year, index] = month.split('-').map(Number);
   const first = new Date(Date.UTC(year, index - 1, 1));
   const cursor = new Date(first);
+  const today = localDateKey();
   cursor.setUTCDate(1 - first.getUTCDay());
   return Array.from({ length: 42 }, (_, position) => {
     const day = new Date(cursor);
@@ -44,7 +52,7 @@ export function monthGrid(month) {
       key,
       day: day.getUTCDate(),
       inMonth: key.startsWith(month),
-      isToday: key === dateKey(new Date()),
+      isToday: key === today,
     };
   });
 }

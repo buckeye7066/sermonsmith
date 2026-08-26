@@ -259,7 +259,8 @@ function createEntityMethods(entityName) {
     delete: (id) =>
       apiFetch(`${base}/${safeId(id)}`, { method: 'DELETE' }),
 
-    revisions: (id) => apiFetch(`${base}/${safeId(id)}/revisions`),
+    revisions: (id, limit = 100, offset = 0) =>
+      apiFetch(`${base}/${safeId(id)}/revisions?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`),
 
     restoreRevision: (id, revisionId) =>
       apiFetch(`${base}/${safeId(id)}/revisions/${safeId(revisionId)}/restore`, {

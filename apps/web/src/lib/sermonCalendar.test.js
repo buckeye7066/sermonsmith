@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   dateKey,
+  localDateKey,
   monthGrid,
+  monthKey,
   monthLabel,
   schedulePatch,
   sermonsByScheduledDate,
@@ -34,5 +36,20 @@ describe('sermon calendar planning', () => {
     expect(shiftMonth('2026-12', 1)).toBe('2027-01');
     expect(monthLabel('2026-08')).toBe('August 2026');
     expect(dateKey('2026-08-25T12:00:00Z')).toBe('2026-08-25');
+  });
+
+  it('uses the local civil date for the initial month and today marker', () => {
+    try {
+      vi.stubEnv('TZ', 'America/Los_Angeles');
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-01T02:30:00.000Z'));
+
+      expect(localDateKey()).toBe('2026-08-31');
+      expect(monthKey()).toBe('2026-08');
+      expect(monthGrid('2026-08').find((day) => day.key === '2026-08-31')?.isToday).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
   });
 });

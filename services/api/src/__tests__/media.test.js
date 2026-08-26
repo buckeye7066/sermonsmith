@@ -46,6 +46,7 @@ function buildApp(provider) {
 
 describe('media jobs', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     prisma._reset();
     prisma._store.user.push(
       { id: 'owner', role: 'user', premium: true },
@@ -106,6 +107,37 @@ describe('media jobs', () => {
       error_code: 'MEDIA_PROVIDER_UNAVAILABLE',
     });
     expect(prisma._store.aiUsage[0]).toMatchObject({ count: 0 });
+  });
+
+  it('refunds the exact consumed quota bucket when provider work crosses UTC midnight', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-25T23:59:59.900Z'));
+    prisma._store.aiUsage.push({
+      id: 'next-day-usage',
+      userId: 'owner',
+      bucket: 'media:2026-08-26',
+      count: 2,
+    });
+    const app = buildApp({
+      transcribe: vi.fn(async () => {
+        vi.setSystemTime(new Date('2026-08-26T00:00:00.100Z'));
+        throw new MediaTranscriptionError('Provider unavailable for fixture.', {
+          code: 'MEDIA_PROVIDER_UNAVAILABLE',
+          status: 503,
+        });
+      }),
+    });
+
+    const response = await request(app)
+      .post('/api/media/jobs')
+      .set('Cookie', asUser('owner'))
+      .set('Content-Type', 'audio/mpeg')
+      .send(Buffer.from([0x49, 0x44, 0x33]));
+
+    expect(response.status).toBe(503);
+    expect(prisma._store.aiUsage.find((row) => row.bucket === 'media:2026-08-25')?.count).toBe(0);
+    expect(prisma._store.aiUsage.find((row) => row.bucket === 'media:2026-08-26')?.count).toBe(2);
+    vi.useRealTimers();
   });
 
   it('requires premium access before invoking an audio/video provider', async () => {

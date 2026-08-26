@@ -10,6 +10,7 @@ import TemplateLibrary from './TemplateLibrary';
 const mocks = vi.hoisted(() => ({
   sermonUpdate: vi.fn(),
   sermonCreate: vi.fn(),
+  sermonFilter: vi.fn(),
   sermonBulkCreate: vi.fn(),
   revisions: vi.fn(),
   restoreRevision: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('@/api/apiClient', () => ({
       Sermon: {
         update: mocks.sermonUpdate,
         create: mocks.sermonCreate,
+        filter: mocks.sermonFilter,
         bulkCreate: mocks.sermonBulkCreate,
         revisions: mocks.revisions,
         restoreRevision: mocks.restoreRevision,
@@ -67,9 +69,11 @@ describe('sermon planning workflows', () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
+    sessionStorage.clear();
     vi.stubGlobal('confirm', vi.fn(() => true));
     mocks.sermonUpdate.mockResolvedValue({});
     mocks.sermonCreate.mockResolvedValue({ id: 'draft-1' });
+    mocks.sermonFilter.mockResolvedValue([]);
     mocks.sermonBulkCreate.mockResolvedValue([]);
     mocks.sermonTemplateList.mockResolvedValue([]);
     mocks.seriesTemplateList.mockResolvedValue([]);
@@ -100,8 +104,31 @@ describe('sermon planning workflows', () => {
     const onRestored = vi.fn();
     render(<RevisionHistory entityType="Sermon" entityId="sermon-1" onRestored={onRestored} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Restore' }));
+    expect(mocks.revisions).toHaveBeenCalledWith('sermon-1', 100, 0);
     await waitFor(() => expect(mocks.restoreRevision).toHaveBeenCalledWith('sermon-1', 'revision-1'));
     expect(onRestored).toHaveBeenCalledWith({ id: 'sermon-1', title: 'Earlier version' });
+  });
+
+  it('loads revision pages beyond the first hundred versions', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: `revision-${index}`,
+      created_date: `2026-08-25T12:${String(index % 60).padStart(2, '0')}:00Z`,
+      snapshot: { title: `Version ${index}` },
+    }));
+    mocks.revisions
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([{
+        id: 'revision-older',
+        created_date: '2025-08-25T12:00:00Z',
+        snapshot: { title: 'Oldest reachable version' },
+      }]);
+
+    render(<RevisionHistory entityType="Sermon" entityId="sermon-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Load older versions' }));
+
+    await screen.findByText(/Oldest reachable version/u);
+    expect(mocks.revisions).toHaveBeenNthCalledWith(1, 'sermon-1', 100, 0);
+    expect(mocks.revisions).toHaveBeenNthCalledWith(2, 'sermon-1', 100, 100);
   });
 
   it('saves a reusable template without copying identity or lifecycle state', async () => {
@@ -201,6 +228,61 @@ describe('sermon planning workflows', () => {
       'series-template-1',
       expect.stringMatching(/^[0-9a-f-]{36}$/iu),
     ));
+  });
+
+  it('reuses the same idempotency key when a manual retry follows an ambiguous response loss', async () => {
+    const template = {
+      id: 'series-template-retry',
+      name: 'Retry-safe series',
+      content: { title: 'Retry-safe series', sermon_blueprints: [] },
+    };
+    mocks.seriesTemplateList.mockResolvedValue([template]);
+    mocks.seriesTemplateInstantiate
+      .mockRejectedValueOnce(new TypeError('response lost'))
+      .mockResolvedValueOnce({ series: { id: 'new-series' }, sermons: [] });
+
+    const first = render(<TemplateLibrary sermons={[]} userId="owner" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create drafts' }));
+    await waitFor(() => expect(mocks.seriesTemplateInstantiate).toHaveBeenCalledTimes(1));
+    const firstRequestId = mocks.seriesTemplateInstantiate.mock.calls[0][1];
+    first.unmount();
+
+    render(<TemplateLibrary sermons={[]} userId="owner" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create drafts' }));
+    await waitFor(() => expect(mocks.seriesTemplateInstantiate).toHaveBeenCalledTimes(2));
+    expect(mocks.seriesTemplateInstantiate.mock.calls[1][1]).toBe(firstRequestId);
+  });
+
+  it('fetches every selected series member instead of copying only the parent page', async () => {
+    mocks.seriesList.mockResolvedValue([{
+      id: 'series-source',
+      title: 'Source series',
+      description: 'All weeks',
+      length: 1,
+    }]);
+    mocks.sermonFilter.mockResolvedValue([{
+      id: 'sermon-outside-parent-page',
+      title: 'Hidden week',
+      series_id: 'series-source',
+      series_order: 1,
+    }]);
+    mocks.seriesTemplateCreate.mockResolvedValue({ id: 'template-created' });
+
+    const { container } = render(<TemplateLibrary sermons={[]} userId="owner" />);
+    fireEvent.change(container.querySelector('select'), { target: { value: 'series' } });
+    fireEvent.change(await screen.findByLabelText('Template source'), { target: { value: 'series-source' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+
+    await waitFor(() => expect(mocks.sermonFilter).toHaveBeenCalledWith(
+      { user_id: 'owner', series_id: 'series-source' },
+      '-created_date',
+      53,
+    ));
+    expect(mocks.seriesTemplateCreate).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.objectContaining({
+        sermon_blueprints: [expect.objectContaining({ title: 'Hidden week' })],
+      }),
+    }));
   });
 
   it('does not remove completed template content when only the refresh callback fails', async () => {

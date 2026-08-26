@@ -61,6 +61,9 @@ test('retired fields are allowed only inside the deletion list of the migration 
   const nestedMember = `const RETIRED_REVIEW_FIELDS = new Set([['${field}']]);\nfor (const key of RETIRED_REVIEW_FIELDS) delete data[key];`;
   assert.ok(scan(nestedMember, 'services/api/src/services/scriptureGate.js')
     .some(({ rule }) => rule === 'retired-attestation-field'));
+  const commaExpression = `const RETIRED_REVIEW_FIELDS = new Set([(doSomething(), '${field}', 'safe')]);\nfor (const key of RETIRED_REVIEW_FIELDS) delete data[key];`;
+  assert.ok(scan(commaExpression, 'services/api/src/services/scriptureGate.js')
+    .some(({ rule }) => rule === 'retired-attestation-field'));
   const unrelatedCleanup = `const RETIRED_REVIEW_FIELDS = new Set(['${field}']);\nfor (const key of OTHER_FIELDS) delete data[key];`;
   assert.ok(scan(unrelatedCleanup, 'services/api/src/services/scriptureGate.js')
     .some(({ rule }) => rule === 'retired-attestation-field'));
@@ -177,6 +180,37 @@ test('joins literal fragments across comments and visible markup around hidden b
   }
   const compactMarkup = '<span>owner si</span><script>ignored noise</script><span>gns off</span>';
   assert.ok(scan(compactMarkup).length > 0);
+});
+
+test('decodes CSS escapes in generated content and URLs and scans visible alternative text', () => {
+  for (const fixture of [
+    String.raw`.notice::after { content: "owner\000020signs\000020off"; }`,
+    String.raw`.notice { background-image: url("owner\000020signs\000020off.svg"); }`,
+    '<img src="safe.svg" alt="owner&#32;signs&#32;off">',
+  ]) {
+    assert.ok(scan(fixture).some(({ rule }) => rule === 'manual-release-endorsement'), fixture);
+  }
+});
+
+test('scans character references in RCDATA, visible input values, and Markdown code', () => {
+  for (const fixture of [
+    '<textarea>owner&#x20;signs&#x20;off</textarea>',
+    '<input value="owner&nbsp;signs&nbsp;off">',
+    '`owner signs&#32;off`',
+  ]) {
+    assert.ok(scan(fixture).some(({ rule }) => rule === 'manual-release-endorsement'), fixture);
+  }
+});
+
+test('decodes escaped inline handlers, regex literals, tagged templates, and static JSX strings', () => {
+  for (const fixture of [
+    String.raw`<button onclick="alert(&quot;owner\x20signs\x20off&quot;)">Go</button>`,
+    String.raw`const blocked = /owner\x20signs\x20off/u;`,
+    String.raw`const copy = String.raw\`owner\x20signs\x20off\`;`,
+    String.raw`const view = <div>{"owner\u0020signs\u0020off"}</div>;`,
+  ]) {
+    assert.ok(scan(fixture).some(({ rule }) => rule === 'manual-release-endorsement'), fixture);
+  }
 });
 
 test('keeps lexical boundaries around nearby ordinary words', () => {

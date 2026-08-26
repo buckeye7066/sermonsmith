@@ -42,7 +42,7 @@ const PUBLIC_TYPES = new Set(['Verse']);
 // /share/:slug route now also re-checks sharer ownership (defense in depth).
 const SERVER_MANAGED_TYPES = new Set(['SharedLink', 'EntityRevision', 'MediaJob']);
 const REVISIONED_TYPES = new Set(['Sermon', 'Series', 'SermonSeries', 'BibleStudy']);
-const MAX_REVISIONS_RETURNED = 100;
+const MAX_REVISION_PAGE_SIZE = 100;
 
 function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
@@ -628,6 +628,15 @@ router.get('/:type/:id/revisions', authenticateToken, async (req, res, next) => 
     const source = await prisma.entity.findFirst({ where: ownerScopedSourceWhere(req) });
     if (!source) return res.status(404).json({ message: 'Not found' });
 
+    const requestedLimit = Number(req.query.limit);
+    const requestedOffset = Number(req.query.offset);
+    const take = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.floor(requestedLimit), 1), MAX_REVISION_PAGE_SIZE)
+      : MAX_REVISION_PAGE_SIZE;
+    const skip = Number.isFinite(requestedOffset)
+      ? Math.max(Math.floor(requestedOffset), 0)
+      : 0;
+
     const revisions = await prisma.entity.findMany({
       where: {
         type: 'EntityRevision',
@@ -638,7 +647,8 @@ router.get('/:type/:id/revisions', authenticateToken, async (req, res, next) => 
         ],
       },
       orderBy: { createdAt: 'desc' },
-      take: MAX_REVISIONS_RETURNED,
+      take,
+      skip,
     });
     return res.json(revisions.map(formatEntity));
   } catch (err) {
@@ -995,24 +1005,37 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       ? patch
       : { ...existing.data, ...patch };
 
-    const updateOperation = prisma.entity.update({
-      where: { id: req.params.id },
-      data: { data: { ...nextData, updated_date: new Date().toISOString() } },
-    });
+    const updatedData = { ...nextData, updated_date: new Date().toISOString() };
     let entity;
     if (REVISIONED_TYPES.has(storedType)) {
-      [entity] = await prisma.$transaction([
-        updateOperation,
-        prisma.entity.create({
+      entity = await prisma.$transaction(async (tx) => {
+        // The source snapshot and write must describe the same version. An
+        // update that lands after our read changes updatedAt, so this guarded
+        // write becomes a conflict instead of silently replacing newer work.
+        const updated = await tx.entity.updateMany({
+          where: { id: req.params.id, updatedAt: existing.updatedAt },
+          data: { data: updatedData },
+        });
+        if (updated.count !== 1) {
+          throw Object.assign(
+            new Error('This item changed while it was being saved. Reload and try again.'),
+            { status: 409 },
+          );
+        }
+        await tx.entity.create({
           data: {
             type: 'EntityRevision',
             userId: existing.userId,
             data: { ...revisionPayload(existing), created_by: req.userId },
           },
-        }),
-      ]);
+        });
+        return tx.entity.findUnique({ where: { id: req.params.id } });
+      });
     } else {
-      entity = await updateOperation;
+      entity = await prisma.entity.update({
+        where: { id: req.params.id },
+        data: { data: updatedData },
+      });
     }
     res.json(formatEntity(entity));
   } catch (err) {

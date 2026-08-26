@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CopyPlus, Layers, Loader2, Plus, Trash2 } from 'lucide-react';
 import { api } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,29 @@ import {
   seriesTemplateFromSeries,
 } from '@/lib/sermonTemplates';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+function pendingInstantiationStorageKey(userId, templateId) {
+  return `sermonsmith:series-template:${encodeURIComponent(userId)}:${encodeURIComponent(templateId)}`;
+}
+
+function storedInstantiationId(key) {
+  try {
+    const value = globalThis.sessionStorage?.getItem(key);
+    return UUID.test(value || '') ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberInstantiationId(key, value) {
+  try { globalThis.sessionStorage?.setItem(key, value); } catch { /* in-memory fallback remains */ }
+}
+
+function forgetInstantiationId(key) {
+  try { globalThis.sessionStorage?.removeItem(key); } catch { /* in-memory copy is cleared below */ }
+}
+
 export default function TemplateLibrary({ sermons = [], onCreated, userId }) {
   const [templates, setTemplates] = useState([]);
   const [seriesTemplates, setSeriesTemplates] = useState([]);
@@ -18,6 +41,7 @@ export default function TemplateLibrary({ sermons = [], onCreated, userId }) {
   const [sourceId, setSourceId] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState('');
+  const pendingInstantiationIds = useRef(new Map());
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -48,7 +72,15 @@ export default function TemplateLibrary({ sermons = [], onCreated, userId }) {
       if (sourceType === 'sermon') {
         await api.entities.SermonTemplate.create(sermonTemplateFromSermon(source, name || source.title));
       } else {
-        const members = sermons.filter((sermon) => sermon.series_id === source.id);
+        // The parent page intentionally pages its sermon list. Query the
+        // selected series directly so a reusable template cannot silently
+        // omit members that were outside that unrelated page.
+        const members = await api.entities.Sermon.filter(
+          { user_id: userId, series_id: source.id },
+          '-created_date',
+          53,
+        );
+        if (members.length > 52) throw new Error('Series templates support up to 52 sermons.');
         await api.entities.SeriesTemplate.create(seriesTemplateFromSeries(source, members, name || source.title));
       }
       setName('');
@@ -79,13 +111,30 @@ export default function TemplateLibrary({ sermons = [], onCreated, userId }) {
   const instantiateSeriesTemplate = async (template) => {
     setBusy(template.id);
     let creationComplete = false;
+    const storageKey = pendingInstantiationStorageKey(userId, template.id);
+    let requestId = pendingInstantiationIds.current.get(template.id)
+      || storedInstantiationId(storageKey);
+    if (!requestId) {
+      requestId = globalThis.crypto.randomUUID();
+      pendingInstantiationIds.current.set(template.id, requestId);
+      rememberInstantiationId(storageKey, requestId);
+    }
     try {
-      await api.entities.SeriesTemplate.instantiate(template.id, globalThis.crypto.randomUUID());
+      await api.entities.SeriesTemplate.instantiate(template.id, requestId);
       creationComplete = true;
+      pendingInstantiationIds.current.delete(template.id);
+      forgetInstantiationId(storageKey);
       await onCreated?.();
       await load();
       toast.success('Series and sermon drafts created from template');
     } catch (error) {
+      // A 4xx response definitively rejected the request before creation; an
+      // absent status or 5xx can be a lost response after commit, so retain the
+      // key and let a manual retry replay the same server-idempotent request.
+      if (!creationComplete && error?.status >= 400 && error.status < 500) {
+        pendingInstantiationIds.current.delete(template.id);
+        forgetInstantiationId(storageKey);
+      }
       console.error('Unable to use series template:', error);
       toast.error(creationComplete
         ? 'Series drafts were created, but the list could not refresh.'

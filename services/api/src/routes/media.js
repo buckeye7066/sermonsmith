@@ -72,13 +72,14 @@ export async function consumeMediaUsage(userId, db = prisma) {
     allowed: row.count <= MEDIA_DAILY_TRANSCRIPTION_LIMIT,
     count: row.count,
     limit: MEDIA_DAILY_TRANSCRIPTION_LIMIT,
+    bucket,
   };
 }
 
-export async function refundMediaUsage(userId, db = prisma) {
+export async function refundMediaUsage(userId, bucket, db = prisma) {
   try {
     await db.aiUsage.update({
-      where: { userId_bucket: { userId, bucket: mediaUsageBucket() } },
+      where: { userId_bucket: { userId, bucket } },
       data: { count: { decrement: 1 } },
     });
   } catch {
@@ -124,7 +125,7 @@ export function buildMediaRouter({ provider = createDefaultMediaTranscriptionPro
       const fileName = safeFileName(req.get('x-file-name'));
       const createdAt = new Date().toISOString();
       let job;
-      let usageConsumed = false;
+      let consumedUsageBucket = null;
       try {
         const usesPaidProvider = !req.mediaMimeType.startsWith('text/');
         if (usesPaidProvider) {
@@ -136,12 +137,15 @@ export function buildMediaRouter({ provider = createDefaultMediaTranscriptionPro
           if (!usage.allowed) {
             // The atomic increment above is the concurrency boundary. A denied
             // attempt is not billable usage, so return its slot immediately.
-            await refundMediaUsage(req.userId);
+            await refundMediaUsage(req.userId, usage.bucket);
             return res.status(429).json({
               message: `Daily media transcription limit reached (${usage.limit}). Try again tomorrow.`,
             });
           }
-          usageConsumed = true;
+          // Preserve the bucket chosen by the atomic increment. Provider work
+          // can cross UTC midnight; recomputing during a refund would debit a
+          // different day's counter and leave the failed attempt charged.
+          consumedUsageBucket = usage.bucket;
         }
 
         job = await prisma.entity.create({
@@ -179,7 +183,7 @@ export function buildMediaRouter({ provider = createDefaultMediaTranscriptionPro
         const completed = await prisma.entity.update({ where: { id: job.id }, data: { data } });
         return res.status(201).json(jobResponse(completed));
       } catch (error) {
-        if (usageConsumed) await refundMediaUsage(req.userId);
+        if (consumedUsageBucket) await refundMediaUsage(req.userId, consumedUsageBucket);
         const failure = safeFailure(error);
         if (job) {
           await prisma.entity.update({

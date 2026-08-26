@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 
+const REVISION_PAGE_SIZE = 100;
+
 function revisionLabel(revision) {
   const stamp = revision.created_date ? new Date(revision.created_date) : null;
   const when = stamp && !Number.isNaN(stamp.getTime()) ? stamp.toLocaleString() : 'Unknown time';
@@ -15,30 +17,36 @@ function revisionLabel(revision) {
 export default function RevisionHistory({ entityType, entityId, canRestore = true, onRestored }) {
   const [revisions, setRevisions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [restoringId, setRestoringId] = useState(null);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (offset = 0) => {
+    if (offset === 0) setLoading(true);
+    else setLoadingMore(true);
     setError('');
     try {
-      setRevisions(await api.entities[entityType].revisions(entityId));
+      const page = await api.entities[entityType].revisions(entityId, REVISION_PAGE_SIZE, offset);
+      setRevisions((current) => offset === 0 ? page : [...current, ...page]);
+      setHasMore(page.length === REVISION_PAGE_SIZE);
     } catch (loadError) {
       console.error('Unable to load revision history:', loadError);
       setError('Revision history could not be loaded.');
     } finally {
-      setLoading(false);
+      if (offset === 0) setLoading(false);
+      else setLoadingMore(false);
     }
   }, [entityId, entityType]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(0); }, [load]);
 
   const restore = async (revision) => {
     if (!confirm(`Restore “${revision.snapshot?.title || 'this version'}”? The current version will remain in history.`)) return;
     setRestoringId(revision.id);
     try {
       const restored = await api.entities[entityType].restoreRevision(entityId, revision.id);
-      await load();
+      await load(0);
       onRestored?.(restored);
       toast.success('Version restored');
     } catch (restoreError) {
@@ -78,6 +86,17 @@ export default function RevisionHistory({ entityType, entityId, canRestore = tru
             </Button>
           </div>
         ))}
+        {hasMore && (
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={loadingMore}
+            onClick={() => load(revisions.length)}
+          >
+            {loadingMore && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Load older versions
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

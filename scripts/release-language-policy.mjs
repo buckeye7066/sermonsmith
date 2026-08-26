@@ -146,6 +146,53 @@ function decodeJavascriptEscapes(body) {
   return decoded;
 }
 
+// CSS allows one-to-six-digit hexadecimal escapes followed by optional
+// whitespace. JavaScript's escape grammar is different, so generated content
+// and encoded URLs need their own view (for example, `\000020` renders as a
+// space in CSS but is not a JavaScript Unicode escape).
+export function decodeCssEscapes(value) {
+  const source = String(value);
+  let decoded = '';
+  for (let index = 0; index < source.length;) {
+    if (source[index] !== '\\') {
+      decoded += source[index];
+      index += 1;
+      continue;
+    }
+
+    const next = source[index + 1];
+    if (next === undefined) break;
+    if (next === '\r' && source[index + 2] === '\n') {
+      index += 3;
+      continue;
+    }
+    if (next === '\n' || next === '\r' || next === '\f') {
+      index += 2;
+      continue;
+    }
+
+    let end = index + 1;
+    while (end < source.length && end < index + 7 && /^[\da-f]$/iu.test(source[end])) end += 1;
+    if (end > index + 1) {
+      const codePoint = Number.parseInt(source.slice(index + 1, end), 16);
+      const valid = codePoint !== 0
+        && codePoint <= 0x10ffff
+        && !(codePoint >= 0xd800 && codePoint <= 0xdfff);
+      decoded += valid ? String.fromCodePoint(codePoint) : '\ufffd';
+      if (/^[\t\n\f\r ]$/u.test(source[end] || '')) {
+        if (source[end] === '\r' && source[end + 1] === '\n') end += 1;
+        end += 1;
+      }
+      index = end;
+      continue;
+    }
+
+    decoded += next;
+    index += 2;
+  }
+  return decoded;
+}
+
 function templateExpressionEnd(body, start) {
   let depth = 0;
   let quote = '';
@@ -279,6 +326,11 @@ function policyTextViews(source) {
     normalizePolicyText(renderedMarkupView(text, '')),
     normalizePolicyText(collapsedLiterals.replace(/['"`]/gu, ' ')),
     normalizePolicyText(decodedLiterals),
+    // Regex literals, inline event handlers and static tagged templates can
+    // carry the same JavaScript escapes without being matched as string
+    // literals. Decode a parity-preserving complete-source view as well.
+    normalizePolicyText(decodeJavascriptEscapes(text)),
+    normalizePolicyText(decodeCssEscapes(text)),
   ];
 }
 
@@ -304,8 +356,8 @@ function scrubberRange(source) {
   };
 }
 
-function squareBracketDepth(source, start, end) {
-  let depth = 0;
+function delimiterDepth(source, start, end) {
+  const depth = { square: 0, round: 0, curly: 0 };
   let quote = '';
   let lineComment = false;
   let blockComment = false;
@@ -339,9 +391,17 @@ function squareBracketDepth(source, start, end) {
     } else if (character === "'" || character === '"' || character === '`') {
       quote = character;
     } else if (character === '[') {
-      depth += 1;
+      depth.square += 1;
     } else if (character === ']') {
-      depth -= 1;
+      depth.square -= 1;
+    } else if (character === '(') {
+      depth.round += 1;
+    } else if (character === ')') {
+      depth.round -= 1;
+    } else if (character === '{') {
+      depth.curly += 1;
+    } else if (character === '}') {
+      depth.curly -= 1;
     }
   }
   return depth;
@@ -353,7 +413,10 @@ function isExactScrubberListMember(source, match, range) {
   if ((quote !== "'" && quote !== '"') || source[match.index + match[0].length] !== quote) return false;
   const before = source.slice(range.start, match.index - 1).trimEnd().at(-1);
   const after = source.slice(match.index + match[0].length + 1, range.end).trimStart()[0];
-  return squareBracketDepth(source, range.listStart, match.index - 1) === 1
+  const depth = delimiterDepth(source, range.listStart, match.index - 1);
+  return depth.square === 1
+    && depth.round === 0
+    && depth.curly === 0
     && (before === '[' || before === ',')
     && (after === ',' || after === ']');
 }

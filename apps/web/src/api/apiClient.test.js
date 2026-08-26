@@ -125,7 +125,7 @@ describe('apiClient base URL resolution', () => {
     await api.media.upload(file);
     await api.media.jobs();
 
-    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example/api/entities/Sermon/sermon%2F1/revisions');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example/api/entities/Sermon/sermon%2F1/revisions?limit=100&offset=0');
     expect(fetchMock.mock.calls[1][0]).toBe('https://api.example/api/entities/Sermon/sermon%2F1/revisions/revision%2F1/restore');
     expect(fetchMock.mock.calls[1][1].method).toBe('POST');
     expect(fetchMock.mock.calls[2]).toEqual([

@@ -14,6 +14,7 @@ import CollaborativeEditor from "@/components/collaboration/CollaborativeEditor"
 import CommentPanel from "@/components/collaboration/CommentPanel";
 import CollaboratorManager from "@/components/collaboration/CollaboratorManager";
 import RevisionHistory from "@/components/sermon/RevisionHistory";
+import { canViewSermonRevisionHistory } from '@/lib/collaborationPermissions';
 
 export default function CollaborativeSermonEditor() {
   const [searchParams] = useSearchParams();
@@ -142,6 +143,8 @@ export default function CollaborativeSermonEditor() {
 
   if (!sermon) return null;
 
+  const canUseHistory = canViewSermonRevisionHistory(sermon, user);
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
@@ -211,10 +214,12 @@ export default function CollaborativeSermonEditor() {
               <MessageSquare className="w-4 h-4 mr-2" />
               Comments
             </TabsTrigger>
-            <TabsTrigger value="history">
-              <History className="w-4 h-4 mr-2" />
-              History
-            </TabsTrigger>
+            {canUseHistory && (
+              <TabsTrigger value="history">
+                <History className="w-4 h-4 mr-2" />
+                History
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="content" className="space-y-6">
@@ -349,14 +354,16 @@ export default function CollaborativeSermonEditor() {
             ))}
           </TabsContent>
 
-          <TabsContent value="history" className="space-y-6">
-            <RevisionHistory
-              entityType="Sermon"
-              entityId={sermon.id}
-              canRestore={sermon.user_id === user.id}
-              onRestored={(restored) => setSermon(restored)}
-            />
-          </TabsContent>
+          {canUseHistory && (
+            <TabsContent value="history" className="space-y-6">
+              <RevisionHistory
+                entityType="Sermon"
+                entityId={sermon.id}
+                canRestore
+                onRestored={(restored) => setSermon(restored)}
+              />
+            </TabsContent>
+          )}
         </Tabs>
 
         <CollaboratorManager
