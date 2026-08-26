@@ -207,10 +207,13 @@ export function buildMediaRouter({ provider = createDefaultMediaTranscriptionPro
 
   router.get('/jobs', authenticateToken, async (req, res, next) => {
     try {
+      const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || '100'), 10) || 100));
+      const offset = Math.max(0, Number.parseInt(String(req.query.offset || '0'), 10) || 0);
       const jobs = await prisma.entity.findMany({
         where: { type: 'MediaJob', userId: req.userId },
         orderBy: { createdAt: 'desc' },
-        take: 100,
+        take: limit,
+        skip: offset,
       });
       return res.json(jobs.map(jobSummaryResponse));
     } catch (error) {

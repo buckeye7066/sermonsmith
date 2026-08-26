@@ -12,10 +12,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Layers, Plus, Save, Trash2, GripVertical, Users } from "lucide-react";
+import { Layers, Plus, Save, Trash2, GripVertical, Users, History } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 import SeriesCollabManager from "@/components/collaboration/SeriesCollabManager";
+import RevisionHistory from '@/components/sermon/RevisionHistory';
 
 export default function SeriesManager({ open, onClose, user }) {
   const [mySeries, setMySeries] = useState([]);
@@ -29,6 +30,7 @@ export default function SeriesManager({ open, onClose, user }) {
   const [selectedSermons, setSelectedSermons] = useState([]);
   const [showSeriesCollab, setShowSeriesCollab] = useState(false);
   const [selectedSeries, setSelectedSeries] = useState(null);
+  const [historySeries, setHistorySeries] = useState(null);
 
   useEffect(() => {
     if (open && user) {
@@ -218,6 +220,9 @@ export default function SeriesManager({ open, onClose, user }) {
                           <p className="text-sm text-gray-600 mt-1">{series.description}</p>
                           <div className="flex gap-2 mt-2">
                             <Badge>{sermonsInSeries.length} Sermons</Badge>
+                            <Button variant="outline" size="sm" onClick={() => setHistorySeries(series)}>
+                              <History className="w-4 h-4 mr-2" />History
+                            </Button>
                             <Badge variant="outline">{series.status}</Badge>
                           </div>
                         </div>
@@ -269,6 +274,10 @@ export default function SeriesManager({ open, onClose, user }) {
             </div>
           </div>
         </div>
+        {historySeries && <RevisionHistory entityType="SermonSeries" entityId={historySeries.id} onRestored={(restored) => {
+          setHistorySeries(restored);
+          setMySeries((current) => current.map((item) => item.id === restored.id ? restored : item));
+        }} />}
 
         <div className="flex justify-end pt-4 border-t">
           <Button variant="outline" onClick={onClose}>

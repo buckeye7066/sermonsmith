@@ -24,8 +24,25 @@ export default function MediaWorkbench({ onDraftCreated }) {
   const [busyId, setBusyId] = useState('');
   const [detailsLoadingId, setDetailsLoadingId] = useState('');
   const [error, setError] = useState('');
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const load = useCallback(async () => setJobs(await api.media.jobs()), []);
+  const load = useCallback(async () => {
+    const page = await api.media.jobs(100, 0);
+    setJobs(page);
+    setHasMore(page.length === 100);
+  }, []);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const page = await api.media.jobs(100, jobs.length);
+      setJobs((current) => [...current, ...page]);
+      setHasMore(page.length === 100);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     load().catch((loadError) => {
@@ -123,7 +140,7 @@ export default function MediaWorkbench({ onDraftCreated }) {
 
       {jobs.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-sm text-gray-500">No saved media transcripts yet.</CardContent></Card>
-      ) : jobs.map((job) => (
+      ) : <>{jobs.map((job) => (
         <Card key={job.id}>
           <CardHeader>
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -192,7 +209,9 @@ export default function MediaWorkbench({ onDraftCreated }) {
             )}
           </CardContent>
         </Card>
-      ))}
+      ))}{hasMore && <Button variant="outline" className="w-full" disabled={loadingMore} onClick={loadMore}>
+        {loadingMore && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Load older media jobs
+      </Button>}</>}
     </div>
   );
 }

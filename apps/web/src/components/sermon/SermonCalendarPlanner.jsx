@@ -17,7 +17,7 @@ import {
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function SermonCalendarPlanner({ sermons = [], onChanged }) {
-  const [month, setMonth] = useState(() => monthKey(new Date()));
+  const [month, setMonth] = useState(() => monthKey());
   const [savingId, setSavingId] = useState(null);
   const days = useMemo(() => monthGrid(month), [month]);
   const scheduled = useMemo(() => sermonsByScheduledDate(sermons), [sermons]);
@@ -76,7 +76,7 @@ export default function SermonCalendarPlanner({ sermons = [], onChanged }) {
             <Button variant="outline" size="icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month">
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button variant="outline" onClick={() => setMonth(monthKey(new Date()))}>Today</Button>
+            <Button variant="outline" onClick={() => setMonth(monthKey())}>Today</Button>
             <Button variant="outline" size="icon" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month">
               <ChevronRight className="h-4 w-4" />
             </Button>

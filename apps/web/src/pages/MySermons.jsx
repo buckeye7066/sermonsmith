@@ -76,7 +76,13 @@ export default function MySermons() {
 
   const loadSermons = async () => {
     try {
-      const userSermons = await api.entities.Sermon.filter({ user_id: user.id }, '-created_date');
+      const userSermons = [];
+      const pageSize = 200;
+      for (let offset = 0; ; offset += pageSize) {
+        const page = await api.entities.Sermon.filter({ user_id: user.id }, '-created_date', pageSize, offset);
+        userSermons.push(...page);
+        if (page.length < pageSize) break;
+      }
       setSermons(userSermons);
       setFilteredSermons(userSermons);
       

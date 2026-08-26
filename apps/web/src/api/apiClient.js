@@ -697,7 +697,7 @@ const admin = {
 };
 
 const media = {
-  jobs: () => apiFetch('/api/media/jobs'),
+  jobs: (limit = 100, offset = 0) => apiFetch(`/api/media/jobs?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`),
   job: (id) => apiFetch(`/api/media/jobs/${encodeURIComponent(String(id))}`),
   upload: (file) => apiFetch('/api/media/jobs', {
     method: 'POST',

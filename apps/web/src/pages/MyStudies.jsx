@@ -5,7 +5,7 @@ import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, GraduationCap, Trash2, Eye } from 'lucide-react';
+import { Loader2, GraduationCap, Trash2, Eye, History } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import StudyGuideViewer from "../components/study/StudyGuideViewer";
+import RevisionHistory from '@/components/sermon/RevisionHistory';
 
 export default function MyStudies() {
     const { user, isLoadingAuth } = useAuth();
@@ -21,6 +22,7 @@ export default function MyStudies() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedStudy, setSelectedStudy] = useState(null);
     const [showViewer, setShowViewer] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
 
     const loadStudies = async (currentUser) => {
         if (!currentUser) return;
@@ -99,10 +101,13 @@ export default function MyStudies() {
                                         {study.overview}
                                     </p>
                                 </CardContent>
-                                <CardFooter className="flex justify-between">
+                                <CardFooter className="flex justify-between gap-2">
                                     <Button variant="outline" size="sm" onClick={() => handleView(study)}>
                                         <Eye className="w-4 h-4 mr-2" />
                                         View
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={() => { setSelectedStudy(study); setShowHistory(true); }}>
+                                        <History className="w-4 h-4 mr-2" />History
                                     </Button>
                                     <Button variant="destructive" size="icon" onClick={() => handleDelete(study.id)}>
                                         <Trash2 className="w-4 h-4" />
@@ -120,6 +125,15 @@ export default function MyStudies() {
                         <DialogTitle>{selectedStudy?.title}</DialogTitle>
                     </DialogHeader>
                     {selectedStudy && <StudyGuideViewer studyData={selectedStudy} viewOnly />}
+                </DialogContent>
+            </Dialog>
+            <Dialog open={showHistory} onOpenChange={setShowHistory}>
+                <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader><DialogTitle>{selectedStudy?.title} history</DialogTitle></DialogHeader>
+                    {selectedStudy && <RevisionHistory entityType="BibleStudy" entityId={selectedStudy.id} onRestored={(restored) => {
+                        setSelectedStudy(restored);
+                        setStudies((current) => current.map((item) => item.id === restored.id ? restored : item));
+                    }} />}
                 </DialogContent>
             </Dialog>
         </div>
