@@ -5,6 +5,7 @@ import {
   SCRIPTURE_GATED_TYPES,
   gateEntityWrite,
   assertAiReplyExposable,
+  normalizeRetiredWorkflowInput,
 } from '../services/scriptureGate.js';
 import {
   attachQuotationVerification,
@@ -449,7 +450,7 @@ function validateEntityPayload(type, body) {
       { status: 400 },
     );
   }
-  const parsed = schema.safeParse(body || {});
+  const parsed = schema.safeParse(normalizeRetiredWorkflowInput(type, body || {}));
   if (!parsed.success) {
     throw Object.assign(
       new Error(`Invalid ${type} payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`),

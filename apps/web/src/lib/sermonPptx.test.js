@@ -50,6 +50,9 @@ describe('buildSermonPptx', () => {
       `ppt/slides/slide${slideCount}.xml`,
       `ppt/slides/_rels/slide${slideCount}.xml.rels`,
     ]));
+    const slideMaster = zip.getEntry('ppt/slideMasters/slideMaster1.xml').getData().toString('utf8');
+    expect(slideMaster).toContain('<p:sldLayoutId id="2147483649" r:id="rId1"/>');
+    expect(slideMaster).not.toContain('<p:sldLayoutId id="1"');
   });
 
   it('writes sermon content and escapes XML-significant title characters', async () => {

@@ -59,6 +59,21 @@ export const LEGACY_ATTESTATION_FIELDS = [
   'verified',
 ];
 
+/**
+ * Remove retired workflow metadata before current-schema validation. This is
+ * also the compatibility boundary for older installed clients: their former
+ * lifecycle value becomes an ordinary private draft instead of causing a 400.
+ */
+export function normalizeRetiredWorkflowInput(type, incoming) {
+  if (!SCRIPTURE_GATED_TYPES.has(type) || !incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return incoming;
+  }
+  const data = { ...incoming };
+  for (const field of LEGACY_ATTESTATION_FIELDS) delete data[field];
+  if (data.status === 'needs_review') data.status = 'draft';
+  return data;
+}
+
 // A record crosses a PUBLIC / SHARED surface when any of these signals is set.
 // Each is a "publish" transition for gate purposes: a gated record whose
 // references do not all verify must never become publicly visible or shared.
@@ -94,17 +109,12 @@ export function recomputeScriptureValidation(type, record, canon) {
 export function gateEntityWrite({ type, incoming, existingData = null, denomination }) {
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
 
-  const data = { ...(existingData || {}), ...incoming };
-  for (const field of LEGACY_ATTESTATION_FIELDS) delete data[field];
+  const data = normalizeRetiredWorkflowInput(type, { ...(existingData || {}), ...incoming });
   delete data.scripture_validation;
   // Provider wording verification is recomputed on the entities save path —
   // never trust a client-supplied blob (same rule as scripture_validation).
   delete data.wording_verification;
   delete data.quotation_verification;
-
-  // Older rows may still contain the retired workflow status. Normalize it as
-  // they are edited so no approval-style state can survive a normal save.
-  if (data.status === 'needs_review') data.status = 'draft';
 
   const canon = canonForDenomination(denomination || data.denomination);
   const validation = recomputeScriptureValidation(type, data, canon);
