@@ -657,7 +657,7 @@ export default function MySermons() {
           </TabsContent>
 
           <TabsContent value="templates">
-            <TemplateLibrary sermons={sermons} onCreated={loadSermons} />
+            <TemplateLibrary sermons={sermons} onCreated={loadSermons} userId={user.id} />
           </TabsContent>
 
           <TabsContent value="media">

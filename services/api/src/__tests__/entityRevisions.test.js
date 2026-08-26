@@ -147,6 +147,9 @@ describe('entity revision history', () => {
     const forbiddenDelete = await request(app)
       .delete('/api/entities/EntityRevision/revision-1')
       .set('Cookie', asUser('owner'));
+    const disguisedDelete = await request(app)
+      .delete('/api/entities/Sermon/revision-1')
+      .set('Cookie', asUser('owner'));
     const forbiddenGet = await request(app)
       .get('/api/entities/EntityRevision/revision-1')
       .set('Cookie', asUser('owner'));
@@ -155,6 +158,8 @@ describe('entity revision history', () => {
       .set('Cookie', asUser('owner'));
     expect(forbiddenUpdate.status).toBe(403);
     expect(forbiddenDelete.status).toBe(403);
+    expect(disguisedDelete.status).toBe(404);
+    expect(prisma._store.entity.some((entity) => entity.id === 'revision-1')).toBe(true);
     expect(forbiddenGet.status).toBe(403);
     expect(forbiddenList.status).toBe(403);
   });

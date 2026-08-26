@@ -38,17 +38,17 @@ vi.mock('@/api/apiClient', () => ({
         restoreRevision: mocks.restoreRevision,
       },
       SermonTemplate: {
-        list: mocks.sermonTemplateList,
+        filter: mocks.sermonTemplateList,
         create: mocks.sermonTemplateCreate,
         delete: mocks.sermonTemplateDelete,
       },
       SeriesTemplate: {
-        list: mocks.seriesTemplateList,
+        filter: mocks.seriesTemplateList,
         create: mocks.seriesTemplateCreate,
         delete: mocks.seriesTemplateDelete,
       },
       SermonSeries: {
-        list: mocks.seriesList,
+        filter: mocks.seriesList,
         create: mocks.seriesCreate,
         delete: mocks.seriesDelete,
       },
@@ -112,8 +112,14 @@ describe('sermon planning workflows', () => {
       scheduled_date: '2026-08-25T12:00:00Z',
     };
     mocks.sermonTemplateCreate.mockResolvedValue({ id: 'template-1' });
-    render(<TemplateLibrary sermons={[source]} />);
-    await waitFor(() => expect(mocks.sermonTemplateList).toHaveBeenCalled());
+    render(<TemplateLibrary sermons={[source]} userId="owner" />);
+    await waitFor(() => expect(mocks.sermonTemplateList).toHaveBeenCalledWith(
+      { user_id: 'owner' },
+      '-created_date',
+      200,
+    ));
+    expect(mocks.seriesTemplateList).toHaveBeenCalledWith({ user_id: 'owner' }, '-created_date', 200);
+    expect(mocks.seriesList).toHaveBeenCalledWith({ user_id: 'owner' }, '-created_date', 200);
     fireEvent.change(screen.getByLabelText('Template source'), { target: { value: 'sermon-1' } });
     fireEvent.change(screen.getByPlaceholderText('Template name (optional)'), { target: { value: 'Reusable grace' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save template' }));

@@ -11,7 +11,7 @@ import {
   seriesTemplateFromSeries,
 } from '@/lib/sermonTemplates';
 
-export default function TemplateLibrary({ sermons = [], onCreated }) {
+export default function TemplateLibrary({ sermons = [], onCreated, userId }) {
   const [templates, setTemplates] = useState([]);
   const [seriesTemplates, setSeriesTemplates] = useState([]);
   const [series, setSeries] = useState([]);
@@ -21,15 +21,16 @@ export default function TemplateLibrary({ sermons = [], onCreated }) {
   const [busy, setBusy] = useState('');
 
   const load = useCallback(async () => {
+    if (!userId) return;
     const [sermonItems, seriesItems, ownedSeries] = await Promise.all([
-      api.entities.SermonTemplate.list('-created_date', 200),
-      api.entities.SeriesTemplate.list('-created_date', 200),
-      api.entities.SermonSeries.list('-created_date', 200),
+      api.entities.SermonTemplate.filter({ user_id: userId }, '-created_date', 200),
+      api.entities.SeriesTemplate.filter({ user_id: userId }, '-created_date', 200),
+      api.entities.SermonSeries.filter({ user_id: userId }, '-created_date', 200),
     ]);
     setTemplates(sermonItems);
     setSeriesTemplates(seriesItems);
     setSeries(ownedSeries);
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     load().catch((error) => {

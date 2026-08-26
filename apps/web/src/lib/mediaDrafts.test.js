@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mediaJobToSermonDraft } from './mediaDrafts';
+import { mediaJobToSermonDraft, SERMON_CONCLUSION_MAX_CHARACTERS } from './mediaDrafts';
 
 describe('media transcript sermon drafts', () => {
   const job = {
@@ -33,6 +33,16 @@ describe('media transcript sermon drafts', () => {
       points: [{ source_timing: { start_seconds: 10, end_seconds: 42 } }],
       status: 'draft',
     });
+  });
+
+  it('keeps a long transcript draft within the sermon schema and links the complete source job', () => {
+    const transcript = 'a'.repeat(SERMON_CONCLUSION_MAX_CHARACTERS + 137);
+    const draft = mediaJobToSermonDraft({ ...job, transcript });
+
+    expect(draft.conclusion).toHaveLength(SERMON_CONCLUSION_MAX_CHARACTERS);
+    expect(draft.source_media_job_id).toBe(job.id);
+    expect(draft.source_transcript_character_count).toBe(transcript.length);
+    expect(draft.source_transcript_truncated).toBe(true);
   });
 
   it('rejects incomplete jobs', () => {

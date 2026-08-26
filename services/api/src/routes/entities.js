@@ -819,10 +819,10 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
     // `.partial()` version of the schema. The full record on disk remains
     // valid because we already validated it on create.
     const schema = ENTITY_SCHEMAS[storedType];
-    let patch = rawPatch;
+    let patch = normalizeRetiredWorkflowInput(storedType, rawPatch);
     if (schema) {
       const partial = schema.partial();
-      const parsed = partial.safeParse(rawPatch);
+      const parsed = partial.safeParse(patch);
       if (!parsed.success) {
         return res.status(400).json({
           message: `Invalid ${storedType} update: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
@@ -887,6 +887,13 @@ router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
       where: { id: req.params.id },
     });
     if (!existing) return res.status(404).json({ message: 'Not found' });
+
+    // The stored row type is authoritative. Without this check, disguising a
+    // server-managed row behind a mutable URL type could bypass the guard
+    // above because deletion itself is keyed only by the globally unique ID.
+    if (existing.type !== req.params.type) {
+      return res.status(404).json({ message: 'Not found' });
+    }
 
     if (existing.userId !== req.userId && !isAdmin(req)) {
       return res.status(403).json({ message: 'You can only delete your own items' });

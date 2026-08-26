@@ -102,6 +102,16 @@ test('reconstructs complete multi-literal chains without joining non-literals', 
   assert.equal(scan("const copy = 'sign' + runtimeValue + 'off';").length, 0);
 });
 
+test('decodes escapes in standalone JavaScript literals', () => {
+  for (const fixture of [
+    String.raw`const copy = "pastoral\u0020review";`,
+    String.raw`const copy = "owner signs\x20off";`,
+    String.raw`const copy = 'sign\u{20}offs';`,
+  ]) {
+    assert.ok(scan(fixture).length > 0, fixture);
+  }
+});
+
 test('keeps lexical boundaries around nearby ordinary words', () => {
   for (const fixture of ['assign office', 'cosigning officers', 'signal offset', 'designer signifier']) {
     assert.deepEqual(scan(fixture), [], fixture);

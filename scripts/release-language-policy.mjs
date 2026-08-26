@@ -118,6 +118,14 @@ export function collapseLiteralChains(source) {
   });
 }
 
+/** Decode escapes in every non-interpolated JavaScript string literal. */
+export function decodeJavascriptLiterals(source) {
+  return String(source).replace(STRING_LITERAL, (literal) => {
+    const decoded = decodeJavascriptStringBody(literal);
+    return decoded === null ? literal : ` ${decoded} `;
+  });
+}
+
 /**
  * Normalize a complete file before matching. In particular, whitespace,
  * hyphens and underscores become one separator, so wrapping a phrase over a
@@ -136,6 +144,7 @@ export function normalizePolicyText(text) {
 function policyTextViews(source) {
   const text = decodeCharacterReferences(source);
   const collapsedLiterals = collapseLiteralChains(text);
+  const decodedLiterals = decodeJavascriptLiterals(text);
   return [
     normalizePolicyText(text),
     normalizePolicyText(text.replace(/['"`]/gu, ' ')),
@@ -143,6 +152,7 @@ function policyTextViews(source) {
     // while the raw view above still preserves phrases inside attributes.
     normalizePolicyText(text.replace(/<[^>]*>/gu, ' ')),
     normalizePolicyText(collapsedLiterals.replace(/['"`]/gu, ' ')),
+    normalizePolicyText(decodedLiterals),
   ];
 }
 

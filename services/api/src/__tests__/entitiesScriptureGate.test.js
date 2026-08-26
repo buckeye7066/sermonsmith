@@ -308,4 +308,25 @@ describe('entities — server-side Scripture integrity gate (Sermon)', () => {
     expect(created.body.status).toBe('draft');
     expect(created.body[OLD_FIELDS.primary]).toBeUndefined();
   });
+
+  it('normalizes the retired lifecycle value on an older client update before partial-schema validation', async () => {
+    const created = await request(app)
+      .post('/api/entities/Sermon')
+      .set('Cookie', asUser('u-pastor'))
+      .send({ title: 'Existing sermon', anchor_passage: 'John 3:16', status: 'draft' });
+
+    const updated = await request(app)
+      .put(`/api/entities/Sermon/${created.body.id}`)
+      .set('Cookie', asUser('u-pastor'))
+      .send({
+        title: 'Updated by older client',
+        status: OLD_FIELDS.state,
+        [OLD_FIELDS.primary]: true,
+      });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.status).toBe('draft');
+    expect(updated.body.title).toBe('Updated by older client');
+    expect(updated.body[OLD_FIELDS.primary]).toBeUndefined();
+  });
 });
