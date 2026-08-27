@@ -6,56 +6,58 @@
 - **Files reviewed:** 0 of 318 candidate(s)
 - **FILE ACCOUNTING: 318 candidate(s) = 0 reviewed + 294 never_attempted + 24 review_incomplete**
 - **ZERO WORK: not one of 318 candidate file(s) was reviewed. This run did nothing; treat it as a FAILURE, not a clean repo.**
-- **Defects found:** 3
+- **Defects found:** 4
 - **Files fixed:** 0
-- **Errors recorded:** 7 (see the Errors section below; ledger at `C:\Users\firer\.flexfactor\runs\sermonsmith-monorepo-20260826-130626-611953-4264\errors.md`)
-- **Baseline build:** passed
+- **Errors recorded:** 10 (see the Errors section below; ledger at `C:\Users\firer\.flexfactor\runs\sermonsmith-monorepo-20260826-173455-744421-36728\errors.md`)
+- **Baseline build:** FAILED
 - **Unit tests added:** 0 (suite not run)
 - **Button/UI (Playwright):** skipped
 - **Cycles run:** 1
-- **Providers:** rotation:google/diffusiongemma-26b-a4b-it
+- **Providers:** rotation:groq/compound-mini
 - **Git:** PROVIDER-OUTAGE ABORT on main: checkpoint preserved; no unverified commit created
 
 ## System inventory
 
-**967 entries accounted for.**
+**968 entries accounted for.**
 
 | Category | Count |
 |---|---:|
 | artifact-subtree | 9 |
 | binary-asset | 69 |
-| configuration-documentation-or-data | 347 |
+| configuration-documentation-or-data | 348 |
 | first-party-source | 542 |
 
 The immutable run manifest contains the complete path-level inventory. Artifact, binary, and reparse entries are named and classified; they are not represented as line-reviewed source.
 
 ## Executable evidence
 
-- **Evidence run:** `sermonsmith-monorepo-20260826-130626-611953-4264`
-- **Exact final commit:** `d6bde68915a1c35a4e062a19b8469ba3aac29426`
-- **Code map:** 579 file(s), 2978 function(s), 112 route(s), 1206 material control(s)
+- **Evidence run:** `sermonsmith-monorepo-20260826-173455-744421-36728`
+- **Exact final commit:** `bf0b588966054e30504f76efcf8d73fbd156b5a1`
+- **Code map:** 580 file(s), 2978 function(s), 112 route(s), 1206 material control(s)
 - **Function execution:** 0/2785 with invocation evidence
 - **Route execution:** 0/112
 - **Control execution:** 0/1206
-- **Changed-file rescan:** 0/0 (complete)
-- **Blast radius:** 0 affected file(s); analysis ran
-- **Normalized gates:** 5 pass, 2 fail, 2 blocked
+- **Changed-file rescan:** 1/1 (complete)
+- **Blast radius:** 1 affected file(s); analysis ran
+- **Normalized gates:** 4 pass, 3 fail, 2 blocked
 
-- **Blast Radius:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-130626-611953-4264\blast-radius.json`
-- **Changed File Rescan:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-130626-611953-4264\changed-file-rescan.json`
-- **Code Index:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-130626-611953-4264\code-index.json`
-- **Coverage Ledger:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-130626-611953-4264\coverage-ledger.json`
-- **Manifest:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-130626-611953-4264\manifest.json`
-- **Purpose Graph:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-130626-611953-4264\purpose-graph.json`
-- **Quality Gates:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-130626-611953-4264\quality-gates.json`
-- **Sarif:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-130626-611953-4264\results.sarif`
+- **Blast Radius:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-173455-744421-36728\blast-radius.json`
+- **Changed File Rescan:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-173455-744421-36728\changed-file-rescan.json`
+- **Code Index:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-173455-744421-36728\code-index.json`
+- **Coverage Ledger:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-173455-744421-36728\coverage-ledger.json`
+- **Manifest:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-173455-744421-36728\manifest.json`
+- **Purpose Graph:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-173455-744421-36728\purpose-graph.json`
+- **Quality Gates:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-173455-744421-36728\quality-gates.json`
+- **Sarif:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-monorepo-20260826-173455-744421-36728\results.sarif`
 
 ## Production readiness
 
-**NOT PRODUCTION READY** — 13/15 evaluated gates passed, 2 blocker(s).
+**NOT PRODUCTION READY** — 12/15 evaluated gates passed, 3 blocker(s).
 
 Full scorecard: `C:\Users\firer\sermonsmith\sermonsmith-monorepo_readiness.md`
 
+- **Project builds** [critical] — build command failed
+  - Fix: Fix the compile/build errors.
 - **Test suite passes** [high] — tests were not run
   - Fix: Run the suite and fix failures.
 - **Dependencies are lock-pinned** [high] — no lockfile: java:apps/mobile/android
@@ -68,82 +70,83 @@ Full scorecard: `C:\Users\firer\sermonsmith\sermonsmith-monorepo_readiness.md`
 - **Sources used:** web:duckduckgo, github, repo-rewards
 - **Repo Rewards endpoint:** `https://web-production-d7db7.up.railway.app`
 - **Sources SKIPPED (named, not silent):**
-  - `idea:Accordance Bible Software` - model returned an incomplete idea (missing why_valuable) - forced to accept=False for Accordance Bible Software
-  - `idea:Kalradia/AdventistHymnal` - model returned an incomplete idea (missing why_valuable) - forced to accept=False for Kalradia/AdventistHymnal
-  - `idea:ktrue/proclaim-utility` - model returned an incomplete idea (missing why_valuable) - forced to accept=False for ktrue/proclaim-utility
+  - `idea:BibleTime` - model returned an incomplete idea (missing why_valuable) - forced to accept=False for BibleTime
+  - `idea:Faithlife/Logos.Utility` - model returned an incomplete idea (missing why_valuable) - forced to accept=False for Faithlife/Logos.Utility
+  - `idea:Logos Bible Software` - model returned an incomplete idea (missing why_valuable) - forced to accept=False for Logos Bible Software
+  - `idea:mdshearer/preaching-workflow` - model returned an incomplete idea (missing why_valuable) - forced to accept=False for mdshearer/preaching-workflow
+  - `idea:situmorang-com/skills-sermon-adventist` - model returned an incomplete idea (missing why_valuable) - forced to accept=False for situmorang-com/skills-sermon-adventist
   - `web:searxng` - RuntimeError: FLEXFACTOR_SEARXNG_URL is not set
 
-- **Ideas accepted as serving this program's purpose:** 1 (rejected 4 - the purpose contract, not the competitor, decides)
+- **Ideas accepted as serving this program's purpose:** 0 (rejected 5 - the purpose contract, not the competitor, decides)
 
 - **Bridged into the fix stream:** 0 of 5 candidate(s)
-  - NOT bridged (1): solafide-dev/simpleworship - accepted idea did not map to a valid acceptance criterion
-  - NOT bridged (4): Accordance Bible Software, Kalradia/AdventistHymnal, ktrue/proclaim-utility, praisenter/praisenter - idea rejected by the purpose contract
+  - NOT bridged (5): BibleTime, Faithlife/Logos.Utility, Logos Bible Software, mdshearer/preaching-workflow, situmorang-com/skills-sermon-adventist - idea rejected by the purpose contract
 
 | Competitor | Kind | Licence | Reuse mode | Purpose mapping | Verdict | Fix stream | Adoptable idea |
 |---|---|---|---|---|---|---|---|
-| [praisenter/praisenter](https://github.com/praisenter/praisenter) | oss | `BSD-3-Clause` | `direct-code-reuse` | purpose-only | reject | NOT entered - idea rejected by the purpose contract | Prayer Generator AI |
-| [Kalradia/AdventistHymnal](https://github.com/Kalradia/AdventistHymnal) | oss | `MIT` | `direct-code-reuse` | purpose-only | reject | NOT entered - idea rejected by the purpose contract | (idea extraction failed) |
-| [ktrue/proclaim-utility](https://github.com/ktrue/proclaim-utility) | oss | `GPL-3.0` | `clean-room-from-documented-behavior` | purpose-only | reject | NOT entered - idea rejected by the purpose contract | (idea extraction failed) |
-| [solafide-dev/simpleworship](https://github.com/solafide-dev/simpleworship) | oss | `GPL-3.0` | `clean-room-from-documented-behavior` | acceptance #4. provider wording verification actually available in the user flow (review & collaboration). | ACCEPT | NOT entered - accepted idea did not map to a valid acceptance criterion | Real‑time Collaborative Sermon Editing |
-| [Accordance Bible Software](https://github.com/Accordance-Bible-Software-Mac/.github) | oss | `UNKNOWN` | `reference-only` | purpose-only | reject | NOT entered - idea rejected by the purpose contract | (idea extraction failed) |
+| [BibleTime](https://github.com/bibletime/bibletime) | oss | `GPL-2.0` | `clean-room-from-documented-behavior` | purpose-only | reject | NOT entered - idea rejected by the purpose contract | (idea extraction failed) |
+| [Faithlife/Logos.Utility](https://github.com/Faithlife/Logos.Utility) | oss | `UNKNOWN` | `reference-only` | purpose-only | reject | NOT entered - idea rejected by the purpose contract | (idea extraction failed) |
+| [situmorang-com/skills-sermon-adventist](https://github.com/situmorang-com/skills-sermon-adventist) | oss | `UNKNOWN` | `reference-only` | purpose-only | reject | NOT entered - idea rejected by the purpose contract | (idea extraction failed) |
+| [mdshearer/preaching-workflow](https://github.com/mdshearer/preaching-workflow) | oss | `MIT` | `direct-code-reuse` | purpose-only | reject | NOT entered - idea rejected by the purpose contract | (idea extraction failed) |
+| [Logos Bible Software](https://learnlogos.com/topics/sermon-preparation) | market | `UNKNOWN` | `clean-room-from-documented-behavior` | purpose-only | reject | NOT entered - idea rejected by the purpose contract | (idea extraction failed) |
 
-### praisenter/praisenter
+### BibleTime
 
-- **Evidence:** <https://github.com/praisenter/praisenter>
-- **Licence:** `BSD-3-Clause` (via repo-rewards)
-- **Reuse mode:** `direct-code-reuse` - licence BSD-3-Clause is permissive and compatible; source may be read and adapted with attribution
-- **Idea:** Prayer Generator AI - AI-assisted prayer writing feature that generates personalized prayers based on user input or sermon topics.
-- **Value here:** Adding an AI-powered prayer generator would directly fulfill the audited program's stated purpose of providing 'AI-assisted prayer writing' as a core feature for pastors and users during sermon preparation.
-- **Purpose / criterion mapping:** purpose-only - Although the audited program's purpose includes 'AI-assisted prayer writing', the competitor praisenter/praisenter does not provide clear evidence of having this specific feature. Without confirmation that the competitor possesses this capability, the idea cannot be validated as adoptable from them.
-- **Purpose verdict:** REJECTED - Although the audited program's purpose includes 'AI-assisted prayer writing', the competitor praisenter/praisenter does not provide clear evidence of having this specific feature. Without confirmation that the competitor possesses this capability, the idea cannot be validated as adoptable from them.
+- **Evidence:** <https://github.com/bibletime/bibletime>, <https://github.com/bibletime/bibletimemobile>
+- **Licence:** `GPL-2.0` (via github-api)
+- **Reuse mode:** `clean-room-from-documented-behavior` - licence GPL-2.0 is copyleft/restricted; source must NOT be copied - work from documented behaviour only
+- **Idea:** (idea extraction failed) - 
+- **Value here:** 
+- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
+- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
 - **Fix-stream decision:** DID NOT enter the fix stream - idea rejected by the purpose contract
-- **Evidence basis:** The competitor praisenter/praisenter is described as 'Free Church Presentation Software' and, while not explicitly detailed in the snippet, such tools commonly include prayer generation aids; however, the audited program's README already lists 'Prayer Generator - AI-assisted prayer writing' as a feature, suggesting this may already be planned or partially implemented. No direct evidence from the competitor confirms this specific capability. (confidence low)
+- **Evidence basis:**  (confidence ?)
 
-### Kalradia/AdventistHymnal
+### Faithlife/Logos.Utility
 
-- **Evidence:** <https://github.com/Kalradia/AdventistHymnal>
+- **Evidence:** <https://github.com/Faithlife/Logos.Utility>
+- **Licence:** `UNKNOWN` (via repo-rewards)
+- **Reuse mode:** `reference-only` - licence UNKNOWN could not be verified; record the capability as a reference and copy nothing
+- **Idea:** (idea extraction failed) - 
+- **Value here:** 
+- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
+- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
+- **Fix-stream decision:** DID NOT enter the fix stream - idea rejected by the purpose contract
+- **Evidence basis:**  (confidence ?)
+
+### situmorang-com/skills-sermon-adventist
+
+- **Evidence:** <https://github.com/situmorang-com/skills-sermon-adventist>
+- **Licence:** `UNKNOWN` (via repo-rewards)
+- **Reuse mode:** `reference-only` - licence UNKNOWN could not be verified; record the capability as a reference and copy nothing
+- **Idea:** (idea extraction failed) - 
+- **Value here:** 
+- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
+- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
+- **Fix-stream decision:** DID NOT enter the fix stream - idea rejected by the purpose contract
+- **Evidence basis:**  (confidence ?)
+
+### mdshearer/preaching-workflow
+
+- **Evidence:** <https://github.com/mdshearer/preaching-workflow>
 - **Licence:** `MIT` (via repo-rewards)
 - **Reuse mode:** `direct-code-reuse` - licence MIT is permissive and compatible; source may be read and adapted with attribution
 - **Idea:** (idea extraction failed) - 
 - **Value here:** 
-- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: 404 page not found
-- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: 404 page not found
+- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
+- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
 - **Fix-stream decision:** DID NOT enter the fix stream - idea rejected by the purpose contract
 - **Evidence basis:**  (confidence ?)
 
-### ktrue/proclaim-utility
+### Logos Bible Software
 
-- **Evidence:** <https://github.com/ktrue/proclaim-utility>
-- **Licence:** `GPL-3.0` (via repo-rewards)
-- **Reuse mode:** `clean-room-from-documented-behavior` - licence GPL-3.0 is copyleft/restricted; source must NOT be copied - work from documented behaviour only
+- **Evidence:** <https://learnlogos.com/topics/sermon-preparation>, <https://www.logos.com/product/173573/sermon-preparation>, <https://support.logos.com/hc/en-us/articles/360016747391-Writing-Sermons-Using-Sermon-Builder>
+- **Licence:** `UNKNOWN` (via none (no repository could be attributed to this competitor))
+- **Reuse mode:** `clean-room-from-documented-behavior` - no inspectable source (licence UNKNOWN); only publicly documented behaviour may inform our own independent design
 - **Idea:** (idea extraction failed) - 
 - **Value here:** 
-- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (102 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide))
-- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (102 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide))
-- **Fix-stream decision:** DID NOT enter the fix stream - idea rejected by the purpose contract
-- **Evidence basis:**  (confidence ?)
-
-### solafide-dev/simpleworship
-
-- **Evidence:** <https://github.com/solafide-dev/simpleworship>
-- **Licence:** `GPL-3.0` (via repo-rewards)
-- **Reuse mode:** `clean-room-from-documented-behavior` - licence GPL-3.0 is copyleft/restricted; source must NOT be copied - work from documented behaviour only
-- **Idea:** Real‑time Collaborative Sermon Editing - Allows multiple users to simultaneously edit and review sermon outlines in real‑time, providing live updates, comments, and versioning.
-- **Value here:** Pastor teams can co‑author sermons, iterate quickly and ensure joint oversight, directly supporting the program’s focus on explicit human review and pastoral judgment.
-- **Purpose / criterion mapping:** acceptance #4. provider wording verification actually available in the user flow (review & collaboration). - It advances the audited program’s privacy‑preserving, collaborative review workflow by enabling multiple reviewers to interact directly with the outline, which is central to the described purpose.
-- **Purpose verdict:** ACCEPTED - It advances the audited program’s privacy‑preserving, collaborative review workflow by enabling multiple reviewers to interact directly with the outline, which is central to the described purpose.
-- **Fix-stream decision:** DID NOT enter the fix stream - accepted idea did not map to a valid acceptance criterion
-- **Evidence basis:** Competitor repo includes a dedicated component apps/web/src/components/collaboration/CollaborativeEditor.jsx showing a real‑time collaborative editing interface. (confidence medium)
-
-### Accordance Bible Software
-
-- **Evidence:** <https://github.com/Accordance-Bible-Software-Mac/.github>
-- **Licence:** `UNKNOWN` (via github-api)
-- **Reuse mode:** `reference-only` - licence UNKNOWN could not be verified; record the capability as a reference and copy nothing
-- **Idea:** (idea extraction failed) - 
-- **Value here:** 
-- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: 404 page not found
-- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: 404 page not found
+- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
+- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (119 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
 - **Fix-stream decision:** DID NOT enter the fix stream - idea rejected by the purpose contract
 - **Evidence basis:**  (confidence ?)
 
@@ -195,25 +198,85 @@ _No defects found in the reviewed files._
 
 ## Fix notes / left unfixed
 
+- publication failure made no progress and did not name another repairable source file
+- baseline publication suite is red and bounded repair did not fix it; review continued, publication stays blocked
 - review made no progress: three consecutive semantic review batches completed ZERO files (0 of 318 candidate file(s) reviewed all run). This is a provider/route fault, NOT evidence the repo is clean - stopped fail-closed for resumable retry
 - rollback failed; working tree requires inspection
 
 
-## Errors (7)
+## Errors (10)
 
 | # | phase | kind | error | responsible |
 |---|---|---|---|---|
-| 1 | rotation | program-defect | EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (n | flexfactor.py:1294 |
+| 1 | baseline | program-defect | baseline publication suite is RED and bounded targeted repair did not fix it | - |
 | 2 | rotation | program-defect | EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (n | flexfactor.py:1294 |
-| 3 | rotation | provider | TimeoutError: timed out | flexfactor.py:2755 |
-| 4 | rotation | program-defect | EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (n | flexfactor.py:1294 |
-| 5 | rotation | provider | RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `met | flexfactor.py:2412 |
-| 6 | rotation | provider | TimeoutError: timed out | flexfactor.py:2755 |
-| 7 | baseline-gate | program-defect | review made no progress: three consecutive semantic review batches completed ZERO files (0 | - |
+| 3 | rotation | program-defect | EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (n | flexfactor.py:1294 |
+| 4 | rotation | provider | TimeoutError: timed out | flexfactor.py:2755 |
+| 5 | rotation | provider | TimeoutError: timed out | flexfactor.py:2755 |
+| 6 | rotation | program-defect | EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (n | flexfactor.py:1294 |
+| 7 | rotation | provider | APIStatusError: Error code: 413 - {'error': {'message': 'Request Entity Too Large', 'type' | flexfactor.py:2412 |
+| 8 | rotation | provider | TimeoutError: timed out | flexfactor.py:2755 |
+| 9 | rotation | provider | NotFoundError: Error code: 404 - {'status': 404, 'title': 'Not Found', 'detail': "Function | flexfactor.py:2412 |
+| 10 | baseline-gate | program-defect | review made no progress: three consecutive semantic review batches completed ZERO files (0 | - |
 
-Counts by kind: program-defect 4, provider 3
+Counts by kind: program-defect 5, provider 5
 
-### 1. rotation — program-defect
+### 1. baseline — program-defect
+
+**Error**
+
+```
+baseline publication suite is RED and bounded targeted repair did not fix it
+```
+
+**Detail**
+
+```
+> sermonsmith-monorepo@0.0.0 typecheck
+> npm run typecheck -w @sermonsmith/web && npm run typecheck -w @sermonsmith/api
+
+
+> @sermonsmith/web@1.0.1 typecheck
+> tsc -p ./jsconfig.json
+
+
+> @sermonsmith/api@1.0.0 typecheck
+> node scripts/typecheck.mjs
+
+Typecheck OK: 54 files parsed.
+
+
+$ npm run build
+[22m[39m[Bible Reader] static chapter source unavailable; trying bible-api.com: Static Bible source returned no verses for 2 Corinthians 13
+
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m src/__tests__/functions.test.js[2m > [22mfunction routes - Bible source registry[2m > [22mserves every chapter of every multi-token book from all pinned static datasets without fallback
+[31m[1mError[22m: Test timed out in 15000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+[36m [2m❯[22m src/__tests__/functions.test.js:[2m150:3[22m[39m
+    [90m148|[39m   })[33m;[39m
+    [90m149|[39m
+    [90m150|[39m   it('serves every chapter of every multi-token book from all pinned s…
+    [90m   |[39m   [31m^[39m
+    [90m151|[39m     [35mconst[39m affectedBooks [33m=[39m [
+    [90m152|[39m       [[32m'1 Samuel'[39m[33m,[39m [34m31[39m[33m,[39m [32m'1samuel'[39m][33m,[39m [[32m'2 Samuel'[39m[33m,[39m [34m24[39m[33m,[39m [32m'2samuel'[39m][33m,[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+npm error Lifecycle script `te
+```
+
+**Responsible code**
+
+- Not attributable to a specific line from the evidence recorded.
+
+**Suggested fix** (signature)
+
+Read the full log at C:\Users\firer\.flexfactor\runs\sermonsmith-monorepo-20260826-173455-744421-36728\baseline-publication-failure.log. Publication (push/merge) stays refused while the baseline is red; the review still runs.
+
+### 2. rotation — program-defect
 
 **Error**
 
@@ -234,7 +297,7 @@ raise EgressBlockedError(
 
 The egress gate found a secret/PII pattern in repo-derived text and refused to send it to a cloud model. Remove the secret from the repo (or use --redact / FLEXFACTOR_ALLOW_EGRESS for a known-safe fixture).
 
-### 2. rotation — program-defect
+### 3. rotation — program-defect
 
 **Error**
 
@@ -249,13 +312,13 @@ EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assig
 ```python
 raise EgressBlockedError(
 ```
-- Route: `nvidia_nim/stepfun-ai/step-3.7-flash`
+- Route: `gemini/gemini-2.5-flash`
 
 **Suggested fix** (signature)
 
 The egress gate found a secret/PII pattern in repo-derived text and refused to send it to a cloud model. Remove the secret from the repo (or use --redact / FLEXFACTOR_ALLOW_EGRESS for a known-safe fixture).
 
-### 3. rotation — provider
+### 4. rotation — provider
 
 **Error**
 
@@ -270,13 +333,34 @@ TimeoutError: timed out
 ```python
 with self._opener.open(req, timeout=_ollama_http_timeout()) as resp:
 ```
-- Route: `ollama/gpt-oss:20b`
+- Route: `ollama/phi4-mini:latest`
 
 **Suggested fix** (none)
 
 no known fix; start from the responsible code above
 
-### 4. rotation — program-defect
+### 5. rotation — provider
+
+**Error**
+
+```
+TimeoutError: timed out
+```
+
+**Responsible code**
+
+- FlexFactor `flexfactor.py:2755` in `_chat()`
+
+```python
+with self._opener.open(req, timeout=_ollama_http_timeout()) as resp:
+```
+- Route: `ollama/mistral:latest`
+
+**Suggested fix** (none)
+
+no known fix; start from the responsible code above
+
+### 6. rotation — program-defect
 
 **Error**
 
@@ -291,18 +375,18 @@ EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assig
 ```python
 raise EgressBlockedError(
 ```
-- Route: `nvidia_nim/01-ai/yi-large`
+- Route: `nvidia_nim/microsoft/phi-3-vision-128k-instruct`
 
 **Suggested fix** (signature)
 
 The egress gate found a secret/PII pattern in repo-derived text and refused to send it to a cloud model. Remove the secret from the repo (or use --redact / FLEXFACTOR_ALLOW_EGRESS for a known-safe fixture).
 
-### 5. rotation — provider
+### 7. rotation — provider
 
 **Error**
 
 ```
-RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `meta-llama/llama-4-scout-17b-16e-instruct` in organization `org_01kxhxdkh3e7nasshjpfbkzh11` service tier `on_demand` on tokens per minute (TPM): Limit 30000, Used 29007, Requested 6920. Please try again in 11.854s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'compound', 'code': 'rate_limit_exceeded'}}
+APIStatusError: Error code: 413 - {'error': {'message': 'Request Entity Too Large', 'type': 'invalid_request_error', 'code': 'request_too_large'}}
 ```
 
 **Responsible code**
@@ -314,11 +398,11 @@ return client.chat.completions.create(**kwargs)
 ```
 - Route: `groq/groq/compound`
 
-**Suggested fix** (signature)
+**Suggested fix** (none)
 
-Rate-limited. The rotator cools the pool down and moves on; nothing to fix unless it recurs on every pool, which means the free tiers are exhausted for now.
+no known fix; start from the responsible code above
 
-### 6. rotation — provider
+### 8. rotation — provider
 
 **Error**
 
@@ -333,13 +417,34 @@ TimeoutError: timed out
 ```python
 with self._opener.open(req, timeout=_ollama_http_timeout()) as resp:
 ```
-- Route: `ollama/deepseek-r1:8b`
+- Route: `ollama/gemma4:e4b`
 
 **Suggested fix** (none)
 
 no known fix; start from the responsible code above
 
-### 7. baseline-gate — program-defect
+### 9. rotation — provider
+
+**Error**
+
+```
+NotFoundError: Error code: 404 - {'status': 404, 'title': 'Not Found', 'detail': "Function '767b5b9a-3f9d-4c1d-86e8-fa861988cee7': Not found for account 'hvux_0rjHS6OiBfWXcZvKgoOaUBy_3UsQqq6I6IAz7I'"}
+```
+
+**Responsible code**
+
+- FlexFactor `flexfactor.py:2412` in `_chat_create()`
+
+```python
+return client.chat.completions.create(**kwargs)
+```
+- Route: `nvidia_nim/mistralai/mistral-large`
+
+**Suggested fix** (none)
+
+no known fix; start from the responsible code above
+
+### 10. baseline-gate — program-defect
 
 **Error**
 
@@ -353,4 +458,4 @@ review made no progress: three consecutive semantic review batches completed ZER
 
 **Suggested fix** (none)
 
-no known fix; start from the responsible code above (model suggester failed: no light route available (102 enabled routes in catalog). Pools skipped: groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:dots-studio/dots-3-note-preview:free (openrouter:free-tier allowance exhausted (account-wide)))
+no known fix; start from the responsible code above (model suggester failed: no light route available (119 enabled routes in catalog). Pools skipped: gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide)))
