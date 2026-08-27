@@ -8,32 +8,32 @@
 - **ZERO WORK: not one of 318 candidate file(s) was reviewed. This run did nothing; treat it as a FAILURE, not a clean repo.**
 - **Defects found:** 3
 - **Files fixed:** 0
-- **Errors recorded:** 1 (see the Errors section below; ledger at `C:\Users\firer\.flexfactor\runs\sermonsmith-20260827-035153-726226-38728\errors.md`)
+- **Errors recorded:** 5 (see the Errors section below; ledger at `C:\Users\firer\.flexfactor\runs\sermonsmith-20260827-063117-186314-19256\errors.md`)
 - **Baseline build:** passed
 - **Unit tests added:** 0 (suite not run)
 - **Button/UI (Playwright):** skipped
 - **Cycles run:** 1
-- **Providers:** rotation:rotating
+- **Providers:** rotation:mistralai/mistral-nemotron
 - **Git:** PROVIDER-OUTAGE ABORT on main: checkpoint preserved; no unverified commit created
 
 ## System inventory
 
-**975 entries accounted for.**
+**976 entries accounted for.**
 
 | Category | Count |
 |---|---:|
 | artifact-subtree | 9 |
 | binary-asset | 69 |
-| configuration-documentation-or-data | 355 |
+| configuration-documentation-or-data | 356 |
 | first-party-source | 542 |
 
 The immutable run manifest contains the complete path-level inventory. Artifact, binary, and reparse entries are named and classified; they are not represented as line-reviewed source.
 
 ## Executable evidence
 
-- **Evidence run:** `sermonsmith-20260827-035153-726226-38728`
-- **Exact final commit:** `755b32c54e42907f7daaf722d75cfa3ce9292413`
-- **Code map:** 585 file(s), 2978 function(s), 112 route(s), 1206 material control(s)
+- **Evidence run:** `sermonsmith-20260827-063117-186314-19256`
+- **Exact final commit:** `a01890a4faac236bf6a53f46070c6804b0100f26`
+- **Code map:** 586 file(s), 2978 function(s), 112 route(s), 1206 material control(s)
 - **Function execution:** 0/2785 with invocation evidence
 - **Route execution:** 0/112
 - **Control execution:** 0/1206
@@ -41,14 +41,14 @@ The immutable run manifest contains the complete path-level inventory. Artifact,
 - **Blast radius:** 0 affected file(s); analysis ran
 - **Normalized gates:** 5 pass, 2 fail, 2 blocked
 
-- **Blast Radius:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-035153-726226-38728\blast-radius.json`
-- **Changed File Rescan:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-035153-726226-38728\changed-file-rescan.json`
-- **Code Index:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-035153-726226-38728\code-index.json`
-- **Coverage Ledger:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-035153-726226-38728\coverage-ledger.json`
-- **Manifest:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-035153-726226-38728\manifest.json`
-- **Purpose Graph:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-035153-726226-38728\purpose-graph.json`
-- **Quality Gates:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-035153-726226-38728\quality-gates.json`
-- **Sarif:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-035153-726226-38728\results.sarif`
+- **Blast Radius:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-063117-186314-19256\blast-radius.json`
+- **Changed File Rescan:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-063117-186314-19256\changed-file-rescan.json`
+- **Code Index:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-063117-186314-19256\code-index.json`
+- **Coverage Ledger:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-063117-186314-19256\coverage-ledger.json`
+- **Manifest:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-063117-186314-19256\manifest.json`
+- **Purpose Graph:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-063117-186314-19256\purpose-graph.json`
+- **Quality Gates:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-063117-186314-19256\quality-gates.json`
+- **Sarif:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-063117-186314-19256\results.sarif`
 
 ## Production readiness
 
@@ -69,7 +69,7 @@ Full scorecard: `C:\Users\firer\sermonsmith\sermonsmith_readiness.md`
 - **Repo Rewards endpoint:** `https://web-production-d7db7.up.railway.app`
 - **Sources SKIPPED (named, not silent):**
   - `idea:alternatives` - model returned an incomplete idea (missing why_valuable) - forced to accept=False for alternatives
-  - `model-discovery` - RotationError: no light route available (120 enabled routes in catalog). Pools skipped: gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide))
+  - `model-discovery` - RotationError: no light route available (110 enabled routes in catalog). Pools skipped: gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:dots-studio/dots-3-note-preview:free (openrouter:free-tier allowance exhausted (account-wide))
   - `web:searxng` - RuntimeError: FLEXFACTOR_SEARXNG_URL is not set
 
 - **Ideas accepted as serving this program's purpose:** 0 (rejected 1 - the purpose contract, not the competitor, decides)
@@ -88,8 +88,8 @@ Full scorecard: `C:\Users\firer\sermonsmith\sermonsmith_readiness.md`
 - **Reuse mode:** `reference-only` - licence UNKNOWN could not be verified; record the capability as a reference and copy nothing
 - **Idea:** (idea extraction failed) - 
 - **Value here:** 
-- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (120 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
-- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (120 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide))
+- **Purpose / criterion mapping:** purpose-only - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (110 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide))
+- **Purpose verdict:** REJECTED - NOT ACTED ON: model returned an incomplete idea (missing why_valuable) - forced to accept=False. not judged: no strong route available (110 enabled routes in catalog). Pools skipped: cerebras:free-tier (pool cooling down); gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide))
 - **Fix-stream decision:** DID NOT enter the fix stream - idea rejected by the purpose contract
 - **Evidence basis:**  (confidence ?)
 
@@ -133,7 +133,7 @@ _This is NOT a clean data bill of health: no data-shaped or environment-shaped r
 _These were found but left as-is - review and decide. Critical/high here means a file that could not be safely auto-fixed (see manual-review list)._
 
 ### high (1)
-- `(purpose)` line 0 (quality-gate) - **Purpose assessment evidence is incomplete**: baseline purpose assessment failed: RuntimeError: all 3 purpose assessment samples failed: RotationError: no light route available (120 enabled routes in catalog). Pools skipped: gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide)); RotationError: no light route available (120 enabled routes in catalog). Pools skipped: gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide)); RotationError: no light route available (120 enabled routes in catalog). Pools skipped: gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide)); final purpose assessment returned no usable result _Suggested fix:_ Retry the resumable run after restoring a responsive provider.
+- `(purpose)` line 0 (quality-gate) - **Purpose assessment evidence is incomplete**: baseline purpose assessment failed: RuntimeError: all 3 purpose assessment samples failed: EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (near line(s) [1022, 1025, 1083, 1146, 1202]); refusing to send to a cloud model. Re-run with --redact to mask and send, --allow-sensitive to send anyway, or allow categories via FLEXFACTOR_ALLOW_EGRESS / ~/.flexfactor/policy.json {"allow_egress": [...]}.; EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (near line(s) [1022, 1025, 1083, 1146, 1202]); refusing to send to a cloud model. Re-run with --redact to mask and send, --allow-sensitive to send anyway, or allow categories via FLEXFACTOR_ALLOW_EGRESS / ~/.flexfactor/policy.json {"allow_egress": [...]}.; EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (near line(s) [1022, 1025, 1083, 1146, 1202]); refusing to send to a cloud model. Re-run with --redact to mask and send, --allow-sensitive to send anyway, or allow categories via FLEXFACTOR_ALLOW_EGRESS / ~/.flexfactor/policy.json {"allow_egress": [...]}.; final purpose assessment returned no usable result _Suggested fix:_ Retry the resumable run after restoring a responsive provider.
 
 ## Defects by file
 
@@ -145,15 +145,103 @@ _No defects found in the reviewed files._
 - rollback failed; working tree requires inspection
 
 
-## Errors (1)
+## Errors (5)
 
 | # | phase | kind | error | responsible |
 |---|---|---|---|---|
-| 1 | baseline-gate | program-defect | review made no progress: three consecutive semantic review batches completed ZERO files (0 | - |
+| 1 | rotation | program-defect | EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (n | flexfactor.py:1294 |
+| 2 | rotation | program-defect | EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (n | flexfactor.py:1294 |
+| 3 | rotation | program-defect | EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (n | flexfactor.py:1294 |
+| 4 | rotation | provider | APITimeoutError: Request timed out. | flexfactor.py:2412 |
+| 5 | baseline-gate | program-defect | review made no progress: three consecutive semantic review batches completed ZERO files (0 | - |
 
-Counts by kind: program-defect 1
+Counts by kind: program-defect 4, provider 1
 
-### 1. baseline-gate — program-defect
+### 1. rotation — program-defect
+
+**Error**
+
+```
+EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (near line(s) [1022, 1025, 1083, 1146, 1202]); refusing to send to a cloud model. Re-run with --redact to mask and send, --allow-sensitive to send anyway, or allow categories via FLEXFACTOR_ALLOW_EGRESS / ~/.flexfactor/policy.json {"allow_egress": [...]}.
+```
+
+**Responsible code**
+
+- FlexFactor `flexfactor.py:1294` in `_egress_gate()`
+
+```python
+raise EgressBlockedError(
+```
+- Route: `nvidia_nim/mistralai/mistral-7b-instruct-v0.3`
+
+**Suggested fix** (signature)
+
+The egress gate found a secret/PII pattern in repo-derived text and refused to send it to a cloud model. Remove the secret from the repo (or use --redact / FLEXFACTOR_ALLOW_EGRESS for a known-safe fixture).
+
+### 2. rotation — program-defect
+
+**Error**
+
+```
+EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (near line(s) [1022, 1025, 1083, 1146, 1202]); refusing to send to a cloud model. Re-run with --redact to mask and send, --allow-sensitive to send anyway, or allow categories via FLEXFACTOR_ALLOW_EGRESS / ~/.flexfactor/policy.json {"allow_egress": [...]}.
+```
+
+**Responsible code**
+
+- FlexFactor `flexfactor.py:1294` in `_egress_gate()`
+
+```python
+raise EgressBlockedError(
+```
+- Route: `nvidia_nim/mistralai/mistral-large`
+
+**Suggested fix** (signature)
+
+The egress gate found a secret/PII pattern in repo-derived text and refused to send it to a cloud model. Remove the secret from the repo (or use --redact / FLEXFACTOR_ALLOW_EGRESS for a known-safe fixture).
+
+### 3. rotation — program-defect
+
+**Error**
+
+```
+EgressBlockedError: flexfactor_egress_blocked: payload contains ['password_assignment'] (near line(s) [1022, 1025, 1083, 1146, 1202]); refusing to send to a cloud model. Re-run with --redact to mask and send, --allow-sensitive to send anyway, or allow categories via FLEXFACTOR_ALLOW_EGRESS / ~/.flexfactor/policy.json {"allow_egress": [...]}.
+```
+
+**Responsible code**
+
+- FlexFactor `flexfactor.py:1294` in `_egress_gate()`
+
+```python
+raise EgressBlockedError(
+```
+- Route: `nvidia_nim/mistralai/mistral-large-2-instruct`
+
+**Suggested fix** (signature)
+
+The egress gate found a secret/PII pattern in repo-derived text and refused to send it to a cloud model. Remove the secret from the repo (or use --redact / FLEXFACTOR_ALLOW_EGRESS for a known-safe fixture).
+
+### 4. rotation — provider
+
+**Error**
+
+```
+APITimeoutError: Request timed out.
+```
+
+**Responsible code**
+
+- FlexFactor `flexfactor.py:2412` in `_chat_create()`
+
+```python
+return client.chat.completions.create(**kwargs)
+```
+- Route: `nvidia_nim/mistralai/mistral-nemotron`
+
+**Suggested fix** (none)
+
+no known fix; start from the responsible code above
+
+### 5. baseline-gate — program-defect
 
 **Error**
 
@@ -167,4 +255,4 @@ review made no progress: three consecutive semantic review batches completed ZER
 
 **Suggested fix** (none)
 
-no known fix; start from the responsible code above (model suggester failed: no light route available (120 enabled routes in catalog). Pools skipped: gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); local:ollama (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide)))
+no known fix; start from the responsible code above (model suggester failed: no light route available (110 enabled routes in catalog). Pools skipped: gemini:free-tier (gemini:free-tier allowance exhausted (account-wide)); groq:free-tier (pool cooling down); nvidia_nim:free-tier (pool cooling down); openrouter:credits (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:cohere/north-mini-code:free (openrouter:free-tier allowance exhausted (account-wide)); openrouter:free:dots-studio/dots-3-note-preview:free (openrouter:free-tier allowance exhausted (account-wide)))
