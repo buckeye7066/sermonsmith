@@ -80,6 +80,7 @@ export default function AdminUsers() {
       if (state?.period) setGlobalPeriod(state.period);
     } catch (error) {
       console.error('Error loading global free-premium state:', error);
+      toast.error('Failed to load global free-premium state');
     }
   };
 
@@ -113,7 +114,7 @@ export default function AdminUsers() {
       loadUsers();
     } catch (error) {
       console.error("Error deleting user:", error);
-      toast.error("Failed to delete user");
+      toast.error(`Failed to delete user: ${error.message}`);
     }
   };
 

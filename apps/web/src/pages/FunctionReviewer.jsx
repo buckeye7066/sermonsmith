@@ -159,7 +159,7 @@ export default function FunctionReviewer() {
         toast.error(result?.error || 'Discovery failed');
       }
     } catch (err) {
-      toast.error(err.message || 'Discovery failed');
+      toast.error('Discovery failed. Please try again later.');
     } finally {
       setDiscovering(false);
     }

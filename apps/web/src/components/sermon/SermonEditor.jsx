@@ -54,7 +54,7 @@ export default function SermonEditor({
   const isPremium = user && (
     user.subscription_tier === 'premium' ||
     user.premium_override === true ||
-    (user.premium_until && new Date(user.premium_until) > new Date()) ||
+    (typeof user.premium_until === 'string' && !isNaN(new Date(user.premium_until)) && new Date(user.premium_until) > new Date()) ||
     user.role === 'admin'
   );
 
@@ -87,7 +87,7 @@ export default function SermonEditor({
       const { exportSermonToPdf } = await import('@/lib/sermonPdf');
       const filename = await exportSermonToPdf({
         ...currentSermon,
-        title: editedTitle || currentSermon?.title,
+        title: editedTitle || currentSermon?.title || 'Untitled Sermon',
       });
       toast.success("Sermon exported to PDF", { description: filename });
     } catch (error) {

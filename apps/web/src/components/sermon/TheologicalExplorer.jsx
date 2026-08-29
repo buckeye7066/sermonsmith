@@ -184,7 +184,7 @@ Make this scholarly but accessible. Include scripture references throughout.`;
       toast.success("Larry explored the theology! 🎓");
     } catch (error) {
       console.error("Error exploring theology:", error);
-      toast.error("Failed to explore theology");
+      toast.error(`Failed to explore theology: ${error?.message || 'Unknown error'}`);
     } finally {
       setIsLoading(false);
     }

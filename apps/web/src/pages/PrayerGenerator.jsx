@@ -77,7 +77,7 @@ const prayerSchema = {
 };
 
 export default function PrayerGenerator() {
-  const { user } = useAuth();
+  const { user } = useAuth() || {}; // Fallback to an empty object if user is undefined
   const [prayerTheme, setPrayerTheme] = useState('');
   const [prayerType, setPrayerType] = useState('personal');
   const [occasion, setOccasion] = useState('General');
@@ -171,7 +171,7 @@ Make it heartfelt, not formulaic. Use concrete imagery. Be personal yet universa
 
       toast.success('Prayer generated! 🙏');
     } catch (error) {
-      console.error('Error generating prayer:', error);
+      console.error('Error generating prayer:', error.message, error);
       toast.error('Failed to generate prayer');
     } finally {
       setIsGenerating(false);

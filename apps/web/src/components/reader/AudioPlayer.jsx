@@ -284,6 +284,7 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
 
   const handleVolumeChange = (value) => {
     setVolume(value);
+    localStorage.setItem('savedVolume', JSON.stringify(value));
     if (utteranceRef.current && window.speechSynthesis.speaking) {
       window.speechSynthesis.cancel();
       if (isPlaying) {
@@ -297,7 +298,8 @@ export default function AudioPlayer({ verses, book, chapter, isPremium, isOnline
     if (!isMuted) {
       setVolume([0]);
     } else {
-      setVolume([80]);
+      const savedVolume = localStorage.getItem('savedVolume');
+      setVolume(savedVolume ? JSON.parse(savedVolume) : [80]);
     }
   };
 

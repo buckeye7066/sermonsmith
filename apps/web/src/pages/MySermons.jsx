@@ -111,6 +111,7 @@ export default function MySermons() {
       setTags(userTags);
     } catch (error) {
       console.error('Error loading tags:', error);
+      toast.error('Failed to load tags');
     }
   };
 
