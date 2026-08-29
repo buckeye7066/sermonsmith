@@ -8,7 +8,7 @@
 - **ZERO WORK: not one of 318 candidate file(s) was reviewed. This run did nothing; treat it as a FAILURE, not a clean repo.**
 - **Defects found:** 3
 - **Files fixed:** 0
-- **Errors recorded:** 1 (see the Errors section below; ledger at `C:\Users\firer\.flexfactor\runs\sermonsmith-20260827-070257-316388-34856\errors.md`)
+- **Errors recorded:** 1 (see the Errors section below; ledger at `C:\Users\firer\.flexfactor\runs\sermonsmith-20260827-074943-256330-40916\errors.md`)
 - **Baseline build:** passed
 - **Unit tests added:** 0 (suite not run)
 - **Button/UI (Playwright):** skipped
@@ -18,22 +18,22 @@
 
 ## System inventory
 
-**977 entries accounted for.**
+**978 entries accounted for.**
 
 | Category | Count |
 |---|---:|
 | artifact-subtree | 9 |
 | binary-asset | 69 |
-| configuration-documentation-or-data | 357 |
+| configuration-documentation-or-data | 358 |
 | first-party-source | 542 |
 
 The immutable run manifest contains the complete path-level inventory. Artifact, binary, and reparse entries are named and classified; they are not represented as line-reviewed source.
 
 ## Executable evidence
 
-- **Evidence run:** `sermonsmith-20260827-070257-316388-34856`
-- **Exact final commit:** `1af691d84f44b48312d61a584ce86535cb7fda92`
-- **Code map:** 587 file(s), 2978 function(s), 112 route(s), 1206 material control(s)
+- **Evidence run:** `sermonsmith-20260827-074943-256330-40916`
+- **Exact final commit:** `988d099ef9f2bbfb19019bddd059e7e2f7c31585`
+- **Code map:** 588 file(s), 2978 function(s), 112 route(s), 1206 material control(s)
 - **Function execution:** 0/2785 with invocation evidence
 - **Route execution:** 0/112
 - **Control execution:** 0/1206
@@ -41,14 +41,14 @@ The immutable run manifest contains the complete path-level inventory. Artifact,
 - **Blast radius:** 0 affected file(s); analysis ran
 - **Normalized gates:** 5 pass, 2 fail, 2 blocked
 
-- **Blast Radius:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-070257-316388-34856\blast-radius.json`
-- **Changed File Rescan:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-070257-316388-34856\changed-file-rescan.json`
-- **Code Index:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-070257-316388-34856\code-index.json`
-- **Coverage Ledger:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-070257-316388-34856\coverage-ledger.json`
-- **Manifest:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-070257-316388-34856\manifest.json`
-- **Purpose Graph:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-070257-316388-34856\purpose-graph.json`
-- **Quality Gates:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-070257-316388-34856\quality-gates.json`
-- **Sarif:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-070257-316388-34856\results.sarif`
+- **Blast Radius:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-074943-256330-40916\blast-radius.json`
+- **Changed File Rescan:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-074943-256330-40916\changed-file-rescan.json`
+- **Code Index:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-074943-256330-40916\code-index.json`
+- **Coverage Ledger:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-074943-256330-40916\coverage-ledger.json`
+- **Manifest:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-074943-256330-40916\manifest.json`
+- **Purpose Graph:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-074943-256330-40916\purpose-graph.json`
+- **Quality Gates:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-074943-256330-40916\quality-gates.json`
+- **Sarif:** `C:\Users\firer\.flexfactor\evidence\972fd58e1dc96f87\sermonsmith-20260827-074943-256330-40916\results.sarif`
 
 ## Production readiness
 
