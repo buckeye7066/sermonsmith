@@ -35,9 +35,6 @@ const ContactSupport = lazy(() => import('./pages/ContactSupport'));
 const AdminMessages = lazy(() => import('./pages/AdminMessages'));
 const AdminFunctionTester = lazy(() => import('./pages/AdminFunctionTester'));
 const FunctionReviewer = lazy(() => import('./pages/FunctionReviewer'));
-import __Layout from './Layout.jsx';
-
-
 export const PAGES = {
     "Reader": Reader,
     "SermonBuilder": SermonBuilder,

@@ -21,13 +21,13 @@ export default function AdminFunctionTester() {
       
       const result = await api.functions.invoke('testAllFunctions', {});
       
-      if (result) {
+      if (result && typeof result.ok === 'boolean') {
         setResults(result);
         const rd = result.data || result;
         if (result.ok) {
           toast.success(`All ${rd.passed || 0} functions passed!`);
         } else {
-          toast.error(`${rd.failed || 0} function(s) failed`);
+          toast.error(typeof rd.failed === 'number' && rd.failed > 0 ? `${rd.failed} function(s) failed` : 'No functions failed, but there was an error.');
         }
       }
     } catch (error) {

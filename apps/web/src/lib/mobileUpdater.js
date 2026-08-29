@@ -155,7 +155,7 @@ export function parseUpdateManifest(raw) {
   // Fail CLOSED: no checksum means we cannot prove the bytes we run are the
   // bytes that were built, so there is nothing safe to offer the user.
   if (!isSha256(sha256)) {
-    throw new Error('Update feed is missing a valid sha256 checksum — refusing to offer an unverifiable update.');
+    throw new Error(`Update feed is missing a valid sha256 checksum — refusing to offer an unverifiable update. Provided sha256: ${String(sha256)}`);
   }
   return {
     version: String(version),
@@ -266,7 +266,10 @@ export function requiresNativeUpdate(manifest, nativeVersion) {
  * @returns {Promise<{ id?: string, version?: string, checksum?: string }>}
  */
 export async function downloadAndApplyUpdate(manifest, { updater, onProgress, apply = true } = {}) {
-  if (!isSha256(manifest?.sha256)) {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error('Invalid manifest: The provided manifest is null or malformed.');
+  }
+  if (!isSha256(manifest.sha256)) {
     throw new Error('Update refused: the feed did not publish a bundle checksum.');
   }
   const plugin = updater ?? (await loadCapacitorUpdater()).plugin;

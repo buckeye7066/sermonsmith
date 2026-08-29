@@ -105,8 +105,19 @@ export default function AdminAnalytics() {
           .slice(0, 10)
       });
     } catch (error) {
-      console.error("Error loading analytics:", error);
-      toast.error("Failed to load analytics");
+      if (error.response) {
+        // Server responded with a status other than 200
+        console.error("API Error:", error.response.data);
+        toast.error(`Server Error: ${error.response.status}`);
+      } else if (error.request) {
+        // Request made but no response received
+        console.error("Network Error:", error.message);
+        toast.error("Network Error: Please check your connection.");
+      } else {
+        // Something else happened
+        console.error("Error loading analytics:", error.message);
+        toast.error("An unexpected error occurred.");
+      }
     } finally {
       setIsLoading(false);
     }

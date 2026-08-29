@@ -131,7 +131,7 @@ export default function AppearanceSettings() {
             <Label htmlFor="fontSize" className="mb-2 block">Base Font Size</Label>
             <Select value={theme.fontSize} onValueChange={(value) => updateTheme({ fontSize: value })}>
               <SelectTrigger id="fontSize">
-                <SelectValue />
+                <SelectValue>{FONT_SIZE_OPTIONS.find(option => option.value === theme.fontSize)?.label}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {FONT_SIZE_OPTIONS.map((size) => (
@@ -246,10 +246,10 @@ export default function AppearanceSettings() {
               This is a preview of how text will appear with your selected font and size. 
               The quick brown fox jumps over the lazy dog.
             </p>
-            <Button style={{ backgroundColor: 'var(--primary-color)' }}>
+            <Button style={{ backgroundColor: 'var(--primary-color, #4f46e5)' }}>
               Primary Button
             </Button>
-            <Button className="ml-2" variant="outline" style={{ borderColor: 'var(--accent-color)', color: 'var(--accent-color)' }}>
+            <Button className="ml-2" variant="outline" style={{ borderColor: 'var(--accent-color, #3b82f6)', color: 'var(--accent-color, #3b82f6)' }}>
               Accent Button
             </Button>
           </div>

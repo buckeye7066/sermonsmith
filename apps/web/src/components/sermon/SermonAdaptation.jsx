@@ -175,6 +175,10 @@ Return the adapted sermon in the same JSON format with title, big_idea, points a
     } catch (error) {
       console.error("Error adjusting length:", error);
       toast.error("Failed to adjust sermon length");
+      setAdaptedContent({
+        type: 'error',
+        message: 'An error occurred while adjusting sermon length. Please try again.'
+      });
     } finally {
       setIsAdapting(false);
     }
@@ -350,6 +354,10 @@ Return the full translated sermon in the same JSON format.`;
     } catch (error) {
       console.error("Error translating:", error);
       toast.error("Failed to translate sermon");
+      setAdaptedContent({
+        type: 'error',
+        message: 'An error occurred during translation. Please try again.'
+      });
     } finally {
       setIsAdapting(false);
     }

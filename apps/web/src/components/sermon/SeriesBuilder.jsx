@@ -107,7 +107,7 @@ export default function SeriesBuilder({ open, onClose, user }) {
     setIsGenerating(true);
 
     try {
-      const contextInfo = TEACHING_CONTEXTS.find(c => c.value === outlineContext);
+      const contextInfo = TEACHING_CONTEXTS.find(c => c.value === outlineContext) || TEACHING_CONTEXTS[0];
       const prompt = `Hi, I'm Arlynn - your AI sermon outline specialist! I create comprehensive, preaching-ready sermon outlines.
 
 Request:
@@ -1080,7 +1080,7 @@ Include:
                   </div>
 
                   {asArray(seriesOutline.sermons).map((sermon, index) => {
-                    const discussionQuestions = asArray(sermon.discussion_questions);
+                    const discussionQuestions = asArray(sermon.discussion_questions) || [];
                     return (
                     <Card key={index} className="hover:shadow-lg transition-shadow">
                       <CardHeader>

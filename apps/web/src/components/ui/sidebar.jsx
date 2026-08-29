@@ -86,7 +86,13 @@ export function SidebarTrigger({ className, ...props }) {
   return (
     <button
       type="button"
-      onClick={() => setOpen(!open)}
+      onClick={() => {
+        try {
+          setOpen(!open);
+        } catch (error) {
+          console.error("Failed to toggle sidebar state.", error);
+        }
+      }}
       className={cn(
         "inline-flex items-center justify-center h-8 w-8 rounded-md hover:bg-accent",
         className

@@ -20,7 +20,12 @@ export default function AdminImport() {
         translation: 'KJV'
       });
       
-      setProgress(result.message || 'Import complete');
+      if (result.message) {
+        setProgress(result.message);
+      } else {
+        setProgress('Import complete');
+      }
+
       toast.success('Bible import completed!');
     } catch (error) {
       toast.error('Import failed: ' + error.message);
@@ -39,7 +44,12 @@ export default function AdminImport() {
         bibleId: 'de4e12af7f28f599-02' // KJV
       });
       
-      setProgress(result.message || 'Import complete');
+      if (result.message) {
+        setProgress(result.message);
+      } else {
+        setProgress('Import complete');
+      }
+
       toast.success('Scripture API import completed!');
     } catch (error) {
       toast.error('Import failed: ' + error.message);
@@ -85,15 +95,25 @@ export default function AdminImport() {
 
         // Batch insert every 100 verses
         if (verses.length >= 100) {
-          await api.entities.Verse.bulkCreate(verses);
-          setProgress(`Imported ${i} verses...`);
+          try {
+            await api.entities.Verse.bulkCreate(verses);
+            setProgress(`Imported ${i} verses...`);
+          } catch (insertError) {
+            toast.error('Batch insert failed at line: ' + i + '. Error: ' + insertError.message);
+            setProgress('Batch insert error: ' + insertError.message);
+          }
           verses.length = 0;
         }
       }
 
       // Insert remaining verses
       if (verses.length > 0) {
-        await api.entities.Verse.bulkCreate(verses);
+        try {
+          await api.entities.Verse.bulkCreate(verses);
+        } catch (insertError) {
+          toast.error('Final insert failed. Error: ' + insertError.message);
+          setProgress('Final insert error: ' + insertError.message);
+        }
       }
 
       toast.success('CSV import completed!');
