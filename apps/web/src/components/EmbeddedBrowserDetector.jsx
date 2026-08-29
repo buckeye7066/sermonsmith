@@ -80,7 +80,7 @@ export default function EmbeddedBrowserDetector() {
       toast.success('URL copied to clipboard!');
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
-      toast.error('Failed to copy URL');
+      toast.error('Failed to copy URL: Check if permissions are enabled for clipboard access or try copying manually.');
     }
   };
 

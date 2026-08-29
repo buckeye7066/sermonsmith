@@ -39,6 +39,34 @@ export async function initOfflineDB() {
       // Store for download progress/meta
       if (!database.objectStoreNames.contains(META_STORE)) {
         database.createObjectStore(META_STORE, { keyPath: 'translationId' });
+      } else {
+        console.error('Error: META_STORE already exists during onupgradeneeded event.');
+      }
+    };
+    request.onupgradeneeded = (event) => {
+      try {
+        const database = event.target.result;
+        
+        // Store for translation metadata
+        if (!database.objectStoreNames.contains(TRANSLATIONS_STORE)) {
+          database.createObjectStore(TRANSLATIONS_STORE, { keyPath: 'id' });
+        }
+        
+        // Store for chapter content
+        if (!database.objectStoreNames.contains(CHAPTERS_STORE)) {
+          const chaptersStore = database.createObjectStore(CHAPTERS_STORE, { keyPath: 'key' });
+          chaptersStore.createIndex('translationId', 'translationId', { unique: false });
+        }
+        
+        // Store for download progress/meta
+        if (!database.objectStoreNames.contains(META_STORE)) {
+          database.createObjectStore(META_STORE, { keyPath: 'translationId' });
+        } else {
+          console.error('Error: META_STORE already exists during onupgradeneeded event.');
+        }
+      } catch (error) {
+        console.error('Error during database upgrade:', error);
+        event.target.transaction.abort();
       }
     };
   });

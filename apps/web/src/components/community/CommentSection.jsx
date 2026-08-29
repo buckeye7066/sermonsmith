@@ -89,7 +89,10 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
   };
 
   const handleDelete = async (comment) => {
-    if (!user || comment.user_id !== user.id) return;
+    if (!user || comment.user_id !== user.id) {
+    toast.error("You do not have permission to delete this comment");
+    return;
+  }
 
     if (!confirm("Delete this comment?")) return;
 

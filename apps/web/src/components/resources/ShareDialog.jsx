@@ -32,7 +32,7 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
         title: shareTitle,
         description,
         accessLevel,
-        expiresInDays: expiresInDays ? parseInt(expiresInDays) : null
+        expiresInDays: expiresInDays.trim() !== '' ? parseInt(expiresInDays) : null
       });
 
       if (result.error) {

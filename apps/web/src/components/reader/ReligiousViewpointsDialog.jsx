@@ -108,10 +108,15 @@ Be respectful, accurate, and balanced. About 400-500 words total.`;
         }
       });
 
-      setViewpoints(response);
+      if (response && response.common_ground && response.key_differences) {
+        setViewpoints(response);
+      } else {
+        throw new Error('Incomplete response from API');
+      }
     } catch (error) {
       console.error("Error generating viewpoints:", error);
       toast.error("Failed to generate religious viewpoints");
+      setViewpoints(null);
     } finally {
       setIsLoading(false);
     }

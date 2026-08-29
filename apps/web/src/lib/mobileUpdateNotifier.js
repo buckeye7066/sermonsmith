@@ -38,11 +38,14 @@ export const MIN_CHECK_INTERVAL_MS = 15 * 60 * 1000;
  * @returns {string} the last version we notified about ('' when unknown)
  */
 export function lastNotifiedVersion(storage) {
-  try {
-    return storage?.getItem(NOTIFIED_VERSION_KEY) ?? '';
-  } catch {
-    return '';
+  if (storage && typeof storage.getItem === 'function') {
+    try {
+      return storage.getItem(NOTIFIED_VERSION_KEY) ?? '';
+    } catch {
+      // Handle any unexpected errors during getItem
+    }
   }
+  return '';
 }
 
 /**
@@ -205,7 +208,8 @@ export function startMobileUpdateNotifier({
       let notifications = null;
       try {
         notifications = await loadNotifications();
-      } catch {
+      } catch (err) {
+        console.error('Error loading notifications:', err);
         notifications = null; // plugin missing in an older package — in-app prompt still works
       }
       await runCheck({

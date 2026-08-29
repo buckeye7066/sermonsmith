@@ -39,9 +39,9 @@ export default function ImportStatus() {
     );
   }
 
-  const completed = status?.completedTranslations || 0;
-  const total = status?.totalTranslations || 0;
-  const totalVerses = status?.totalVerses || 0;
+  const completed = status && status.completedTranslations || 0;
+  const total = status && status.totalTranslations || 0;
+  const totalVerses = status && status.totalVerses || 0;
   const percentComplete = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (

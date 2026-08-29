@@ -24,7 +24,7 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
   const [isSharing, setIsSharing] = useState(false);
 
   useEffect(() => {
-    if (open && user) {
+    if (open && user && user.id) {
       loadStudyGroups();
       generateTitle();
     }
@@ -46,9 +46,9 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
   };
 
   const generateTitle = () => {
-    if (contentType === 'note' && content.verse) {
+    if (contentType === 'note' && content.book_name && content.chapter && content.verse) {
       setTitle(`Note on ${content.book_name} ${content.chapter}:${content.verse}`);
-    } else if (contentType === 'highlight' && content.verse) {
+    } else if (contentType === 'highlight' && content.book_name && content.chapter && content.verse) {
       setTitle(`Highlight from ${content.book_name} ${content.chapter}:${content.verse}`);
     } else {
       setTitle(`Shared ${contentType}`);
