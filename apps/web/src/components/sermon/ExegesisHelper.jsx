@@ -36,7 +36,7 @@ export default function ExegesisHelper({ open, onClose, initialPassage = "", den
   const [copied, setCopied] = useState(false);
 
   React.useEffect(() => {
-    if (open && initialPassage) setPassage(initialPassage);
+    if (open && initialPassage.trim()) setPassage(initialPassage);
   }, [open, initialPassage]);
 
   const performExegesis = async () => {
@@ -295,7 +295,7 @@ Be scholarly but accessible. Include specific examples.`;
                   </Card>
                 )}
 
-                {exegesis.original_language?.key_words?.map((word, index) => (
+                {exegesis.original_language?.key_words && exegesis.original_language.key_words.map((word, index) => (
                   <Card key={index}>
                     <CardHeader>
                       <div className="flex items-start justify-between">

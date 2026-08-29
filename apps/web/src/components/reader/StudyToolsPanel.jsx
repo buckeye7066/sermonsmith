@@ -243,8 +243,9 @@ Make it personal, practical, and profound. About 350 words.`;
   };
 
   const saveStudyNote = async () => {
-    if (!noteContent.trim()) {
-      toast.error("Please enter note content");
+    const trimmedNoteContent = noteContent.trim();
+    if (!trimmedNoteContent || trimmedNoteContent.length > 500) {
+      toast.error("Please enter valid note content (1-500 characters)");
       return;
     }
 
@@ -267,7 +268,8 @@ Make it personal, practical, and profound. About 350 words.`;
       setNoteCategory("observation");
     } catch (error) {
       console.error("Error saving note:", error);
-      toast.error("Failed to save note");
+      const errorMessage = error.response?.data?.message || "Failed to save note";
+      toast.error(errorMessage);
     } finally {
       setIsSavingNote(false);
     }

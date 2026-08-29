@@ -582,8 +582,10 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => 
     // Bound the result set: an unbounded findMany would load every user's PII
     // into memory in one request once the table grows. Defaults to 100, capped
     // at 500. ?limit & ?offset let the admin UI page through.
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
-    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const limitInput = parseInt(req.query.limit, 10);
+    const offsetInput = parseInt(req.query.offset, 10);
+    const limit = isNaN(limitInput) ? 100 : Math.min(Math.max(limitInput, 1), 500);
+    const offset = isNaN(offsetInput) ? 0 : Math.max(offsetInput, 0);
     const users = await prisma.user.findMany({
       where: { deletedAt: null },
       select: {

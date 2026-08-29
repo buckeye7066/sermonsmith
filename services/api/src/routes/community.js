@@ -500,12 +500,12 @@ router.get('/moderation/queue', authenticateToken, requireAdmin, async (_req, re
       select: { id: true, type: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
 
-    const queue = rows
+    const queue = Array.isArray(rows) ? rows
       .filter((row) => {
         const status = communityStatus(row.data || {});
         return reportedCount(row.data || {}) > 0 || ['reported', 'hidden', 'removed', 'rejected'].includes(status);
       })
-      .map((row) => ({ type: row.type, userId: row.userId, ...formatEntity(row) }));
+      .map((row) => ({ type: row.type, userId: row.userId, ...formatEntity(row) })) : [];
 
     res.json(queue);
   } catch (err) {
