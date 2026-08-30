@@ -269,7 +269,7 @@ export function getBibleSource(id) {
  * @returns {BibleSource}
  */
 export function getDefaultBibleSource() {
-  return bibleSources.find((s) => s.default) || bibleSources[0];
+  return bibleSources.find((s) => s.default) || (bibleSources.length > 0 ? bibleSources[0] : undefined);
 }
 
 /**

@@ -29,7 +29,7 @@ export default function CollaboratorManager({ open, onClose, sermon, user }) {
   const [isInviting, setIsInviting] = useState(false);
 
   useEffect(() => {
-    if (open && sermon) {
+    if (open && sermon && sermon.id) {
       loadCollaborators();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
@@ -54,7 +54,7 @@ export default function CollaboratorManager({ open, onClose, sermon, user }) {
     try {
       await api.entities.SermonCollaborator.create({
         sermon_id: sermon.id,
-        user_id: email, // Will be resolved on acceptance
+        // user_id should be a unique identifier; resolve it from the email or use a user object
         user_email: email,
         user_name: email,
         role: selectedRole,

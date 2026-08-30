@@ -22,20 +22,32 @@ export default function PWAInstallPrompt() {
     const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     setIsIOS(ios);
 
+    // More reliable check to ensure PWA state
+    if (ios) {
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        console.log('Install prompt has been prevented on iOS.');
+      });
+    }
+
     // Listen for install prompt (Android/Desktop)
     const handleBeforeInstallPrompt = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      
-      // Show prompt after 10 seconds if not dismissed before
-      setTimeout(() => {
-        const dismissed = localStorage.getItem('pwa-prompt-dismissed');
-        const installCount = localStorage.getItem('pwa-install-count') || 0;
-        
-        if (!dismissed && installCount < 3 && !standalone) {
-          setShowPrompt(true);
-        }
-      }, 10000);
+      try {
+        e.preventDefault();
+        setDeferredPrompt(e);
+
+        // Show prompt after 10 seconds if not dismissed before
+        setTimeout(() => {
+          const dismissed = localStorage.getItem('pwa-prompt-dismissed');
+          const installCount = localStorage.getItem('pwa-install-count') || 0;
+          
+          if (!dismissed && installCount < 3 && !standalone) {
+            setShowPrompt(true);
+          }
+        }, 10000);
+      } catch (error) {
+        console.error('Error handling beforeinstallprompt event:', error);
+      }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);

@@ -24,7 +24,7 @@ export default function CommentPanel({ sermon, user, pointIndex = null }) {
 
   const loadComments = async () => {
     try {
-      const allComments = await api.entities.SermonComment.filter({ sermon_id: sermon.id });
+      const allComments = await api.entities.SermonComment.filter({ sermon_id: sermon?.id });
       const filtered = pointIndex !== null
         ? allComments.filter(c => c.point_index === pointIndex)
         : allComments.filter(c => c.point_index === null || c.point_index === undefined);
@@ -36,7 +36,10 @@ export default function CommentPanel({ sermon, user, pointIndex = null }) {
   };
 
   const postComment = async () => {
-    if (!newComment.trim()) return;
+    if (!newComment.trim()) {
+      toast.error("Cannot submit an empty comment");
+      return;
+    }
 
     setIsPosting(true);
     try {
@@ -65,6 +68,7 @@ export default function CommentPanel({ sermon, user, pointIndex = null }) {
       await api.entities.SermonComment.update(commentId, { resolved: !currentStatus });
       loadComments();
     } catch (error) {
+      toast.error("Failed to update comment status");
       console.error("Error updating comment:", error);
     }
   };
