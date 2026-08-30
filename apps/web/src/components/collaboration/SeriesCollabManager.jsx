@@ -38,6 +38,10 @@ export default function SeriesCollabManager({ open, onClose, series, sermons, us
 
   const loadCollaborators = async () => {
     try {
+      if (!series || !series.id) {
+        console.error('Series information is missing, unable to load collaborators.');
+        return;
+      }
       const collab = await api.entities.SeriesCollaborator.filter({ series_id: series.id });
       setCollaborators(collab);
     } catch (error) {
@@ -46,7 +50,8 @@ export default function SeriesCollabManager({ open, onClose, series, sermons, us
   };
 
   const inviteCollaborator = async () => {
-    if (!email.trim()) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email.trim() || !emailRegex.test(email)) {
       toast.error("Please enter an email");
       return;
     }

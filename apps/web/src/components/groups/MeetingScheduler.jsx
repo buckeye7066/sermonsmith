@@ -46,8 +46,8 @@ export default function MeetingScheduler({ group, user, members }) {
   };
 
   const handleCreateMeeting = async () => {
-    if (!newMeeting.title || !newMeeting.scheduled_date) {
-      toast.error("Title and date are required");
+    if (!newMeeting.title || !newMeeting.scheduled_date || !newMeeting.discussion_leader_id) {
+      toast.error("Title, date, and leader are required");
       return;
     }
 

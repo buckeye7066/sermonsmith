@@ -52,7 +52,7 @@ const ADAPTATION_OPTIONS = [
   }
 ];
 
-export default function ForkSermonDialog({ open, onClose, sermon, user }) {
+export default function ForkSermonDialog({ open, onClose, sermon = {}, user }) {
   const [forkType, setForkType] = useState('copy');
   const [adaptationNotes, setAdaptationNotes] = useState("");
   const [isForking, setIsForking] = useState(false);
@@ -160,7 +160,7 @@ Keep the most crucial points, tighten illustrations, focus on core message. Make
       onClose();
     } catch (error) {
       console.error('Error forking sermon:', error);
-      toast.error("Failed to fork sermon");
+      toast.error(error?.message || "Failed to fork sermon");
     } finally {
       setIsForking(false);
     }

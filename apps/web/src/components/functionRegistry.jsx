@@ -232,14 +232,22 @@ export function getAllFunctions() {
  * Get function by ID
  */
 export function getFunctionById(functionId) {
-  return KNOWN_FUNCTIONS.find(f => f.functionId === functionId);
+  const func = KNOWN_FUNCTIONS.find(f => f.functionId === functionId);
+  if (!func) {
+    throw new Error(`Function with ID '${functionId}' not found.`);
+  }
+  return func;
 }
 
 /**
  * Get functions by category
  */
 export function getFunctionsByCategory(category) {
-  return KNOWN_FUNCTIONS.filter(f => f.category === category);
+  const functions = KNOWN_FUNCTIONS.filter(f => f.category === category);
+  if (functions.length === 0) {
+    throw new Error(`No functions found for category '${category}'.`);
+  }
+  return functions;
 }
 
 /**
