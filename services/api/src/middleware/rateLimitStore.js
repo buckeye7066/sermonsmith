@@ -18,7 +18,10 @@ let _warned = false;
 
 async function getRedisClient() {
   if (_client) return _client;
-  if (!process.env.REDIS_URL) return null;
+  if (!process.env.REDIS_URL) {
+    console.warn('[rateLimit] REDIS_URL is not set — falling back to in-memory store.');
+    return null;
+  }
 
   try {
     const { createClient } = await import('redis');
@@ -52,7 +55,10 @@ async function getRedisClient() {
  */
 export async function makeRateLimitStore(prefix) {
   const client = await getRedisClient();
-  if (!client) return undefined;
+  if (!client) {
+    console.error('[rateLimit] Failed to create Redis client — falling back to in-memory store.');
+    return { store: undefined };
+  }
 
   try {
     const { default: RedisStore } = await import('rate-limit-redis');
@@ -68,6 +74,7 @@ export async function makeRateLimitStore(prefix) {
       );
       _warned = true;
     }
-    return undefined;
+    console.error('[rateLimit] Failed to create Redis store — falling back to in-memory store.');
+    return { store: undefined };
   }
 }

@@ -39,7 +39,7 @@ const createIconSVG = () => {
   </defs>
   
   <!-- Background circle with gradient -->
-  <circle cx="${SIZE/2}" cy="${SIZE/2}" r="${SIZE/2}" fill="url(#bg-gradient)"/>
+  <circle cx="${SIZE/2.0}" cy="${SIZE/2.0}" r="${SIZE/2.0}" fill="url(#bg-gradient)"/>
   
   <!-- Cross with glow effect -->
   <g filter="url(#glow)">
@@ -57,17 +57,25 @@ async function generateBaseIcon() {
   const svg = createIconSVG();
   const outputPath = join(OUTPUT_DIR, 'icon.png');
   
-  await sharp(Buffer.from(svg))
-    .resize(SIZE, SIZE)
-    .png()
-    .toFile(outputPath);
+  try {
+    await sharp(Buffer.from(svg))
+      .resize(SIZE, SIZE)
+      .png()
+      .toFile(outputPath);
+  } catch (error) {
+    console.error('Error generating PNG with sharp:', error);
+  }
   
   console.log(`✓ Created: ${outputPath}`);
   
   // Also save the SVG
   const svgPath = join(OUTPUT_DIR, 'icon.svg');
   const fs = await import('fs/promises');
-  await fs.writeFile(svgPath, svg);
+  try {
+    await fs.writeFile(svgPath, svg);
+  } catch (error) {
+    console.error('Error writing SVG file:', error);
+  }
   console.log(`✓ Created: ${svgPath}`);
 }
 

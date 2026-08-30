@@ -43,7 +43,7 @@ export default function AdminGuard({ children }) {
                   ? "Your account doesn't have permission to view this page."
                   : 'Please sign in with an administrator account to continue.'}
               </p>
-              {!user && (
+              {!user && api.auth && api.auth.redirectToLogin && (
                 <Button onClick={() => api.auth.redirectToLogin(window.location.href)}>
                   Sign In
                 </Button>

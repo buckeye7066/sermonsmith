@@ -29,10 +29,11 @@ export const ARLYNN_SYSTEM_PROMPT = `You are Arlynn, the AI Series Specialist fo
  * Build a denomination context string for inclusion in prompts.
  */
 export function denomContext(user) {
-  const denom = user?.denomination || 'Non-Denominational';
+  if (!user) return 'Non-Denominational';
+  const denom = user.denomination || 'Non-Denominational';
   const tone = user?.content_preferences?.preferredSermonTone || '';
   const audience = user?.content_preferences?.preferredAudience || '';
-  const topics = user?.content_preferences?.favoriteTopics;
+  const topics = user.content_preferences?.favoriteTopics;
 
   let ctx = `Denomination: ${denom}`;
   if (tone) ctx += `\nPreferred tone: ${tone}`;

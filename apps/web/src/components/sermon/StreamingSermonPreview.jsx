@@ -9,7 +9,7 @@ import { Loader2, Sparkles, BookOpen } from "lucide-react";
  * page swaps to the full editable SermonEditor once generation completes.
  */
 export default function StreamingSermonPreview({ sermon }) {
-  const points = Array.isArray(sermon?.points) ? sermon.points : [];
+  const points = Array.isArray(sermon) && Array.isArray(sermon.points) ? sermon.points : [];
 
   return (
     <div className="space-y-6">

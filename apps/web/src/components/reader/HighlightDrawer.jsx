@@ -50,7 +50,7 @@ export default function HighlightDrawer({ open, onClose, onSave, verse }) {
                   key={color.name}
                   variant="outline"
                   className="h-12 flex flex-col items-center gap-1 hover:bg-gray-100 dark:hover:bg-gray-800"
-                  onClick={() => onSave(color.name)}
+                  onClick={() => typeof onSave === 'function' && onSave(color.name)}
                 >
                   <div className={`w-4 h-4 rounded-full ${color.class}`} />
                   <span className="text-xs">{color.label}</span>

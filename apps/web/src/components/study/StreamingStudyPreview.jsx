@@ -9,7 +9,7 @@ import { Loader2, Sparkles, BookOpen } from "lucide-react";
  * generation completes.
  */
 export default function StreamingStudyPreview({ study }) {
-  const keyVerses = Array.isArray(study && study.key_verses) ? study.key_verses : [];
+  const keyVerses = Array.isArray(study?.key_verses) ? study.key_verses : [];
   const sections = Array.isArray(study && study.study_sections) ? study.study_sections : [];
 
   return (
