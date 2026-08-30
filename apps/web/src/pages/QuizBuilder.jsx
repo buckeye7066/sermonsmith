@@ -93,7 +93,7 @@ Create 10 multiple choice questions with 4 options each. Each question should te
 
     } catch (error) {
       console.error("Error generating quiz:", error);
-      toast.error("Failed to generate quiz. Please try again.");
+      toast.error(`Failed to generate quiz: ${error.message}`);
     } finally {
       setIsLoading(false);
     }

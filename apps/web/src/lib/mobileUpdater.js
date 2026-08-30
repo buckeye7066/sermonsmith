@@ -228,8 +228,8 @@ export async function fetchUpdateManifest({
   let parsed;
   try {
     parsed = await response.json();
-  } catch {
-    throw new Error('Update feed is not available yet (no manifest published).');
+  } catch (error) {
+    throw new Error(`Update feed parsing failed: ${response.status} - ${response.statusText}`);
   }
   return parseUpdateManifest(parsed);
 }
@@ -270,7 +270,7 @@ export async function downloadAndApplyUpdate(manifest, { updater, onProgress, ap
     throw new Error('Invalid manifest: The provided manifest is null or malformed.');
   }
   if (!isSha256(manifest.sha256)) {
-    throw new Error('Update refused: the feed did not publish a bundle checksum.');
+    throw new Error('Update refused: the feed did not publish a bundle checksum. Please check your internet connection and try again in a few moments. Contact support if the problem persists.');
   }
   const plugin = updater ?? (await loadCapacitorUpdater()).plugin;
 
@@ -320,6 +320,8 @@ export async function downloadAndApplyUpdate(manifest, { updater, onProgress, ap
   if (apply) {
     // set() swaps to the verified bundle and reloads the webview.
     await plugin.set({ id: bundle.id });
+  } else {
+    throw new Error('Plugin load failed: Unable to apply update. Please try again or contact support.');
   }
   return bundle;
 }

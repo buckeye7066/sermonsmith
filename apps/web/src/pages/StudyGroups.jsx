@@ -29,12 +29,7 @@ export default function StudyGroups() {
   });
 
   useEffect(() => {
-    if (isLoadingAuth) return;
-    if (!user) {
-      toast.error("Please log in to view study groups");
-      setIsLoading(false);
-      return;
-    }
+    if (isLoadingAuth || !user || !user.id) return;
     loadGroups();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [isLoadingAuth, user]);
@@ -51,7 +46,8 @@ export default function StudyGroups() {
       const userGroups = allGroups.filter(g => myGroupIds.includes(g.id));
       setMyGroups(userGroups);
     } catch (error) {
-      toast.error(logError('Error loading study groups', error));
+      console.error('Error loading study groups:', error);
+      toast.error('An error occurred while loading study groups. Consult the console for details.');
     } finally {
       setIsLoading(false);
     }
@@ -84,11 +80,13 @@ export default function StudyGroups() {
       setNewGroup({ name: '', description: '', focus_book: '', theme: '', is_private: false, meeting_schedule: '' });
       loadGroups();
     } catch (error) {
-      toast.error("Failed to create group");
+      console.error('Failed to create group:', error);
+      toast.error(`Failed to create group: ${error.message || error}`);
     }
   };
 
   const handleJoinGroup = async (group) => {
+    if (!user || !user.id) return;
     try {
       // Check if already a member
       const existing = await api.entities.GroupMembership.filter({

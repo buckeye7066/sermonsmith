@@ -114,7 +114,7 @@ export function versesInChapter(book, chapter, translationId) {
   const bookKey = String(book).toLowerCase();
   const arr = VERSE_COUNTS[bookKey];
   if (!arr) return null;
-  if (!Number.isInteger(chapter) || chapter < 1 || chapter > arr.length) return null;
+  if (!arr || !Number.isInteger(chapter) || chapter < 1 || chapter > arr.length) return null;
   const translationKey = normalizeTranslationId(translationId);
   if (translationKey && !AUDITED_TRANSLATION_IDS.has(translationKey)) return null;
   const override = TRANSLATION_VERSE_COUNT_OVERRIDES[translationKey]?.[bookKey]?.[chapter];

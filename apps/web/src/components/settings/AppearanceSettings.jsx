@@ -62,7 +62,7 @@ export default function AppearanceSettings() {
                 className={`flex items-center space-x-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
                   theme.mode === 'light' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'
                 }`}
-                onClick={() => updateTheme({ mode: 'light' })}
+                onClick={() => theme.mode !== 'light' && updateTheme({ mode: 'light' })}
               >
                 <RadioGroupItem value="light" id="light" />
                 <Label htmlFor="light" className="cursor-pointer flex items-center gap-3 flex-1">
@@ -78,7 +78,7 @@ export default function AppearanceSettings() {
                 className={`flex items-center space-x-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
                   theme.mode === 'dark' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'
                 }`}
-                onClick={() => updateTheme({ mode: 'dark' })}
+                onClick={() => theme.mode !== 'dark' && updateTheme({ mode: 'dark' })}
               >
                 <RadioGroupItem value="dark" id="dark" />
                 <Label htmlFor="dark" className="cursor-pointer flex items-center gap-3 flex-1">
@@ -131,7 +131,7 @@ export default function AppearanceSettings() {
             <Label htmlFor="fontSize" className="mb-2 block">Base Font Size</Label>
             <Select value={theme.fontSize} onValueChange={(value) => updateTheme({ fontSize: value })}>
               <SelectTrigger id="fontSize">
-                <SelectValue>{FONT_SIZE_OPTIONS.find(option => option.value === theme.fontSize)?.label}</SelectValue>
+                <SelectValue>{FONT_SIZE_OPTIONS.find(option => option.value === theme.fontSize)?.label || 'Default Font Size'}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {FONT_SIZE_OPTIONS.map((size) => (

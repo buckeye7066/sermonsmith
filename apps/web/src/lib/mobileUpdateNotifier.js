@@ -41,8 +41,8 @@ export function lastNotifiedVersion(storage) {
   if (storage && typeof storage.getItem === 'function') {
     try {
       return storage.getItem(NOTIFIED_VERSION_KEY) ?? '';
-    } catch {
-      // Handle any unexpected errors during getItem
+    } catch (error) {
+      console.error('Error retrieving item from storage:', error);
     }
   }
   return '';
@@ -65,8 +65,8 @@ export function shouldNotifyForVersion(version, storage) {
 export function markVersionNotified(version, storage) {
   try {
     storage?.setItem(NOTIFIED_VERSION_KEY, version);
-  } catch {
-    // storage unavailable — worst case the user sees the notice again
+  } catch (error) {
+    console.error('Error setting item in storage:', error);
   }
 }
 
@@ -82,8 +82,8 @@ export async function deliverNotification(notifications, manifest, needsNative) 
   if (!notifications) return false;
   try {
     const current = await notifications.checkPermissions?.();
-    let state = current?.display;
-    if (state === 'denied') return false; // respect the user's "no" — do not re-prompt
+    let state = current?.display || null;
+    if (state === null || state === 'denied') return false; // respect the user's "no" — do not re-prompt
     if (state !== 'granted') {
       const requested = await notifications.requestPermissions?.();
       state = requested?.display;
