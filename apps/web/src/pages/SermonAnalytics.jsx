@@ -33,6 +33,7 @@ export default function SermonAnalytics() {
   }, [isLoadingAuth, user, timeRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAnalyticsData = async () => {
+    if (!user) return;
     setIsLoading(true);
     try {
       const [userSermons, publicSermons, allRatings, userSeries] = await Promise.all([
@@ -130,7 +131,7 @@ export default function SermonAnalytics() {
         
         return {
           ...shared,
-          title: sermon?.title || "Unknown",
+          title: sermon ? sermon.title : "Unknown",
           topic: sermon?.topic || "",
           engagement: (shared.view_count || 0) + (shared.fork_count || 0) * 5 + avgRating * 10,
           avgRating

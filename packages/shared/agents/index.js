@@ -73,7 +73,7 @@ export const AGENTS = Object.freeze({
 export const AGENT_IDS = Object.freeze(Object.keys(AGENTS));
 
 export function getAgentById(id) {
-  return (typeof id === 'string' && Object.prototype.hasOwnProperty.call(AGENTS, id))
+  return (typeof id === 'string' && AGENT_IDS.includes(id))
     ? AGENTS[id]
     : null;
 }

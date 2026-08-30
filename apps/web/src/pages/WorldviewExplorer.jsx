@@ -243,6 +243,10 @@ export default function WorldviewExplorer() {
     if (showNotesDialog && selectedSystem) {
       setCurrentNote(userNotes[selectedSystem] || '');
     }
+    // Log mismatch in production if the counts differ
+    if (process.env.NODE_ENV === 'production' && BELIEF_SYSTEMS.length !== WORLDVIEW_COUNT) {
+      console.error(`[appStats] WORLDVIEW_COUNT (${WORLDVIEW_COUNT}) != BELIEF_SYSTEMS.length (${BELIEF_SYSTEMS.length}); update src/lib/appStats.js`);
+    }
   }, [showNotesDialog, selectedSystem, userNotes]);
 
   const loadUserNotes = () => {
@@ -409,7 +413,8 @@ Be respectful, accurate, pastoral.`;
       // Previously the catch only fired a toast and left both `analysis` and
       // `isAnalyzing` empty/false — so the page rendered nothing and looked
       // like the click was simply ignored.
-      setAnalysisError(error?.data?.message || error?.message || 'Something went wrong while generating this analysis. Please try again.');
+      console.error('Detailed error:', error);
+      setAnalysisError('Something went wrong while generating this analysis. Please try again.');
       toast.error("Failed to generate analysis");
     } finally {
       setIsAnalyzing(false);
@@ -1256,7 +1261,7 @@ Be respectful, accurate, pastoral.`;
                             <p className="text-sm">{comparisonResult.evangelism_strategy.approach_to_b}</p>
                           </div>
                         )}
-                        {comparisonResult.evangelism_strategy?.common_bridges?.length > 0 && (
+                        {comparisonResult.evangelism_strategy && comparisonResult.evangelism_strategy.common_bridges?.length > 0 && (
                           <div>
                             <h5 className="font-semibold text-sm mb-2">Gospel Bridges:</h5>
                             <ul className="space-y-1">
