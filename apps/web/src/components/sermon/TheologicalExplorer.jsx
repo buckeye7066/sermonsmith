@@ -186,7 +186,9 @@ Make this scholarly but accessible. Include scripture references throughout.`;
       console.error("Error exploring theology:", error);
       toast.error(`Failed to explore theology: ${error?.message || 'Unknown error'}`);
     } finally {
-      setIsLoading(false);
+      if (!explorationData) {
+        setIsLoading(false);
+      }
     }
   };
 

@@ -89,6 +89,9 @@ Mix question types: observation, interpretation, application, and reflection.`;
     } finally {
       setIsGenerating(false);
     }
+
+    // Ensure isGenerating is reset if API call is retried by user action
+    setIsGenerating(false);
   };
 
   const generateStudyOutline = async () => {
@@ -244,7 +247,7 @@ Make it personal, practical, and profound. About 350 words.`;
 
   const saveStudyNote = async () => {
     const trimmedNoteContent = noteContent.trim();
-    if (!trimmedNoteContent || trimmedNoteContent.length > 500) {
+    if (!trimmedNoteContent || trimmedNoteContent.length === 0 || trimmedNoteContent.length > 500) {
       toast.error("Please enter valid note content (1-500 characters)");
       return;
     }
@@ -268,7 +271,7 @@ Make it personal, practical, and profound. About 350 words.`;
       setNoteCategory("observation");
     } catch (error) {
       console.error("Error saving note:", error);
-      const errorMessage = error.response?.data?.message || "Failed to save note";
+      const errorMessage = error.response && error.response.data && error.response.data.message ? error.response.data.message : "Failed to save note";
       toast.error(errorMessage);
     } finally {
       setIsSavingNote(false);

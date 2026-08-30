@@ -114,7 +114,7 @@ export default function AdminUsers() {
       loadUsers();
     } catch (error) {
       console.error("Error deleting user:", error);
-      toast.error(`Failed to delete user: ${error.message}`);
+      toast.error(`Failed to delete user: ${error?.message || 'Unknown error'}`);
     }
   };
 
@@ -483,7 +483,7 @@ export default function AdminUsers() {
               <Users className="w-12 h-12 mx-auto mb-4 text-gray-400" />
               <p className="text-lg font-medium">No users found</p>
               <p className="text-sm text-gray-500 mt-1">
-                Try adjusting your search query
+                {searchQuery ? 'Try adjusting your search query' : 'There might be an issue loading users, please try again later.'}
               </p>
             </CardContent>
           </Card>

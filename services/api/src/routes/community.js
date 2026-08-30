@@ -119,8 +119,9 @@ async function recordCommunityAudit(action, userId, targetType, targetId, metada
     await prisma.auditLog.create({
       data: { userId, action, targetType, targetId, metadata },
     });
-  } catch {
-    // Best-effort only.
+  } catch (err) {
+    console.error('Audit log creation failed', err);
+    // Notify admin or log to a monitoring service here if needed.
   }
 }
 
@@ -412,7 +413,7 @@ router.post('/shared-content/:id/report', authenticateToken, async (req, res, ne
     }
     const data = existing.data || {};
     if (!isPublicCommunityData(data)) {
-      return res.status(403).json({ message: 'Cannot report private or removed content' });
+      return res.status(403).json({ message: 'Cannot report private, removed, or non-public content' });
     }
 
     const reportedBy = Array.isArray(data.reported_by) ? data.reported_by : [];

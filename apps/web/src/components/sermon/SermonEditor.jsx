@@ -336,7 +336,7 @@ export default function SermonEditor({
                     )}
 
                     {/* Supporting Scriptures with Enhancement + Exegesis */}
-                    {point.supporting_scriptures && point.supporting_scriptures.length > 0 && (
+                    {Array.isArray(point.supporting_scriptures) && point.supporting_scriptures.length > 0 && (
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">

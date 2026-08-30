@@ -116,7 +116,7 @@ export default function PrayerGenerator() {
     setIsGenerating(true);
 
     try {
-      const denomination = user?.denomination || 'Non-Denominational';
+      const denomination = PRAYER_TYPES.some(t => t.label.includes(user?.denomination)) ? user.denomination : 'Non-Denominational';
       
       const typeInfo = PRAYER_TYPES.find(t => t.value === prayerType);
       
@@ -172,7 +172,7 @@ Make it heartfelt, not formulaic. Use concrete imagery. Be personal yet universa
       toast.success('Prayer generated! 🙏');
     } catch (error) {
       console.error('Error generating prayer:', error.message, error);
-      toast.error('Failed to generate prayer');
+      toast.error(`Failed to generate prayer: ${error.message}`);
     } finally {
       setIsGenerating(false);
     }
