@@ -367,9 +367,7 @@ TONE: Pastoral, wise, conversational. Use Scripture liberally. Be compassionate 
   // ---------------------------------------------------------------------------
 
   const fetchTabSection = async (tabKey) => {
-  if (!response?.topic_title) return;
   if (tabLoading[tabKey]) return; // already in flight
-    if (!response?.topic_title) return;
     if (tabLoading[tabKey]) return; // already in flight
     // Already loaded? Skip.
     if (tabKey === "history" && response.historical_perspective) return;
@@ -930,7 +928,7 @@ Be fair and charitable to each tradition. Present each view from within that tra
                       <Save className="w-4 h-4 mr-1" />
                       Save
                     </Button>
-                    <Button variant="outline" onClick={() => setResponse(null)}>
+                    <Button variant="outline" onClick={() => { if (!isThinking) setResponse(null); }}>
                       Ask Another
                     </Button>
                   </div>

@@ -87,6 +87,8 @@ export default function MySermons() {
     } catch (error) {
       console.error('Error loading sermons:', error);
       toast.error("Failed to load sermons");
+    } finally {
+      setIsLoading(false);
     }
   };
 

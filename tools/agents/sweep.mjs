@@ -207,13 +207,15 @@ if (doEmail) {
   let key = process.env.RESEND_API_KEY;
   const envFile = path.join(repoRoot, 'services', 'api', '.env');
   if (!key && existsSync(envFile)) {
-    const m = readFileSync(envFile, 'utf8').match(/^RESEND_API_KEY="?([^"\r\n]+)"?/m);
+    const envContent = readFileSync(envFile, 'utf8');
+    const m = envContent.match(/^RESEND_API_KEY="?([A-Za-z0-9_\-]{20,})"?/m);
     if (m && !/your/i.test(m[1])) key = m[1];
   }
   const to = process.env.SWEEP_EMAIL_TO || 'buckeye7066@gmail.com';
   if (!key) {
     console.log('email: skipped — no RESEND_API_KEY configured');
   } else {
+    try {
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -225,6 +227,9 @@ if (doEmail) {
       }),
     });
     console.log(`email: ${resp.ok ? 'sent' : `FAILED (${resp.status})`} to ${to}`);
+  } catch (error) {
+    console.error('Error sending email:', error);
+  }
   }
 }
 

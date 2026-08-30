@@ -1249,7 +1249,7 @@ Include:
                   })}
                 </div>
 
-                {generatedSermons.length === asArray(seriesOutline.sermons).length && (
+                {generatedSermons.length === asArray(seriesOutline.sermons).length ? (
                   <div className="flex gap-3">
                     <Button onClick={handleSaveAllSermons} className="flex-1" size="lg">
                       <Save className="w-5 h-5 mr-2" />
@@ -1259,6 +1259,12 @@ Include:
                       Back to Outline
                     </Button>
                   </div>
+                ) : (
+                  <Alert>
+                    <AlertDescription>
+                      Some sermons are still being generated. Please wait until all are ready.
+                    </AlertDescription>
+                  </Alert>
                 )}
               </div>
             )}

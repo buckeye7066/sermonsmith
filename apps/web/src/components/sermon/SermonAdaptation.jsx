@@ -99,7 +99,7 @@ export default function SermonAdaptation({ open, onClose, sermon, onAdaptedSermo
 Current Sermon:
 Title: ${sermon.title}
 Topic: ${sermon.topic}
-Points: ${sermon.points?.length || 0}
+Points: ${sermon.points ? sermon.points.length : 0}
 Current Length: Standard (20-30 min)
 
 Target Length: ${lengthInfo.label} (${lengthInfo.minutes} minutes)
@@ -177,7 +177,7 @@ Return the adapted sermon in the same JSON format with title, big_idea, points a
       toast.error("Failed to adjust sermon length");
       setAdaptedContent({
         type: 'error',
-        message: 'An error occurred while adjusting sermon length. Please try again.'
+        message: 'An error occurred while adapting the sermon. Please try again.'
       });
     } finally {
       setIsAdapting(false);

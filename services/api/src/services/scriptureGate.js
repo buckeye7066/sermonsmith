@@ -72,7 +72,7 @@ const CONTENT_FIELDS = ['title', 'topic', 'anchor_passage', 'big_idea', 'points'
 // Each is a "publish" transition for gate purposes: a gated record whose
 // references do not all verify must never become publicly visible or shared.
 export function isPublicOrPublished(rec) {
-  if (!rec || typeof rec !== 'object') return false;
+  if (!rec || typeof rec !== 'object') throw new Error('Invalid record type');
   return (
     rec.status === 'published' ||
     rec.is_public === true ||
@@ -105,7 +105,12 @@ export function gateEntityWrite({ type, incoming, existingData = null, denominat
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
 
   const data = { ...incoming };
-  for (const field of REVIEW_ONLY_FIELDS) delete data[field];
+  for (const field of REVIEW_ONLY_FIELDS) {
+    if (field in data) {
+      // Optionally log or validate field removal here
+      delete data[field];
+    }
+  }
   delete data.scripture_validation;
   // Provider wording verification is recomputed on the entities save path —
   // never trust a client-supplied blob (same rule as scripture_validation).
@@ -157,8 +162,8 @@ export function gateEntityWrite({ type, incoming, existingData = null, denominat
     data.pastor_reviewed = false;
     data.reviewed_at = null;
     data.reviewed_by = null;
-    data.review_checklist = null;
-    data.review_checklist_version = null;
+    if ('review_checklist' in data) data.review_checklist = null;
+    if ('review_checklist_version' in data) data.review_checklist_version = null;
   }
 
   return data;

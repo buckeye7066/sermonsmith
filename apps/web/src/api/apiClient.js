@@ -434,7 +434,7 @@ const TRAILER_SCRIPTURE_KEYS = new Set(['ok', 'checked', 'fabricated']);
 function isFullyValidSuccessTrailer(result, rawText) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
   if (trailerHasDuplicateKeys(rawText)) return false;
-  if (Object.keys(result).some((key) => !TRAILER_TOP_KEYS.has(key))) return false;
+  if (Object.keys(result).length !== TRAILER_TOP_KEYS.size || Object.keys(result).some((key) => !TRAILER_TOP_KEYS.has(key))) return false;
   if (result.ok !== true || result.truncated !== false) return false;
 
   const s = result.scripture;
