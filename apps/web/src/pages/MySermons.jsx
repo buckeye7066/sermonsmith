@@ -72,6 +72,7 @@ export default function MySermons() {
   }, [isLoadingAuth, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadSermons = async () => {
+    if (!user || !user.id) return;
     try {
       const userSermons = await api.entities.Sermon.filter({ user_id: user.id }, '-created_date');
       setSermons(userSermons);
@@ -118,7 +119,10 @@ export default function MySermons() {
   };
 
   const handleDelete = async (sermonId) => {
-    if (!confirm("Are you sure you want to delete this sermon?")) return;
+    if (!confirm("Are you sure you want to delete this sermon?")) {
+      toast.info("Sermon deletion cancelled");
+      return;
+    }
 
     try {
       await api.entities.Sermon.delete(sermonId);

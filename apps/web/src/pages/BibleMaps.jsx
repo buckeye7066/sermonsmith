@@ -385,7 +385,17 @@ Be detailed and descriptive for creating a visual representation.`;
               Search for locations, timelines, and visual aids from Scripture.
             </p>
           </div>
-          <PrintButton label="Print View" className="w-fit shrink-0" onClick={() => { if (window.confirm('Do you want to print this page?')) { try { window.print(); toast.success('Printing initiated'); } catch (error) { console.error('Print error:', error); toast.error('Failed to print. Please try again.'); } }} } />
+          <PrintButton label="Print View" className="w-fit shrink-0" onClick={() => { 
+            if (window.confirm('Do you want to print this page?')) { 
+              try { 
+                window.print(); 
+                toast.success('Printing initiated'); 
+              } catch (error) { 
+                console.error('Print error:', error); 
+                toast.error('Failed to print. Please try again.'); 
+              } 
+            }} 
+          } />
         </div>
 
         {/* AI Search Bar */}
@@ -417,19 +427,19 @@ Be detailed and descriptive for creating a visual representation.`;
               </Button>
             </div>
             <div className="flex gap-2 mt-3 flex-wrap">
-              <Badge variant="outline" className="cursor-pointer" onClick={() => setSearchQuery("possible locations of the Garden of Eden")}>
+              <Badge variant="outline" className="cursor-pointer" onClick={() => setSearchQuery("possible locations of the Garden of Eden")}> 
                 <MapPin className="w-3 h-3 mr-1" />
                 Garden of Eden
               </Badge>
-              <Badge variant="outline" className="cursor-pointer" onClick={() => setSearchQuery("timeline from rapture to great white throne judgment")}>
+              <Badge variant="outline" className="cursor-pointer" onClick={() => setSearchQuery("timeline from rapture to great white throne judgment")}> 
                 <Calendar className="w-3 h-3 mr-1" />
                 End Times Timeline
               </Badge>
-              <Badge variant="outline" className="cursor-pointer" onClick={() => setSearchQuery("what does a cherubim look like")}>
+              <Badge variant="outline" className="cursor-pointer" onClick={() => setSearchQuery("what does a cherubim look like")}> 
                 <ImageIcon className="w-3 h-3 mr-1" />
                 Cherubim Appearance
               </Badge>
-              <Badge variant="outline" className="cursor-pointer" onClick={() => setSearchQuery("locations of the seven churches in Revelation")}>
+              <Badge variant="outline" className="cursor-pointer" onClick={() => setSearchQuery("locations of the seven churches in Revelation")}> 
                 <MapPin className="w-3 h-3 mr-1" />
                 Seven Churches
               </Badge>

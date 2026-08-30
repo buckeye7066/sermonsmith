@@ -45,6 +45,11 @@ async function getApiBaseUrl() {
 
   if (!resolved) resolved = BUNDLED_API_URL;
   if (!resolved && typeof window !== 'undefined') resolved = window.location.origin;
+
+  const isLocalhost = resolved.includes('localhost') || resolved.includes('127.0.0.1');
+  if (isLocalhost && process.env.NODE_ENV === 'production') {
+    throw new Error('Resolved API base URL points to localhost in production environment.');
+  }
   if (!resolved) resolved = 'http://localhost:3001';
 
   _cachedApiBase = resolved.replace(/\/+$/, '');
@@ -196,12 +201,14 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
     let body = null;
     try {
       body = await res.json();
-    } catch {
+    } catch (err) {
+      console.error('Failed to parse error response:', err);
       body = { message: res.statusText };
     }
     const error = new Error(body?.message || `API error ${res.status}`);
     error.status = res.status;
     error.data = body;
+    console.error('API fetch error:', error.message, 'Status:', res.status, 'Path:', path);
 
     // Surface a real, mid-session 401 to the app-level handler so the UI can
     // tell the user their session expired and route them to login — instead

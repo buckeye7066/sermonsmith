@@ -353,7 +353,7 @@ Return the full translated sermon in the same JSON format.`;
       toast.success(`Larry translated your sermon to ${languageInfo.name}! ${languageInfo.flag}`);
     } catch (error) {
       console.error("Error translating:", error);
-      toast.error("Failed to translate sermon");
+      toast.error("Failed to translate sermon. An error occurred during translation. Please try again.");
       setAdaptedContent({
         type: 'error',
         message: 'An error occurred during translation. Please try again.'

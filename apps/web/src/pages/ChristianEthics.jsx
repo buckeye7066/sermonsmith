@@ -1209,8 +1209,9 @@ Be fair and charitable to each tradition. Present each view from within that tra
             <p className="font-semibold mb-2">📌 Important Notes:</p>
             <ul className="space-y-1 ml-4 text-xs">
               <li>• Larry provides biblical ethics rooted in Scripture</li>
-              <li>• AI-generated - verify before major decisions</li>
-              <li>• For education, not legal/medical advice</li>
+              <li>• AI-generated - verify with trusted sources before major decisions</li>
+              <li>• Use as educational content, not a substitute for professional or spiritual advice</li>
+              <li>• Always seek human counsel for spiritual guidance</li>
               <li>• Truth in love (Ephesians 4:15)</li>
             </ul>
           </AlertDescription>

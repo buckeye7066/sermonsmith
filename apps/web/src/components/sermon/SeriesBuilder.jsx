@@ -511,11 +511,11 @@ Include:
       const validation = validateAiSermon({
         anchor_passage: outlinePassage,
         points,
-        conclusion: [
-          outline.conclusion?.recap,
-          outline.conclusion?.call_to_action,
-          outline.conclusion?.invitation,
-        ].filter(Boolean).join('\n\n'),
+        conclusion: outline.conclusion ? [
+          outline.conclusion.recap,
+          outline.conclusion.call_to_action,
+          outline.conclusion.invitation,
+        ].filter(Boolean).join('\n\n') : '',
       }, { canon: canonForDenomination(user?.denomination) });
 
       await api.entities.Sermon.create({
