@@ -16,6 +16,7 @@ let mainWindow;
 let firstRunWindow;
 
 function isFirstRun() {
+  store.get('sermonsmithConfig'); // Ensure the store is initialized
   return !store.has('sermonsmithConfig');
 }
 
@@ -28,6 +29,7 @@ function isValidConfig(config) {
   try {
     const url = new URL(config.apiUrl);
     const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+    if (!/^https?:\/\/.+/i.test(config.apiUrl)) return false;
     return url.protocol === 'https:' || (url.protocol === 'http:' && isLocalhost);
   } catch {
     return false;
