@@ -61,7 +61,10 @@ export default function AdminImport() {
 
   const handleFileUpload = async (e) => {
     const uploadedFile = e.target.files[0];
-    if (!uploadedFile) return;
+    if (!uploadedFile) {
+      toast.error('No file uploaded. Please select a CSV file to upload.');
+      return;
+    }
 
     setFile(uploadedFile);
     setIsImporting(true);

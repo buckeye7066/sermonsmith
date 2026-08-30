@@ -61,6 +61,12 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
       return;
     }
 
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      toast.error("Title cannot be just whitespace. Please enter a valid title.");
+      return;
+    }
+
     if (visibility === 'group' && !selectedGroup) {
       toast.error("Please select a study group");
       return;
