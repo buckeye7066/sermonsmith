@@ -2,8 +2,8 @@
 
 **Verdict: NOT PRODUCTION READY**
 
-- Gates passed: 12/15 evaluated (18 total)
-- Blocking failures: 3 (severity >= high)
+- Gates passed: 13/15 evaluated (18 total)
+- Blocking failures: 2 (severity >= high)
 
 ## Blockers
 
@@ -11,8 +11,6 @@
   - Fix: Fix the compile/build errors.
 - **Test suite passes** [high] — tests were not run
   - Fix: Run the suite and fix failures.
-- **Dependencies are lock-pinned** [high] — no lockfile: java:apps/mobile/android
-  - Fix: Commit the lockfile so builds are reproducible.
 
 ## Detected toolchains
 
@@ -33,7 +31,7 @@
 | Project builds | FAIL | critical | build command failed |
 | Changes can be build-verified | PASS | critical | build verification available |
 | No secret material committed | PASS | critical | no secret-shaped files tracked |
-| Dependencies are lock-pinned | FAIL | high | no lockfile: java:apps/mobile/android |
+| Dependencies are lock-pinned | PASS | high | lockfiles present for all components |
 | .gitignore covers secrets and artifacts | PASS | high | .env ignored |
 | Unique counters are minted on the server | PASS | high | no frontend unique-counter increment |
 | No leftover factory overlay files at repo root | PASS | high | no tracked _gh_* / _restore_* at repo root |
@@ -46,5 +44,5 @@
 | Required configuration is documented | PASS | medium | .env.example present |
 | Deployable artifact defined | PASS | medium | Dockerfile/Procfile present |
 | README explains how to install and run | PASS | medium | README contains setup commands |
-| License declared | FAIL | low | no license file |
+| License declared | FAIL | low | no license file and no licence field in the package manifest |
 | JSON-LD structured data is valid | PASS | low | 5 JSON-LD block(s), all parse with @context/@type |
