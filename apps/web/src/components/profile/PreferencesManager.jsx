@@ -99,7 +99,13 @@ export default function PreferencesManager({ user, onUpdate }) {
       if (onUpdate) onUpdate();
     } catch (error) {
       console.error('Error saving preferences:', error);
-      toast.error("Failed to save preferences");
+      if (error.response) {
+        toast.error(`Failed to save preferences: ${error.response.data.message}`);
+      } else if (error.request) {
+        toast.error("No response from server. Please check your network connection.");
+      } else {
+        toast.error("An unexpected error occurred.");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -251,6 +257,9 @@ export default function PreferencesManager({ user, onUpdate }) {
         <CardContent className="space-y-4">
           <div>
             <Label className="mb-3 block">Favorite Topics ({preferences.content.favoriteTopics.length} selected)</Label>
+            {preferences.content.favoriteTopics.length === 0 && (
+              <p className="text-sm text-gray-500">No favorite topics selected. Select your topics from the list below:</p>
+            )}
             <div className="flex flex-wrap gap-2">
               {POPULAR_TOPICS.map((topic) => (
                 <Badge

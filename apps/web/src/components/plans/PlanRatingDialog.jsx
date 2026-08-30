@@ -23,7 +23,7 @@ export default function PlanRatingDialog({ open, onClose, plan, user }) {
   const [existingRating, setExistingRating] = useState(null);
 
   useEffect(() => {
-    if (open && user && plan) {
+    if (open && user && plan && user.id && plan.id) {
       checkExistingRating();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
@@ -57,11 +57,18 @@ export default function PlanRatingDialog({ open, onClose, plan, user }) {
 
     try {
       if (existingRating) {
-        await api.entities.SharedPlanRating.update(existingRating.id, {
-          rating,
-          review_text: reviewText.trim(),
-          used_plan: usedPlan
-        });
+        try {
+          await api.entities.SharedPlanRating.update(existingRating.id, {
+            rating,
+            review_text: reviewText.trim(),
+            used_plan: usedPlan
+          });
+        } catch (error) {
+          console.error('Error updating existing rating:', error);
+          toast.error("Failed to update existing rating");
+          setIsSubmitting(false);
+          return;
+        }
       } else {
         await api.entities.SharedPlanRating.create({
           plan_id: plan.id,
@@ -75,7 +82,7 @@ export default function PlanRatingDialog({ open, onClose, plan, user }) {
 
       // Update plan's average rating
       const allRatings = await api.entities.SharedPlanRating.filter({ plan_id: plan.id });
-      const avgRating = allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length;
+      const avgRating = allRatings.length > 0 ? allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length : 0;
 
       await api.entities.ReadingPlan.update(plan.id, {
         average_rating: avgRating,

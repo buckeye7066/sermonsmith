@@ -26,12 +26,12 @@ const MINISTRY_FOCUS_OPTIONS = [
 ];
 
 export default function ProfileEditor({ user, onUpdate }) {
-  const [preachingStyle, setPreachingStyle] = useState(user?.preferred_preaching_style || "");
-  const [ministryFocus, setMinistryFocus] = useState(user?.ministry_focus || []);
-  const [denominationalBackground, setDenominationalBackground] = useState(user?.denominational_background || "");
-  const [favoritePassages, setFavoritePassages] = useState(user?.favorite_scripture_passages || []);
+  const [preachingStyle, setPreachingStyle] = useState(user && user.preferred_preaching_style || "");
+  const [ministryFocus, setMinistryFocus] = useState(user && user.ministry_focus || []);
+  const [denominationalBackground, setDenominationalBackground] = useState(user && user.denominational_background || "");
+  const [favoritePassages, setFavoritePassages] = useState(user && user.favorite_scripture_passages || []);
   const [newPassage, setNewPassage] = useState("");
-  const [privacy, setPrivacy] = useState(user?.profile_privacy || {
+  const [privacy, setPrivacy] = useState(user && user.profile_privacy || {
     show_denomination: true,
     show_ministry_focus: true,
     show_preaching_style: true,
@@ -76,9 +76,9 @@ export default function ProfileEditor({ user, onUpdate }) {
       onUpdate?.();
     } catch (error) {
       console.error("Error updating profile:", error);
-      toast.error("Failed to update profile");
+      toast.error(`Failed to update profile: ${error.message || error}`);
     } finally {
-      setIsSaving(false);
+      if (isSaving) setIsSaving(false);
     }
   };
 

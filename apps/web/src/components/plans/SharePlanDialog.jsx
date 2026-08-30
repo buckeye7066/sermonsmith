@@ -28,13 +28,13 @@ export default function SharePlanDialog({ open, onClose, plan, user }) {
         description: plan.plan_overview,
         duration_days: plan.duration,
         daily_readings: (plan.daily_lessons || []).map(lesson => ({
-          day: lesson.day,
-          passages: lesson.scripture_reading,
-          reflection: lesson.devotional_context,
-          activities: lesson.activities,
-          discussion_questions: lesson.discussion_questions,
-          prayer_points: lesson.prayer_points
-        })),
+          day: lesson?.day || 'N/A',
+          passages: lesson?.scripture_reading || 'N/A',
+          reflection: lesson?.devotional_context || 'N/A',
+          activities: lesson?.activities || 'N/A',
+          discussion_questions: lesson?.discussion_questions || 'N/A',
+          prayer_points: lesson?.prayer_points || 'N/A'
+        })), 
         category: 'topical',
         is_public: true,
         followers_count: 0
@@ -44,6 +44,7 @@ export default function SharePlanDialog({ open, onClose, plan, user }) {
       onClose();
     } catch (error) {
       console.error('Error sharing plan:', error);
+      toast.error(`Failed to share plan: ${error.message || 'Unknown error'}`);
       toast.error("Failed to share plan");
     } finally {
       setIsSharing(false);
@@ -93,7 +94,7 @@ export default function SharePlanDialog({ open, onClose, plan, user }) {
           <Button variant="outline" onClick={onClose} disabled={isSharing}>
             Cancel
           </Button>
-          <Button onClick={handleShare} disabled={isSharing}>
+          <Button onClick={handleShare} disabled={isSharing || !plan || !user}>
             {isSharing ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />

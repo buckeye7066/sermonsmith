@@ -58,7 +58,10 @@ export default function ForkPlanDialog({ open, onClose, plan, user }) {
   const [isForking, setIsForking] = useState(false);
 
   const handleFork = async () => {
-    if (!user || !plan) return;
+    if (!user || !plan) {
+      toast.error('You must be logged in and have a plan selected to fork.');
+      return;
+    }
 
     setIsForking(true);
 
@@ -191,7 +194,7 @@ Make it punchier while preserving the journey.`
       onClose();
     } catch (error) {
       console.error('Error forking plan:', error);
-      toast.error("Failed to fork plan");
+      toast.error(error.message || "Failed to fork plan");
     } finally {
       setIsForking(false);
     }

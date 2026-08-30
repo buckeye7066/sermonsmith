@@ -98,7 +98,7 @@ class BibleDataService {
         // a useful, debuggable record rather than just "Error".
         const err = new Error(`translations.json ${response.status} ${response.statusText}`);
         err.status = response.status;
-        try { err.data = await response.text(); } catch { /* ignore */ }
+        try { err.data = await response.text(); } catch (e) { console.error('Failed to read response text', e); }
         throw err;
       }
       const data = await response.json();
@@ -137,7 +137,8 @@ class BibleDataService {
       const translation = translations.find(t => t.id === translationId);
       
       if (!translation) {
-        throw new Error(`Translation ${translationId} not found`);
+        console.warn(`Translation ${translationId} not found`);
+        return null;
       }
 
       // Convert book name to lowercase filename (e.g., "Genesis" -> "genesis.json")
@@ -167,6 +168,10 @@ class BibleDataService {
       
       if (!bookData || !bookData.chapters) {
         throw new Error(`Book ${bookName} not found in ${translationId}`);
+      }
+
+      if (chapter < 1 || chapter > Object.keys(bookData.chapters).length) {
+        throw new Error('Invalid chapter number');
       }
 
       const chapterData = bookData.chapters[chapter.toString()];

@@ -22,10 +22,10 @@ export default function AIExplanation({ open, onClose, verse, user }) {
   const generateExplanation = async () => {
     setIsLoading(true);
     try {
-      const userDenomination = user?.denomination || "general Christian";
-      const preachingStyle = user?.preaching_style || "balanced";
-      const ministryFocus = user?.ministry_focus || [];
-      const audience = user?.primary_audience || "general";
+      const userDenomination = user && typeof user.denomination === 'string' ? user.denomination : "general Christian";
+      const preachingStyle = user && typeof user.preaching_style === 'string' ? user.preaching_style : "balanced";
+      const ministryFocus = user && Array.isArray(user.ministry_focus) ? user.ministry_focus : [];
+      const audience = user && typeof user.primary_audience === 'string' ? user.primary_audience : "general";
       
       const focusContext = ministryFocus.length > 0
         ? `\n\n${formatUserInputBlock('Ministry focus', ministryFocus.join(', '))}`
@@ -68,7 +68,7 @@ Keep it accessible, encouraging, and practical in a ${preachingStyle} tone. Abou
       setExplanation(response);
     } catch (error) {
       console.error("Error generating explanation:", error);
-      toast.error("Failed to generate explanation");
+      toast.error("Failed to generate explanation. Please try again later.");
     } finally {
       setIsLoading(false);
     }
