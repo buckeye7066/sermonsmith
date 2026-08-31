@@ -120,7 +120,13 @@ export default function AdminMessages() {
   const handleStatusChange = async (messageId, newStatus) => {
     try {
       const message = messages.find(m => m.id === messageId);
-      const oldStatus = message?.status;
+
+      if (!message) {
+        toast.error("Message not found");
+        return;
+      }
+
+      const oldStatus = message.status;
       
       await api.entities.Message.update(messageId, { status: newStatus });
       
@@ -132,9 +138,9 @@ export default function AdminMessages() {
         previous_value: oldStatus,
         new_value: newStatus,
         metadata: {
-          message_type: message?.message_type,
-          user_email: message?.user_email,
-          user_id: message?.user_id
+          message_type: message.message_type,
+          user_email: message.user_email,
+          user_id: message.user_id
         }
       });
       

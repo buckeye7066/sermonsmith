@@ -111,21 +111,27 @@ export default function BibleStudy() {
       // blank wait; fall back to the non-streaming call if streaming fails.
       let response;
       try {
-        const fullText = await api.integrations.Core.StreamLLM(
-          { system_prompt: LARRY_SYSTEM_PROMPT, prompt, response_json_schema: studyGenerationSchema, feature: 'bible_study' },
-          (accumulated) => {
-            const partial = parsePartialJson(accumulated);
-            if (partial && typeof partial === 'object') {
-              setStreamingStudy(coerceToSchema(partial, studyGenerationSchema));
-            }
-          },
-        );
-        // Strict parse of the FINAL text — a stream that ended mid-object
-        // previously slid through parsePartialJson(...) || {} and became a
-        // silently truncated "successful" study. JSON.parse throwing here
-        // lands in the catch below, so the non-streaming path (with its
-        // server-side repair pass and honest 502) takes over.
-        response = coerceToSchema(JSON.parse(fullText), studyGenerationSchema);
+        let fullText;
+        try {
+          fullText = await api.integrations.Core.StreamLLM(
+            { system_prompt: LARRY_SYSTEM_PROMPT, prompt, response_json_schema: studyGenerationSchema, feature: 'bible_study' },
+            (accumulated) => {
+              const partial = parsePartialJson(accumulated);
+              if (partial && typeof partial === 'object') {
+                setStreamingStudy(coerceToSchema(partial, studyGenerationSchema));
+              }
+            },
+          );
+          // Strict parse of the FINAL text — a stream that ended mid-object
+          // previously slid through parsePartialJson(...) || {} and became a
+          // silently truncated "successful" study. JSON.parse throwing here
+          // lands in the catch below, so the non-streaming path (with its
+          // server-side repair pass and honest 502) takes over.
+          response = coerceToSchema(JSON.parse(fullText), studyGenerationSchema);
+        } catch (parseError) {
+          console.error("JSON parsing error:", parseError.message, fullText);
+          throw parseError;
+        }
       } catch (streamErr) {
         console.warn('[BibleStudy] streaming unavailable or incomplete, falling back to invoke:', streamErr?.message);
         response = await api.integrations.Core.InvokeLLM({

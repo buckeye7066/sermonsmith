@@ -140,7 +140,12 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const logout = useCallback(async (shouldRedirect = true) => {
-    try { await api.auth.logout(); } catch { /* best-effort: cookie may already be expired */ }
+    try { 
+      await api.auth.logout();
+    } catch (error) { 
+      logError('Logout failed', error);
+      toast.error('Failed to log out. Please try again.');
+    }
     setUser(null);
     setIsAuthenticated(false);
     setAuthSessionHint(false);

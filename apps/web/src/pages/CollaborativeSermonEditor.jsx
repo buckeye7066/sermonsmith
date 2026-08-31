@@ -74,7 +74,10 @@ export default function CollaborativeSermonEditor() {
       }
     } catch (error) {
       console.error("Error loading sermon:", error);
-      toast.error("Failed to load sermon");
+      toast.error("Failed to load sermon. Please check your connection and try again.");
+      if (!sermon) {
+        setSermon({}); // Ensure sermon is not null
+      }
     } finally {
       setIsLoading(false);
     }
@@ -95,6 +98,7 @@ export default function CollaborativeSermonEditor() {
       setActiveEditors(active);
     } catch (error) {
       console.error("Error loading collaborators:", error);
+      toast.error("Failed to load active editors. Please try again later.");
     }
   };
 

@@ -133,9 +133,9 @@ export default function MultiPerspectiveStudy({ open, onClose, user }) {
 
     try {
       const allPerspectives = [
-        ...selectedPerspectives.map(id => CHRISTIAN_TRADITIONS.find(t => t.id === id)?.name),
-        ...(includeWorldViews ? selectedWorldViews.map(id => WORLD_PERSPECTIVES.find(w => w.id === id)?.name) : [])
-      ].filter(Boolean);
+        ...selectedPerspectives.map(id => CHRISTIAN_TRADITIONS.find(t => t.id === id)?.name).filter(t => t),
+        ...(includeWorldViews ? selectedWorldViews.map(id => WORLD_PERSPECTIVES.find(w => w.id === id)?.name).filter(w => w) : [])
+      ];
 
       const userDenom = user?.denomination || "Non-Denominational";
 
@@ -186,7 +186,7 @@ Be fair, accurate, and respectful to every tradition. Present each view charitab
       toast.success("Larry completed the multi-perspective analysis!");
     } catch (error) {
       console.error("Error generating perspectives:", error);
-      toast.error("Failed to generate analysis");
+      toast.error(error.message || "Failed to generate analysis");
     } finally {
       setIsGenerating(false);
     }

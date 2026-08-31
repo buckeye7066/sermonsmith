@@ -49,17 +49,21 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
         resourceId: studyData.id
       });
 
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-      toast.success(`Study exported to ${format.toUpperCase()}!`);
+      if (blob) {
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        toast.success(`Study exported to ${format.toUpperCase()}!`);
+      } else {
+        throw new Error('No data received from the API');
+      }
     } catch (error) {
       console.error(`Error exporting to ${format}:`, error);
       toast.error(`Failed to export to ${format.toUpperCase()}`, {

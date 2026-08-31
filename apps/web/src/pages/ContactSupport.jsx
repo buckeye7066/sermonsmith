@@ -44,7 +44,7 @@ export default function ContactSupport() {
       setIsLoading(false);
       return;
     }
-    if (user.message_theme) setTheme(user.message_theme);
+    if (user && user.message_theme) setTheme(user.message_theme);
     loadMyMessages(user.id)
       .catch((err) => logError('Failed to load support messages', err))
       .finally(() => setIsLoading(false));
@@ -56,13 +56,14 @@ export default function ContactSupport() {
       setTheme(newTheme);
       toast.success("Theme saved!");
     } catch (error) {
+      console.error("Error saving theme:", error);
       toast.error("Failed to save theme");
     }
   };
 
   const loadMyMessages = async (userId) => {
     try {
-      const messages = await api.entities.Message.filter({ user_id: userId }, '-created_date');
+      const messages = await api.entities.Message.filter({ user_id: userId || null }, '-created_date');
       setMyMessages(messages);
     } catch (error) {
       console.error("Error loading messages:", error);

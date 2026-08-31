@@ -98,10 +98,10 @@ describe('parseUpdateManifest', () => {
 describe('resolveFeedUrl', () => {
   const store = { getItem: () => 'https://attacker.test/latest.json' };
 
-  it('honours the localStorage override in development only', () => {
-    expect(resolveFeedUrl({ localStorage: store, isDev: true })).toBe(
-      'https://attacker.test/latest.json',
-    );
+  it('honours and validates the localStorage override in development only', () => {
+    const url = resolveFeedUrl({ localStorage: store, isDev: true });
+    expect(url).toMatch(/^https:\/\//);  // Ensure the URL is HTTPS
+    expect(url).toBe('https://attacker.test/latest.json');
   });
 
   it('IGNORES the localStorage override in production builds', () => {

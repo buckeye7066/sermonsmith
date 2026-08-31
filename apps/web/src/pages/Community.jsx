@@ -24,7 +24,7 @@ export default function Community() {
     if (!user) return false;
     const devEmails = ['buckeye7066@gmail.com', 'anyawhite@rocketmail.com', 'whiterobert1201@icloud.com', 'tishka1201@icloud.com'];
     const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
-    const emailMatch = user.email && devEmails.includes(user.email.toLowerCase());
+    const emailMatch = user && user.email && devEmails.includes(user.email.toLowerCase());
     const phoneMatch = user.phone && devPhones.some(p =>
       user.phone.replace(/[\s\-()]/g, '').includes(p.replace(/[\s\-()+]/g, ''))
     );
@@ -37,6 +37,8 @@ export default function Community() {
   useEffect(() => {
     if (user) loadCommunityData();
   }, [user]);
+
+  const [error, setError] = useState(null);
 
   const loadCommunityData = async () => {
     try {
@@ -58,6 +60,7 @@ export default function Community() {
       setReadingPlans((plans || []).slice(0, 5));
     } catch (error) {
       logError('Error loading community data', error);
+      setError('There was a problem loading community data. Please try again later.');
     }
   };
 

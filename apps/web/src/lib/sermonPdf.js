@@ -45,7 +45,7 @@ export function buildSermonFilename(sermon) {
  */
 export async function renderSermonPdf(sermon) {
   if (!sermon || typeof sermon !== 'object') {
-    throw new Error('No sermon to export');
+    throw new Error('Invalid sermon input: Expected an object with sermon details');
   }
 
   const { jsPDF } = await import('jspdf');
@@ -156,7 +156,7 @@ export async function renderSermonPdf(sermon) {
 
   // Prefer wording_verification; fall back to legacy quotation_verification alias.
   const qv = sermon.wording_verification || sermon.quotation_verification;
-  if (qv && typeof qv === 'object') {
+  if (typeof qv === 'object' && qv !== null) {
     checkPage(28);
     rule();
     write('SCRIPTURE QUOTATION PROVENANCE', { size: 9, style: 'bold', gap: 1 });
