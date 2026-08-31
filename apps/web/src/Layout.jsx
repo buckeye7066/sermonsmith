@@ -42,8 +42,8 @@ export default function Layout({ children, currentPageName }) {
     // apps/web/public/manifest.webmanifest and referenced from index.html.
     // The previous dynamic data-URI manifest was fragile for install
     // prompts, crawler discovery, and the iOS/Android install banner
-    // heuristics. Mobile meta tags below remain runtime-added so we can
-    // tweak the viewport on iOS in-app browsers.
+    // heuristics. Mobile meta tags below remain runtime-added for installed
+    // app presentation, but the static viewport remains user-scalable.
 
     // Mobile-optimized meta tags
     const addMetaTag = (name, content) => {
@@ -101,12 +101,6 @@ export default function Layout({ children, currentPageName }) {
     addAppleTouchIcon('144x144');
     addAppleTouchIcon('120x120');
     addAppleTouchIcon('76x76');
-
-    // Prevent zoom on input focus (mobile)
-    const viewport = document.querySelector('meta[name="viewport"]');
-    if (viewport) {
-      viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
-    }
 
     // Handle deep links from URL parameters
     const handleDeepLink = () => {
@@ -327,7 +321,7 @@ export default function Layout({ children, currentPageName }) {
           </SidebarContent>
         </Sidebar>
 
-        <main className="min-w-0 flex-1 overflow-auto pb-16 md:pb-0">
+        <main className="mobile-safe-content min-w-0 flex-1 overflow-auto">
           <div className="w-full p-4 md:p-6">
             <div className="flex items-center justify-between mb-6 md:mb-4">
               <SidebarTrigger />

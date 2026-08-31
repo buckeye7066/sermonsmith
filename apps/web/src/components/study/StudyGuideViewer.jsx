@@ -12,6 +12,7 @@ import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 import { apiBinaryCall } from "@/components/utils/apiCall";
 import PrintButton from "@/components/common/PrintButton";
+import { downloadBlob } from "@/lib/downloadBlob";
 
 export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQuestions, isEnhancing, enhancementType }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -49,15 +50,7 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
         resourceId: studyData.id
       });
 
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      downloadBlob(blob, filename);
       
       toast.success(`Study exported to ${format.toUpperCase()}!`);
     } catch (error) {
