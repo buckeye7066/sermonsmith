@@ -69,6 +69,7 @@ export default function AdminImport() {
     setFile(uploadedFile);
     setIsImporting(true);
     setProgress('Uploading and processing CSV file...');
+    let failedBatches = 0;
 
     try {
       // Upload file
@@ -102,6 +103,7 @@ export default function AdminImport() {
             await api.entities.Verse.bulkCreate(verses);
             setProgress(`Imported ${i} verses...`);
           } catch (insertError) {
+            failedBatches += 1;
             toast.error('Batch insert failed at line: ' + i + '. Error: ' + insertError.message);
             setProgress('Batch insert error: ' + insertError.message);
           }
@@ -114,12 +116,19 @@ export default function AdminImport() {
         try {
           await api.entities.Verse.bulkCreate(verses);
         } catch (insertError) {
+          failedBatches += 1;
           toast.error('Final insert failed. Error: ' + insertError.message);
           setProgress('Final insert error: ' + insertError.message);
         }
       }
 
-      toast.success('CSV import completed!');
+      // Never report a partial import as a completed one.
+      if (failedBatches > 0) {
+        setProgress(`Import finished with ${failedBatches} failed batch(es) — data is incomplete.`);
+        toast.error(`CSV import incomplete: ${failedBatches} batch(es) failed.`);
+      } else {
+        toast.success('CSV import completed!');
+      }
       setProgress(`Successfully imported ${lines.length - 1} verses`);
     } catch (error) {
       toast.error('CSV import failed: ' + error.message);

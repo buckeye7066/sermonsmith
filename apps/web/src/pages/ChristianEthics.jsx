@@ -367,7 +367,7 @@ TONE: Pastoral, wise, conversational. Use Scripture liberally. Be compassionate 
   // ---------------------------------------------------------------------------
 
   const fetchTabSection = async (tabKey) => {
-  if (tabLoading[tabKey]) return; // already in flight
+    if (!response?.topic_title) return;
     if (tabLoading[tabKey]) return; // already in flight
     // Already loaded? Skip.
     if (tabKey === "history" && response.historical_perspective) return;

@@ -45,11 +45,6 @@ async function getApiBaseUrl() {
 
   if (!resolved) resolved = BUNDLED_API_URL;
   if (!resolved && typeof window !== 'undefined') resolved = window.location.origin;
-
-  const isLocalhost = resolved.includes('localhost') || resolved.includes('127.0.0.1');
-  if (isLocalhost && process.env.NODE_ENV === 'production') {
-    throw new Error('Resolved API base URL points to localhost in production environment.');
-  }
   if (!resolved) resolved = 'http://localhost:3001';
 
   _cachedApiBase = resolved.replace(/\/+$/, '');

@@ -54,7 +54,7 @@ export default function CollaboratorManager({ open, onClose, sermon, user }) {
     try {
       await api.entities.SermonCollaborator.create({
         sermon_id: sermon.id,
-        // user_id should be a unique identifier; resolve it from the email or use a user object
+        user_id: email, // Will be resolved on acceptance
         user_email: email,
         user_name: email,
         role: selectedRole,

@@ -29,7 +29,14 @@ export default function StudyGroups() {
   });
 
   useEffect(() => {
-    if (isLoadingAuth || !user || !user.id) return;
+    if (isLoadingAuth) return;
+    if (!user?.id) {
+      // Must clear isLoading here: returning early without it left a
+      // logged-out visitor staring at the spinner forever, with no message.
+      toast.error("Please log in to view study groups");
+      setIsLoading(false);
+      return;
+    }
     loadGroups();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [isLoadingAuth, user]);
@@ -46,8 +53,8 @@ export default function StudyGroups() {
       const userGroups = allGroups.filter(g => myGroupIds.includes(g.id));
       setMyGroups(userGroups);
     } catch (error) {
-      console.error('Error loading study groups:', error);
-      toast.error('An error occurred while loading study groups. Consult the console for details.');
+      logError('Error loading study groups', error);
+      toast.error('Failed to load study groups. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -80,8 +87,8 @@ export default function StudyGroups() {
       setNewGroup({ name: '', description: '', focus_book: '', theme: '', is_private: false, meeting_schedule: '' });
       loadGroups();
     } catch (error) {
-      console.error('Failed to create group:', error);
-      toast.error(`Failed to create group: ${error.message || error}`);
+      logError('Failed to create group', error);
+      toast.error(`Failed to create group: ${error?.message || 'Please try again.'}`);
     }
   };
 

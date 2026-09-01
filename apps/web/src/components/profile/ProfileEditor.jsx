@@ -78,7 +78,10 @@ export default function ProfileEditor({ user, onUpdate }) {
       console.error("Error updating profile:", error);
       toast.error(`Failed to update profile: ${error.message || error}`);
     } finally {
-      if (isSaving) setIsSaving(false);
+      // Unconditional: `isSaving` here is the value captured when this closure
+      // was created (false), so guarding on it left the Save button disabled
+      // forever after the first save.
+      setIsSaving(false);
     }
   };
 

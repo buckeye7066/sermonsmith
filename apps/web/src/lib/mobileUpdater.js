@@ -320,8 +320,6 @@ export async function downloadAndApplyUpdate(manifest, { updater, onProgress, ap
   if (apply) {
     // set() swaps to the verified bundle and reloads the webview.
     await plugin.set({ id: bundle.id });
-  } else {
-    throw new Error('Plugin load failed: Unable to apply update. Please try again or contact support.');
   }
   return bundle;
 }

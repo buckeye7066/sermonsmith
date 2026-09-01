@@ -82,8 +82,10 @@ export async function deliverNotification(notifications, manifest, needsNative) 
   if (!notifications) return false;
   try {
     const current = await notifications.checkPermissions?.();
-    let state = current?.display || null;
-    if (state === null || state === 'denied') return false; // respect the user's "no" — do not re-prompt
+    let state = current?.display;
+    // Only an explicit 'denied' short-circuits. An absent value means the
+    // platform did not answer, and must still fall through to requestPermissions.
+    if (state === 'denied') return false; // respect the user's "no" — do not re-prompt
     if (state !== 'granted') {
       const requested = await notifications.requestPermissions?.();
       state = requested?.display;

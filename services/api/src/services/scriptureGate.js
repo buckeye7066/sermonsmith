@@ -72,7 +72,7 @@ const CONTENT_FIELDS = ['title', 'topic', 'anchor_passage', 'big_idea', 'points'
 // Each is a "publish" transition for gate purposes: a gated record whose
 // references do not all verify must never become publicly visible or shared.
 export function isPublicOrPublished(rec) {
-  if (!rec || typeof rec !== 'object') throw new Error('Invalid record type');
+  if (!rec || typeof rec !== 'object') return false;
   return (
     rec.status === 'published' ||
     rec.is_public === true ||
@@ -162,8 +162,11 @@ export function gateEntityWrite({ type, incoming, existingData = null, denominat
     data.pastor_reviewed = false;
     data.reviewed_at = null;
     data.reviewed_by = null;
-    if ('review_checklist' in data) data.review_checklist = null;
-    if ('review_checklist_version' in data) data.review_checklist_version = null;
+    // Unconditional: both keys are stripped by the REVIEW_ONLY_FIELDS loop
+    // above, so an `in data` guard here is never true and leaves the stale
+    // checklist attached to a record whose review has just been invalidated.
+    data.review_checklist = null;
+    data.review_checklist_version = null;
   }
 
   return data;

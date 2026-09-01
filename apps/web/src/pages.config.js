@@ -35,6 +35,11 @@ const ContactSupport = lazy(() => import('./pages/ContactSupport'));
 const AdminMessages = lazy(() => import('./pages/AdminMessages'));
 const AdminFunctionTester = lazy(() => import('./pages/AdminFunctionTester'));
 const FunctionReviewer = lazy(() => import('./pages/FunctionReviewer'));
+
+// Static (not lazy): the shell must be present on first paint, and it is
+// referenced below. Deleting this import leaves `__Layout` undefined.
+import __Layout from './Layout.jsx';
+
 export const PAGES = {
     "Reader": Reader,
     "SermonBuilder": SermonBuilder,

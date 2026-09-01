@@ -189,7 +189,7 @@ For EACH DAY include: a progressive day TITLE; 1-3 SCRIPTURE READINGS (age-appro
         setGenProgress({ done: Math.min(to, duration), total: duration });
       }
 
-      if (allLessons.length === 0 || failures > 0) {
+      if (allLessons.length === 0) {
         setGeneratedPlan(null);
         toast.error('Failed to generate study plan. Please try again.');
       } else if (failures > 0 || allLessons.length !== duration) {

@@ -57,7 +57,7 @@ export async function makeRateLimitStore(prefix) {
   const client = await getRedisClient();
   if (!client) {
     console.error('[rateLimit] Failed to create Redis client — falling back to in-memory store.');
-    return { store: undefined };
+    return undefined;
   }
 
   try {
@@ -75,6 +75,6 @@ export async function makeRateLimitStore(prefix) {
       _warned = true;
     }
     console.error('[rateLimit] Failed to create Redis store — falling back to in-memory store.');
-    return { store: undefined };
+    return undefined;
   }
 }

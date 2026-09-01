@@ -45,7 +45,7 @@ export function buildSermonFilename(sermon) {
  */
 export async function renderSermonPdf(sermon) {
   if (!sermon || typeof sermon !== 'object') {
-    throw new Error('Invalid sermon input: Expected an object with sermon details');
+    throw new Error('No sermon to export');
   }
 
   const { jsPDF } = await import('jspdf');

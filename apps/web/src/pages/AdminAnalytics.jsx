@@ -105,18 +105,15 @@ export default function AdminAnalytics() {
           .slice(0, 10)
       });
     } catch (error) {
-      if (error.response) {
-        // Server responded with a status other than 200
-        console.error("API Error:", error.response.data || "No data");
-        toast.error(`Server Error: ${error.response.status}`);
-      } else if (error.request) {
-        // Request made but no response received
-        console.error("Network Error:", error.message);
-        toast.error("Network Error: Please check your connection.");
+      // apiFetch surfaces error.status / error.data — not the axios
+      // error.response / error.request shape, which is never present here.
+      console.error("Error loading analytics:", error);
+      if (error?.status) {
+        toast.error(`Failed to load analytics (${error.status})`, {
+          description: error?.data?.message,
+        });
       } else {
-        // Something else happened
-        console.error("Error loading analytics:", error.message);
-        toast.error("An unexpected error occurred.");
+        toast.error("Failed to load analytics. Please check your connection.");
       }
     } finally {
       setIsLoading(false);

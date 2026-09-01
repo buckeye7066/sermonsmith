@@ -385,17 +385,7 @@ Be detailed and descriptive for creating a visual representation.`;
               Search for locations, timelines, and visual aids from Scripture.
             </p>
           </div>
-          <PrintButton label="Print View" className="w-fit shrink-0" onClick={() => { 
-            if (window.confirm('Do you want to print this page?')) { 
-              try { 
-                window.print(); 
-                toast.success('Printing initiated'); 
-              } catch (error) { 
-                console.error('Print error:', error); 
-                toast.error('Failed to print. Please try again.'); 
-              } 
-            }} 
-          } />
+          <PrintButton label="Print View" className="w-fit shrink-0" />
         </div>
 
         {/* AI Search Bar */}

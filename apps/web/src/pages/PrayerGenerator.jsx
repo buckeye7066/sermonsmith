@@ -116,7 +116,7 @@ export default function PrayerGenerator() {
     setIsGenerating(true);
 
     try {
-      const denomination = PRAYER_TYPES.some(t => t.label.includes(user?.denomination)) ? user.denomination : 'Non-Denominational';
+      const denomination = user?.denomination || 'Non-Denominational';
       
       const typeInfo = PRAYER_TYPES.find(t => t.value === prayerType);
       

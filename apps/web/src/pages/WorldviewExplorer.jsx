@@ -243,10 +243,6 @@ export default function WorldviewExplorer() {
     if (showNotesDialog && selectedSystem) {
       setCurrentNote(userNotes[selectedSystem] || '');
     }
-    // Log mismatch in production if the counts differ
-    if (process.env.NODE_ENV === 'production' && BELIEF_SYSTEMS.length !== WORLDVIEW_COUNT) {
-      console.error(`[appStats] WORLDVIEW_COUNT (${WORLDVIEW_COUNT}) != BELIEF_SYSTEMS.length (${BELIEF_SYSTEMS.length}); update src/lib/appStats.js`);
-    }
   }, [showNotesDialog, selectedSystem, userNotes]);
 
   const loadUserNotes = () => {
@@ -414,7 +410,7 @@ Be respectful, accurate, pastoral.`;
       // `isAnalyzing` empty/false — so the page rendered nothing and looked
       // like the click was simply ignored.
       console.error('Detailed error:', error);
-      setAnalysisError('Something went wrong while generating this analysis. Please try again.');
+      setAnalysisError(error?.data?.message || error?.message || 'Something went wrong while generating this analysis. Please try again.');
       toast.error("Failed to generate analysis");
     } finally {
       setIsAnalyzing(false);

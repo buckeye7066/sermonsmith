@@ -123,6 +123,15 @@ export default function Community() {
           </p>
         </div>
 
+        {error && (
+          <div
+            role="alert"
+            className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+          >
+            {error}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <Link to={createPageUrl('Forum')}>
             <Card className="hover:shadow-lg transition-shadow cursor-pointer">

@@ -161,9 +161,6 @@ export default function BibleStudy() {
       });
       
       toast.success("Larry has created your Bible study! 🎉");
-      if (streamErr) {
-        toast.error("Streaming failed, switching to fallback mode.");
-      }
     } catch (error) {
       console.error("Error generating study:", error);
       setStreamingStudy(null);
@@ -364,7 +361,7 @@ Return as JSON array of strings.`;
         key_verses: generatedStudy.key_verses,
         study_sections: generatedStudy.study_sections,
         conclusion: generatedStudy.conclusion,
-        denomination: user?.denomination ? 'Known' : 'Non-Denominational'
+        denomination: user?.denomination || "Non-Denominational"
       });
 
       logActivity('study_created', {

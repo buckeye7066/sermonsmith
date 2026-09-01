@@ -99,13 +99,10 @@ export default function PreferencesManager({ user, onUpdate }) {
       if (onUpdate) onUpdate();
     } catch (error) {
       console.error('Error saving preferences:', error);
-      if (error.response) {
-        toast.error(`Failed to save preferences: ${error.response.data.message}`);
-      } else if (error.request) {
-        toast.error("No response from server. Please check your network connection.");
-      } else {
-        toast.error("An unexpected error occurred.");
-      }
+      // apiFetch surfaces error.status / error.data, not the axios shape.
+      toast.error(error?.data?.message
+        ? `Failed to save preferences: ${error.data.message}`
+        : "Failed to save preferences");
     } finally {
       setIsSaving(false);
     }

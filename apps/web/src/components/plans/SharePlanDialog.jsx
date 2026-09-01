@@ -28,13 +28,16 @@ export default function SharePlanDialog({ open, onClose, plan, user }) {
         description: plan.plan_overview,
         duration_days: plan.duration,
         daily_readings: (plan.daily_lessons || []).map(lesson => ({
-          day: lesson?.day || 'N/A',
-          passages: lesson?.scripture_reading || 'N/A',
-          reflection: lesson?.devotional_context || 'N/A',
-          activities: lesson?.activities || 'N/A',
-          discussion_questions: lesson?.discussion_questions || 'N/A',
-          prayer_points: lesson?.prayer_points || 'N/A'
-        })), 
+          // No 'N/A' defaults here: activities / discussion_questions /
+          // prayer_points are arrays, and a string default breaks every
+          // consumer that does (x || []).map(...).
+          day: lesson?.day,
+          passages: lesson?.scripture_reading,
+          reflection: lesson?.devotional_context,
+          activities: lesson?.activities,
+          discussion_questions: lesson?.discussion_questions,
+          prayer_points: lesson?.prayer_points
+        })),
         category: 'topical',
         is_public: true,
         followers_count: 0
@@ -44,8 +47,7 @@ export default function SharePlanDialog({ open, onClose, plan, user }) {
       onClose();
     } catch (error) {
       console.error('Error sharing plan:', error);
-      toast.error(`Failed to share plan: ${error.message || 'Unknown error'}`);
-      toast.error("Failed to share plan");
+      toast.error(`Failed to share plan: ${error?.message || 'Unknown error'}`);
     } finally {
       setIsSharing(false);
     }
