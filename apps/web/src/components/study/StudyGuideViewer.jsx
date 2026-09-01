@@ -12,6 +12,7 @@ import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
 import { apiBinaryCall } from "@/components/utils/apiCall";
 import PrintButton from "@/components/common/PrintButton";
+import { downloadBlob } from "@/lib/downloadBlob";
 
 export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQuestions, isEnhancing, enhancementType }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -49,21 +50,18 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
         resourceId: studyData.id
       });
 
-      if (blob) {
-        // Create download link
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        
-        toast.success(`Study exported to ${format.toUpperCase()}!`);
-      } else {
+      // Diagnose an empty API response explicitly: downloadBlob would also
+      // reject it, but with "A Blob is required", which does not tell the user
+      // the export function returned nothing.
+      if (!blob) {
         throw new Error('No data received from the API');
       }
+
+      // Use downloadBlob rather than a hand-rolled anchor: it defers
+      // revokeObjectURL so Safari does not cancel the download mid-flight.
+      downloadBlob(blob, filename);
+
+      toast.success(`Study exported to ${format.toUpperCase()}!`);
     } catch (error) {
       console.error(`Error exporting to ${format}:`, error);
       toast.error(`Failed to export to ${format.toUpperCase()}`, {

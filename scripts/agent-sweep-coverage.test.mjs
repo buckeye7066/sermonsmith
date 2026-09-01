@@ -7,15 +7,18 @@
 //
 // It does not. The sweep has 8 gates of its own — config:verify, typecheck,
 // lint, test:api, test:web, build:web, e2e, audit — and the count matching 8
-// is a coincidence that made the sentence read plausibly. Three of the eight
-// checks a PR actually has to pass are absent from it:
+// is a coincidence that made the sentence read plausibly. Six PR checks are
+// absent from it:
 //
 //   integration-test  (ci.yml)                    real Postgres + migrations
+//   desktop-build-windows-smoke (ci.yml)           real Electron/NSIS packaging
+//   desktop-build-macos-smoke (ci.yml)             real Electron/macOS packaging
 //   policy            (release-language-policy.yml)
 //   android-pr        (android-build.yml)         debug APK builds at all
+//   ios               (ios-build.yml)             native Release/iphoneos archive
 //
 // i.e. exactly the gates that catch a broken migration, prohibited release
-// language, and an unbuildable Android package.
+// language, or an unbuildable native/desktop package.
 //
 // This test pins the real relationship, so the claim cannot drift back:
 //   * every sweep gate must name an npm script that exists;
@@ -32,7 +35,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
 /** Workflows whose jobs run on a pull request, i.e. the gates a merge waits on. */
-const PR_WORKFLOWS = ['ci.yml', 'release-language-policy.yml', 'android-build.yml'];
+const PR_WORKFLOWS = [
+  'ci.yml',
+  'release-language-policy.yml',
+  'android-build.yml',
+  'ios-build.yml',
+];
 
 /** Jobs in those workflows that do not gate a PR. */
 const NON_PR_JOBS = new Set(['android', 'publish']);
@@ -44,8 +52,11 @@ const NON_PR_JOBS = new Set(['android', 'publish']);
  */
 const KNOWN_UNCOVERED = {
   'integration-test': 'needs a live Postgres service container',
+  'desktop-build-windows-smoke': 'needs a hosted Windows runner and Electron/NSIS toolchain',
+  'desktop-build-macos-smoke': 'needs a hosted macOS runner and Electron packaging toolchain',
   policy: 'release-language scan runs only in CI',
   'android-pr': 'needs the Android SDK/JDK toolchain',
+  ios: 'needs a hosted macOS runner and Xcode/iphoneos toolchain',
 };
 
 function sweepGateIds() {

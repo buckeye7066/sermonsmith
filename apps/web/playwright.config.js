@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const mobileCompatibility = /mobile Safari and Android profiles/;
+
 // E2E smoke config. Builds + serves the production bundle via `vite preview`
-// and drives it with headless Chromium. The smoke is backend-independent — it
+// and drives it with Chromium and WebKit across desktop/mobile profiles. The smoke is backend-independent — it
 // verifies the SPA boots, mounts, and routes to the auth screen without a live
 // API, which is exactly the class of regression (bad build, broken router, a
 // dependency upgrade like react-router) that the unit tests can't catch.
@@ -18,7 +20,10 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'desktop-webkit', use: { ...devices['Desktop Safari'] } },
+    { name: 'mobile-safari', grep: mobileCompatibility, use: { ...devices['iPhone 13'] } },
+    { name: 'mobile-chrome', grep: mobileCompatibility, use: { ...devices['Pixel 5'] } },
   ],
   webServer: {
     command: 'npm run preview -- --port 4173 --strictPort',

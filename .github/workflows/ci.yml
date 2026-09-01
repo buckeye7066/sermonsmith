@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   # Test-only env so loadEnv() does not throw at import time. Real
   # production secrets are NEVER set in CI.
@@ -125,8 +128,121 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run build:web
-      - run: npx playwright install --with-deps chromium
+      - name: Install Chromium and WebKit browser engines
+        run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
+
+  desktop-build-windows-smoke:
+    name: Build unsigned Windows desktop packages
+    runs-on: windows-latest
+    needs: [build-web]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build unsigned NSIS and portable packages on Windows
+        run: npm run electron:build:win
+        env:
+          VITE_API_URL: https://sermonsmith-api-production.up.railway.app
+      - name: Verify Windows package output
+        shell: pwsh
+        run: |
+          $packages = Get-ChildItem -Path dist-electron -Filter *.exe -File
+          if ($packages.Count -lt 2) {
+            throw "Expected NSIS and portable Windows packages, found $($packages.Count)"
+          }
+          $packages | ForEach-Object { Write-Host "Built $($_.FullName) ($($_.Length) bytes)" }
+
+  desktop-build-macos-smoke:
+    # Build a real unpacked macOS Electron bundle at the exact PR head. This
+    # deliberately disables identity discovery; signing and notarization are
+    # trusted release operations, not properties of this CI artifact.
+    name: Build unsigned macOS desktop application
+    runs-on: macos-15
+    needs: [build-web]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact requested source
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build desktop web resources
+        run: npm run build:web
+        env:
+          ELECTRON_BUILD: 'true'
+          VITE_API_URL: https://sermonsmith-api-production.up.railway.app
+      - name: Build unpacked macOS application
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: ../../node_modules/.bin/electron-builder --mac --dir --publish never
+      - name: Verify bundle, binary identity, and absence of distribution signing
+        run: |
+          set -euo pipefail
+          OUTPUT="$GITHUB_WORKSPACE/dist-electron"
+          APP_COUNT=$(find "$OUTPUT" -type d -name 'Sermon Smith.app' | wc -l | tr -d '[:space:]')
+          test "$APP_COUNT" = '1'
+          APP=$(find "$OUTPUT" -type d -name 'Sermon Smith.app' -print -quit)
+          PLIST="$APP/Contents/Info.plist"
+          test -f "$PLIST"
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")
+          test "$BUNDLE_ID" = 'com.sermonsmith.app'
+          test "$EXECUTABLE" = 'Sermon Smith'
+          BINARY="$APP/Contents/MacOS/$EXECUTABLE"
+          test -x "$BINARY"
+          file "$BINARY" | tee "$RUNNER_TEMP/sermonsmith-macos-binary.txt"
+          grep -q 'Mach-O' "$RUNNER_TEMP/sermonsmith-macos-binary.txt"
+
+          SIGNING_STATUS='unsigned'
+          if codesign --display --verbose=4 "$APP" 2> "$RUNNER_TEMP/sermonsmith-macos-codesign.txt"; then
+            SIGNING_STATUS='ad-hoc/no-distribution-authority'
+          fi
+          if grep -q '^Authority=' "$RUNNER_TEMP/sermonsmith-macos-codesign.txt"; then
+            echo 'CI macOS artifact unexpectedly has a distribution signing authority' >&2
+            cat "$RUNNER_TEMP/sermonsmith-macos-codesign.txt" >&2
+            exit 1
+          fi
+
+          ARCHIVE="$RUNNER_TEMP/SermonSmith-macos-unsigned.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
+          test -s "$ARCHIVE"
+          zipinfo -1 "$ARCHIVE" > "$RUNNER_TEMP/sermonsmith-macos-files.txt"
+          grep -Fx 'Sermon Smith.app/Contents/Info.plist' "$RUNNER_TEMP/sermonsmith-macos-files.txt"
+          grep -Fx 'Sermon Smith.app/Contents/MacOS/Sermon Smith' "$RUNNER_TEMP/sermonsmith-macos-files.txt"
+          {
+            echo "source_sha=$(git rev-parse HEAD)"
+            echo "bundle_id=$BUNDLE_ID"
+            echo "executable=$EXECUTABLE"
+            echo 'package=unpacked-electron-app'
+            echo "signing=$SIGNING_STATUS"
+            echo 'notarization=not-performed'
+            echo "archive_bytes=$(stat -f '%z' "$ARCHIVE")"
+            echo "archive_sha256=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+          } | tee "$RUNNER_TEMP/sermonsmith-macos-unsigned-evidence.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sermonsmith-macos-unsigned
+          path: |
+            ${{ runner.temp }}/SermonSmith-macos-unsigned.zip
+            ${{ runner.temp }}/sermonsmith-macos-unsigned-evidence.txt
+          if-no-files-found: error
+          retention-days: 7
 
   security-audit:
     runs-on: ubuntu-latest

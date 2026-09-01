@@ -145,15 +145,18 @@ npm run audit         # Security audit script (allowlist-aware)
 
 The nightly sweep (`tools/agents/sweep.mjs`) runs 8 gates of its own — `config:verify`, `typecheck`, `lint`, `test:api`, `test:web`, `build:web`, `e2e`, `audit` — and writes a health-score report to `tools/agents/reports/` (gitignored).
 
-**A green sweep is not a green CI.** Three of the eight checks a pull request must pass are *not* in it:
+**A green sweep is not a green CI.** Six pull-request checks are *not* in it:
 
 | PR gate | why the sweep skips it |
 |---|---|
 | `integration-test` (`ci.yml`) | needs a live Postgres service container |
+| `desktop-build-windows-smoke` (`ci.yml`) | needs a hosted Windows runner and the Electron/NSIS packaging toolchain |
+| `desktop-build-macos-smoke` (`ci.yml`) | needs a hosted macOS runner and the Electron packaging toolchain |
 | `policy` (`release-language-policy.yml`) | release-language scan runs only in CI |
 | `android-pr` (`android-build.yml`) | needs the Android SDK/JDK toolchain |
+| `ios` (`ios-build.yml`) | needs a hosted macOS runner and the Xcode/iphoneos toolchain |
 
-Those are exactly the gates that catch a broken migration, prohibited release language, and an unbuildable Android package. `scripts/agent-sweep-coverage.test.mjs` fails if that list drifts.
+Those are exactly the gates that catch a broken migration, prohibited release language, or unbuildable Windows, macOS, Android, and iOS packages. `scripts/agent-sweep-coverage.test.mjs` fails if that list drifts.
 
 ---
 
