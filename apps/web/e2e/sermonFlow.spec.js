@@ -63,9 +63,9 @@ async function mockCommonRoutes(page, { aiSermon }) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(aiSermon) }));
 }
 
-function mockSermonEntity(page, { saved }) {
+async function mockSermonEntity(page, { saved }) {
   const captured = [];
-  page.route('**/api/entities/Sermon', async (route) => {
+  await page.route('**/api/entities/Sermon', async (route) => {
     const req = route.request();
     if (req.method() === 'POST') {
       const payload = req.postDataJSON();
@@ -78,7 +78,7 @@ function mockSermonEntity(page, { saved }) {
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(saved) });
   });
-  page.route('**/api/entities/Sermon/filter', (route) =>
+  await page.route('**/api/entities/Sermon/filter', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(saved) }));
   return captured;
 }
@@ -86,7 +86,7 @@ function mockSermonEntity(page, { saved }) {
 test('core flow: generate → validation → save as clean draft → reopen from library', async ({ page }) => {
   const saved = [];
   await mockCommonRoutes(page, { aiSermon: sermonPayload() });
-  const captured = mockSermonEntity(page, { saved });
+  const captured = await mockSermonEntity(page, { saved });
 
   await page.goto('/SermonBuilder');
   await page.getByPlaceholder(/Faith, Grace, Prayer/i).fill('Grace');
