@@ -18,9 +18,6 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',
-    // Ensure route mocks own API traffic in every engine. A service worker can
-    // intercept first in WebKit and make Reader/saved-sermon requests vanish.
-    serviceWorkers: 'block',
   },
   projects: [
     { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'] } },

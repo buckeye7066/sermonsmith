@@ -33,27 +33,22 @@ if (isNativeApp()) {
 // an Android emulator: the APK shipped index-DizVMkwg.js while the SW cache
 // served an index.html referencing index-BtRv27rR.js). Native builds must
 // never register it, and any SW from a previous install is torn down.
-const isWebProtocol = window.location.protocol === 'http:' || window.location.protocol === 'https:';
-if (isNativeApp()) {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations()
-      .then((registrations) => registrations.forEach((r) => r.unregister()))
-      .catch(() => {});
-  }
-  if (window.caches?.keys) {
-    caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
-  }
-} else if (isWebProtocol && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register(`${import.meta.env.BASE_URL}sw.js`)
-      .then((registration) => {
-        console.log('Service Worker registered:', registration);
-      })
-      .catch((error) => {
-        console.error('Service Worker registration failed:', error);
-      });
-  });
+// Retire the legacy web service worker. It cached content-hashed JavaScript
+// chunks across deployments, so users could receive an old index/chunk graph
+// after a successful production release. That made the tested app and shipped
+// app materially different. Remove every registration and SermonSmith cache;
+// ordinary browser HTTP caching still follows the explicit Vercel cache policy.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+    .catch(() => {});
+}
+if (window.caches?.keys) {
+  caches.keys()
+    .then((keys) => Promise.all(
+      keys.filter((key) => key.startsWith('sermon-smith-')).map((key) => caches.delete(key)),
+    ))
+    .catch(() => {});
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(

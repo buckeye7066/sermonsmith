@@ -124,23 +124,20 @@ test('registration form is reachable from a stable public URL', async ({ page })
   await expect(page).toHaveURL(/\/Login\?mode=register$/i);
 });
 
-test('a newly activated service worker waits for reload before controlling the current page', async ({ page }) => {
+test('legacy service workers and SermonSmith caches are removed', async ({ page }) => {
   await page.goto('/');
-
-  const lifecycle = await page.evaluate(async () => {
-    if (!('serviceWorker' in navigator)) return { supported: false, ready: false, controlled: false };
-    const registration = await Promise.race([
-      navigator.serviceWorker.ready,
-      new Promise((resolve) => setTimeout(() => resolve(null), 10_000)),
-    ]);
+  await expect(page.getByRole('heading', { name: 'SermonSmith' }).first()).toBeVisible();
+  await expect.poll(async () => page.evaluate(async () => {
+    const registrations = 'serviceWorker' in navigator
+      ? await navigator.serviceWorker.getRegistrations()
+      : [];
+    const cacheKeys = window.caches?.keys ? await caches.keys() : [];
     return {
-      supported: true,
-      ready: Boolean(registration),
-      controlled: Boolean(navigator.serviceWorker.controller),
+      registrations: registrations.length,
+      controlled: Boolean(navigator.serviceWorker?.controller),
+      sermonSmithCaches: cacheKeys.filter((key) => key.startsWith('sermon-smith-')).length,
     };
-  });
-
-  expect(lifecycle).toEqual({ supported: true, ready: true, controlled: false });
+  })).toEqual({ registrations: 0, controlled: false, sermonSmithCaches: 0 });
 });
 
 // Regression guard for the 2026-08-02 "Bible reader is a broken link" report:
