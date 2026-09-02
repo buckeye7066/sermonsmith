@@ -18,6 +18,9 @@ vi.mock('./pages.config', () => {
   const Home = () => <h1>SermonSmith Home</h1>;
   const Pricing = () => <h1>Choose Your Plan</h1>;
   const Downloads = () => <h1>Scripture Downloads</h1>;
+  const SharedContent = ({ publicShareOnly }) => (
+    <div data-testid="shared-content">{publicShareOnly ? 'Public shared resource' : 'Community feed'}</div>
+  );
   const ProtectedPage = () => <div data-testid="protected-page">Protected page</div>;
   const Layout = ({ children }) => <div data-testid="layout">{children}</div>;
 
@@ -28,6 +31,7 @@ vi.mock('./pages.config', () => {
         Home,
         Pricing,
         Downloads,
+        SharedContent,
         Reader: ProtectedPage,
         SermonBuilder: ProtectedPage,
       },
@@ -142,6 +146,14 @@ describe('AuthenticatedApp route gating', () => {
 
     expect(screen.getByRole('heading', { name: /scripture downloads/i })).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent('/Downloads');
+  });
+
+  it('opens a tokenized public share without authentication or the Community shell', () => {
+    renderWithRoute('/SharedContent?link=sermon-safe-token');
+
+    expect(screen.getByTestId('shared-content')).toHaveTextContent('Public shared resource');
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/SharedContent?link=sermon-safe-token');
   });
 
   it('keeps Login/register reachable while auth initializes', async () => {

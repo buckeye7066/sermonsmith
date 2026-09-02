@@ -221,6 +221,9 @@ export const AuthenticatedApp = () => {
   // global auth gate redirected every logged-out path except /privacy to Login,
   // which made the landing and pricing pages unusable as public web pages.
   const publicPath = location.pathname.toLowerCase();
+  const publicShareSlug = publicPath === '/sharedcontent'
+    ? new URLSearchParams(location.search).get('link')
+    : null;
   const PublicPage =
     publicPath === '/' || publicPath === '/home'
       ? Pages.Home
@@ -242,6 +245,19 @@ export const AuthenticatedApp = () => {
     return (
       <Suspense fallback={<PageLoader />}>
         <TermsOfUse />
+      </Suspense>
+    );
+  }
+
+  // A share link is intentionally public and the API validates its slug,
+  // expiration, ownership, and current Scripture content before returning the
+  // resource. Render the narrow public-link view without opening the Premium
+  // Community feed or the authenticated application shell.
+  if (publicShareSlug) {
+    const PublicSharedContent = Pages.SharedContent;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <PublicSharedContent publicShareOnly />
       </Suspense>
     );
   }

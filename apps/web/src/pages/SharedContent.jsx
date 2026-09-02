@@ -9,13 +9,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Heart, Bookmark, TrendingUp, BookOpen, Loader2, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
-export default function SharedContent() {
+export default function SharedContent({ publicShareOnly = false }) {
   const { user, isLoadingAuth } = useAuth();
   const [sharedContent, setSharedContent] = useState([]);
   const [myShared, setMyShared] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [sharedLink, setSharedLink] = useState(null);
+  const [shareLoading, setShareLoading] = useState(publicShareOnly);
+  const [shareError, setShareError] = useState(null);
 
   useEffect(() => {
     // When the URL carries ?link=<slug> we resolve it through the dedicated
@@ -24,19 +26,27 @@ export default function SharedContent() {
     const params = new URLSearchParams(window.location.search);
     const linkSlug = params.get('link');
     if (linkSlug) {
+      setShareLoading(true);
       api.community.share(linkSlug)
         .then((result) => setSharedLink(result))
         .catch((err) => {
-          toast.error(logError('Could not load share link', err));
-        });
+          const message = logError('Could not load share link', err);
+          setShareError(message);
+          if (!publicShareOnly) toast.error(message);
+        })
+        .finally(() => setShareLoading(false));
     }
-  }, []);
+  }, [publicShareOnly]);
 
   useEffect(() => {
+    if (publicShareOnly) {
+      setIsLoading(false);
+      return;
+    }
     if (isLoadingAuth) return;
     loadContent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoadingAuth, user, filter]);
+  }, [isLoadingAuth, user, filter, publicShareOnly]);
 
   const loadContent = async () => {
     setIsLoading(true);
@@ -95,6 +105,79 @@ export default function SharedContent() {
       toast.error(logError('Failed to save', error));
     }
   };
+
+  if (publicShareOnly) {
+    const resource = sharedLink?.resource;
+    const link = sharedLink?.link;
+    const primaryText = resource?.content
+      || resource?.body
+      || resource?.overview
+      || resource?.big_idea
+      || resource?.description
+      || '';
+
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 dark:bg-gray-900 md:p-8">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-8 text-center">
+            <BookOpen className="mx-auto mb-3 h-10 w-10 text-indigo-600" />
+            <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">SermonSmith shared resource</p>
+          </div>
+          {shareLoading ? (
+            <div className="flex justify-center py-20">
+              <Loader2 className="h-9 w-9 animate-spin text-indigo-600" />
+            </div>
+          ) : shareError || !resource ? (
+            <Card className="border-red-200">
+              <CardContent className="space-y-3 py-10 text-center">
+                <h1 className="text-2xl font-bold">This share link is unavailable</h1>
+                <p className="text-gray-600 dark:text-gray-300">
+                  It may be invalid, expired, or the resource may no longer be eligible for sharing.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-2xl">
+                  {link?.title || resource.title || resource.name || 'Shared resource'}
+                </CardTitle>
+                {link?.description && <CardDescription>{link.description}</CardDescription>}
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {resource.anchor_passage && (
+                  <Badge variant="outline"><BookOpen className="mr-1 h-3 w-3" />{resource.anchor_passage}</Badge>
+                )}
+                {primaryText && (
+                  <div className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">{primaryText}</div>
+                )}
+                {Array.isArray(resource.points) && resource.points.length > 0 && (
+                  <div className="space-y-4">
+                    {resource.points.map((point, index) => (
+                      <section key={`${point?.title || 'point'}-${index}`} className="rounded-lg border p-4">
+                        <h2 className="font-semibold">{point?.title || `Point ${index + 1}`}</h2>
+                        {(point?.explanation || point?.content) && (
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+                            {point.explanation || point.content}
+                          </p>
+                        )}
+                      </section>
+                    ))}
+                  </div>
+                )}
+                {!primaryText && (!Array.isArray(resource.points) || resource.points.length === 0) && (
+                  <p className="text-gray-600 dark:text-gray-300">The resource is available, but it has no text preview.</p>
+                )}
+                <p className="border-t pt-4 text-xs text-gray-500">
+                  Shared read-only. Verify Scripture wording, context, and citations before teaching or distributing it.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
