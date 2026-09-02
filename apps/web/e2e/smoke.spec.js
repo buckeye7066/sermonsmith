@@ -171,17 +171,32 @@ test('Bible Reader sidebar link opens the reader and renders scripture', async (
   await page.route('**/api/entities/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
-  await page.route('**/api/functions/biblePassage', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        verses: [
-          { verse: 1, text: 'In the beginning God created the heaven and the earth.' },
-          { verse: 2, text: 'And the earth was without form, and void.' },
-        ],
-      }),
-    });
+  // Route every Reader function request through one deterministic handler.
+  // WebKit can dispatch the chapter request while the translation-list effect
+  // starts; separate overlapping page routes intermittently allowed one of
+  // those requests to escape to the production API during CI.
+  await page.route('**/api/functions/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/biblePassage')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          verses: [
+            { verse: 1, text: 'In the beginning God created the heaven and the earth.' },
+            { verse: 2, text: 'And the earth was without form, and void.' },
+          ],
+        }),
+      });
+    }
+    if (path.endsWith('/listAvailableTranslations')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ translations: [{ id: 'kjv', name: 'King James Version' }] }),
+      });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
 
   await page.goto('/Home');
