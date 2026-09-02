@@ -177,7 +177,7 @@ test('Bible Reader sidebar link opens the reader and renders scripture', async (
   // those requests to escape to the production API during CI.
   await page.route('**/api/functions/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path.endsWith('/biblePassage')) {
+    if (path.includes('/biblePassage')) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -189,7 +189,7 @@ test('Bible Reader sidebar link opens the reader and renders scripture', async (
         }),
       });
     }
-    if (path.endsWith('/listAvailableTranslations')) {
+    if (path.includes('/listAvailableTranslations')) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
