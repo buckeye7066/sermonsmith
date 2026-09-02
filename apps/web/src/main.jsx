@@ -27,12 +27,9 @@ if (isNativeApp()) {
   }
 }
 
-// Register service worker for offline support — WEB ONLY. In the Capacitor
-// app the assets are already local, so a SW adds nothing and its cached
-// index.html kept serving OLD hashed bundles after app updates (verified on
-// an Android emulator: the APK shipped index-DizVMkwg.js while the SW cache
-// served an index.html referencing index-BtRv27rR.js). Native builds must
-// never register it, and any SW from a previous install is torn down.
+// Remove the retired service worker on web and native installations. It cached
+// old content-hashed chunks across releases and could keep users on a broken
+// deployment even after Vercel and the Android package were updated.
 // Retire the legacy web service worker. It cached content-hashed JavaScript
 // chunks across deployments, so users could receive an old index/chunk graph
 // after a successful production release. That made the tested app and shipped
