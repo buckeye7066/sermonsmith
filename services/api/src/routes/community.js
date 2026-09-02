@@ -899,7 +899,7 @@ router.post('/sermons/:id/rating', authenticateToken, requireCommunity, async (r
   }
 });
 
-router.get('/comments', authenticateToken, async (req, res, next) => {
+router.get('/comments', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const contentType = String(req.query.content_type || '');
     const contentId = String(req.query.content_id || '');
@@ -930,7 +930,7 @@ router.get('/comments', authenticateToken, async (req, res, next) => {
   }
 });
 
-router.post('/comments', authenticateToken, async (req, res, next) => {
+router.post('/comments', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const contentType = String(req.body?.content_type || '');
     const contentId = String(req.body?.content_id || '');
@@ -961,7 +961,7 @@ router.post('/comments', authenticateToken, async (req, res, next) => {
   }
 });
 
-router.post('/comments/:id/like', authenticateToken, async (req, res, next) => {
+router.post('/comments/:id/like', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const comment = await prisma.entity.findUnique({ where: { id: req.params.id } });
     if (!comment || comment.type !== 'Comment') return res.status(404).json({ message: 'Comment not found' });
@@ -987,7 +987,7 @@ router.post('/comments/:id/like', authenticateToken, async (req, res, next) => {
   }
 });
 
-router.delete('/comments/:id/like', authenticateToken, async (req, res, next) => {
+router.delete('/comments/:id/like', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const comment = await prisma.entity.findUnique({ where: { id: req.params.id } });
     if (!comment || comment.type !== 'Comment') return res.status(404).json({ message: 'Comment not found' });
@@ -1005,7 +1005,7 @@ router.delete('/comments/:id/like', authenticateToken, async (req, res, next) =>
   }
 });
 
-router.patch('/comments/:id/pin', authenticateToken, async (req, res, next) => {
+router.patch('/comments/:id/pin', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const comment = await prisma.entity.findUnique({ where: { id: req.params.id } });
     if (!comment || comment.type !== 'Comment') return res.status(404).json({ message: 'Comment not found' });
@@ -1023,7 +1023,7 @@ router.patch('/comments/:id/pin', authenticateToken, async (req, res, next) => {
   }
 });
 
-router.delete('/comments/:id', authenticateToken, async (req, res, next) => {
+router.delete('/comments/:id', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const comment = await prisma.entity.findUnique({ where: { id: req.params.id } });
     if (!comment || comment.type !== 'Comment') return res.status(404).json({ message: 'Comment not found' });

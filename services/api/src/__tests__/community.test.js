@@ -400,11 +400,15 @@ describe('community routes', () => {
   });
 
   it('blocks free accounts from community APIs even when they call the route directly', async () => {
-    const res = await request(app)
+    const forumRes = await request(app)
       .get('/api/community/posts')
       .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    const commentRes = await request(app)
+      .get('/api/community/comments?content_type=sermon&content_id=shared-sermon')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
 
-    expect(res.status).toBe(402);
+    expect(forumRes.status).toBe(402);
+    expect(commentRes.status).toBe(402);
   });
 
   it('finds members without exposing private profile fields and supports follow/unfollow', async () => {
