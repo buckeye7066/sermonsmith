@@ -46,8 +46,15 @@ async function mockCommonRoutes(page, { aiSermon }) {
   // quietly. Registered FIRST so the specific Sermon routes below win.
   await page.route('**/api/entities/**', (route) => {
     const req = route.request();
+    const path = new URL(req.url()).pathname;
+    // Sermon persistence has a stateful route below. Explicit fallback is
+    // required because WebKit can revisit the generic route after navigation;
+    // relying on registration order allowed the saved list to become [].
+    if (path === '/api/entities/Sermon' || path === '/api/entities/Sermon/filter') {
+      return route.fallback();
+    }
     // List/filter endpoints must return arrays; creates return a record.
-    const wantsArray = req.method() === 'GET' || req.url().includes('/filter');
+    const wantsArray = req.method() === 'GET' || path.endsWith('/filter');
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
