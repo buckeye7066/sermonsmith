@@ -77,6 +77,10 @@ jobs:
         env:
           VITE_API_URL: https://sermonsmith-api-production.up.railway.app
           VITE_NATIVE_VERSION: ${{ env.ANDROID_VERSION_NAME }}
+      - name: Install user-journey browser engines
+        run: npx playwright install --with-deps chromium webkit
+      - name: Verify production user journeys in Chromium and WebKit
+        run: npm run test:e2e
       - name: Sync Capacitor
         run: npx cap sync android
         working-directory: apps/mobile
