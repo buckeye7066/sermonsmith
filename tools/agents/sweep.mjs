@@ -234,4 +234,3 @@ if (doEmail) {
 }
 
 process.exit(failed.length === 0 ? 0 : 1);
-

@@ -177,4 +177,3 @@ test('warning flow: invalid Scripture → visible finding → still editable →
   await expect(page.getByText(/1 reference needs? attention/i)).toBeVisible();
   await expect(page.getByText(/Hezekiah 4:5/).first()).toBeVisible();
 });
-
