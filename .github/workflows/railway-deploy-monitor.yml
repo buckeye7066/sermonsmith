@@ -28,3 +28,27 @@ jobs:
           EXPECTED_SHA: ${{ github.sha }}
           API_BASE_URL: https://sermonsmith-api-production.up.railway.app
         run: node scripts/monitor-railway-deployment.mjs
+
+      - name: Verify production Bible Reader across books and chapters
+        shell: bash
+        env:
+          WEB_BASE_URL: https://sermonsmith.axiombiolabs.org
+        run: |
+          set -euo pipefail
+          probe_passage() {
+            local book_code="$1"
+            local chapter="$2"
+            local expected_text="$3"
+            local response="$RUNNER_TEMP/bible-${book_code}-${chapter}.json"
+            curl --fail --show-error --silent \
+              --retry 3 --retry-all-errors \
+              --connect-timeout 15 --max-time 45 \
+              -H 'content-type: application/json' \
+              --data "{\"translationId\":\"kjv\",\"bookCode\":\"${book_code}\",\"chapter\":${chapter}}" \
+              "$WEB_BASE_URL/api/functions/biblePassage" > "$response"
+            jq -e --arg expected "$expected_text" \
+              '(.verses | length) > 0 and ([.verses[].text] | join(" ") | contains($expected))' \
+              "$response" > /dev/null
+          }
+          probe_passage GEN 2 'heavens and the earth were finished'
+          probe_passage JHN 3 'For God so loved the world'
