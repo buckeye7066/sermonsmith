@@ -133,6 +133,10 @@ const rsvpSchema = z.object({
   status: z.enum(['attending', 'maybe', 'not_attending']),
 });
 
+const groupPlanSchema = z.object({
+  plan_id: z.string().min(1).max(200),
+});
+
 const shareSermonSchema = z.object({
   source_sermon_id: z.string().min(1).max(200),
   ai_tags: z.array(z.string().trim().min(1).max(80)).max(20).optional().default([]),
@@ -1352,18 +1356,107 @@ router.post('/study-groups/:id/meetings/:meetingId/rsvp', authenticateToken, req
 
 router.get('/study-groups/:id/progress', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    await requireGroupMember(req.params.id, req.userId);
+    const { group } = await requireGroupMember(req.params.id, req.userId);
     const progress = await prisma.entity.findFirst({
       where: { type: 'GroupProgress', data: { path: ['group_id'], equals: req.params.id } },
     });
     if (!progress) return res.json({ progress: null, plan: null });
-    const plan = progress.data?.plan_id
-      ? await prisma.entity.findUnique({ where: { id: progress.data.plan_id } })
-      : null;
+
+    let plan = null;
+    const snapshot = progress.data?.plan_snapshot;
+    if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
+      assertGatedResourceExposable({
+        type: 'ReadingPlan',
+        resourceData: snapshot,
+        denomination: progress.data?.plan_denomination || snapshot.denomination || '',
+      });
+      plan = snapshot;
+    } else if (progress.data?.plan_id) {
+      // Legacy progress rows referenced a live ReadingPlan. Only expose it when
+      // the plan is public or belongs to the group owner / recorded assigner;
+      // otherwise a forged legacy plan_id could leak another user's private
+      // plan to every group member.
+      const candidate = await prisma.entity.findUnique({ where: { id: progress.data.plan_id } });
+      const allowedOwner = candidate?.userId === group.userId
+        || candidate?.userId === progress.data?.assigned_by;
+      if (candidate?.type === 'ReadingPlan' && (candidate.data?.is_public === true || allowedOwner)) {
+        const denomination = candidate.data?.denomination
+          || (await prisma.user.findUnique({ where: { id: candidate.userId }, select: { profile: true } }))?.profile?.denomination
+          || '';
+        assertGatedResourceExposable({ type: 'ReadingPlan', resourceData: candidate.data || {}, denomination });
+        plan = formatEntity(candidate);
+      }
+    }
+
+    // plan_snapshot is an internal, intentionally shared copy. Return it once
+    // as `plan`, not duplicated inside the progress object.
+    const formattedProgress = formatEntity(progress);
+    delete formattedProgress.plan_snapshot;
+    delete formattedProgress.plan_denomination;
     res.json({
-      progress: formatEntity(progress),
-      plan: plan?.type === 'ReadingPlan' ? formatEntity(plan) : null,
+      progress: formattedProgress,
+      plan,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/study-groups/:id/progress', authenticateToken, requireCommunity, async (req, res, next) => {
+  try {
+    await requireGroupLeader(req.params.id, req.userId);
+    const parsed = groupPlanSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid reading plan assignment', issues: parsed.error.issues });
+    }
+
+    const plan = await prisma.entity.findUnique({ where: { id: parsed.data.plan_id } });
+    if (!plan || plan.type !== 'ReadingPlan'
+      || (plan.userId !== req.userId && plan.data?.is_public !== true)) {
+      return res.status(404).json({ message: 'Reading plan not found' });
+    }
+
+    const denomination = plan.data?.denomination
+      || (await prisma.user.findUnique({ where: { id: plan.userId }, select: { profile: true } }))?.profile?.denomination
+      || '';
+    assertGatedResourceExposable({ type: 'ReadingPlan', resourceData: plan.data || {}, denomination });
+
+    const dailyReadings = Array.isArray(plan.data?.daily_readings) ? plan.data.daily_readings : [];
+    const requestedDays = Number(plan.data?.duration_days || plan.data?.total_days || dailyReadings.length || 1);
+    const totalDays = Math.min(366, Math.max(1, Number.isFinite(requestedDays) ? Math.trunc(requestedDays) : 1));
+    const planSnapshot = {
+      ...(plan.data || {}),
+      id: plan.id,
+      created_date: plan.createdAt,
+      updated_date: plan.updatedAt,
+    };
+    const nextData = {
+      group_id: req.params.id,
+      plan_id: plan.id,
+      assigned_by: req.userId,
+      assigned_date: new Date().toISOString(),
+      plan_denomination: denomination,
+      plan_snapshot: planSnapshot,
+      total_days: totalDays,
+      completed_days: [],
+      current_day: 1,
+      completion_percentage: 0,
+    };
+    const existing = await prisma.entity.findFirst({
+      where: { type: 'GroupProgress', data: { path: ['group_id'], equals: req.params.id } },
+    });
+    const progress = existing
+      ? await prisma.entity.update({ where: { id: existing.id }, data: { data: nextData } })
+      : await prisma.entity.create({ data: { type: 'GroupProgress', userId: req.userId, data: nextData } });
+
+    await recordCommunityAudit('community.group_plan_assign', req.userId, 'GroupProgress', progress.id, {
+      groupId: req.params.id,
+      planId: plan.id,
+    });
+    const formattedProgress = formatEntity(progress);
+    delete formattedProgress.plan_snapshot;
+    delete formattedProgress.plan_denomination;
+    res.json({ progress: formattedProgress, plan: planSnapshot });
   } catch (err) {
     next(err);
   }

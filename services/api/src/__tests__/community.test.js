@@ -590,6 +590,66 @@ describe('community routes', () => {
     expect(rsvp.body.status).toBe('attending');
   });
 
+  it('lets leaders assign a real reading plan while blocking members and private-plan IDORs', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'group-progress', type: 'StudyGroup', userId: 'u-owner',
+        data: { name: 'John', description: 'Study John', status: 'active' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'owner-plan', type: 'ReadingPlan', userId: 'u-owner',
+        data: {
+          name: 'John in a Week', duration_days: 7, is_public: false,
+          daily_readings: [{ day: 1, passages: ['John 1:1-18'] }],
+        },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'private-outsider-plan', type: 'ReadingPlan', userId: 'u-reader',
+        data: { name: 'Private', duration_days: 3, is_public: false, daily_readings: [] },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+    prisma._store.communityGroupMember.push(
+      { id: 'progress-owner', groupId: 'group-progress', userId: 'u-owner', role: 'leader', userName: 'Owner', joinedAt: new Date() },
+      { id: 'progress-reader', groupId: 'group-progress', userId: 'u-reader', role: 'member', userName: 'Reader', joinedAt: new Date() },
+    );
+
+    const memberBlocked = await request(app)
+      .put('/api/community/study-groups/group-progress/progress')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ plan_id: 'owner-plan' });
+    expect(memberBlocked.status).toBe(403);
+
+    const privatePlanBlocked = await request(app)
+      .put('/api/community/study-groups/group-progress/progress')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
+      .send({ plan_id: 'private-outsider-plan' });
+    expect(privatePlanBlocked.status).toBe(404);
+
+    const assigned = await request(app)
+      .put('/api/community/study-groups/group-progress/progress')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
+      .send({ plan_id: 'owner-plan' });
+    expect(assigned.status).toBe(200);
+    expect(assigned.body.plan).toMatchObject({ id: 'owner-plan', name: 'John in a Week' });
+    expect(assigned.body.progress).toMatchObject({ total_days: 7, completed_days: [], current_day: 1 });
+    expect(assigned.body.progress.plan_snapshot).toBeUndefined();
+
+    const memberView = await request(app)
+      .get('/api/community/study-groups/group-progress/progress')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(memberView.status).toBe(200);
+    expect(memberView.body.plan).toMatchObject({ id: 'owner-plan', name: 'John in a Week' });
+
+    const completed = await request(app)
+      .post('/api/community/study-groups/group-progress/progress/days/1/complete')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+    expect(completed.status).toBe(200);
+    expect(completed.body).toMatchObject({ completed_days: [1], completion_percentage: 14 });
+  });
+
   it('shares sermons across accounts and records views, forks, and ratings server-side', async () => {
     prisma._store.entity.push({
       id: 'private-sermon',

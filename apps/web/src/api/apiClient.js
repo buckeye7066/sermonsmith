@@ -724,6 +724,10 @@ const community = {
     { method: 'POST', body: JSON.stringify({ status }) },
   ),
   groupProgress: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/progress`),
+  assignGroupProgressPlan: (id, planId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(id)}/progress`,
+    { method: 'PUT', body: JSON.stringify({ plan_id: planId }) },
+  ),
   completeGroupProgressDay: (id, day) => apiFetch(
     `/api/community/study-groups/${encodeURIComponent(id)}/progress/days/${encodeURIComponent(day)}/complete`,
     { method: 'POST' },
