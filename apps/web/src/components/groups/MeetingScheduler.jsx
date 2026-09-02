@@ -48,7 +48,18 @@ export default function MeetingScheduler({ group, user, members, isLeader = fals
     }
 
     try {
-      await api.community.createGroupMeeting(group.id, newMeeting);
+      // datetime-local has no zone information. Convert the user's chosen
+      // local wall-clock time to an offset-independent ISO instant before it
+      // crosses the API boundary, otherwise a UTC server shifts the meeting.
+      const scheduledDate = new Date(newMeeting.scheduled_date);
+      if (Number.isNaN(scheduledDate.getTime())) {
+        toast.error('Enter a valid meeting date and time');
+        return;
+      }
+      await api.community.createGroupMeeting(group.id, {
+        ...newMeeting,
+        scheduled_date: scheduledDate.toISOString(),
+      });
 
       toast.success("Meeting scheduled!");
       setShowNewMeeting(false);

@@ -41,6 +41,13 @@ function buildApp() {
   const app = express();
   app.use(express.json());
   app.use(cookieParser());
+  // Most cases in this suite exercise behavior unrelated to feature routing;
+  // give those requests the same explicit core-workflow id production callers
+  // are required to send. Schema tests below cover missing/unknown ids.
+  app.use('/api/ai', (req, _res, next) => {
+    if (req.body && !Object.prototype.hasOwnProperty.call(req.body, 'feature')) req.body.feature = 'sermon';
+    next();
+  });
   app.use('/api/ai', aiRoutes);
   app.use((err, _req, res, _next) => res.status(err.status || 500).json({ message: err.message }));
   return app;
@@ -160,13 +167,15 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(aiInternals.estimateTokenCount(prompt)).toBeGreaterThan(1);
   });
 
-  it('accepts an explicit feature tag on AI invocation requests', () => {
+  it('requires a registered feature tag on AI invocation requests', () => {
     const parsed = aiInternals.invokeRequestSchema.safeParse({
       prompt: 'Draft an outline',
-      feature: 'sermon_builder',
+      feature: 'sermon',
     });
     expect(parsed.success).toBe(true);
-    expect(parsed.data.feature).toBe('sermon_builder');
+    expect(parsed.data.feature).toBe('sermon');
+    expect(aiInternals.invokeRequestSchema.safeParse({ prompt: 'Draft an outline' }).success).toBe(false);
+    expect(aiInternals.invokeRequestSchema.safeParse({ prompt: 'Draft an outline', feature: 'made_up' }).success).toBe(false);
   });
 
   it('validates image requests: bounds prompt length and allowlists size', () => {

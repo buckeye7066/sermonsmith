@@ -22,6 +22,7 @@ import {
 import { translationMetadata } from '../services/bibleSources.js';
 import { getCachedBiblePassage } from './functions.js';
 import {
+  ENTITLEMENTS,
   accessSummaryFor,
   entitlementForEntityType,
   requestHasEntitlement,
@@ -145,6 +146,26 @@ function assertEntityEntitlement(req, type) {
     throw Object.assign(new Error('Premium subscription required'), {
       status: 402,
       requiredEntitlement: entitlement,
+    });
+  }
+}
+
+// SharedContent and ReadingPlan serve two different product surfaces through
+// the same legacy entity type: private records belong to the free personal
+// library, while public records are published into the Premium Community.
+// A type-only entitlement map cannot express that distinction, so every
+// create/update/bulk write checks the effective visibility as well. Owners can
+// still make an existing record private (or delete it) after Premium expires.
+function assertCommunityPublicationEntitlement(req, type, data, existingData = {}) {
+  const effective = { ...(existingData || {}), ...(data || {}) };
+  const publishesToCommunity = type === 'SharedContent'
+    ? effective.visibility === 'public'
+    : type === 'ReadingPlan' && effective.is_public === true;
+
+  if (publishesToCommunity && !requestHasEntitlement(req, ENTITLEMENTS.COMMUNITY)) {
+    throw Object.assign(new Error('Publishing to the Community requires Premium'), {
+      status: 402,
+      requiredEntitlement: ENTITLEMENTS.COMMUNITY,
     });
   }
 }
@@ -590,6 +611,7 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
       // eslint-disable-next-line no-unused-vars
       const { user_id, userId, id, ...item } = rawItem || {};
       const validItem = validateEntityPayload(req.params.type, item);
+      assertCommunityPublicationEntitlement(req, req.params.type, validItem);
       return applyScriptureGate(
         req,
         req.params.type,
@@ -629,6 +651,7 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
     // eslint-disable-next-line no-unused-vars
     const { user_id, userId, id, ...rawBody } = req.body || {};
     const validBody = validateEntityPayload(req.params.type, rawBody);
+    assertCommunityPublicationEntitlement(req, req.params.type, validBody);
     const body = await applyScriptureGate(
       req,
       req.params.type,
@@ -775,6 +798,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       patch = parsed.data;
     }
 
+    assertCommunityPublicationEntitlement(req, storedType, patch, existing.data);
     patch = bindSharedContentFields(req, storedType, patch);
     patch = await applyScriptureGate(req, storedType, patch, existing.data);
 

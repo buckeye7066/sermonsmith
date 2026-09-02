@@ -156,6 +156,37 @@ async function exportRows(modelName, userId) {
   }
 }
 
+async function exportCommunityRelations(userId) {
+  try {
+    const [following, followers, groupMemberships] = await Promise.all([
+      prisma.communityFollow.findMany({
+        where: { followerId: userId },
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+        select: { id: true, followingId: true, createdAt: true },
+      }),
+      prisma.communityFollow.findMany({
+        where: { followingId: userId },
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+        select: { id: true, followerId: true, createdAt: true },
+      }),
+      prisma.communityGroupMember.findMany({
+        where: { userId },
+        orderBy: { joinedAt: 'desc' },
+        take: 5000,
+        select: { id: true, groupId: true, role: true, userName: true, joinedAt: true },
+      }),
+    ]);
+    return { following, followers, groupMemberships };
+  } catch {
+    // Rolling deploy compatibility: a server may start before the new
+    // relation tables have been migrated. Keep the export available and
+    // expose empty collections until the migration completes.
+    return { following: [], followers: [], groupMemberships: [] };
+  }
+}
+
 async function recordAudit(action, userId, metadata = {}) {
   if (!prisma.auditLog?.create) return;
   try {
@@ -386,13 +417,19 @@ router.get('/export', authenticateToken, async (req, res, next) => {
       select: { id: true, type: true, data: true, createdAt: true, updatedAt: true },
     });
 
-    const typedEntries = await Promise.all(
-      PRIVACY_EXPORT_MODELS.map(async ([key, modelName]) => [key, await exportRows(modelName, req.userId)])
-    );
+    const [typedEntries, communityRelations] = await Promise.all([
+      Promise.all(
+        PRIVACY_EXPORT_MODELS.map(async ([key, modelName]) => [key, await exportRows(modelName, req.userId)])
+      ),
+      exportCommunityRelations(req.userId),
+    ]);
 
     await recordAudit('privacy.export', req.userId, {
       entityCount: entities.length,
       typedCounts: Object.fromEntries(typedEntries.map(([key, rows]) => [key, rows.length])),
+      communityRelationCounts: Object.fromEntries(
+        Object.entries(communityRelations).map(([key, rows]) => [key, rows.length])
+      ),
     });
 
     res.json({
@@ -400,6 +437,7 @@ router.get('/export', authenticateToken, async (req, res, next) => {
       user: sanitizeUser(user),
       entities,
       typed: Object.fromEntries(typedEntries),
+      community: communityRelations,
     });
   } catch (err) {
     next(err);

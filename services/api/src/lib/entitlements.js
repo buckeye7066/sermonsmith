@@ -100,21 +100,41 @@ export function requestHasEntitlement(req, entitlement) {
   if (Array.isArray(req?.entitlements)) return req.entitlements.includes(entitlement);
   // Compatibility for route tests and rolling deploys where the authentication
   // middleware has not yet attached the explicit entitlement array.
+  if (FREE_ENTITLEMENTS.includes(entitlement)) return Boolean(req?.userId);
   return req?.userPremium === true;
 }
 
-const PREMIUM_AI_FEATURES = new Map([
+// Every public text-generation workflow has an explicit server-side scope.
+// There is no implicit "unlabelled means free" fallback: unknown/omitted ids
+// are rejected by the AI route, and the experimental general scope is
+// Premium-only. Core workflows remain available to the free tier as advertised.
+const AI_FEATURE_ENTITLEMENTS = new Map([
+  ['sermon', ENTITLEMENTS.CORE_AI],
+  ['sermon_helper', ENTITLEMENTS.CORE_AI],
+  ['sermon_series', ENTITLEMENTS.CORE_AI],
+  ['sermon_outline', ENTITLEMENTS.CORE_AI],
   ['bible_maps', ENTITLEMENTS.BIBLE_MAPS],
+  ['bible_study', ENTITLEMENTS.CORE_AI],
   ['community', ENTITLEMENTS.COMMUNITY],
   ['ethics', ENTITLEMENTS.ETHICS],
+  ['exegesis', ENTITLEMENTS.CORE_AI],
+  ['general', ENTITLEMENTS.ADVANCED_STUDY],
+  ['library', ENTITLEMENTS.CORE_AI],
   ['multi_perspective_study', ENTITLEMENTS.MULTI_PERSPECTIVE_STUDY],
   ['plan_adaptation', ENTITLEMENTS.ADVANCED_STUDY],
+  ['prayer', ENTITLEMENTS.CORE_AI],
+  ['presentation', ENTITLEMENTS.CORE_AI],
+  ['quiz', ENTITLEMENTS.CORE_AI],
+  ['reader_insight', ENTITLEMENTS.CORE_AI],
   ['sermon_adaptation', ENTITLEMENTS.SERMON_ADAPTATION],
+  ['study_plan', ENTITLEMENTS.CORE_AI],
+  ['support', ENTITLEMENTS.CORE_AI],
+  ['thematic_linker', ENTITLEMENTS.CORE_AI],
   ['worldview', ENTITLEMENTS.WORLDVIEW],
 ]);
 
 export function entitlementForAiFeature(feature) {
-  return PREMIUM_AI_FEATURES.get(String(feature || '').trim().toLowerCase()) || null;
+  return AI_FEATURE_ENTITLEMENTS.get(String(feature || '').trim().toLowerCase()) || null;
 }
 
 const PREMIUM_ENTITY_TYPES = new Map([

@@ -224,6 +224,48 @@ describe('entities — allowlist (regression for broken creates)', () => {
     expect(plan.status).toBe(200);
   });
 
+  it('keeps private saves free but blocks public Community publication without entitlement', async () => {
+    const privateContent = await request(app)
+      .post('/api/entities/SharedContent')
+      .send({ title: 'Private note', content: 'My note', content_type: 'note', visibility: 'private' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(privateContent.status).toBe(200);
+
+    const publicContent = await request(app)
+      .post('/api/entities/SharedContent')
+      .send({ title: 'Public note', content: 'My note', content_type: 'note', visibility: 'public' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(publicContent.status).toBe(402);
+    expect(publicContent.body.message).toMatch(/Community requires Premium/i);
+
+    const publicPlan = await request(app)
+      .post('/api/entities/ReadingPlan')
+      .send({ name: 'Published plan', is_public: true })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(publicPlan.status).toBe(402);
+
+    const publishExisting = await request(app)
+      .put(`/api/entities/SharedContent/${privateContent.body.id}`)
+      .send({ visibility: 'public' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(publishExisting.status).toBe(402);
+    expect(prisma._store.entity.find((row) => row.id === privateContent.body.id).data.visibility).toBe('private');
+  });
+
+  it('allows an entitled account to publish SharedContent and ReadingPlan rows', async () => {
+    prisma._store.user.push({ id: 'u-premium', email: 'premium@x', role: 'user', premium: true });
+    const shared = await request(app)
+      .post('/api/entities/SharedContent')
+      .send({ title: 'Public note', content: 'John 3:16', content_type: 'note', visibility: 'public' })
+      .set('Cookie', [`ss_token=${tokenFor('u-premium')}`]);
+    const plan = await request(app)
+      .post('/api/entities/ReadingPlan')
+      .send({ name: 'Published plan', is_public: true, daily_readings: [] })
+      .set('Cookie', [`ss_token=${tokenFor('u-premium')}`]);
+    expect(shared.status).toBe(200);
+    expect(plan.status).toBe(200);
+  });
+
   it('still rejects a genuinely unknown entity type', async () => {
     const res = await request(app)
       .post('/api/entities/TotallyMadeUpType')

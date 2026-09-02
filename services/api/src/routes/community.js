@@ -7,7 +7,7 @@ import {
   requireAdmin,
   requireEntitlement,
 } from '../middleware/auth.js';
-import { ENTITLEMENTS } from '../lib/entitlements.js';
+import { ENTITLEMENTS, entitlementsFor } from '../lib/entitlements.js';
 import {
   assertGatedResourceExposable,
   isPublicContentServable,
@@ -36,6 +36,68 @@ const requireCommunity = requireEntitlement(ENTITLEMENTS.COMMUNITY);
 
 function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
+}
+
+function uniqueRatingsByUser(rows) {
+  const byUser = new Map();
+  for (const row of rows || []) {
+    const userId = row.userId || row.data?.user_id;
+    if (userId && !byUser.has(userId)) byUser.set(userId, row);
+  }
+  return [...byUser.values()];
+}
+
+async function writeRatingAtomically({ type, targetField, targetId, userId, data }) {
+  // Rating rows live in the legacy JSON Entity table, where Prisma cannot
+  // express a compound UNIQUE constraint over a JSON path. A transaction-
+  // scoped Postgres advisory lock serializes every rating write for the same
+  // target across processes. Generic entity writes for rating types are
+  // blocked, so this is the sole mutation path.
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`community-rating:${type}:${targetId}`}))`;
+
+    const ownedRows = await tx.entity.findMany({
+      where: {
+        type,
+        userId,
+        data: { path: [targetField], equals: targetId },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    });
+    const existing = ownedRows[0] || null;
+    const rating = existing
+      ? await tx.entity.update({
+        where: { id: existing.id },
+        data: { data: { ...existing.data, ...data } },
+      })
+      : await tx.entity.create({ data: { type, userId, data } });
+
+    // Clean up any duplicates created before writes were serialized. Reads
+    // also de-duplicate by user below, so old data can never inflate totals.
+    const duplicateIds = ownedRows.slice(1).map((row) => row.id);
+    if (duplicateIds.length) {
+      await tx.entity.deleteMany({ where: { id: { in: duplicateIds } } });
+    }
+
+    const allRows = await tx.entity.findMany({
+      where: { type, data: { path: [targetField], equals: targetId } },
+      orderBy: { updatedAt: 'desc' },
+      take: 10_000,
+    });
+    const ratings = uniqueRatingsByUser(allRows);
+    const average = ratings.length
+      ? ratings.reduce((sum, row) => sum + Number(row.data?.rating || 0), 0) / ratings.length
+      : 0;
+    const target = await tx.entity.findUnique({ where: { id: targetId } });
+    if (!target) throw Object.assign(new Error('Community content not found'), { status: 404 });
+    await tx.entity.update({
+      where: { id: target.id },
+      data: { data: { ...target.data, average_rating: average, ratings_count: ratings.length } },
+    });
+
+    return { rating, average, count: ratings.length };
+  });
 }
 
 const HIDDEN_COMMUNITY_STATUSES = new Set(['hidden', 'removed', 'rejected', 'deleted']);
@@ -107,6 +169,7 @@ const studyGroupSchema = z.object({
   focus_book: z.string().trim().max(100).optional().default(''),
   theme: z.string().trim().max(100).optional().default(''),
   meeting_schedule: z.string().trim().max(300).optional().default(''),
+  is_private: z.boolean().optional().default(false),
 });
 
 const groupMessageSchema = z.object({
@@ -143,6 +206,10 @@ const rsvpSchema = z.object({
 
 const groupPlanSchema = z.object({
   plan_id: z.string().min(1).max(200),
+});
+
+const groupMemberAddSchema = z.object({
+  user_id: z.string().min(1).max(200),
 });
 
 const shareSermonSchema = z.object({
@@ -815,6 +882,21 @@ router.get('/sermons', authenticateToken, requireCommunity, async (req, res, nex
   }
 });
 
+// Personal publication management remains available when Premium expires so
+// a user can always see and withdraw material they previously made public.
+router.get('/sermons/mine', authenticateToken, async (req, res, next) => {
+  try {
+    const rows = await prisma.entity.findMany({
+      where: { type: 'SharedSermon', userId: req.userId },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    res.json(rows.map(formatEntity));
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/sermons/share', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const parsed = shareSermonSchema.safeParse(req.body || {});
@@ -859,6 +941,69 @@ router.post('/sermons/share', authenticateToken, requireCommunity, async (req, r
       sourceSermonId: source.id,
     });
     res.status(201).json(formatEntity(shared));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Withdrawing something a member previously published is a privacy control,
+// not a Premium benefit. Keep this route available to the owner even if their
+// subscription or promotional window has since expired; admins/devs may also
+// remove a share for support and moderation purposes.
+router.delete('/sermons/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const sermon = await prisma.entity.findUnique({ where: { id: req.params.id } });
+    if (!sermon || sermon.type !== 'SharedSermon') {
+      return res.status(404).json({ message: 'Shared sermon not found' });
+    }
+    const isAdmin = req.userRole === 'admin' || req.userRole === 'dev';
+    if (sermon.userId !== req.userId && !isAdmin) {
+      return res.status(403).json({ message: 'You can only withdraw your own shared sermons' });
+    }
+
+    const comments = await prisma.entity.findMany({
+      where: {
+        type: 'Comment',
+        AND: [
+          { data: { path: ['content_type'], equals: 'sermon' } },
+          { data: { path: ['content_id'], equals: sermon.id } },
+        ],
+      },
+      select: { id: true },
+      take: 10_000,
+    });
+    const interactionIds = [sermon.id, ...comments.map((comment) => comment.id)];
+
+    await prisma.$transaction([
+      prisma.communityLike.deleteMany({ where: { contentId: { in: interactionIds } } }),
+      prisma.entity.deleteMany({
+        where: {
+          type: 'SermonRating',
+          data: { path: ['sermon_id'], equals: sermon.id },
+        },
+      }),
+      prisma.entity.deleteMany({
+        where: {
+          type: 'Comment',
+          AND: [
+            { data: { path: ['content_type'], equals: 'sermon' } },
+            { data: { path: ['content_id'], equals: sermon.id } },
+          ],
+        },
+      }),
+      prisma.entity.deleteMany({
+        where: {
+          type: 'SharedLink',
+          data: { path: ['resourceId'], equals: sermon.id },
+        },
+      }),
+      prisma.entity.delete({ where: { id: sermon.id } }),
+    ]);
+    await recordCommunityAudit('community.sermon_unshare', req.userId, 'SharedSermon', sermon.id, {
+      ownerId: sermon.userId,
+      moderator: isAdmin && sermon.userId !== req.userId,
+    });
+    res.status(204).send();
   } catch (err) {
     next(err);
   }
@@ -918,7 +1063,7 @@ router.get('/sermons/:id/ratings', authenticateToken, requireCommunity, async (r
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    const ratings = rows.map(formatEntity);
+    const ratings = uniqueRatingsByUser(rows).map(formatEntity);
     res.json({ ratings, mine: ratings.find((rating) => rating.user_id === req.userId) || null });
   } catch (err) {
     next(err);
@@ -933,37 +1078,27 @@ router.post('/sermons/:id/rating', authenticateToken, requireCommunity, async (r
       return res.status(400).json({ message: 'Invalid sermon rating', issues: parsed.error.issues });
     }
     const userName = await displayNameForUser(req.userId);
-    const existing = await prisma.entity.findFirst({
-      where: {
-        type: 'SermonRating',
-        userId: req.userId,
-        data: { path: ['sermon_id'], equals: sermon.id },
-      },
-    });
     const data = {
       ...parsed.data,
       sermon_id: sermon.id,
       user_id: req.userId,
       user_name: userName,
     };
-    const rating = existing
-      ? await prisma.entity.update({ where: { id: existing.id }, data: { data: { ...existing.data, ...data } } })
-      : await prisma.entity.create({ data: { type: 'SermonRating', userId: req.userId, data } });
-    const allRatings = await prisma.entity.findMany({
-      where: { type: 'SermonRating', data: { path: ['sermon_id'], equals: sermon.id } },
-      take: 10_000,
-    });
-    const average = allRatings.length
-      ? allRatings.reduce((sum, row) => sum + Number(row.data?.rating || 0), 0) / allRatings.length
-      : 0;
-    await prisma.entity.update({
-      where: { id: sermon.id },
-      data: { data: { ...sermon.data, average_rating: average, ratings_count: allRatings.length } },
+    const result = await writeRatingAtomically({
+      type: 'SermonRating',
+      targetField: 'sermon_id',
+      targetId: sermon.id,
+      userId: req.userId,
+      data,
     });
     await recordCommunityAudit('community.sermon_rate', req.userId, 'SharedSermon', sermon.id, {
       rating: parsed.data.rating,
     });
-    res.json({ rating: formatEntity(rating), average_rating: average, ratings_count: allRatings.length });
+    res.json({
+      rating: formatEntity(result.rating),
+      average_rating: result.average,
+      ratings_count: result.count,
+    });
   } catch (err) {
     next(err);
   }
@@ -1097,13 +1232,19 @@ router.delete('/comments/:id', authenticateToken, requireCommunity, async (req, 
   try {
     const comment = await prisma.entity.findUnique({ where: { id: req.params.id } });
     if (!comment || comment.type !== 'Comment') return res.status(404).json({ message: 'Comment not found' });
-    if (comment.userId !== req.userId) {
+    const isAdmin = req.userRole === 'admin' || req.userRole === 'dev';
+    if (comment.userId !== req.userId && !isAdmin) {
       return res.status(403).json({ message: 'You can only delete your own comments' });
     }
     await prisma.$transaction([
       prisma.communityLike.deleteMany({ where: { contentId: comment.id, contentType: 'Comment' } }),
       prisma.entity.delete({ where: { id: comment.id } }),
     ]);
+    if (isAdmin && comment.userId !== req.userId) {
+      await recordCommunityAudit('community.comment_remove', req.userId, 'Comment', comment.id, {
+        ownerId: comment.userId,
+      });
+    }
     res.status(204).send();
   } catch (err) {
     next(err);
@@ -1165,7 +1306,6 @@ router.post('/study-groups', authenticateToken, requireCommunity, async (req, re
           data: {
             ...parsed.data,
             creator_id: req.userId,
-            is_private: false,
             member_count: 1,
             status: 'active',
             created_date: new Date().toISOString(),
@@ -1220,6 +1360,42 @@ router.post('/study-groups/:id/join', authenticateToken, requireCommunity, async
     });
     const { memberCount } = await updateGroupMemberCount(group);
     await recordCommunityAudit('community.group_join', req.userId, 'StudyGroup', group.id);
+    res.json({ membership: formatGroupMembership(membership), member_count: memberCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/study-groups/:id/members', authenticateToken, requireCommunity, async (req, res, next) => {
+  try {
+    const { group } = await requireGroupLeader(req.params.id, req.userId);
+    const parsed = groupMemberAddSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid group member', issues: parsed.error.issues });
+    }
+    const target = await prisma.user.findUnique({ where: { id: parsed.data.user_id } });
+    if (!target || target.deletedAt || target.is_banned) {
+      return res.status(404).json({ message: 'Community member not found' });
+    }
+    if (!entitlementsFor(target).includes(ENTITLEMENTS.COMMUNITY)) {
+      return res.status(409).json({ message: 'That account does not currently have Community access' });
+    }
+    const membership = await prisma.communityGroupMember.upsert({
+      where: { groupId_userId: { groupId: group.id, userId: target.id } },
+      create: {
+        groupId: group.id,
+        userId: target.id,
+        role: group.userId === target.id ? 'leader' : 'member',
+        userName: target.full_name || target.name || target.email || 'Member',
+        joinedAt: new Date(),
+      },
+      update: {},
+    });
+    const { memberCount } = await updateGroupMemberCount(group);
+    await recordCommunityAudit('community.group_member_add', req.userId, 'CommunityGroupMember', membership.id, {
+      groupId: group.id,
+      addedUserId: target.id,
+    });
     res.json({ membership: formatGroupMembership(membership), member_count: memberCount });
   } catch (err) {
     next(err);
@@ -1335,10 +1511,22 @@ router.get('/study-groups/:id/meetings', authenticateToken, requireCommunity, as
       where: {
         type: 'MeetingAttendance',
         userId: req.userId,
-        data: { path: ['group_id'], equals: req.params.id },
+        OR: [
+          { data: { path: ['group_id'], equals: req.params.id } },
+          ...rows.map((meeting) => ({ data: { path: ['meeting_id'], equals: meeting.id } })),
+        ],
       },
       take: 100,
     }) : [];
+    // Compatibility for RSVPs written before group_id was included. The
+    // referenced meeting has already been scoped to this group above, so the
+    // backfill cannot move an attendance row across groups.
+    await Promise.all(attendance
+      .filter((row) => !row.data?.group_id && rows.some((meeting) => meeting.id === row.data?.meeting_id))
+      .map((row) => prisma.entity.update({
+        where: { id: row.id },
+        data: { data: { ...row.data, group_id: req.params.id } },
+      })));
     const rsvpByMeeting = new Map(attendance.map((row) => [row.data?.meeting_id, row.data?.status]));
     res.json(rows.map((row) => ({ ...formatEntity(row), my_rsvp: rsvpByMeeting.get(row.id) || null })));
   } catch (err) {
@@ -1398,8 +1586,15 @@ router.post('/study-groups/:id/meetings/:meetingId/rsvp', authenticateToken, req
       where: {
         type: 'MeetingAttendance',
         userId: req.userId,
-        AND: [
-          { data: { path: ['group_id'], equals: req.params.id } },
+        OR: [
+          {
+            AND: [
+              { data: { path: ['group_id'], equals: req.params.id } },
+              { data: { path: ['meeting_id'], equals: meeting.id } },
+            ],
+          },
+          // Legacy attendance rows did not include group_id. meeting.id is
+          // globally unique and was just verified to belong to this group.
           { data: { path: ['meeting_id'], equals: meeting.id } },
         ],
       },
@@ -1634,7 +1829,7 @@ router.get('/reading-plans/:id/ratings', authenticateToken, requireCommunity, as
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    const ratings = rows.map(formatEntity);
+    const ratings = uniqueRatingsByUser(rows).map(formatEntity);
     res.json({ ratings, mine: ratings.find((rating) => rating.user_id === req.userId) || null });
   } catch (err) {
     next(err);
@@ -1648,34 +1843,24 @@ router.post('/reading-plans/:id/rating', authenticateToken, requireCommunity, as
     if (!parsed.success) {
       return res.status(400).json({ message: 'Invalid plan rating', issues: parsed.error.issues });
     }
-    const existing = await prisma.entity.findFirst({
-      where: {
-        type: 'SharedPlanRating',
-        userId: req.userId,
-        data: { path: ['plan_id'], equals: plan.id },
-      },
-    });
     const data = {
       ...parsed.data,
       plan_id: plan.id,
       user_id: req.userId,
       user_name: await displayNameForUser(req.userId),
     };
-    const rating = existing
-      ? await prisma.entity.update({ where: { id: existing.id }, data: { data: { ...existing.data, ...data } } })
-      : await prisma.entity.create({ data: { type: 'SharedPlanRating', userId: req.userId, data } });
-    const allRatings = await prisma.entity.findMany({
-      where: { type: 'SharedPlanRating', data: { path: ['plan_id'], equals: plan.id } },
-      take: 10_000,
+    const result = await writeRatingAtomically({
+      type: 'SharedPlanRating',
+      targetField: 'plan_id',
+      targetId: plan.id,
+      userId: req.userId,
+      data,
     });
-    const average = allRatings.length
-      ? allRatings.reduce((sum, row) => sum + Number(row.data?.rating || 0), 0) / allRatings.length
-      : 0;
-    await prisma.entity.update({
-      where: { id: plan.id },
-      data: { data: { ...plan.data, average_rating: average, ratings_count: allRatings.length } },
+    res.json({
+      rating: formatEntity(result.rating),
+      average_rating: result.average,
+      ratings_count: result.count,
     });
-    res.json({ rating: formatEntity(rating), average_rating: average, ratings_count: allRatings.length });
   } catch (err) {
     next(err);
   }

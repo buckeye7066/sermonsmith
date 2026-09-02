@@ -74,6 +74,10 @@ function buildApp() {
   const app = express();
   app.use(express.json());
   app.use(cookieParser());
+  app.use('/api/ai', (req, _res, next) => {
+    if (req.body && !Object.prototype.hasOwnProperty.call(req.body, 'feature')) req.body.feature = 'sermon';
+    next();
+  });
   app.use('/api/ai', aiRoutes);
   app.use((err, _req, res, _next) => res.status(err.status || 500).json({ message: err.message }));
   return app;

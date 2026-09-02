@@ -264,6 +264,13 @@ describe('auth routes', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    prisma._store.communityFollow.push(
+      { id: 'follow-out', followerId: 'u-export', followingId: 'u-other', createdAt: new Date() },
+      { id: 'follow-in', followerId: 'u-other', followingId: 'u-export', createdAt: new Date() },
+    );
+    prisma._store.communityGroupMember.push({
+      id: 'membership-1', groupId: 'group-1', userId: 'u-export', role: 'member', userName: 'Export User', joinedAt: new Date(),
+    });
 
     const res = await request(app)
       .get('/api/auth/export')
@@ -275,6 +282,9 @@ describe('auth routes', () => {
     expect(res.body.user.theme).toBe('dark');
     expect(res.body.entities).toHaveLength(1);
     expect(res.body.typed.sermons).toHaveLength(1);
+    expect(res.body.community.following).toMatchObject([{ followingId: 'u-other' }]);
+    expect(res.body.community.followers).toMatchObject([{ followerId: 'u-other' }]);
+    expect(res.body.community.groupMemberships).toMatchObject([{ groupId: 'group-1', role: 'member' }]);
     expect(prisma._store.auditLog.some((row) => row.action === 'privacy.export')).toBe(true);
   });
 

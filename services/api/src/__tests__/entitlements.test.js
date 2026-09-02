@@ -38,7 +38,9 @@ describe('server account entitlements', () => {
 
   it('maps premium AI and entity surfaces to explicit entitlements', () => {
     expect(entitlementForAiFeature('worldview')).toBe(ENTITLEMENTS.WORLDVIEW);
-    expect(entitlementForAiFeature('sermon')).toBeNull();
+    expect(entitlementForAiFeature('sermon')).toBe(ENTITLEMENTS.CORE_AI);
+    expect(entitlementForAiFeature('general')).toBe(ENTITLEMENTS.ADVANCED_STUDY);
+    expect(entitlementForAiFeature('made_up')).toBeNull();
     expect(entitlementForEntityType('CommunityPost')).toBe(ENTITLEMENTS.COMMUNITY);
     expect(entitlementForEntityType('Sermon')).toBeNull();
   });

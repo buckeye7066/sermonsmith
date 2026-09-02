@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Users, Plus, Calendar, BookOpen, Lock, Loader2 } from "lucide-react";
@@ -24,7 +25,8 @@ export default function StudyGroups() {
     description: '',
     focus_book: '',
     theme: '',
-    meeting_schedule: ''
+    meeting_schedule: '',
+    is_private: false
   });
 
   useEffect(() => {
@@ -63,7 +65,7 @@ export default function StudyGroups() {
 
       toast.success("Study group created successfully!");
       setShowNewGroupDialog(false);
-      setNewGroup({ name: '', description: '', focus_book: '', theme: '', meeting_schedule: '' });
+      setNewGroup({ name: '', description: '', focus_book: '', theme: '', meeting_schedule: '', is_private: false });
       loadGroups();
     } catch (error) {
       logError('Failed to create group', error);
@@ -174,6 +176,17 @@ export default function StudyGroups() {
                     value={newGroup.meeting_schedule}
                     onChange={(e) => setNewGroup({...newGroup, meeting_schedule: e.target.value})}
                   />
+                </div>
+                <div className="flex items-start gap-3 rounded-lg border p-3">
+                  <Checkbox
+                    id="private-group"
+                    checked={newGroup.is_private}
+                    onCheckedChange={(checked) => setNewGroup({ ...newGroup, is_private: checked === true })}
+                  />
+                  <label htmlFor="private-group" className="cursor-pointer text-sm">
+                    <span className="block font-medium">Private group</span>
+                    <span className="text-gray-500">Only members added by a group leader can open or join this group.</span>
+                  </label>
                 </div>
               </div>
               <DialogFooter>

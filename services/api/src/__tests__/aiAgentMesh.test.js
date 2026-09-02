@@ -4,7 +4,6 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
-import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
 
 // Agent-mesh route wiring tests: the run-start hook (peer-note system message
 // injected AFTER the server invariants, consumed exactly once, fail-open) and
@@ -70,12 +69,16 @@ vi.mock('openai', () => ({
   },
 }));
 
-const { default: aiRoutes } = await import('../routes/ai.js');
+const { default: aiRoutes, serverPolicyForAiFeature } = await import('../routes/ai.js');
 
 function buildApp() {
   const app = express();
   app.use(express.json());
   app.use(cookieParser());
+  app.use('/api/ai', (req, _res, next) => {
+    if (req.body && !Object.prototype.hasOwnProperty.call(req.body, 'feature')) req.body.feature = 'sermon';
+    next();
+  });
   app.use('/api/ai', aiRoutes);
   app.use((err, _req, res, _next) => res.status(err.status || 500).json({ message: err.message }));
   return app;
@@ -124,7 +127,7 @@ describe('agent mesh route wiring', () => {
 
     const { messages } = createCalls[0];
     // Invariants stay first and undisplaceable; the client prompt keeps its slot.
-    expect(messages[0]).toEqual({ role: 'system', content: SERVER_AI_INVARIANTS });
+    expect(messages[0]).toEqual({ role: 'system', content: serverPolicyForAiFeature('sermon') });
     expect(messages[1].role).toBe('system');
     expect(messages[1].content).toMatch(/^You are Larry\./);
     // The peer note is one server-composed system message before the user turn.
@@ -178,7 +181,7 @@ describe('agent mesh route wiring', () => {
       .send({ prompt: 'p', system_prompt: 'You are Arlynn.', feature: 'sermon_series', stream_result: true });
     expect(res.status).toBe(200);
     const { messages } = createCalls[0];
-    expect(messages[0].content).toBe(SERVER_AI_INVARIANTS);
+    expect(messages[0].content).toBe(serverPolicyForAiFeature('sermon_series'));
     expect(messages[1].content).toBe('You are Arlynn.');
     // feature sermon_series → acting agent arlynn... who authored this lesson,
     // so she must NOT receive it. Re-check with a larry-authored lesson.

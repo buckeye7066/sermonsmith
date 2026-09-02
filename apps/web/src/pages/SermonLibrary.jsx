@@ -24,7 +24,8 @@ import {
   Filter,
   FileText,
   Layers,
-  Share2
+  Share2,
+  Trash2
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -348,6 +349,18 @@ Be strategic and personalized.`;
   const handleDiscoverRelated = (sermon) => {
     setSelectedForThematic(sermon);
     setShowThematicLinks(true);
+  };
+
+  const handleUnshare = async (sermon) => {
+    if (!window.confirm(`Withdraw “${sermon.title}” from the community?`)) return;
+    try {
+      await api.community.unshareSermon(sermon.id);
+      setSermons((current) => current.filter((item) => item.id !== sermon.id));
+      toast.success('Sermon withdrawn from the community');
+    } catch (error) {
+      console.error('Error withdrawing shared sermon:', error);
+      toast.error(error?.message || 'Failed to withdraw sermon');
+    }
   };
 
   const toggleTag = (tag) => {
@@ -738,17 +751,27 @@ Be strategic and personalized.`;
                             <Sparkles className="w-3 h-3" />
                           </Button>
                           {user && sermon.user_id === user.id && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedSermon(sermon);
-                                setShowTagsNotesDialog(true);
-                              }}
-                              title="Edit tags & notes"
-                            >
-                              <FileText className="w-3 h-3" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedSermon(sermon);
+                                  setShowTagsNotesDialog(true);
+                                }}
+                                title="Edit tags & notes"
+                              >
+                                <FileText className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleUnshare(sermon)}
+                                title="Withdraw from community"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </>
                           )}
                         </div>
                       </CardContent>

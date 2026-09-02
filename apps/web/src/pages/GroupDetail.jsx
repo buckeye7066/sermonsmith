@@ -4,9 +4,11 @@ import { useAuth } from '@/lib/AuthContext';
 import { useLocation } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Users, ArrowLeft, MessageCircle, Calendar, TrendingUp, Crown, UserMinus } from "lucide-react";
+import { Users, ArrowLeft, MessageCircle, Calendar, TrendingUp, Crown, UserMinus, UserPlus, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
@@ -22,6 +24,10 @@ export default function GroupDetail() {
   const [members, setMembers] = useState([]);
   const [membership, setMembership] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [memberQuery, setMemberQuery] = useState('');
+  const [memberResults, setMemberResults] = useState([]);
+  const [isSearchingMembers, setIsSearchingMembers] = useState(false);
 
   useEffect(() => {
     if (!isLoadingAuth && !user) {
@@ -77,6 +83,34 @@ export default function GroupDetail() {
       loadGroupData();
     } catch (error) {
       toast.error("Failed to promote member");
+    }
+  };
+
+  const handleMemberSearch = async () => {
+    if (!memberQuery.trim()) {
+      setMemberResults([]);
+      return;
+    }
+    setIsSearchingMembers(true);
+    try {
+      const result = await api.community.members({ q: memberQuery.trim(), limit: 20 });
+      const currentIds = new Set(members.map((member) => member.user_id));
+      setMemberResults((result.members || []).filter((member) => !currentIds.has(member.id)));
+    } catch (error) {
+      toast.error(error?.message || 'Failed to search members');
+    } finally {
+      setIsSearchingMembers(false);
+    }
+  };
+
+  const handleAddMember = async (member) => {
+    try {
+      await api.community.addStudyGroupMember(group.id, member.id);
+      toast.success(`${member.name} added to the group`);
+      setMemberResults((current) => current.filter((item) => item.id !== member.id));
+      await loadGroupData();
+    } catch (error) {
+      toast.error(error?.message || 'Failed to add member');
     }
   };
 
@@ -187,7 +221,15 @@ export default function GroupDetail() {
           <TabsContent value="members">
             <Card>
               <CardHeader>
-                <CardTitle>Members ({members.length})</CardTitle>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle>Members ({members.length})</CardTitle>
+                  {isLeader && (
+                    <Button size="sm" onClick={() => setShowAddMember(true)}>
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Add Member
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
@@ -221,6 +263,42 @@ export default function GroupDetail() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Add a community member</DialogTitle>
+              <DialogDescription>
+                Search by member name. Added members can open private groups immediately.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-2">
+              <Input
+                value={memberQuery}
+                onChange={(event) => setMemberQuery(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter') handleMemberSearch(); }}
+                placeholder="Search members"
+              />
+              <Button onClick={handleMemberSearch} disabled={isSearchingMembers}>
+                {isSearchingMembers ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              </Button>
+            </div>
+            <div className="max-h-72 space-y-2 overflow-y-auto">
+              {memberResults.map((member) => (
+                <div key={member.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{member.name}</p>
+                    {member.denomination && <p className="truncate text-xs text-gray-500">{member.denomination}</p>}
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => handleAddMember(member)}>Add</Button>
+                </div>
+              ))}
+              {!isSearchingMembers && memberQuery.trim() && memberResults.length === 0 && (
+                <p className="py-6 text-center text-sm text-gray-500">No eligible members found.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

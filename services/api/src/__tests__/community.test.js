@@ -539,6 +539,38 @@ describe('community routes', () => {
     expect(detail.body.membership.role).toBe('member');
   });
 
+  it('keeps private groups hidden until a leader adds an entitled member', async () => {
+    const created = await request(app)
+      .post('/api/community/study-groups')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
+      .send({ name: 'Private Pastors', description: 'Closed study', is_private: true });
+    expect(created.status).toBe(201);
+    expect(created.body.is_private).toBe(true);
+
+    const hidden = await request(app)
+      .get('/api/community/study-groups')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(hidden.status).toBe(200);
+    expect(hidden.body.map((group) => group.id)).not.toContain(created.body.id);
+
+    const openJoin = await request(app)
+      .post(`/api/community/study-groups/${created.body.id}/join`)
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(openJoin.status).toBe(403);
+
+    const added = await request(app)
+      .post(`/api/community/study-groups/${created.body.id}/members`)
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
+      .send({ user_id: 'u-reader' });
+    expect(added.status).toBe(200);
+    expect(added.body.membership).toMatchObject({ user_id: 'u-reader', role: 'member' });
+
+    const visible = await request(app)
+      .get('/api/community/study-groups')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(visible.body.map((group) => group.id)).toContain(created.body.id);
+  });
+
   it('shares group messages across members and rejects non-members', async () => {
     prisma._store.entity.push({
       id: 'group-chat', type: 'StudyGroup', userId: 'u-owner',
@@ -588,7 +620,7 @@ describe('community routes', () => {
     );
     const payload = {
       title: 'Romans 8',
-      scheduled_date: '2026-09-10T19:00',
+      scheduled_date: '2026-09-10T23:00:00.000Z',
       discussion_leader_id: 'u-owner',
     };
 
@@ -603,6 +635,7 @@ describe('community routes', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
       .send(payload);
     expect(meeting.status).toBe(201);
+    expect(meeting.body.scheduled_date).toBe('2026-09-10T23:00:00.000Z');
 
     const rsvp = await request(app)
       .post(`/api/community/study-groups/group-meeting/meetings/${meeting.body.id}/rsvp`)
@@ -610,6 +643,45 @@ describe('community routes', () => {
       .send({ status: 'attending' });
     expect(rsvp.status).toBe(200);
     expect(rsvp.body.status).toBe('attending');
+  });
+
+  it('shows and upgrades legacy RSVPs that were stored without group_id', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'legacy-group', type: 'StudyGroup', userId: 'u-owner',
+        data: { name: 'Legacy group', description: 'Migrated', status: 'active' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'legacy-meeting', type: 'GroupMeeting', userId: 'u-owner',
+        data: { group_id: 'legacy-group', title: 'Old meeting', scheduled_date: '2026-09-10T23:00:00.000Z', status: 'scheduled' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'legacy-rsvp', type: 'MeetingAttendance', userId: 'u-reader',
+        data: { meeting_id: 'legacy-meeting', user_id: 'u-reader', user_name: 'Reader', status: 'maybe' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+    prisma._store.communityGroupMember.push(
+      { id: 'legacy-owner', groupId: 'legacy-group', userId: 'u-owner', role: 'leader', userName: 'Owner', joinedAt: new Date() },
+      { id: 'legacy-reader', groupId: 'legacy-group', userId: 'u-reader', role: 'member', userName: 'Reader', joinedAt: new Date() },
+    );
+
+    const listed = await request(app)
+      .get('/api/community/study-groups/legacy-group/meetings')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(listed.status).toBe(200);
+    expect(listed.body[0].my_rsvp).toBe('maybe');
+    expect(prisma._store.entity.find((row) => row.id === 'legacy-rsvp').data.group_id).toBe('legacy-group');
+
+    const updated = await request(app)
+      .post('/api/community/study-groups/legacy-group/meetings/legacy-meeting/rsvp')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ status: 'attending' });
+    expect(updated.status).toBe(200);
+    expect(updated.body.status).toBe('attending');
+    expect(prisma._store.entity.filter((row) => row.type === 'MeetingAttendance')).toHaveLength(1);
   });
 
   it('lets leaders assign a real reading plan while blocking members and private-plan IDORs', async () => {
@@ -734,6 +806,70 @@ describe('community routes', () => {
     expect(reviews.body.ratings[0].review_text).toBe('Useful and clear');
   });
 
+  it('de-duplicates legacy ratings and serializes future rating writes per target', async () => {
+    const newer = new Date('2026-09-02T12:00:00.000Z');
+    const older = new Date('2026-09-01T12:00:00.000Z');
+    prisma._store.entity.push(
+      {
+        id: 'rating-sermon', type: 'SharedSermon', userId: 'u-owner',
+        data: { title: 'Rate me', status: 'active', ratings_count: 2, average_rating: 2 },
+        createdAt: older, updatedAt: older,
+      },
+      {
+        id: 'rating-old', type: 'SermonRating', userId: 'u-reader',
+        data: { sermon_id: 'rating-sermon', user_id: 'u-reader', rating: 1 },
+        createdAt: older, updatedAt: older,
+      },
+      {
+        id: 'rating-new', type: 'SermonRating', userId: 'u-reader',
+        data: { sermon_id: 'rating-sermon', user_id: 'u-reader', rating: 3 },
+        createdAt: newer, updatedAt: newer,
+      },
+    );
+
+    const before = await request(app)
+      .get('/api/community/sermons/rating-sermon/ratings')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(before.status).toBe(200);
+    expect(before.body.ratings).toHaveLength(1);
+    expect(before.body.ratings[0].id).toBe('rating-new');
+
+    const updated = await request(app)
+      .post('/api/community/sermons/rating-sermon/rating')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ rating: 5, review_text: 'Updated' });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({ average_rating: 5, ratings_count: 1 });
+    expect(prisma._store.entity.filter((row) => row.type === 'SermonRating')).toHaveLength(1);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+
+  it('lets owners withdraw shares after Premium expires and blocks other members', async () => {
+    prisma._store.entity.push({
+      id: 'withdraw-me', type: 'SharedSermon', userId: 'u-owner',
+      data: { title: 'Withdraw me', status: 'active' },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.user.find((user) => user.id === 'u-owner').premium = false;
+
+    const mine = await request(app)
+      .get('/api/community/sermons/mine')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+    expect(mine.status).toBe(200);
+    expect(mine.body.map((row) => row.id)).toEqual(['withdraw-me']);
+
+    const blocked = await request(app)
+      .delete('/api/community/sermons/withdraw-me')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(blocked.status).toBe(403);
+
+    const removed = await request(app)
+      .delete('/api/community/sermons/withdraw-me')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+    expect(removed.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'withdraw-me')).toBe(false);
+  });
+
   it('serves community plans across accounts and records plan interactions', async () => {
     prisma._store.entity.push({
       id: 'public-plan',
@@ -810,5 +946,25 @@ describe('community routes', () => {
       .delete(`/api/community/comments/${created.body.id}`)
       .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
     expect(deleted.status).toBe(204);
+  });
+
+  it('allows an administrator to remove another member\'s abusive comment', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'admin-comment-sermon', type: 'SharedSermon', userId: 'u-owner',
+        data: { title: 'Hope', status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'abusive-comment', type: 'Comment', userId: 'u-reader',
+        data: { content_type: 'sermon', content_id: 'admin-comment-sermon', comment: 'Remove me' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+    const removed = await request(app)
+      .delete('/api/community/comments/abusive-comment')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`]);
+    expect(removed.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'abusive-comment')).toBe(false);
+    expect(prisma._store.auditLog.some((row) => row.action === 'community.comment_remove')).toBe(true);
   });
 });
