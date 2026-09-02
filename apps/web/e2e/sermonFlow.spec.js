@@ -140,7 +140,7 @@ test('core flow: generate → validation → save as clean draft → reopen from
   // Reopen from the library through the same in-app navigation a signed-in
   // user follows. A second page.goto() creates a new document and tests the
   // browser harness' route-mock reattachment instead of SermonSmith routing.
-  await page.getByRole('link', { name: /My Sermons/i }).click();
+  await page.getByRole('link', { name: /My Sermons/i }).first().click();
   await expect(page).toHaveURL(/\/MySermons(?:[?#]|$)/, { timeout: 15_000 });
   await expect(page.getByText('Amazing Grace for Every Day').first()).toBeVisible({ timeout: 15_000 });
 });
