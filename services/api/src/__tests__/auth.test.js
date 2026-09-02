@@ -214,6 +214,45 @@ describe('auth routes', () => {
     expect(res.body.message).toMatch(/invalid email or password/i);
   });
 
+  it('does not grant Premium when a user copies a promotional phone into profile data', async () => {
+    prisma._store.user.push({
+      id: 'u-phone-claim',
+      email: 'ordinary@example.com',
+      password: 'hash',
+      role: 'user',
+      premium: false,
+      premium_until: null,
+      promotionalPhone: null,
+      profile: {},
+    });
+
+    const res = await request(app)
+      .patch('/api/auth/me')
+      .set('Cookie', [`ss_token=${tokenFor('u-phone-claim')}`])
+      .send({ phone: '(931) 998-1779', profile: { phone: '(931) 998-1779' } });
+
+    expect(res.status).toBe(200);
+    expect(res.body.subscription_tier).toBe('free');
+    expect(res.body.entitlements).not.toContain('community');
+    expect(prisma._store.user.find((row) => row.id === 'u-phone-claim').profile.phone).toBe('(931) 998-1779');
+  });
+
+  it('allows an admin to assign the server-controlled promotional phone', async () => {
+    prisma._store.user.push(
+      { id: 'u-admin', email: 'admin@example.com', password: 'hash', role: 'admin', premium: true, profile: {} },
+      { id: 'u-promo', email: 'promo@example.com', password: 'hash', role: 'user', premium: false, profile: {} },
+    );
+
+    const res = await request(app)
+      .patch('/api/auth/users/u-promo')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`])
+      .send({ promotionalPhone: '+1 (931) 998-1779' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.promotionalPhone).toBe('19319981779');
+    expect(res.body.subscription_tier).toBe('premium');
+  });
+
   it('forgot-password stores hashed token and never returns it', async () => {
     prisma._store.user.push({ id: 'u1', email: 'alice@example.com', password: 'x', role: 'user', premium: false });
     const res = await request(app).post('/api/auth/forgot-password').send({ email: 'alice@example.com' });

@@ -58,13 +58,17 @@ const PROMOTIONAL_PHONES = new Set([
   '19319981779',
 ]);
 
-function normalizePhone(value) {
+export function normalizePhone(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
 export function hasPromotionalAccess(user) {
   const email = String(user?.email || '').trim().toLowerCase();
-  const phone = normalizePhone(user?.phone || user?.profile?.phone);
+  // IMPORTANT: profile.phone is self-service data and therefore can never be
+  // an authorization input. promotionalPhone is a dedicated User column that
+  // only an admin can assign. This preserves the owner's phone allowlist
+  // without letting a caller copy an allowlisted number into PATCH /auth/me.
+  const phone = normalizePhone(user?.promotionalPhone);
   return (email && PROMOTIONAL_EMAILS.has(email))
     || (phone && PROMOTIONAL_PHONES.has(phone));
 }

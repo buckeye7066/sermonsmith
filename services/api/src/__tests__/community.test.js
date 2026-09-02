@@ -277,6 +277,52 @@ describe('community routes', () => {
     expect(feed.body).toHaveLength(0);
   });
 
+  it('includes current forum posts and replies in the dedicated moderation surface', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'forum-parent', type: 'CommunityPost', userId: 'u-owner',
+        data: { title: 'Parent', status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'forum-abuse', type: 'CommunityPost', userId: 'u-reader',
+        data: { title: 'Abusive post', status: 'reported', reported_count: 1 }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'reply-abuse', type: 'CommunityReply', userId: 'u-reader',
+        data: { post_id: 'forum-parent', content: 'Abusive reply', status: 'reported', reported_count: 1 }, createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const queue = await request(app)
+      .get('/api/community/moderation/queue')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`]);
+    expect(queue.status).toBe(200);
+    expect(queue.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'forum-abuse', type: 'CommunityPost' }),
+      expect.objectContaining({ id: 'reply-abuse', type: 'CommunityReply' }),
+    ]));
+
+    const postRemoved = await request(app)
+      .patch('/api/community/moderation/CommunityPost/forum-abuse')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`])
+      .send({ status: 'removed' });
+    const replyRemoved = await request(app)
+      .patch('/api/community/moderation/CommunityReply/reply-abuse')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`])
+      .send({ status: 'removed' });
+    expect(postRemoved.status).toBe(200);
+    expect(replyRemoved.status).toBe(200);
+
+    const feed = await request(app)
+      .get('/api/community/posts')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`]);
+    const replies = await request(app)
+      .get('/api/community/posts/forum-parent/replies')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`]);
+    expect(feed.body.map((row) => row.id)).not.toContain('forum-abuse');
+    expect(replies.body.map((row) => row.id)).not.toContain('reply-abuse');
+  });
+
   it('serves a shared resource when the link creator owns it', async () => {
     prisma._store.entity.push({
       id: 'res-owned', type: 'Sermon', userId: 'u-owner',
@@ -503,6 +549,30 @@ describe('community routes', () => {
     expect(unlike.status).toBe(200);
     expect(unlike.body.likes_count).toBe(0);
     expect(unlike.body.likedByMe).toBe(false);
+  });
+
+  it('derives concurrent post-like counts from relational interactions', async () => {
+    prisma._store.user.push({ id: 'u-reader-two', role: 'user', premium: true, deletedAt: null, is_banned: false });
+    prisma._store.entity.push({
+      id: 'p-concurrent', type: 'CommunityPost', userId: 'u-owner',
+      data: { title: 'Concurrent', status: 'active', likes_count: 0 },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const [first, second] = await Promise.all([
+      request(app)
+        .post('/api/community/posts/p-concurrent/like')
+        .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]),
+      request(app)
+        .post('/api/community/posts/p-concurrent/like')
+        .set('Cookie', [`ss_token=${tokenFor('u-reader-two')}`]),
+    ]);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(prisma._store.communityLike).toHaveLength(2);
+    expect(prisma._store.entity.find((row) => row.id === 'p-concurrent').data.likes_count).toBe(2);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
   });
 
   it('creates and joins study groups through membership-aware routes', async () => {

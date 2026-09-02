@@ -28,7 +28,8 @@ describe('server account entitlements', () => {
     expect(accountTierFor({ premium: false, premium_until: future, role: 'user' })).toBe(ACCOUNT_TIERS.PREMIUM);
     expect(accountTierFor({ premium: false, role: 'admin' })).toBe(ACCOUNT_TIERS.PREMIUM);
     expect(accountTierFor({ premium: false, role: 'user', email: 'buckeye7066@gmail.com' })).toBe(ACCOUNT_TIERS.PREMIUM);
-    expect(accountTierFor({ premium: false, role: 'user', profile: { phone: '(931) 998-1779' } })).toBe(ACCOUNT_TIERS.PREMIUM);
+    expect(accountTierFor({ premium: false, role: 'user', promotionalPhone: '(931) 998-1779' })).toBe(ACCOUNT_TIERS.PREMIUM);
+    expect(accountTierFor({ premium: false, role: 'user', profile: { phone: '(931) 998-1779' } })).toBe(ACCOUNT_TIERS.FREE);
   });
 
   it('expires date-bound promotional access automatically', () => {

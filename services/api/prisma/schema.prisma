@@ -11,6 +11,11 @@ model User {
   id                   String   @id @default(uuid())
   email                String   @unique
   password             String
+  // Admin-controlled phone identifier used only for the owner's legacy
+  // promotional allowlist. The self-service profile `phone` field is not an
+  // authorization source; keeping this value on the User row prevents a user
+  // from granting themselves Premium by editing profile JSON.
+  promotionalPhone     String?  @map("promotional_phone")
   name                 String?
   full_name            String?
   avatar               String?

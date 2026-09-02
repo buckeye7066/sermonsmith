@@ -644,6 +644,8 @@ const functions = {
       retry: RETRYABLE_FUNCTIONS.has(name),
       body: JSON.stringify(params || {}),
     }),
+  shareLinks: (resourceId) => apiFetch(`/api/functions/share-links?resourceId=${encodeURIComponent(resourceId)}`),
+  revokeShareableLink: (id) => apiFetch(`/api/functions/share-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // ---------------------------------------------------------------------------

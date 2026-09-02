@@ -127,6 +127,7 @@ export async function authenticateToken(req, res, next) {
         premium: true,
         premium_until: true,
         email: true,
+        promotionalPhone: true,
         profile: true,
         tokenVersion: true,
         deletedAt: true,

@@ -68,6 +68,7 @@ describe('share-link Scripture gate (createShareableLink + /share/:slug)', () =>
     prisma._reset();
     app = buildApp();
     prisma._store.user.push({ id: 'u-owner', email: 'o@x', role: 'user', premium: false, profile: {} });
+    prisma._store.user.push({ id: 'u-other', email: 'other@x', role: 'user', premium: false, profile: {} });
   });
 
   it('refuses to mint a share link for a Sermon with an invalid reference', async () => {
@@ -90,6 +91,35 @@ describe('share-link Scripture gate (createShareableLink + /share/:slug)', () =>
       .send({ resourceType: 'Sermon', resourceId: 'res-ok' });
     expect(res.status).toBe(200);
     expect(res.body.shareUrl).toContain('link=');
+    expect(res.body.id).toBeTruthy();
+    expect(res.body.slug).toMatch(/^sermon-[A-Za-z0-9_-]{24}$/);
+  });
+
+  it('lets only the owner list and revoke a share link', async () => {
+    seedResource('res-revoke', 'Sermon', 'u-owner', { title: 'Revoke', anchor_passage: 'John 3:16' });
+    const created = await request(app)
+      .post('/api/functions/createShareableLink')
+      .set('Cookie', asUser('u-owner'))
+      .send({ resourceType: 'Sermon', resourceId: 'res-revoke' });
+    expect(created.status).toBe(200);
+
+    const listed = await request(app)
+      .get('/api/functions/share-links?resourceId=res-revoke')
+      .set('Cookie', asUser('u-owner'));
+    expect(listed.status).toBe(200);
+    expect(listed.body.links.map((link) => link.id)).toContain(created.body.id);
+
+    const foreignDelete = await request(app)
+      .delete(`/api/functions/share-links/${created.body.id}`)
+      .set('Cookie', asUser('u-other'));
+    expect(foreignDelete.status).toBe(404);
+
+    const revoked = await request(app)
+      .delete(`/api/functions/share-links/${created.body.id}`)
+      .set('Cookie', asUser('u-owner'));
+    expect(revoked.status).toBe(204);
+    expect((await request(app).get(`/api/community/share/${created.body.slug}`)).status).toBe(404);
+    expect(prisma._store.auditLog.some((row) => row.action === 'sharing.link_revoke')).toBe(true);
   });
 
   it('rejects a resourceType that does not match the stored resource type', async () => {

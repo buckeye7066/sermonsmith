@@ -28,11 +28,12 @@ export default function QuizViewer({ quizData, onSave, user }) {
   
   const emailMatch = user?.email && devEmails.includes(user.email.toLowerCase());
   
-  // Normalize user.phone and devPhones for robust comparison
+  // promotionalPhone is admin-controlled; the profile phone is contact data
+  // and must never unlock Premium UI.
   const normalizePhoneNumber = (phone) => phone ? phone.replace(/[\s\-()+]/g, '') : '';
 
-  const phoneMatch = user && user.phone && devPhones.some(devPhone => {
-    const normalizedUserPhone = normalizePhoneNumber(user.phone);
+  const phoneMatch = user && user.promotionalPhone && devPhones.some(devPhone => {
+    const normalizedUserPhone = normalizePhoneNumber(user.promotionalPhone);
     const normalizedDevPhone = normalizePhoneNumber(devPhone);
     return normalizedUserPhone.includes(normalizedDevPhone);
   });

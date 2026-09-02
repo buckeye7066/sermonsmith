@@ -47,6 +47,54 @@ function uniqueRatingsByUser(rows) {
   return [...byUser.values()];
 }
 
+async function lockCommunityEntity(tx, targetId) {
+  // Every route that rewrites an Entity.data JSON object must share the same
+  // target-level lock. Separate "likes" and "replies" locks would still allow
+  // one writer to overwrite the other writer's freshly updated JSON fields.
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`community-entity:${targetId}`}))`;
+}
+
+async function writeUniqueInteractionCounter({
+  targetId,
+  userId,
+  contentType,
+  counterField,
+  active,
+  modelName = 'communityLike',
+  validateTarget,
+}) {
+  return prisma.$transaction(async (tx) => {
+    await lockCommunityEntity(tx, targetId);
+    const target = await tx.entity.findUnique({ where: { id: targetId } });
+    if (validateTarget) await validateTarget(target);
+
+    const model = tx[modelName];
+    const key = { userId, contentId: targetId, contentType };
+    const previous = await model.findUnique({
+      where: { userId_contentId_contentType: key },
+    });
+
+    if (active && !previous) await model.create({ data: key });
+    if (!active && previous) await model.deleteMany({ where: key });
+
+    // Derive the cache from the relational source of truth after mutation.
+    // Besides eliminating lost updates, this repairs any stale JSON counter
+    // left by the pre-lock implementation.
+    const count = await model.count({ where: { contentId: targetId, contentType } });
+    const updated = await tx.entity.update({
+      where: { id: target.id },
+      data: { data: { ...(target.data || {}), [counterField]: count } },
+    });
+
+    return {
+      target: updated,
+      count,
+      alreadyActive: Boolean(previous),
+      changed: active ? !previous : Boolean(previous),
+    };
+  });
+}
+
 async function writeRatingAtomically({ type, targetField, targetId, userId, data }) {
   // Rating rows live in the legacy JSON Entity table, where Prisma cannot
   // express a compound UNIQUE constraint over a JSON path. A transaction-
@@ -54,7 +102,7 @@ async function writeRatingAtomically({ type, targetField, targetId, userId, data
   // target across processes. Generic entity writes for rating types are
   // blocked, so this is the sole mutation path.
   return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`community-rating:${type}:${targetId}`}))`;
+    await lockCommunityEntity(tx, targetId);
 
     const ownedRows = await tx.entity.findMany({
       where: {
@@ -112,14 +160,6 @@ function reportedCount(data) {
 
 function isPublicCommunityData(data) {
   return data?.visibility === 'public' && !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(data));
-}
-
-function sharedContentInteractionKey(userId, contentId) {
-  return { userId, contentId, contentType: 'SharedContent' };
-}
-
-function postInteractionKey(userId, contentId) {
-  return { userId, contentId, contentType: 'CommunityPost' };
 }
 
 function publicMember(user) {
@@ -454,6 +494,12 @@ const moderationSchema = z.object({
 }).refine((value) => value.status || value.visibility || value.moderatorNotes !== undefined, {
   message: 'Provide status, visibility, or moderatorNotes',
 });
+const MODERATABLE_TYPES = Object.freeze([
+  'SharedContent',
+  'ForumPost', // legacy rows
+  'CommunityPost',
+  'CommunityReply',
+]);
 
 router.get('/shared-content', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
@@ -727,41 +773,42 @@ router.post('/posts', authenticateToken, requireCommunity, async (req, res, next
 
 router.post('/posts/:id/like', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const post = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!post || post.type !== 'CommunityPost') return res.status(404).json({ message: 'Post not found' });
-    if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(post.data || {}))) {
-      return res.status(403).json({ message: 'This post cannot be liked' });
-    }
-    const key = postInteractionKey(req.userId, post.id);
-    const previous = await prisma.communityLike.findUnique({
-      where: { userId_contentId_contentType: key },
+    const result = await writeUniqueInteractionCounter({
+      targetId: req.params.id,
+      userId: req.userId,
+      contentType: 'CommunityPost',
+      counterField: 'likes_count',
+      active: true,
+      validateTarget: (post) => {
+        if (!post || post.type !== 'CommunityPost') {
+          throw Object.assign(new Error('Post not found'), { status: 404 });
+        }
+        if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(post.data || {}))) {
+          throw Object.assign(new Error('This post cannot be liked'), { status: 403 });
+        }
+      },
     });
-    if (previous) return res.json({ ...formatEntity(post), likedByMe: true });
-
-    await prisma.communityLike.create({ data: key });
-    const updated = await prisma.entity.update({
-      where: { id: post.id },
-      data: { data: { ...(post.data || {}), likes_count: Number(post.data?.likes_count || 0) + 1 } },
-    });
-    res.json({ ...formatEntity(updated), likedByMe: true });
+    res.json({ ...formatEntity(result.target), likedByMe: true });
   } catch (err) {
-    if (err.code === 'P2002') return res.json({ id: req.params.id, likedByMe: true });
     next(err);
   }
 });
 
 router.delete('/posts/:id/like', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const post = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!post || post.type !== 'CommunityPost') return res.status(404).json({ message: 'Post not found' });
-    const removed = await prisma.communityLike.deleteMany({
-      where: postInteractionKey(req.userId, post.id),
+    const result = await writeUniqueInteractionCounter({
+      targetId: req.params.id,
+      userId: req.userId,
+      contentType: 'CommunityPost',
+      counterField: 'likes_count',
+      active: false,
+      validateTarget: (post) => {
+        if (!post || post.type !== 'CommunityPost') {
+          throw Object.assign(new Error('Post not found'), { status: 404 });
+        }
+      },
     });
-    const updated = removed.count > 0 ? await prisma.entity.update({
-      where: { id: post.id },
-      data: { data: { ...(post.data || {}), likes_count: Math.max(0, Number(post.data?.likes_count || 0) - 1) } },
-    }) : post;
-    res.json({ ...formatEntity(updated), likedByMe: false });
+    res.json({ ...formatEntity(result.target), likedByMe: false });
   } catch (err) {
     next(err);
   }
@@ -806,14 +853,6 @@ router.post('/posts/:id/reply', authenticateToken, requireCommunity, async (req,
     if (!parsed.success) {
       return res.status(400).json({ message: 'Invalid reply', issues: parsed.error.issues });
     }
-    const post = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!post || post.type !== 'CommunityPost') {
-      return res.status(404).json({ message: 'Post not found' });
-    }
-    if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(post.data || {}))) {
-      return res.status(403).json({ message: 'This post is closed to replies' });
-    }
-
     const isAi = parsed.data.is_ai_response === true;
     // AI-generated replies are AI content posted straight to a public thread —
     // route them through the centralized Scripture gate (user-authored replies
@@ -826,25 +865,42 @@ router.post('/posts/:id/reply', authenticateToken, requireCommunity, async (req,
         .catch(() => null))?.profile?.denomination || '';
       scriptureValidation = assertAiReplyExposable({ content: parsed.data.content, denomination });
     }
-    const reply = await prisma.entity.create({
-      data: {
-        type: 'CommunityReply',
-        userId: req.userId,
+    const userName = await displayNameForUser(req.userId);
+    const reply = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const post = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!post || post.type !== 'CommunityPost') {
+        throw Object.assign(new Error('Post not found'), { status: 404 });
+      }
+      if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(post.data || {}))) {
+        throw Object.assign(new Error('This post is closed to replies'), { status: 403 });
+      }
+      const created = await tx.entity.create({
         data: {
-          post_id: req.params.id,
-          user_id: req.userId,
-          user_name: await displayNameForUser(req.userId),
-          content: parsed.data.content,
-          is_ai_response: isAi,
-          ...(scriptureValidation ? { scripture_validation: scriptureValidation } : {}),
-          created_date: new Date().toISOString(),
+          type: 'CommunityReply',
+          userId: req.userId,
+          data: {
+            post_id: req.params.id,
+            user_id: req.userId,
+            user_name: userName,
+            content: parsed.data.content,
+            is_ai_response: isAi,
+            ...(scriptureValidation ? { scripture_validation: scriptureValidation } : {}),
+            created_date: new Date().toISOString(),
+          },
         },
-      },
-    });
-
-    await prisma.entity.update({
-      where: { id: post.id },
-      data: { data: { ...post.data, replies_count: Number(post.data?.replies_count || 0) + 1 } },
+      });
+      const repliesCount = await tx.entity.count({
+        where: {
+          type: 'CommunityReply',
+          data: { path: ['post_id'], equals: post.id },
+        },
+      });
+      await tx.entity.update({
+        where: { id: post.id },
+        data: { data: { ...post.data, replies_count: repliesCount } },
+      });
+      return created;
     });
 
     res.json(formatEntity(reply));
@@ -1011,10 +1067,17 @@ router.delete('/sermons/:id', authenticateToken, async (req, res, next) => {
 
 router.post('/sermons/:id/view', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const sermon = await findSharedSermon(req.params.id);
-    const updated = await prisma.entity.update({
-      where: { id: sermon.id },
-      data: { data: { ...sermon.data, views_count: Number(sermon.data?.views_count || 0) + 1 } },
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const sermon = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!sermon || sermon.type !== 'SharedSermon'
+        || HIDDEN_COMMUNITY_STATUSES.has(communityStatus(sermon.data || {}))) {
+        throw Object.assign(new Error('Shared sermon not found'), { status: 404 });
+      }
+      return tx.entity.update({
+        where: { id: sermon.id },
+        data: { data: { ...sermon.data, views_count: Number(sermon.data?.views_count || 0) + 1 } },
+      });
     });
     res.json({ id: updated.id, views_count: Number(updated.data?.views_count || 0) });
   } catch (err) {
@@ -1033,23 +1096,24 @@ router.post('/sermons/:id/fork', authenticateToken, requireCommunity, async (req
       || created.data?.source_shared_sermon_id !== sermon.id) {
       return res.status(400).json({ message: 'A newly created fork owned by this account is required' });
     }
-    const key = { userId: req.userId, contentId: sermon.id, contentType: 'SharedSermonFork' };
-    const previous = await prisma.communityLike.findUnique({
-      where: { userId_contentId_contentType: key },
+    const result = await writeUniqueInteractionCounter({
+      targetId: sermon.id,
+      userId: req.userId,
+      contentType: 'SharedSermonFork',
+      counterField: 'forks_count',
+      active: true,
+      validateTarget: (current) => {
+        if (!current || current.type !== 'SharedSermon'
+          || HIDDEN_COMMUNITY_STATUSES.has(communityStatus(current.data || {}))) {
+          throw Object.assign(new Error('Shared sermon not found'), { status: 404 });
+        }
+      },
     });
-    if (!previous) {
-      try {
-        await prisma.communityLike.create({ data: key });
-        await prisma.entity.update({
-          where: { id: sermon.id },
-          data: { data: { ...sermon.data, forks_count: Number(sermon.data?.forks_count || 0) + 1 } },
-        });
-      } catch (err) {
-        if (err.code !== 'P2002') throw err;
-      }
-    }
-    const current = await prisma.entity.findUnique({ where: { id: sermon.id } });
-    res.json({ id: sermon.id, forks_count: Number(current?.data?.forks_count || 0), alreadyForked: !!previous });
+    res.json({
+      id: sermon.id,
+      forks_count: result.count,
+      alreadyForked: result.alreadyActive,
+    });
   } catch (err) {
     next(err);
   }
@@ -1168,25 +1232,20 @@ router.post('/comments', authenticateToken, requireCommunity, async (req, res, n
 
 router.post('/comments/:id/like', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const comment = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!comment || comment.type !== 'Comment') return res.status(404).json({ message: 'Comment not found' });
-    await findCommentTarget(comment.data?.content_type, comment.data?.content_id);
-    const key = { userId: req.userId, contentId: comment.id, contentType: 'Comment' };
-    const previous = await prisma.communityLike.findUnique({ where: { userId_contentId_contentType: key } });
-    if (previous) {
-      return res.json({ ...formatEntity(comment), likedByMe: true });
-    }
-    try {
-      await prisma.communityLike.create({ data: key });
-    } catch (err) {
-      if (err.code !== 'P2002') throw err;
-      return res.json({ ...formatEntity(comment), likedByMe: true });
-    }
-    const updated = await prisma.entity.update({
-      where: { id: comment.id },
-      data: { data: { ...comment.data, likes_count: Number(comment.data?.likes_count || 0) + 1 } },
+    const result = await writeUniqueInteractionCounter({
+      targetId: req.params.id,
+      userId: req.userId,
+      contentType: 'Comment',
+      counterField: 'likes_count',
+      active: true,
+      validateTarget: async (comment) => {
+        if (!comment || comment.type !== 'Comment') {
+          throw Object.assign(new Error('Comment not found'), { status: 404 });
+        }
+        await findCommentTarget(comment.data?.content_type, comment.data?.content_id);
+      },
     });
-    res.json({ ...formatEntity(updated), likedByMe: true });
+    res.json({ ...formatEntity(result.target), likedByMe: true });
   } catch (err) {
     next(err);
   }
@@ -1194,17 +1253,19 @@ router.post('/comments/:id/like', authenticateToken, requireCommunity, async (re
 
 router.delete('/comments/:id/like', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const comment = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!comment || comment.type !== 'Comment') return res.status(404).json({ message: 'Comment not found' });
-    const removed = await prisma.communityLike.deleteMany({
-      where: { userId: req.userId, contentId: comment.id, contentType: 'Comment' },
+    const result = await writeUniqueInteractionCounter({
+      targetId: req.params.id,
+      userId: req.userId,
+      contentType: 'Comment',
+      counterField: 'likes_count',
+      active: false,
+      validateTarget: (comment) => {
+        if (!comment || comment.type !== 'Comment') {
+          throw Object.assign(new Error('Comment not found'), { status: 404 });
+        }
+      },
     });
-    if (!removed.count) return res.json({ ...formatEntity(comment), likedByMe: false });
-    const updated = await prisma.entity.update({
-      where: { id: comment.id },
-      data: { data: { ...comment.data, likes_count: Math.max(0, Number(comment.data?.likes_count || 0) - 1) } },
-    });
-    res.json({ ...formatEntity(updated), likedByMe: false });
+    res.json({ ...formatEntity(result.target), likedByMe: false });
   } catch (err) {
     next(err);
   }
@@ -1218,9 +1279,16 @@ router.patch('/comments/:id/pin', authenticateToken, requireCommunity, async (re
     if (target.userId !== req.userId) {
       return res.status(403).json({ message: 'Only the content owner can pin comments' });
     }
-    const updated = await prisma.entity.update({
-      where: { id: comment.id },
-      data: { data: { ...comment.data, is_pinned: !comment.data?.is_pinned } },
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, comment.id);
+      const current = await tx.entity.findUnique({ where: { id: comment.id } });
+      if (!current || current.type !== 'Comment') {
+        throw Object.assign(new Error('Comment not found'), { status: 404 });
+      }
+      return tx.entity.update({
+        where: { id: current.id },
+        data: { data: { ...current.data, is_pinned: !current.data?.is_pinned } },
+      });
     });
     res.json(formatEntity(updated));
   } catch (err) {
@@ -1795,26 +1863,23 @@ router.post('/reading-plans/:id/fork', authenticateToken, requireCommunity, asyn
       || created.data?.source_shared_plan_id !== plan.id) {
       return res.status(400).json({ message: 'A newly created fork owned by this account is required' });
     }
-    const key = { userId: req.userId, contentId: plan.id, contentType: 'ReadingPlanFork' };
-    const previous = await prisma.communityLike.findUnique({
-      where: { userId_contentId_contentType: key },
+    const result = await writeUniqueInteractionCounter({
+      targetId: plan.id,
+      userId: req.userId,
+      contentType: 'ReadingPlanFork',
+      counterField: 'followers_count',
+      active: true,
+      validateTarget: (current) => {
+        if (!current || current.type !== 'ReadingPlan' || current.data?.is_public !== true
+          || HIDDEN_COMMUNITY_STATUSES.has(communityStatus(current.data || {}))) {
+          throw Object.assign(new Error('Public reading plan not found'), { status: 404 });
+        }
+      },
     });
-    if (!previous) {
-      try {
-        await prisma.communityLike.create({ data: key });
-        await prisma.entity.update({
-          where: { id: plan.id },
-          data: { data: { ...plan.data, followers_count: Number(plan.data?.followers_count || 0) + 1 } },
-        });
-      } catch (err) {
-        if (err.code !== 'P2002') throw err;
-      }
-    }
-    const current = await prisma.entity.findUnique({ where: { id: plan.id } });
     res.json({
       id: plan.id,
-      followers_count: Number(current?.data?.followers_count || 0),
-      alreadyForked: !!previous,
+      followers_count: result.count,
+      alreadyForked: result.alreadyActive,
     });
   } catch (err) {
     next(err);
@@ -1868,38 +1933,26 @@ router.post('/reading-plans/:id/rating', authenticateToken, requireCommunity, as
 
 router.post('/shared-content/:id/like', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const existing = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!existing || existing.type !== 'SharedContent') {
-      return res.status(404).json({ message: 'Shared content not found' });
-    }
-    const data = existing.data || {};
-    if (!isPublicCommunityData(data)) {
-      return res.status(403).json({ message: 'Cannot like private content' });
-    }
-
-    const key = sharedContentInteractionKey(req.userId, existing.id);
-    const previous = await prisma.communityLike.findUnique({
-      where: { userId_contentId_contentType: key },
+    const result = await writeUniqueInteractionCounter({
+      targetId: req.params.id,
+      userId: req.userId,
+      contentType: 'SharedContent',
+      counterField: 'likes_count',
+      active: true,
+      validateTarget: (existing) => {
+        if (!existing || existing.type !== 'SharedContent') {
+          throw Object.assign(new Error('Shared content not found'), { status: 404 });
+        }
+        if (!isPublicCommunityData(existing.data || {})) {
+          throw Object.assign(new Error('Cannot like private content'), { status: 403 });
+        }
+      },
     });
-    if (previous) {
-      return res.json(await interactionResult(existing, { liked: true, alreadyLiked: true }));
-    }
-
-    await prisma.communityLike.create({ data: key });
-
-    const updated = await prisma.entity.update({
-      where: { id: existing.id },
-      data: { data: { ...data, likes_count: Number(data.likes_count || 0) + 1 } },
-    });
-
-    res.json(await interactionResult(updated, { liked: true, alreadyLiked: false }));
+    res.json(await interactionResult(result.target, {
+      liked: true,
+      alreadyLiked: result.alreadyActive,
+    }));
   } catch (err) {
-    if (err.code === 'P2002') {
-      const current = await prisma.entity.findUnique({ where: { id: req.params.id } }).catch(() => null);
-      return res.json(current
-        ? await interactionResult(current, { liked: true, alreadyLiked: true })
-        : { id: req.params.id, liked: true, alreadyLiked: true });
-    }
     next(err);
   }
 });
@@ -1911,48 +1964,56 @@ router.post('/shared-content/:id/report', authenticateToken, requireCommunity, a
       return res.status(400).json({ message: 'Invalid report', issues: parsed.error.issues });
     }
 
-    const existing = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!existing || existing.type !== 'SharedContent') {
-      return res.status(404).json({ message: 'Shared content not found' });
-    }
-    const data = existing.data || {};
-    if (!isPublicCommunityData(data)) {
-      return res.status(403).json({ message: 'Cannot report private, removed, or non-public content' });
-    }
+    const outcome = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const existing = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!existing || existing.type !== 'SharedContent') {
+        throw Object.assign(new Error('Shared content not found'), { status: 404 });
+      }
+      const data = existing.data || {};
+      if (!isPublicCommunityData(data)) {
+        throw Object.assign(new Error('Cannot report private, removed, or non-public content'), { status: 403 });
+      }
 
-    const reportedBy = Array.isArray(data.reported_by) ? data.reported_by : [];
-    if (reportedBy.includes(req.userId) || data.last_report?.reporterId === req.userId) {
+      const reportedBy = Array.isArray(data.reported_by) ? data.reported_by : [];
+      if (reportedBy.includes(req.userId) || data.last_report?.reporterId === req.userId) {
+        return { duplicate: true, reportedCount: reportedCount(data) };
+      }
+
+      const nextCount = reportedCount(data) + 1;
+      const report = {
+        ...parsed.data,
+        reporterId: req.userId,
+        reportedAt: new Date().toISOString(),
+      };
+      const updated = await tx.entity.update({
+        where: { id: existing.id },
+        data: {
+          data: {
+            ...data,
+            reported_count: nextCount,
+            reportedCount: nextCount,
+            reported_by: [...new Set([...reportedBy, req.userId])],
+            last_report: report,
+            status: nextCount >= 3 ? 'reported' : communityStatus(data),
+          },
+        },
+      });
+      return { duplicate: false, reportedCount: nextCount, updated };
+    });
+
+    if (outcome.duplicate) {
       return res.status(409).json({
         message: 'You have already reported this content',
-        reported_count: reportedCount(data),
+        reported_count: outcome.reportedCount,
       });
     }
 
-    const nextCount = reportedCount(data) + 1;
-    const report = {
-      ...parsed.data,
-      reporterId: req.userId,
-      reportedAt: new Date().toISOString(),
-    };
-    const updated = await prisma.entity.update({
-      where: { id: existing.id },
-      data: {
-        data: {
-          ...data,
-          reported_count: nextCount,
-          reportedCount: nextCount,
-          reported_by: [...new Set([...reportedBy, req.userId])],
-          last_report: report,
-          status: nextCount >= 3 ? 'reported' : communityStatus(data),
-        },
-      },
-    });
-
-    await recordCommunityAudit('community.report', req.userId, 'SharedContent', existing.id, {
+    await recordCommunityAudit('community.report', req.userId, 'SharedContent', req.params.id, {
       category: parsed.data.category,
-      reportedCount: nextCount,
+      reportedCount: outcome.reportedCount,
     });
-    res.json(await interactionResult(updated));
+    res.json(await interactionResult(outcome.updated));
   } catch (err) {
     next(err);
   }
@@ -1960,38 +2021,27 @@ router.post('/shared-content/:id/report', authenticateToken, requireCommunity, a
 
 router.post('/shared-content/:id/save', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const existing = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!existing || existing.type !== 'SharedContent') {
-      return res.status(404).json({ message: 'Shared content not found' });
-    }
-    const data = existing.data || {};
-    if (!isPublicCommunityData(data)) {
-      return res.status(403).json({ message: 'Cannot save private content' });
-    }
-
-    const key = sharedContentInteractionKey(req.userId, existing.id);
-    const previous = await prisma.savedContent.findUnique({
-      where: { userId_contentId_contentType: key },
+    const result = await writeUniqueInteractionCounter({
+      targetId: req.params.id,
+      userId: req.userId,
+      contentType: 'SharedContent',
+      counterField: 'saves_count',
+      active: true,
+      modelName: 'savedContent',
+      validateTarget: (existing) => {
+        if (!existing || existing.type !== 'SharedContent') {
+          throw Object.assign(new Error('Shared content not found'), { status: 404 });
+        }
+        if (!isPublicCommunityData(existing.data || {})) {
+          throw Object.assign(new Error('Cannot save private content'), { status: 403 });
+        }
+      },
     });
-    if (previous) {
-      return res.json(await interactionResult(existing, { saved: true, alreadySaved: true }));
-    }
-
-    await prisma.savedContent.create({ data: key });
-
-    const updated = await prisma.entity.update({
-      where: { id: existing.id },
-      data: { data: { ...data, saves_count: Number(data.saves_count || 0) + 1 } },
-    });
-
-    res.json(await interactionResult(updated, { saved: true, alreadySaved: false }));
+    res.json(await interactionResult(result.target, {
+      saved: true,
+      alreadySaved: result.alreadyActive,
+    }));
   } catch (err) {
-    if (err.code === 'P2002') {
-      const current = await prisma.entity.findUnique({ where: { id: req.params.id } }).catch(() => null);
-      return res.json(current
-        ? await interactionResult(current, { saved: true, alreadySaved: true })
-        : { id: req.params.id, saved: true, alreadySaved: true });
-    }
     next(err);
   }
 });
@@ -1999,7 +2049,7 @@ router.post('/shared-content/:id/save', authenticateToken, requireCommunity, asy
 router.get('/moderation/queue', authenticateToken, requireAdmin, async (_req, res, next) => {
   try {
     const rows = await prisma.entity.findMany({
-      where: { OR: [{ type: 'SharedContent' }, { type: 'ForumPost' }] },
+      where: { type: { in: MODERATABLE_TYPES } },
       orderBy: { updatedAt: 'desc' },
       take: 200,
       select: { id: true, type: true, userId: true, data: true, createdAt: true, updatedAt: true },
@@ -2020,7 +2070,7 @@ router.get('/moderation/queue', authenticateToken, requireAdmin, async (_req, re
 
 router.patch('/moderation/:type/:id', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
-    if (!['SharedContent', 'ForumPost'].includes(req.params.type)) {
+    if (!MODERATABLE_TYPES.includes(req.params.type)) {
       return res.status(400).json({ message: 'Unsupported moderation type' });
     }
     const parsed = moderationSchema.safeParse(req.body || {});
@@ -2028,39 +2078,43 @@ router.patch('/moderation/:type/:id', authenticateToken, requireAdmin, async (re
       return res.status(400).json({ message: 'Invalid moderation update', issues: parsed.error.issues });
     }
 
-    const existing = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!existing || existing.type !== req.params.type) {
-      return res.status(404).json({ message: 'Community content not found' });
-    }
-
     const patch = parsed.data;
-    const removed = patch.status === 'removed';
-    const data = {
-      ...(existing.data || {}),
-      ...patch,
-      ...(patch.moderatorNotes !== undefined ? { moderator_notes: patch.moderatorNotes } : {}),
-      ...(removed ? { removedAt: new Date().toISOString(), removedBy: req.userId } : {}),
-    };
+    const result = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const existing = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!existing || existing.type !== req.params.type) {
+        throw Object.assign(new Error('Community content not found'), { status: 404 });
+      }
 
-    // A moderator explicitly making a gated resource public is a publish
-    // transition through a non-entity route — run it through the SAME exposure
-    // gate so unverified Scripture can't be surfaced this way either. Only the
-    // explicit visibility:'public' transition is gated; hide/remove/status
-    // actions (the normal moderation path) are never blocked by this.
-    if (patch.visibility === 'public' && SCRIPTURE_GATED_TYPES.has(existing.type)) {
-      const denom = existing.data?.denomination
-        || (await prisma.user.findUnique({ where: { id: existing.userId }, select: { profile: true } }))?.profile?.denomination
-        || '';
-      assertGatedResourceExposable({ type: existing.type, resourceData: data, denomination: denom });
-    }
+      const removed = patch.status === 'removed';
+      const data = {
+        ...(existing.data || {}),
+        ...patch,
+        ...(patch.moderatorNotes !== undefined ? { moderator_notes: patch.moderatorNotes } : {}),
+        ...(removed ? { removedAt: new Date().toISOString(), removedBy: req.userId } : {}),
+      };
 
-    const updated = await prisma.entity.update({
-      where: { id: existing.id },
-      data: { data },
+      // A moderator explicitly making a gated resource public is a publish
+      // transition through a non-entity route — run it through the SAME exposure
+      // gate so unverified Scripture can't be surfaced this way either. Only the
+      // explicit visibility:'public' transition is gated; hide/remove/status
+      // actions (the normal moderation path) are never blocked by this.
+      if (patch.visibility === 'public' && SCRIPTURE_GATED_TYPES.has(existing.type)) {
+        const denom = existing.data?.denomination
+          || (await tx.user.findUnique({ where: { id: existing.userId }, select: { profile: true } }))?.profile?.denomination
+          || '';
+        assertGatedResourceExposable({ type: existing.type, resourceData: data, denomination: denom });
+      }
+
+      const updated = await tx.entity.update({
+        where: { id: existing.id },
+        data: { data },
+      });
+      return { existing, updated };
     });
 
-    await recordCommunityAudit('community.moderate', req.userId, existing.type, existing.id, patch);
-    res.json({ type: existing.type, userId: existing.userId, ...formatEntity(updated) });
+    await recordCommunityAudit('community.moderate', req.userId, result.existing.type, result.existing.id, patch);
+    res.json({ type: result.existing.type, userId: result.existing.userId, ...formatEntity(result.updated) });
   } catch (err) {
     next(err);
   }

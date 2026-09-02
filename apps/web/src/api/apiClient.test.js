@@ -82,6 +82,8 @@ describe('apiClient base URL resolution', () => {
     await api.auth.exportData();
     await api.auth.revokeSessions();
     await api.auth.deleteAccount();
+    await api.functions.shareLinks('resource 1');
+    await api.functions.revokeShareableLink('link 1');
     await api.community.report('shared 1', { category: 'spam', reason: 'duplicate' });
     await api.admin.aiAuditSummary(14);
     await api.admin.moderationQueue();
@@ -97,6 +99,8 @@ describe('apiClient base URL resolution', () => {
       { url: 'https://api.example/api/auth/export', method: 'GET', body: undefined },
       { url: 'https://api.example/api/auth/revoke-sessions', method: 'POST', body: undefined },
       { url: 'https://api.example/api/auth/me', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/functions/share-links?resourceId=resource%201', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/functions/share-links/link%201', method: 'DELETE', body: undefined },
       {
         url: 'https://api.example/api/community/shared-content/shared%201/report',
         method: 'POST',

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
 import { FREE_PERIOD_DAYS, grantFreePeriodToUser } from '../lib/premiumGrant.js';
 import { assertGatedResourceExposable } from '../services/scriptureGate.js';
@@ -330,7 +331,7 @@ async function userHasPremium(req) {
   if (!req.userId) return false;
   const u = await prisma.user.findUnique({
     where: { id: req.userId },
-    select: { role: true, premium: true, premium_until: true, email: true, profile: true },
+    select: { role: true, premium: true, premium_until: true, promotionalPhone: true, email: true, profile: true },
   });
   if (!u) return false;
   return accountTierFor(u) === ACCOUNT_TIERS.PREMIUM;
@@ -616,7 +617,7 @@ router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
     try {
       const u = await prisma.user.findUnique({
         where: { id: req.userId },
-        select: { role: true, premium: true, premium_until: true, email: true, profile: true },
+        select: { role: true, premium: true, premium_until: true, promotionalPhone: true, email: true, profile: true },
       });
       if (u) {
         isPremium = accountTierFor(u) === ACCOUNT_TIERS.PREMIUM;
@@ -1073,12 +1074,45 @@ router.post('/getUsersLastActivity', authenticateToken, requireAdmin, async (_re
 // ---------------------------------------------------------------------------
 // Shareable links — create a SharedLink entity with a unique slug
 // ---------------------------------------------------------------------------
+const shareLinkCreateSchema = z.object({
+  resourceType: z.string().trim().min(1).max(80),
+  resourceId: z.string().trim().min(1).max(200),
+  title: z.string().trim().max(200).optional().default(''),
+  description: z.string().trim().max(2000).optional().default(''),
+  // Public share pages are intentionally read-only. Do not advertise or store
+  // an unenforced "copy/edit" permission.
+  accessLevel: z.literal('view').optional().default('view'),
+  expiresInDays: z.coerce.number().int().min(1).max(365).nullable().optional(),
+}).strict();
+
+function shareUrlForSlug(slug) {
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
+  return `${frontendUrl}/SharedContent?link=${encodeURIComponent(slug)}`;
+}
+
+function formatOwnedShareLink(row) {
+  return {
+    id: row.id,
+    slug: row.data?.slug,
+    resourceType: row.data?.resourceType,
+    resourceId: row.data?.resourceId,
+    title: row.data?.title || '',
+    description: row.data?.description || '',
+    accessLevel: 'view',
+    expiresAt: row.data?.expiresAt || null,
+    views: Number(row.data?.views || 0),
+    shareUrl: shareUrlForSlug(row.data?.slug || ''),
+    createdAt: row.createdAt,
+  };
+}
+
 router.post('/createShareableLink', authenticateToken, async (req, res, next) => {
   try {
-    const { resourceType, resourceId, title, description, accessLevel, expiresInDays } = req.body;
-    if (!resourceType || !resourceId) {
-      return res.status(400).json({ message: 'resourceType and resourceId are required' });
+    const parsed = shareLinkCreateSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid share-link request', issues: parsed.error.issues });
     }
+    const { resourceType, resourceId, title, description, accessLevel, expiresInDays } = parsed.data;
 
     // Verify the resource exists and belongs to the user
     const resource = await prisma.entity.findUnique({ where: { id: resourceId } });
@@ -1105,13 +1139,15 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
       || '';
     assertGatedResourceExposable({ type: resource.type, resourceData: resource.data, denomination: shareDenomination });
 
-    const slug = `${resourceType.toLowerCase()}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // 144 random bits makes an unlisted link infeasible to guess. The previous
+    // timestamp + Math.random suffix was both predictable and too short for a
+    // URL that grants anonymous access to otherwise private content.
+    const slug = `${resourceType.toLowerCase()}-${crypto.randomBytes(18).toString('base64url')}`;
     const expiresAt = expiresInDays
       ? new Date(Date.now() + expiresInDays * 86400000).toISOString()
       : null;
 
-    await prisma.entity.create({
+    const link = await prisma.entity.create({
       data: {
         type: 'SharedLink',
         userId: req.userId,
@@ -1130,7 +1166,59 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
       },
     });
 
-    res.json({ shareUrl: `${frontendUrl}/SharedContent?link=${slug}` });
+    res.json({ ...formatOwnedShareLink(link), shareUrl: shareUrlForSlug(slug) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Owners can enumerate and revoke every link for one of their resources. This
+// remains available after a subscription/promotion expires because revoking
+// anonymous access is a privacy control, not a Premium benefit.
+router.get('/share-links', authenticateToken, async (req, res, next) => {
+  try {
+    const resourceId = String(req.query.resourceId || '').trim();
+    if (!resourceId || resourceId.length > 200) {
+      return res.status(400).json({ message: 'A valid resourceId is required' });
+    }
+    const resource = await prisma.entity.findUnique({ where: { id: resourceId } });
+    if (!resource || resource.userId !== req.userId) {
+      return res.status(404).json({ message: 'Owned resource not found' });
+    }
+    const rows = await prisma.entity.findMany({
+      where: {
+        type: 'SharedLink',
+        userId: req.userId,
+        data: { path: ['resourceId'], equals: resourceId },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    res.json({ links: rows.map(formatOwnedShareLink) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/share-links/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const link = await prisma.entity.findUnique({ where: { id: req.params.id } });
+    // Return one not-found shape for missing and foreign links so ids cannot be
+    // used as an ownership oracle.
+    if (!link || link.type !== 'SharedLink' || link.userId !== req.userId) {
+      return res.status(404).json({ message: 'Owned share link not found' });
+    }
+    await prisma.entity.delete({ where: { id: link.id } });
+    await prisma.auditLog?.create({
+      data: {
+        userId: req.userId,
+        action: 'sharing.link_revoke',
+        targetType: 'SharedLink',
+        targetId: link.id,
+        metadata: { resourceId: link.data?.resourceId, slug: link.data?.slug },
+      },
+    }).catch(() => null);
+    res.status(204).send();
   } catch (err) {
     next(err);
   }

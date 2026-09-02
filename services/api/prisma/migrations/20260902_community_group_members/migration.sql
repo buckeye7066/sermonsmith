@@ -23,21 +23,23 @@ ALTER TABLE "community_group_members"
     FOREIGN KEY ("user_id") REFERENCES "users"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Preserve memberships made through the legacy generic Entity API. Bad or
--- orphaned JSON rows are ignored, and duplicate legacy rows collapse to one.
+-- Establish only memberships whose authority can be proven from a
+-- server-owned column: every StudyGroup Entity's user_id is its creator and
+-- therefore its initial leader. Do NOT import legacy GroupMembership JSON.
+-- Those rows were historically client-creatable with an arbitrary group_id
+-- and role, so treating them as authorization records could promote an
+-- attacker to leader of someone else's private group.
 INSERT INTO "community_group_members" (
     "id", "group_id", "user_id", "role", "user_name", "joined_at"
 )
-SELECT DISTINCT ON (e.data->>'group_id', e."user_id")
-    e."id",
-    e.data->>'group_id',
-    e."user_id",
-    CASE WHEN e.data->>'role' = 'leader' THEN 'leader' ELSE 'member' END,
-    COALESCE(NULLIF(e.data->>'user_name', ''), u."full_name", u."name", u."email"),
-    e."created_at"
-FROM "entities" e
-JOIN "users" u ON u."id" = e."user_id"
-WHERE e."type" = 'GroupMembership'
-  AND NULLIF(e.data->>'group_id', '') IS NOT NULL
-ORDER BY e.data->>'group_id', e."user_id", e."created_at"
+SELECT
+    g."id",
+    g."id",
+    g."user_id",
+    'leader',
+    COALESCE(u."full_name", u."name", u."email"),
+    g."created_at"
+FROM "entities" g
+JOIN "users" u ON u."id" = g."user_id"
+WHERE g."type" = 'StudyGroup'
 ON CONFLICT ("group_id", "user_id") DO NOTHING;

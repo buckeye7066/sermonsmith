@@ -8,7 +8,7 @@ import { sendPasswordResetEmail } from '../services/email.js';
 import { recordSuccessfulLogin } from '../services/firstLoginNotifier.js';
 import { signupTrialPeriod } from '../lib/signupTrial.js';
 import { grantFreePeriodToUser } from '../lib/premiumGrant.js';
-import { accessSummaryFor } from '../lib/entitlements.js';
+import { accessSummaryFor, normalizePhone } from '../lib/entitlements.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -94,6 +94,8 @@ const RESERVED_PROFILE_KEYS = new Set([
   'premium_override',
   'subscription_tier',
   'premium_until',
+  'promotionalPhone',
+  'promotional_phone',
   'tokenVersion',
   'token_version',
   'createdAt',
@@ -360,6 +362,8 @@ router.patch('/me', authenticateToken, async (req, res, next) => {
       'premium_override',
       'subscription_tier',
       'premium_until',
+      'promotionalPhone',
+      'promotional_phone',
       'role',
       'email',
       'password',
@@ -634,7 +638,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => 
       where: { deletedAt: null },
       select: {
         id: true, email: true, name: true, full_name: true,
-        role: true, premium: true, premium_until: true, avatar: true, profile: true,
+        role: true, premium: true, premium_until: true, promotionalPhone: true, avatar: true, profile: true,
         createdAt: true, updatedAt: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -657,6 +661,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => 
 const adminUserUpdateSchema = z.object({
   role: z.enum(['user', 'admin', 'dev']).optional(),
   premium: z.boolean().optional(),
+  promotionalPhone: z.string().trim().max(40).nullable().optional(),
   name: z.string().max(100).optional(),
   full_name: z.string().max(100).optional(),
 }).strict();
@@ -670,9 +675,14 @@ router.patch('/users/:id', authenticateToken, requireAdmin, async (req, res, nex
         issues: parsed.error.issues,
       });
     }
+    const update = { ...parsed.data };
+    if (Object.prototype.hasOwnProperty.call(update, 'promotionalPhone')) {
+      const normalized = normalizePhone(update.promotionalPhone);
+      update.promotionalPhone = normalized || null;
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
-      data: parsed.data,
+      data: update,
     });
     res.json(sanitizeUser(user));
   } catch (err) {
