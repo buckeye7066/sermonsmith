@@ -137,8 +137,11 @@ test('core flow: generate → validation → save as clean draft → reopen from
   // the lowercase toast copy ("Marked as pastor reviewed.").
   await expect(page.getByText(/Pastor reviewed/).first()).toBeVisible({ timeout: 10_000 });
 
-  // Reopen from the library.
-  await page.goto('/MySermons');
+  // Reopen from the library through the same in-app navigation a signed-in
+  // user follows. A second page.goto() creates a new document and tests the
+  // browser harness' route-mock reattachment instead of SermonSmith routing.
+  await page.getByRole('link', { name: /My Sermons/i }).click();
+  await expect(page).toHaveURL(/\/MySermons(?:[?#]|$)/, { timeout: 15_000 });
   await expect(page.getByText('Amazing Grace for Every Day').first()).toBeVisible({ timeout: 15_000 });
 });
 
