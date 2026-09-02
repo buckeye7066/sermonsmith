@@ -53,7 +53,7 @@ export const DEFAULT_MIN_NATIVE_VERSION = '1.0';
  *
  * @param {object} [opts]
  * @param {string} [opts.distDir] built web assets (must contain index.html)
- * @param {string} [opts.version] bundle version (defaults to apps/web package.json)
+ * @param {string} [opts.version] bundle version (defaults to package version plus build epoch)
  * @param {string} [opts.baseUrl] absolute production origin serving the feed
  * @param {string} [opts.minNativeVersion] native floor for this bundle
  * @param {string} [opts.appName] label used in the manifest notes
@@ -71,9 +71,15 @@ export function publishMobileBundle({
       `[mobile-bundle] ${path.join(distDir, 'index.html')} not found — run the web build first (npm run build:web).`,
     );
   }
-  const resolvedVersion =
-    version ??
-    JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'apps', 'web', 'package.json'), 'utf8')).version;
+  const packageVersion = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, 'apps', 'web', 'package.json'), 'utf8'),
+  ).version;
+  // The package version changes only for formal app releases. OTA bundles are
+  // published on every production deployment, so they need their own strictly
+  // increasing numeric component or an installed bundle can incorrectly call
+  // a newer deployment "up to date". Epoch seconds remain parseable by the
+  // native updater's dotted-numeric version comparator.
+  const resolvedVersion = version ?? `${packageVersion}.${Math.floor(Date.now() / 1000)}`;
 
   const mobileDir = path.join(distDir, 'mobile');
   fs.rmSync(mobileDir, { recursive: true, force: true });
@@ -81,7 +87,7 @@ export function publishMobileBundle({
 
   const zip = new AdmZip();
   for (const entry of fs.readdirSync(distDir, { withFileTypes: true })) {
-    if (entry.name === 'mobile') continue; // never nest the feed inside its own bundle
+    if (entry.name === 'mobile') continue;
     const full = path.join(distDir, entry.name);
     if (entry.isDirectory()) zip.addLocalFolder(full, entry.name);
     else zip.addLocalFile(full);
@@ -91,8 +97,6 @@ export function publishMobileBundle({
   const zipPath = path.join(mobileDir, zipName);
   zip.writeZip(zipPath);
 
-  // Hash the file as it now exists on disk — not the in-memory buffer — so the
-  // published digest describes exactly the bytes a device will download.
   const sha256 = crypto.createHash('sha256').update(fs.readFileSync(zipPath)).digest('hex');
 
   const manifest = {
