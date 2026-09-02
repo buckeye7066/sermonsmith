@@ -263,10 +263,9 @@ describe('entities — community forum types', () => {
     prisma._store.user.push({ id: 'u-carol', email: 'carol@x', role: 'user', premium: true });
   });
 
-  // Regression: the Forum page POSTs CommunityPost/CommunityReply, but those
-  // types were absent from ENTITY_SCHEMAS, so every "New Post" 400'd with
-  // "Unsupported entity type: CommunityPost".
-  it('creates a CommunityPost', async () => {
+  // Public forum identities and counters are server-authored by the dedicated
+  // Community routes; the generic document API must not mint either type.
+  it('blocks generic CommunityPost creation', async () => {
     const res = await request(app)
       .post('/api/entities/CommunityPost')
       .send({
@@ -277,35 +276,31 @@ describe('entities — community forum types', () => {
         user_name: 'Carol',
       })
       .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
-    expect(res.status).toBe(200);
-    expect(res.body.title).toBe('How should I study Romans?');
-    expect(res.body.post_type).toBe('question');
+    expect(res.status).toBe(403);
   });
 
-  it('defaults CommunityPost.post_type to discussion when omitted', async () => {
+  it('blocks abbreviated generic CommunityPost creation paths too', async () => {
     const res = await request(app)
       .post('/api/entities/CommunityPost')
       .send({ title: 'Just sharing', content: 'A testimony of grace.' })
       .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
-    expect(res.status).toBe(200);
-    expect(res.body.post_type).toBe('discussion');
+    expect(res.status).toBe(403);
   });
 
-  it('creates a CommunityReply', async () => {
+  it('blocks generic CommunityReply creation', async () => {
     const res = await request(app)
       .post('/api/entities/CommunityReply')
       .send({ post_id: 'p-1', content: 'Great question — start with the gospel framing.', user_name: 'Carol' })
       .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
-    expect(res.status).toBe(200);
-    expect(res.body.content).toBe('Great question — start with the gospel framing.');
+    expect(res.status).toBe(403);
   });
 
-  it('rejects a CommunityPost with no content (400)', async () => {
+  it('blocks generic CommunityPost creation before payload validation', async () => {
     const res = await request(app)
       .post('/api/entities/CommunityPost')
       .send({ title: 'Empty body' })
       .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
   });
 
   it('still rejects a genuinely unknown entity type (400)', async () => {

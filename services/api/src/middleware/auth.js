@@ -121,6 +121,8 @@ export async function authenticateToken(req, res, next) {
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
       select: {
+        name: true,
+        full_name: true,
         role: true,
         premium: true,
         premium_until: true,
@@ -161,6 +163,7 @@ export async function authenticateToken(req, res, next) {
     req.entitlements = entitlementsFor(req.accountTier);
     req.userPremium = req.accountTier === ACCOUNT_TIERS.PREMIUM;
     req.userEmail = user.email;
+    req.userName = user.full_name || user.name || user.email || 'Member';
     next();
   } catch {
     return res.status(401).json({ message: 'Invalid or expired token' });

@@ -60,6 +60,8 @@ const SERVER_MANAGED_TYPES = new Set([
   'SermonRating',
   'SharedPlanRating',
   'Comment',
+  'CommunityPost',
+  'CommunityReply',
   'StudyGroup',
   'GroupMembership',
   'GroupMessage',
@@ -70,6 +72,37 @@ const SERVER_MANAGED_TYPES = new Set([
 
 function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
+}
+
+// SharedContent remains available through the generic API because Reader uses
+// the same record for both private saves and public Community shares. Its
+// public identity and interaction counters are nevertheless server-owned: a
+// caller may author the content, but cannot impersonate another member or seed
+// fake likes/reports to manipulate the Community feed.
+function bindSharedContentFields(req, type, data, { creating = false } = {}) {
+  if (type !== 'SharedContent') return data;
+  const next = { ...(data || {}), user_name: req.userName || req.userEmail || 'Member' };
+  if (creating) {
+    return {
+      ...next,
+      status: 'active',
+      likes_count: 0,
+      saves_count: 0,
+      reported_count: 0,
+      reported_by: [],
+    };
+  }
+  for (const key of [
+    'status',
+    'likes_count',
+    'saves_count',
+    'reported_count',
+    'reportedCount',
+    'reported_by',
+    'last_report',
+    'moderatorNotes',
+  ]) delete next[key];
+  return next;
 }
 
 // Same RESERVED_PROFILE_KEYS hardening as /api/auth — a malicious user could
@@ -556,7 +589,12 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
       // they're creating an entity on someone else's behalf.
       // eslint-disable-next-line no-unused-vars
       const { user_id, userId, id, ...item } = rawItem || {};
-      return applyScriptureGate(req, req.params.type, validateEntityPayload(req.params.type, item));
+      const validItem = validateEntityPayload(req.params.type, item);
+      return applyScriptureGate(
+        req,
+        req.params.type,
+        bindSharedContentFields(req, req.params.type, validItem, { creating: true }),
+      );
     }));
 
     const created = await prisma.$transaction(
@@ -590,10 +628,11 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
     }
     // eslint-disable-next-line no-unused-vars
     const { user_id, userId, id, ...rawBody } = req.body || {};
+    const validBody = validateEntityPayload(req.params.type, rawBody);
     const body = await applyScriptureGate(
       req,
       req.params.type,
-      validateEntityPayload(req.params.type, rawBody),
+      bindSharedContentFields(req, req.params.type, validBody, { creating: true }),
     );
     const entity = await prisma.entity.create({
       data: {
@@ -736,6 +775,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       patch = parsed.data;
     }
 
+    patch = bindSharedContentFields(req, storedType, patch);
     patch = await applyScriptureGate(req, storedType, patch, existing.data);
 
     const entity = await prisma.entity.update({

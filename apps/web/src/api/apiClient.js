@@ -662,6 +662,10 @@ const community = {
   // Public forum/community feeds — these read across ALL users (unlike the
   // tenant-scoped entity API), so members actually see each other's content.
   posts: () => apiFetch('/api/community/posts'),
+  createPost: (payload) => apiFetch('/api/community/posts', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
   sermons: (sort = 'popular') => apiFetch(`/api/community/sermons?sort=${encodeURIComponent(sort)}`),
   shareSermon: (payload) => apiFetch('/api/community/sermons/share', {
     method: 'POST',

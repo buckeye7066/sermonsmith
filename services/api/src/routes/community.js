@@ -114,6 +114,14 @@ const groupMessageSchema = z.object({
   message_type: z.enum(['text', 'scripture_reference', 'prayer_request', 'announcement']).default('text'),
 });
 
+const communityPostSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  content: z.string().trim().min(1).max(20_000),
+  post_type: z.enum(['question', 'discussion', 'testimony', 'prayer_request']).default('discussion'),
+  scripture_reference: z.string().trim().max(200).optional().default(''),
+  tags: z.array(z.string().trim().min(1).max(60)).max(20).optional().default([]),
+});
+
 const groupMeetingSchema = z.object({
   title: z.string().trim().min(1).max(300),
   description: z.string().trim().max(3000).optional().default(''),
@@ -227,6 +235,19 @@ async function findStudyGroup(id, client = prisma) {
 async function displayNameForUser(userId, client = prisma) {
   const user = await client.user.findUnique({ where: { id: userId } });
   return user?.full_name || user?.name || user?.email || 'Member';
+}
+
+async function displayNamesForRows(rows) {
+  const ids = [...new Set((rows || []).map((row) => row.userId).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, full_name: true, name: true, email: true },
+  });
+  return new Map(users.map((user) => [
+    user.id,
+    user.full_name || user.name || user.email || 'Member',
+  ]));
 }
 
 async function membershipFor(group, userId, { repairOwner = true, client = prisma } = {}) {
@@ -389,7 +410,12 @@ router.get('/shared-content', authenticateToken, requireCommunity, async (req, r
     // Fail closed: re-validate Scripture over each row's CURRENT stored content
     // and omit any that no longer verifies (edited-to-invalid after publish).
     const servable = await serveExposableRows('SharedContent', visible);
-    res.json(servable.map(formatEntity));
+    const authorNames = await displayNamesForRows(servable);
+    res.json(servable.map((row) => ({
+      ...formatEntity(row),
+      user_id: row.userId,
+      user_name: authorNames.get(row.userId) || 'Member',
+    })));
   } catch (err) {
     next(err);
   }
@@ -591,7 +617,42 @@ router.get('/posts', authenticateToken, requireCommunity, async (req, res, next)
       select: { contentId: true },
     }) : [];
     const liked = new Set(likes.map((row) => row.contentId));
-    res.json(visible.map((row) => ({ ...formatEntity(row), likedByMe: liked.has(row.id) })));
+    const authorNames = await displayNamesForRows(visible);
+    res.json(visible.map((row) => ({
+      ...formatEntity(row),
+      user_id: row.userId,
+      user_name: authorNames.get(row.userId) || 'Member',
+      likedByMe: liked.has(row.id),
+    })));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/posts', authenticateToken, requireCommunity, async (req, res, next) => {
+  try {
+    const parsed = communityPostSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid community post', issues: parsed.error.issues });
+    }
+    const row = await prisma.entity.create({
+      data: {
+        type: 'CommunityPost',
+        userId: req.userId,
+        data: {
+          ...parsed.data,
+          user_id: req.userId,
+          user_name: await displayNameForUser(req.userId),
+          status: 'active',
+          replies_count: 0,
+          likes_count: 0,
+          is_resolved: false,
+          created_date: new Date().toISOString(),
+        },
+      },
+    });
+    await recordCommunityAudit('community.post_create', req.userId, 'CommunityPost', row.id);
+    res.status(201).json(formatEntity(row));
   } catch (err) {
     next(err);
   }
@@ -651,7 +712,12 @@ router.get('/posts/:id/replies', authenticateToken, requireCommunity, async (req
     // Fail closed: an is_ai_response reply whose Scripture no longer verifies is
     // omitted (user-authored replies pass through untouched).
     const servable = await serveExposableRows('CommunityReply', visible);
-    res.json(servable.map(formatEntity));
+    const authorNames = await displayNamesForRows(servable);
+    res.json(servable.map((row) => ({
+      ...formatEntity(row),
+      user_id: row.userId,
+      user_name: authorNames.get(row.userId) || 'Member',
+    })));
   } catch (err) {
     next(err);
   }
@@ -700,7 +766,7 @@ router.post('/posts/:id/reply', authenticateToken, requireCommunity, async (req,
         data: {
           post_id: req.params.id,
           user_id: req.userId,
-          user_name: isAi ? 'AI Assistant' : (parsed.data.user_name || 'Member'),
+          user_name: await displayNameForUser(req.userId),
           content: parsed.data.content,
           is_ai_response: isAi,
           ...(scriptureValidation ? { scripture_validation: scriptureValidation } : {}),

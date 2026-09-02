@@ -190,6 +190,28 @@ describe('community routes', () => {
     expect(ids).not.toContain('p-removed');
   });
 
+  it('creates forum posts with server-authored identity and counters', async () => {
+    prisma._store.user.find((user) => user.id === 'u-reader').full_name = 'Reader Name';
+    const res = await request(app)
+      .post('/api/community/posts')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({
+        title: 'A real discussion',
+        content: 'How should we read this passage together?',
+        post_type: 'question',
+        user_name: 'Spoofed Name',
+        likes_count: 9000,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      user_id: 'u-reader',
+      user_name: 'Reader Name',
+      likes_count: 0,
+      replies_count: 0,
+    });
+  });
+
   it('lets a member reply to ANOTHER user\'s post and bumps the count server-side', async () => {
     prisma._store.entity.push({ id: 'p-owner', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Q', replies_count: 0, status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
 

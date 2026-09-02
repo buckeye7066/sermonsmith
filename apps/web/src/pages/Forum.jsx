@@ -83,11 +83,7 @@ export default function Forum() {
     }
 
     try {
-      await api.entities.CommunityPost.create({
-        user_id: user.id,
-        user_name: user.full_name || user.email,
-        ...newPost
-      });
+      await api.community.createPost(newPost);
 
       toast.success("Post created successfully!");
       setShowNewPostDialog(false);
@@ -264,7 +260,7 @@ Keep response under 300 words.`;
                         {reply.is_ai_response && (
                           <Badge variant="secondary" className="text-xs">
                             <Sparkles className="w-3 h-3 mr-1" />
-                            AI
+                            AI-assisted
                           </Badge>
                         )}
                         {reply.is_accepted_answer && (
