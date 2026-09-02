@@ -138,7 +138,7 @@ test('core flow: generate → validation → save as clean draft → reopen from
 test('warning flow: invalid Scripture → visible finding → still editable → honest needs_review save', async ({ page }) => {
   const saved = [];
   await mockCommonRoutes(page, { aiSermon: sermonPayload({ badRef: true }) });
-  const captured = mockSermonEntity(page, { saved });
+  const captured = await mockSermonEntity(page, { saved });
 
   await page.goto('/SermonBuilder');
   await page.getByPlaceholder(/Faith, Grace, Prayer/i).fill('Grace');
