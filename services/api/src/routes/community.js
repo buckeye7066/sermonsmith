@@ -633,7 +633,7 @@ router.get('/share/:slug', optionalAuth, async (req, res, next) => {
       data: { data: { ...data, views: Number(data.views || 0) + 1 } },
     }).catch(() => null);
 
-    res.json({ link: data, resource: formatEntity(resource) });
+    res.json({ link: data, resource: formatPublicEntity(resource) });
   } catch (err) {
     next(err);
   }

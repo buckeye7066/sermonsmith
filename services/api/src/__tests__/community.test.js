@@ -427,7 +427,15 @@ describe('community routes', () => {
   it('serves a shared resource when the link creator owns it', async () => {
     prisma._store.entity.push({
       id: 'res-owned', type: 'Sermon', userId: 'u-owner',
-      data: { title: 'My Sermon', big_idea: 'Grace' }, createdAt: new Date(), updatedAt: new Date(),
+      data: {
+        title: 'My Sermon',
+        big_idea: 'Grace',
+        reported_by: ['u-reader'],
+        last_report: { reporterId: 'u-reader', reason: 'Private report details' },
+        moderatorNotes: 'Internal moderation note',
+        removed_by: 'u-admin',
+      },
+      createdAt: new Date(), updatedAt: new Date(),
     });
     prisma._store.entity.push({
       id: 'link-ok', type: 'SharedLink', userId: 'u-owner',
@@ -437,6 +445,10 @@ describe('community routes', () => {
     const res = await request(app).get('/api/community/share/slug-ok');
     expect(res.status).toBe(200);
     expect(res.body.resource.id).toBe('res-owned');
+    expect(res.body.resource).not.toHaveProperty('reported_by');
+    expect(res.body.resource).not.toHaveProperty('last_report');
+    expect(res.body.resource).not.toHaveProperty('moderatorNotes');
+    expect(res.body.resource).not.toHaveProperty('removed_by');
   });
 
   it('does NOT serve a resource the link creator does not own (forged-link IDOR)', async () => {
