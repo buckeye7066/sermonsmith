@@ -8,8 +8,14 @@ import { sendPasswordResetEmail } from '../services/email.js';
 import { recordSuccessfulLogin } from '../services/firstLoginNotifier.js';
 import { signupTrialPeriod } from '../lib/signupTrial.js';
 import { grantFreePeriodToUser } from '../lib/premiumGrant.js';
-import { accessSummaryFor, normalizePhone } from '../lib/entitlements.js';
+import {
+  accessSummaryFor,
+  isAllowlistedPromotionalEmail,
+  normalizePhone,
+  normalizePromotionalEmail,
+} from '../lib/entitlements.js';
 import { lockCommunityEntity } from '../lib/communityEntityLock.js';
+import { withoutPrivateCommunityMetadata } from '../lib/communityPrivacy.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -95,6 +101,8 @@ const RESERVED_PROFILE_KEYS = new Set([
   'premium_override',
   'subscription_tier',
   'premium_until',
+  'promotionalEmail',
+  'promotional_email',
   'promotionalPhone',
   'promotional_phone',
   'tokenVersion',
@@ -147,10 +155,18 @@ async function exportRows(modelName, userId) {
   const model = prisma[modelName];
   if (!model?.findMany) return [];
   try {
-    return await model.findMany({
+    const rows = await model.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 5000,
+    });
+    if (!['sharedContent', 'forumPost'].includes(modelName)) return rows;
+    return rows.map((row) => {
+      const safe = withoutPrivateCommunityMetadata(row);
+      if (safe.content && typeof safe.content === 'object' && !Array.isArray(safe.content)) {
+        safe.content = withoutPrivateCommunityMetadata(safe.content);
+      }
+      return safe;
     });
   } catch {
     // During phased deploys, the route should still return the generic Entity
@@ -190,7 +206,7 @@ async function exportCommunityRelations(userId) {
   }
 }
 
-async function recordAudit(action, userId, metadata = {}) {
+async function recordAudit(action, userId, metadata = {}, targetId = userId) {
   if (!prisma.auditLog?.create) return;
   try {
     await prisma.auditLog.create({
@@ -198,7 +214,7 @@ async function recordAudit(action, userId, metadata = {}) {
         userId,
         action,
         targetType: 'User',
-        targetId: userId,
+        targetId,
         metadata,
       },
     });
@@ -323,7 +339,9 @@ router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
     }
 
     const hashed = await bcrypt.hash(password, 12);
-    const displayName = name || normalizedEmail.split('@')[0];
+    const displayName = typeof name === 'string' && name.trim()
+      ? name.trim().slice(0, 100)
+      : 'Member';
     const admin = isAdminEmail(normalizedEmail);
 
     let user = await prisma.user.create({
@@ -457,6 +475,8 @@ router.patch('/me', authenticateToken, async (req, res, next) => {
       'premium_override',
       'subscription_tier',
       'premium_until',
+      'promotionalEmail',
+      'promotional_email',
       'promotionalPhone',
       'promotional_phone',
       'role',
@@ -534,7 +554,10 @@ router.get('/export', authenticateToken, async (req, res, next) => {
     res.json({
       exportedAt: new Date().toISOString(),
       user: sanitizeUser(user),
-      entities,
+      entities: entities.map((entity) => ({
+        ...entity,
+        data: withoutPrivateCommunityMetadata(entity.data),
+      })),
       typed: Object.fromEntries(typedEntries),
       community: communityRelations,
     });
@@ -737,7 +760,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => 
       where: { deletedAt: null },
       select: {
         id: true, email: true, name: true, full_name: true,
-        role: true, premium: true, premium_until: true, promotionalPhone: true, avatar: true, profile: true,
+        role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, avatar: true, profile: true,
         createdAt: true, updatedAt: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -760,6 +783,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => 
 const adminUserUpdateSchema = z.object({
   role: z.enum(['user', 'admin', 'dev']).optional(),
   premium: z.boolean().optional(),
+  promotionalEmail: z.string().trim().email().max(254).nullable().optional(),
   promotionalPhone: z.string().trim().max(40).nullable().optional(),
   name: z.string().max(100).optional(),
   full_name: z.string().max(100).optional(),
@@ -775,6 +799,20 @@ router.patch('/users/:id', authenticateToken, requireAdmin, async (req, res, nex
       });
     }
     const update = { ...parsed.data };
+    const target = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!target) return res.status(404).json({ message: 'User not found' });
+    if (Object.prototype.hasOwnProperty.call(update, 'promotionalEmail')) {
+      const normalized = normalizePromotionalEmail(update.promotionalEmail);
+      if (normalized && (
+        !isAllowlistedPromotionalEmail(normalized)
+        || normalized !== normalizePromotionalEmail(target.email)
+      )) {
+        return res.status(400).json({
+          message: 'Promotional email must be an approved address that matches this account',
+        });
+      }
+      update.promotionalEmail = normalized || null;
+    }
     if (Object.prototype.hasOwnProperty.call(update, 'promotionalPhone')) {
       const normalized = normalizePhone(update.promotionalPhone);
       update.promotionalPhone = normalized || null;
@@ -801,10 +839,19 @@ router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res, ne
   try {
     const target = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!target) return res.status(404).json({ message: 'User not found' });
-    await prisma.user.update({
-      where: { id: req.params.id },
-      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+    const cleanup = await prisma.$transaction(async (tx) => {
+      const result = await cleanupCommunityRelationsForSoftDelete(tx, target.id);
+      await tx.user.update({
+        where: { id: target.id },
+        data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+      });
+      return result;
     });
+    await recordAudit('admin.user_soft_delete', req.userId, {
+      targetUserId: target.id,
+      ...cleanup,
+    }, target.id);
+    if (target.id === req.userId) res.clearCookie(AUTH_COOKIE, cookieOptions());
     res.status(204).send();
   } catch (err) {
     next(err);

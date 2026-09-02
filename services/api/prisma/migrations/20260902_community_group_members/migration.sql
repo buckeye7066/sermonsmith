@@ -34,7 +34,7 @@ SELECT
     g."id",
     g."user_id",
     'leader',
-    COALESCE(u."full_name", u."name", u."email"),
+    COALESCE(NULLIF(trim(u."full_name"), ''), NULLIF(trim(u."name"), ''), 'Member'),
     g."created_at"
 FROM "entities" g
 JOIN "users" u ON u."id" = g."user_id"
@@ -56,7 +56,7 @@ SELECT
     g."id",
     m."user_id",
     'member',
-    COALESCE(u."full_name", u."name", u."email"),
+    COALESCE(NULLIF(trim(u."full_name"), ''), NULLIF(trim(u."name"), ''), 'Member'),
     m."created_at"
 FROM "entities" m
 JOIN "entities" g

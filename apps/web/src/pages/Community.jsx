@@ -42,7 +42,9 @@ export default function Community() {
     if (!user) return false;
     const devEmails = ['buckeye7066@gmail.com', 'anyawhite@rocketmail.com', 'whiterobert1201@icloud.com', 'tishka1201@icloud.com'];
     const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
-    const emailMatch = user && user.email && devEmails.includes(user.email.toLowerCase());
+    const promotionalEmail = String(user.promotionalEmail || '').toLowerCase();
+    const emailMatch = devEmails.includes(promotionalEmail)
+      && promotionalEmail === String(user.email || '').toLowerCase();
     const phoneMatch = user.promotionalPhone && devPhones.some(p =>
       user.promotionalPhone.replace(/[\s\-()]/g, '').includes(p.replace(/[\s\-()+]/g, ''))
     );

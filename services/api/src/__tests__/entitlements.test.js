@@ -27,8 +27,20 @@ describe('server account entitlements', () => {
     expect(accountTierFor({ premium: true, role: 'user' })).toBe(ACCOUNT_TIERS.PREMIUM);
     expect(accountTierFor({ premium: false, premium_until: future, role: 'user' })).toBe(ACCOUNT_TIERS.PREMIUM);
     expect(accountTierFor({ premium: false, role: 'admin' })).toBe(ACCOUNT_TIERS.PREMIUM);
-    expect(accountTierFor({ premium: false, role: 'user', email: 'buckeye7066@gmail.com' })).toBe(ACCOUNT_TIERS.PREMIUM);
+    expect(accountTierFor({
+      premium: false,
+      role: 'user',
+      email: 'buckeye7066@gmail.com',
+      promotionalEmail: 'BUCKEYE7066@GMAIL.COM',
+    })).toBe(ACCOUNT_TIERS.PREMIUM);
     expect(accountTierFor({ premium: false, role: 'user', promotionalPhone: '(931) 998-1779' })).toBe(ACCOUNT_TIERS.PREMIUM);
+    expect(accountTierFor({ premium: false, role: 'user', email: 'buckeye7066@gmail.com' })).toBe(ACCOUNT_TIERS.FREE);
+    expect(accountTierFor({
+      premium: false,
+      role: 'user',
+      email: 'attacker@example.com',
+      promotionalEmail: 'buckeye7066@gmail.com',
+    })).toBe(ACCOUNT_TIERS.FREE);
     expect(accountTierFor({ premium: false, role: 'user', profile: { phone: '(931) 998-1779' } })).toBe(ACCOUNT_TIERS.FREE);
   });
 

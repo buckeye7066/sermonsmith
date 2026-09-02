@@ -331,7 +331,7 @@ async function userHasPremium(req) {
   if (!req.userId) return false;
   const u = await prisma.user.findUnique({
     where: { id: req.userId },
-    select: { role: true, premium: true, premium_until: true, promotionalPhone: true, email: true, profile: true },
+    select: { role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, email: true, profile: true },
   });
   if (!u) return false;
   return accountTierFor(u) === ACCOUNT_TIERS.PREMIUM;
@@ -617,7 +617,7 @@ router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
     try {
       const u = await prisma.user.findUnique({
         where: { id: req.userId },
-        select: { role: true, premium: true, premium_until: true, promotionalPhone: true, email: true, profile: true },
+        select: { role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, email: true, profile: true },
       });
       if (u) {
         isPremium = accountTierFor(u) === ACCOUNT_TIERS.PREMIUM;

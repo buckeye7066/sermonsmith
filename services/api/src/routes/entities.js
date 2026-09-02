@@ -28,6 +28,10 @@ import {
   requestHasEntitlement,
 } from '../lib/entitlements.js';
 import { lockCommunityEntity } from '../lib/communityEntityLock.js';
+import {
+  isPrivateCommunityMetadataKey,
+  withoutPrivateCommunityMetadata,
+} from '../lib/communityPrivacy.js';
 
 // Tenant-isolated entity API.
 //
@@ -81,6 +85,14 @@ function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
 }
 
+function formatEntityForRequest(req, entity) {
+  if (isAdmin(req)) return formatEntity(entity);
+  return formatEntity({
+    ...entity,
+    data: withoutPrivateCommunityMetadata(entity.data),
+  });
+}
+
 // SharedContent and ReadingPlan remain available through the generic API
 // because the same rows back private work and optional public Community
 // publication. Public identity, moderation state, and interaction counters are
@@ -97,7 +109,7 @@ function bindCommunityManagedFields(req, type, data, { creating = false } = {}) 
     return next;
   }
   if (type !== 'SharedContent') return data;
-  const next = { ...(data || {}), user_name: req.userName || req.userEmail || 'Member' };
+  const next = { ...(data || {}), user_name: req.userName || 'Member' };
   if (creating) {
     return {
       ...next,
@@ -133,6 +145,8 @@ const RESERVED_PROFILE_KEYS = new Set([
   'premium_override',
   'subscription_tier',
   'premium_until',
+  'promotionalEmail',
+  'promotional_email',
   'promotionalPhone',
   'promotional_phone',
   'tokenVersion',
@@ -547,7 +561,7 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
       const users = await prisma.user.findMany({
         select: {
           id: true, email: true, name: true, full_name: true, avatar: true,
-          role: true, premium: true, premium_until: true, promotionalPhone: true, profile: true, onboarding_completed: true,
+          role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, profile: true, onboarding_completed: true,
           special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
           is_banned: true, banned_at: true,
         },
@@ -576,6 +590,11 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
         }
         continue;
       }
+      // A response sanitizer alone is insufficient: accepting reporter ids as
+      // filter predicates would give an author a yes/no enumeration oracle.
+      if (!isAdmin(req) && isPrivateCommunityMetadataKey(key)) {
+        return res.status(400).json({ message: 'Unsupported private filter field' });
+      }
       if (value !== undefined && value !== null) {
         conditions.push({ data: { path: [key], equals: value } });
       }
@@ -589,7 +608,7 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
       take,
       skip,
     });
-    res.json(entities.map(formatEntity));
+    res.json(entities.map((entity) => formatEntityForRequest(req, entity)));
   } catch (err) {
     next(err);
   }
@@ -648,7 +667,7 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
       )
     );
 
-    res.json(created.map(formatEntity));
+    res.json(created.map((entity) => formatEntityForRequest(req, entity)));
   } catch (err) {
     next(err);
   }
@@ -681,7 +700,7 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
         data: { ...body, user_id: req.userId, created_date: new Date().toISOString() },
       },
     });
-    res.json(formatEntity(entity));
+    res.json(formatEntityForRequest(req, entity));
   } catch (err) {
     next(err);
   }
@@ -699,7 +718,7 @@ router.get('/:type', authenticateToken, async (req, res, next) => {
       const users = await prisma.user.findMany({
         select: {
           id: true, email: true, name: true, full_name: true, avatar: true,
-          role: true, premium: true, premium_until: true, promotionalPhone: true, profile: true, onboarding_completed: true,
+          role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, profile: true, onboarding_completed: true,
           special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
           is_banned: true, banned_at: true,
         },
@@ -722,7 +741,7 @@ router.get('/:type', authenticateToken, async (req, res, next) => {
       take,
       skip,
     });
-    res.json(entities.map(formatEntity));
+    res.json(entities.map((entity) => formatEntityForRequest(req, entity)));
   } catch (err) {
     next(err);
   }
@@ -731,8 +750,8 @@ router.get('/:type', authenticateToken, async (req, res, next) => {
 // --- Get single ---
 router.get('/:type/:id', authenticateToken, async (req, res, next) => {
   try {
-    assertEntityEntitlement(req, req.params.type);
     if (req.params.type === 'User') {
+      assertEntityEntitlement(req, 'User');
       if (!isAdmin(req) && req.params.id !== req.userId) {
         return res.status(403).json({ message: 'Forbidden' });
       }
@@ -743,11 +762,19 @@ router.get('/:type/:id', authenticateToken, async (req, res, next) => {
 
     const entity = await prisma.entity.findUnique({ where: { id: req.params.id } });
     if (!entity) return res.status(404).json({ message: 'Not found' });
+    if (entity.type !== req.params.type) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+
+    // The stored row type, not a caller-controlled URL segment, decides the
+    // required entitlement. The equality check above also prevents using an
+    // ungated type name to retrieve a known Premium entity id.
+    assertEntityEntitlement(req, entity.type);
 
     if (!PUBLIC_TYPES.has(entity.type) && entity.userId !== req.userId && !isAdmin(req)) {
       return res.status(403).json({ message: 'Forbidden' });
     }
-    res.json(formatEntity(entity));
+    res.json(formatEntityForRequest(req, entity));
   } catch (err) {
     next(err);
   }
@@ -765,7 +792,17 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
         try {
           // Block client-supplied role/premium/email/password from a
           // generic entity-update path; admins must use /api/auth/users.
-          const { password: _p, role: _r, premium: _pr, email: _e, ...safe } = req.body || {};
+          const {
+            password: _p,
+            role: _r,
+            premium: _pr,
+            email: _e,
+            promotionalEmail: _pe,
+            promotional_email: _pes,
+            promotionalPhone: _pp,
+            promotional_phone: _pps,
+            ...safe
+          } = req.body || {};
           const user = await prisma.user.update({ where: { id: req.params.id }, data: safe });
           res.json(sanitizeUser(user));
         } catch (err) { next(err); }
@@ -789,6 +826,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       return res.status(404).json({ message: 'Not found' });
     }
     const storedType = existing.type;
+    assertEntityEntitlement(req, storedType);
 
     if (existing.userId !== req.userId && !isAdmin(req)) {
       return res.status(403).json({ message: 'You can only update your own items' });
@@ -845,7 +883,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
           return updateCurrent(tx, current);
         })
       : await updateCurrent(prisma, existing);
-    res.json(formatEntity(entity));
+    res.json(formatEntityForRequest(req, entity));
   } catch (err) {
     next(err);
   }
@@ -929,7 +967,7 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
     }
 
     const entity = await prisma.entity.findUnique({ where: { id: existing.id } });
-    res.json(formatEntity(entity));
+    res.json(formatEntityForRequest(req, entity));
   } catch (err) {
     next(err);
   }

@@ -26,7 +26,9 @@ export default function QuizViewer({ quizData, onSave, user }) {
   
   const devPhones = ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'];
   
-  const emailMatch = user?.email && devEmails.includes(user.email.toLowerCase());
+  const promotionalEmail = String(user?.promotionalEmail || '').toLowerCase();
+  const emailMatch = devEmails.includes(promotionalEmail)
+    && promotionalEmail === String(user?.email || '').toLowerCase();
   
   // promotionalPhone is admin-controlled; the profile phone is contact data
   // and must never unlock Premium UI.

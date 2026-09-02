@@ -127,6 +127,7 @@ export async function authenticateToken(req, res, next) {
         premium: true,
         premium_until: true,
         email: true,
+        promotionalEmail: true,
         promotionalPhone: true,
         profile: true,
         tokenVersion: true,
@@ -164,7 +165,12 @@ export async function authenticateToken(req, res, next) {
     req.entitlements = entitlementsFor(req.accountTier);
     req.userPremium = req.accountTier === ACCOUNT_TIERS.PREMIUM;
     req.userEmail = user.email;
-    req.userName = user.full_name || user.name || user.email || 'Member';
+    // Email is private by default and must never become a public community
+    // display name merely because both optional name columns are empty.
+    const publicName = String(user.full_name || user.name || '').trim();
+    req.userName = publicName && !/[^\s@]+@[^\s@]+\.[^\s@]+/.test(publicName)
+      ? publicName
+      : 'Member';
     next();
   } catch {
     return res.status(401).json({ message: 'Invalid or expired token' });

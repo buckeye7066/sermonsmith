@@ -42,10 +42,12 @@ export function usePremiumAccess() {
     const isAdmin = user.role === 'admin' || user.role === 'dev';
     const promotionalEmails = ['buckeye7066@gmail.com', 'anyawhite@rocketmail.com', 'whiterobert1201@icloud.com', 'tishka1201@icloud.com'];
     const promotionalPhones = ['9319981779', '19319981779'];
-    // Only the server-controlled promotionalPhone may participate in the
-    // legacy phone allowlist. profile.phone is user-editable contact data.
+    // Only server-controlled promotional identity fields may participate in
+    // the legacy allowlist. Registration email/profile.phone remain user data.
+    const normalizedEmail = String(user.promotionalEmail || '').toLowerCase();
     const normalizedPhone = String(user.promotionalPhone || '').replace(/\D/g, '');
-    const promotionalAccess = promotionalEmails.includes(String(user.email || '').toLowerCase())
+    const promotionalAccess = (promotionalEmails.includes(normalizedEmail)
+      && normalizedEmail === String(user.email || '').toLowerCase())
       || promotionalPhones.includes(normalizedPhone);
     const devOverride = isAdmin || user.premium_override === true || promotionalAccess;
 

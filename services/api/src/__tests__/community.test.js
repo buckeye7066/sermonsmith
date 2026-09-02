@@ -193,6 +193,33 @@ describe('community routes', () => {
     expect(ids).not.toContain('p-removed');
   });
 
+  it('honors private post/reply visibility and hides every reply to a moderated parent', async () => {
+    prisma._store.entity.push(
+      { id: 'p-public', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Public', status: 'active' }, createdAt: new Date(), updatedAt: new Date() },
+      { id: 'p-private', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Private', status: 'active', visibility: 'private' }, createdAt: new Date(), updatedAt: new Date() },
+      { id: 'p-hidden', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Hidden', status: 'hidden' }, createdAt: new Date(), updatedAt: new Date() },
+      { id: 'r-public', type: 'CommunityReply', userId: 'u-owner', data: { post_id: 'p-public', content: 'Visible', status: 'active' }, createdAt: new Date(), updatedAt: new Date() },
+      { id: 'r-private', type: 'CommunityReply', userId: 'u-owner', data: { post_id: 'p-public', content: 'Private', status: 'active', visibility: 'private' }, createdAt: new Date(), updatedAt: new Date() },
+      { id: 'r-hidden-parent', type: 'CommunityReply', userId: 'u-owner', data: { post_id: 'p-hidden', content: 'Must stay hidden', status: 'active' }, createdAt: new Date(), updatedAt: new Date() },
+    );
+
+    const posts = await request(app)
+      .get('/api/community/posts')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    const publicReplies = await request(app)
+      .get('/api/community/posts/p-public/replies')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    const hiddenReplies = await request(app)
+      .get('/api/community/posts/p-hidden/replies')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(posts.body.map((row) => row.id)).toContain('p-public');
+    expect(posts.body.map((row) => row.id)).not.toContain('p-private');
+    expect(publicReplies.body.map((row) => row.id)).toEqual(['r-public']);
+    expect(hiddenReplies.status).toBe(404);
+    expect(hiddenReplies.body).not.toHaveProperty('content');
+  });
+
   it('creates forum posts with server-authored identity and counters', async () => {
     prisma._store.user.find((user) => user.id === 'u-reader').full_name = 'Reader Name';
     const res = await request(app)
@@ -213,6 +240,31 @@ describe('community routes', () => {
       likes_count: 0,
       replies_count: 0,
     });
+  });
+
+  it('uses a neutral public name when an account has no chosen display name', async () => {
+    prisma._store.user.push({
+      id: 'u-nameless', email: 'private-address@example.com', full_name: null, name: null,
+      role: 'user', premium: true, deletedAt: null, is_banned: false,
+    });
+
+    const post = await request(app)
+      .post('/api/community/posts')
+      .set('Cookie', [`ss_token=${tokenFor('u-nameless')}`])
+      .send({ title: 'Anonymous display', content: 'Keep my mailbox private.' });
+    const group = await request(app)
+      .post('/api/community/study-groups')
+      .set('Cookie', [`ss_token=${tokenFor('u-nameless')}`])
+      .send({ name: 'Privacy Group', description: 'A group without email display names.' });
+    const detail = await request(app)
+      .get(`/api/community/study-groups/${group.body.id}`)
+      .set('Cookie', [`ss_token=${tokenFor('u-nameless')}`]);
+
+    expect(post.status).toBe(201);
+    expect(post.body.user_name).toBe('Member');
+    expect(group.status).toBe(201);
+    expect(detail.body.members[0].user_name).toBe('Member');
+    expect(JSON.stringify({ post: post.body, detail: detail.body })).not.toContain('private-address@example.com');
   });
 
   it('lets a member reply to ANOTHER user\'s post and bumps the count server-side', async () => {
@@ -464,6 +516,23 @@ describe('community routes', () => {
     });
 
     const res = await request(app).get('/api/community/share/slug-forged');
+    expect(res.status).toBe(404);
+    expect(res.body.resource).toBeUndefined();
+  });
+
+  it('does not let an old anonymous link bypass a later moderation removal', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'res-removed', type: 'Sermon', userId: 'u-owner',
+        data: { title: 'Removed', status: 'removed' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'link-removed', type: 'SharedLink', userId: 'u-owner',
+        data: { slug: 'slug-removed', resourceId: 'res-removed' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const res = await request(app).get('/api/community/share/slug-removed');
     expect(res.status).toBe(404);
     expect(res.body.resource).toBeUndefined();
   });
@@ -754,6 +823,39 @@ describe('community routes', () => {
     expect(visible.body.map((group) => group.id)).toContain(created.body.id);
   });
 
+  it('transfers creator ownership when a promoted leader remains and does not re-add the leaver', async () => {
+    prisma._store.entity.push({
+      id: 'group-owner-leaves', type: 'StudyGroup', userId: 'u-free',
+      data: { name: 'Private continuity', description: 'Transfer safely', is_private: true, status: 'active', member_count: 2 },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityGroupMember.push(
+      { id: 'leaving-owner', groupId: 'group-owner-leaves', userId: 'u-free', role: 'leader', userName: 'Former Owner', joinedAt: new Date('2026-01-01') },
+      { id: 'remaining-leader', groupId: 'group-owner-leaves', userId: 'u-reader', role: 'leader', userName: 'Reader', joinedAt: new Date('2026-01-02') },
+    );
+
+    // Membership retraction remains available after promotional access ends.
+    const left = await request(app)
+      .delete('/api/community/study-groups/group-owner-leaves/membership')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    expect(left.status).toBe(200);
+    expect(left.body).toMatchObject({ left: true, group_deleted: false, member_count: 1 });
+    expect(prisma._store.entity.find((row) => row.id === 'group-owner-leaves')).toMatchObject({
+      userId: 'u-reader',
+      data: expect.objectContaining({ member_count: 1 }),
+    });
+    expect(prisma._store.communityGroupMember.some((row) => row.userId === 'u-free')).toBe(false);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+
+    // Even if the former owner later regains Premium, private membership is
+    // not reconstructed from the stale creator column.
+    prisma._store.user.find((row) => row.id === 'u-free').premium = true;
+    const formerOwnerRead = await request(app)
+      .get('/api/community/study-groups/group-owner-leaves')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    expect(formerOwnerRead.status).toBe(403);
+  });
+
   it('shares group messages across members and rejects non-members', async () => {
     prisma._store.entity.push({
       id: 'group-chat', type: 'StudyGroup', userId: 'u-owner',
@@ -969,6 +1071,7 @@ describe('community routes', () => {
       .send({ plan_id: 'private-outsider-plan' });
     expect(privatePlanBlocked.status).toBe(404);
 
+    prisma.$queryRaw.mockClear();
     const assigned = await request(app)
       .put('/api/community/study-groups/group-progress/progress')
       .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
@@ -977,6 +1080,7 @@ describe('community routes', () => {
     expect(assigned.body.plan).toMatchObject({ id: 'owner-plan', name: 'John in a Week' });
     expect(assigned.body.progress).toMatchObject({ total_days: 7, completed_days: [], current_day: 1 });
     expect(assigned.body.progress.plan_snapshot).toBeUndefined();
+    expect(prisma.$queryRaw).toHaveBeenCalled();
 
     const memberView = await request(app)
       .get('/api/community/study-groups/group-progress/progress')
@@ -989,6 +1093,45 @@ describe('community routes', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
     expect(completed.status).toBe(200);
     expect(completed.body).toMatchObject({ completed_days: [1], completion_percentage: 14 });
+  });
+
+  it('re-reads progress after the group lock, preserves concurrent days, and heals legacy duplicates', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'locked-progress-group', type: 'StudyGroup', userId: 'u-owner',
+        data: { name: 'Locked progress', status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'progress-newest', type: 'GroupProgress', userId: 'u-owner',
+        data: { group_id: 'locked-progress-group', total_days: 7, completed_days: [], current_day: 1 },
+        createdAt: new Date('2026-01-02'), updatedAt: new Date('2026-01-02'),
+      },
+      {
+        id: 'progress-legacy-duplicate', type: 'GroupProgress', userId: 'u-owner',
+        data: { group_id: 'locked-progress-group', total_days: 7, completed_days: [], current_day: 1 },
+        createdAt: new Date('2026-01-01'), updatedAt: new Date('2026-01-01'),
+      },
+    );
+    prisma._store.communityGroupMember.push({
+      id: 'locked-progress-leader', groupId: 'locked-progress-group', userId: 'u-owner',
+      role: 'leader', userName: 'Owner', joinedAt: new Date(),
+    });
+    // A day-one write lands after the handler begins but before it re-reads
+    // under the advisory lock. Day two must merge with that fresh state.
+    prisma.$queryRaw.mockImplementationOnce(async () => {
+      const row = prisma._store.entity.find((entity) => entity.id === 'progress-newest');
+      row.data = { ...row.data, completed_days: [1], current_day: 2, completion_percentage: 14 };
+      return [{ ok: 1 }];
+    });
+
+    const completed = await request(app)
+      .post('/api/community/study-groups/locked-progress-group/progress/days/2/complete')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+
+    expect(completed.status).toBe(200);
+    expect(completed.body).toMatchObject({ completed_days: [1, 2], completion_percentage: 29 });
+    expect(prisma._store.entity.filter((row) => row.type === 'GroupProgress')).toHaveLength(1);
+    expect(prisma._store.entity.find((row) => row.type === 'GroupProgress').id).toBe('progress-newest');
   });
 
   it('shares sermons across accounts and records views, forks, and ratings server-side', async () => {

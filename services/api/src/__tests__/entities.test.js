@@ -102,6 +102,64 @@ describe('entities — tenant isolation', () => {
     expect(prisma._store.entity.some((row) => row.type === 'CommunityPost')).toBe(false);
   });
 
+  it('cannot retrieve an owned Premium entity through an ungated URL type', async () => {
+    prisma._store.entity.push({
+      id: 'premium-owned-post', type: 'CommunityPost', userId: 'u-alice',
+      data: { title: 'Premium record', status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const mismatched = await request(app)
+      .get('/api/entities/Sermon/premium-owned-post')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const correctlyTyped = await request(app)
+      .get('/api/entities/CommunityPost/premium-owned-post')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+
+    expect(mismatched.status).toBe(404);
+    expect(mismatched.body.title).toBeUndefined();
+    expect(correctlyTyped.status).toBe(402);
+  });
+
+  it('keeps reporter and moderator metadata out of owner-facing generic responses', async () => {
+    prisma._store.entity.push({
+      id: 'reported-owned-content', type: 'SharedContent', userId: 'u-alice',
+      data: {
+        title: 'Owned note', content: 'Body', content_type: 'note', visibility: 'private',
+        status: 'reported', reported_count: 1, reported_by: ['u-bob'],
+        last_report: { reporterId: 'u-bob', reason: 'Private report' },
+        moderator_notes: 'Internal only', removedBy: 'u-admin',
+      },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const direct = await request(app)
+      .get('/api/entities/SharedContent/reported-owned-content')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const filtered = await request(app)
+      .post('/api/entities/SharedContent/filter')
+      .send({})
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const reporterProbe = await request(app)
+      .post('/api/entities/SharedContent/filter')
+      .send({ reported_by: ['u-bob'] })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const updated = await request(app)
+      .put('/api/entities/SharedContent/reported-owned-content')
+      .send({ title: 'Updated title' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+
+    for (const payload of [direct.body, filtered.body[0], updated.body]) {
+      expect(payload).not.toHaveProperty('reported_by');
+      expect(payload).not.toHaveProperty('last_report');
+      expect(payload).not.toHaveProperty('moderator_notes');
+      expect(payload).not.toHaveProperty('removedBy');
+    }
+    expect(reporterProbe.status).toBe(400);
+    const stored = prisma._store.entity.find((row) => row.id === 'reported-owned-content');
+    expect(stored.data.reported_by).toEqual(['u-bob']);
+    expect(stored.data.last_report.reporterId).toBe('u-bob');
+  });
+
   it('alice only sees her own sermons in list', async () => {
     const res = await request(app)
       .get('/api/entities/Sermon')

@@ -85,4 +85,26 @@ describe('authenticateToken (real middleware)', () => {
     expect(req.entitlements).toContain('bible_reader');
     expect(req.entitlements).not.toContain('community');
   });
+
+  it('requires the admin-controlled promotional email and never uses email as a display name', async () => {
+    findUnique.mockResolvedValue(baseUser({
+      email: 'buckeye7066@gmail.com',
+      name: null,
+      full_name: null,
+    }));
+    const unverifiedReq = reqWithToken(signToken({ id: 'u1', tokenVersion: 0 }));
+    await authenticateToken(unverifiedReq, mockRes(), () => {});
+    expect(unverifiedReq.accountTier).toBe('free');
+    expect(unverifiedReq.userName).toBe('Member');
+
+    findUnique.mockResolvedValue(baseUser({
+      email: 'buckeye7066@gmail.com',
+      promotionalEmail: 'buckeye7066@gmail.com',
+      name: 'owner@example.com',
+    }));
+    const verifiedReq = reqWithToken(signToken({ id: 'u2', tokenVersion: 0 }));
+    await authenticateToken(verifiedReq, mockRes(), () => {});
+    expect(verifiedReq.accountTier).toBe('premium');
+    expect(verifiedReq.userName).toBe('Member');
+  });
 });

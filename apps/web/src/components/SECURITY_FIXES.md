@@ -5,10 +5,11 @@
 The named email addresses and phone numbers in `usePremiumAccess.jsx` are an
 owner-authorized promotional allowlist. They must not be removed as generic
 "developer backdoors." The same allowlist is recognized by the API entitlement
-resolver so the browser and server cannot disagree about a promotion.
-Phone-based entries are matched only against the admin-controlled
-`User.promotionalPhone` column. The ordinary profile phone remains editable
-contact data and is never an authorization input.
+resolver so the browser and server cannot disagree about a promotion. Entries
+are matched only against the admin-controlled `User.promotionalEmail` and
+`User.promotionalPhone` columns. Registration email and ordinary profile phone
+remain user-supplied contact data and are never authorization inputs by
+themselves.
 
 For ordinary campaigns, administrators can grant either seven days or one month
 of service through the existing `grantFreePeriod` flow. That flow writes only

@@ -42,10 +42,11 @@ const PREMIUM_ENTITLEMENTS = Object.freeze([
 ]);
 
 // Keep the owner's explicitly authorized promotional accounts working. These
-// identifiers existed in the client before server-side entitlement enforcement;
-// recognizing them here prevents the UI from promising Premium while the API
-// denies the same request. New time-limited promotions should use premium_until
-// (the existing seven-day/month grant flow), which expires automatically.
+// identifiers existed in the client before server-side entitlement enforcement.
+// They are accepted only when copied into an admin-controlled User field; the
+// ordinary registration email/profile phone are never sufficient. New
+// time-limited promotions use premium_until (the existing seven-day/month grant
+// flow), which expires automatically.
 const PROMOTIONAL_EMAILS = new Set([
   'buckeye7066@gmail.com',
   'anyawhite@rocketmail.com',
@@ -62,14 +63,27 @@ export function normalizePhone(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
+export function normalizePromotionalEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+export function isAllowlistedPromotionalEmail(value) {
+  return PROMOTIONAL_EMAILS.has(normalizePromotionalEmail(value));
+}
+
 export function hasPromotionalAccess(user) {
-  const email = String(user?.email || '').trim().toLowerCase();
-  // IMPORTANT: profile.phone is self-service data and therefore can never be
-  // an authorization input. promotionalPhone is a dedicated User column that
-  // only an admin can assign. This preserves the owner's phone allowlist
-  // without letting a caller copy an allowlisted number into PATCH /auth/me.
+  const accountEmail = normalizePromotionalEmail(user?.email);
+  // IMPORTANT: registration email and profile.phone are self-service data and
+  // can never be authorization inputs on their own. These dedicated User
+  // columns are assignable only by an administrator. Requiring a promotional
+  // email to match the account email preserves the owner's email allowlist
+  // without letting somebody register an unclaimed allowlisted address and
+  // immediately receive permanent Premium access.
+  const promotionalEmail = normalizePromotionalEmail(user?.promotionalEmail);
   const phone = normalizePhone(user?.promotionalPhone);
-  return (email && PROMOTIONAL_EMAILS.has(email))
+  return (promotionalEmail
+      && promotionalEmail === accountEmail
+      && PROMOTIONAL_EMAILS.has(promotionalEmail))
     || (phone && PROMOTIONAL_PHONES.has(phone));
 }
 

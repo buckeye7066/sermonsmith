@@ -9,6 +9,7 @@ import {
 } from '../middleware/auth.js';
 import { ENTITLEMENTS, entitlementsFor } from '../lib/entitlements.js';
 import { lockCommunityEntity, lockMeetingRsvp } from '../lib/communityEntityLock.js';
+import { withoutPrivateCommunityMetadata } from '../lib/communityPrivacy.js';
 import {
   assertGatedResourceExposable,
   isPublicContentServable,
@@ -40,18 +41,16 @@ function formatEntity(e) {
 }
 
 function formatPublicEntity(e) {
-  const publicData = { ...(e.data || {}) };
-  for (const key of [
-    'reported_by',
-    'last_report',
-    'moderatorNotes',
-    'moderator_notes',
-    'removedAt',
-    'removed_at',
-    'removedBy',
-    'removed_by',
-  ]) delete publicData[key];
-  return { id: e.id, ...publicData, created_date: e.createdAt, updated_date: e.updatedAt };
+  const publicData = withoutPrivateCommunityMetadata(e.data);
+  if (Object.prototype.hasOwnProperty.call(publicData, 'user_name')) {
+    publicData.user_name = safeCommunityDisplayName(publicData.user_name);
+  }
+  return {
+    id: e.id,
+    ...publicData,
+    created_date: e.createdAt,
+    updated_date: e.updatedAt,
+  };
 }
 
 function uniqueRatingsByUser(rows) {
@@ -171,6 +170,19 @@ function isPublicCommunityData(data) {
   return data?.visibility === 'public' && !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(data));
 }
 
+function isForumPubliclyVisible(data) {
+  return data?.visibility !== 'private'
+    && !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(data));
+}
+
+function safeCommunityDisplayName(...values) {
+  for (const value of values) {
+    const candidate = typeof value === 'string' ? value.trim() : '';
+    if (candidate && !/[^\s@]+@[^\s@]+\.[^\s@]+/.test(candidate)) return candidate;
+  }
+  return 'Member';
+}
+
 function publicMember(user) {
   const profile = user?.profile && typeof user.profile === 'object' && !Array.isArray(user.profile)
     ? user.profile
@@ -182,7 +194,7 @@ function publicMember(user) {
 
   return {
     id: user.id,
-    name: user.full_name || user.name || 'SermonSmith member',
+    name: safeCommunityDisplayName(user.full_name, user.name),
     avatar: user.avatar || null,
     denomination: visible('show_denomination')
       ? (profile.denomination || profile.denominational_background || '')
@@ -334,7 +346,7 @@ function formatGroupMembership(row) {
     id: row.id,
     group_id: row.groupId,
     user_id: row.userId,
-    user_name: row.userName,
+    user_name: safeCommunityDisplayName(row.userName),
     role: row.role,
     joined_date: row.joinedAt,
   };
@@ -350,7 +362,7 @@ async function findStudyGroup(id, client = prisma) {
 
 async function displayNameForUser(userId, client = prisma) {
   const user = await client.user.findUnique({ where: { id: userId } });
-  return user?.full_name || user?.name || user?.email || 'Member';
+  return safeCommunityDisplayName(user?.full_name, user?.name);
 }
 
 async function displayNamesForRows(rows) {
@@ -358,11 +370,11 @@ async function displayNamesForRows(rows) {
   if (!ids.length) return new Map();
   const users = await prisma.user.findMany({
     where: { id: { in: ids } },
-    select: { id: true, full_name: true, name: true, email: true },
+    select: { id: true, full_name: true, name: true },
   });
   return new Map(users.map((user) => [
     user.id,
-    user.full_name || user.name || user.email || 'Member',
+    safeCommunityDisplayName(user.full_name, user.name),
   ]));
 }
 
@@ -388,17 +400,17 @@ async function membershipFor(group, userId, { repairOwner = true, client = prism
   return membership;
 }
 
-async function requireGroupMember(groupId, userId) {
-  const group = await findStudyGroup(groupId);
-  const membership = await membershipFor(group, userId);
+async function requireGroupMember(groupId, userId, client = prisma) {
+  const group = await findStudyGroup(groupId, client);
+  const membership = await membershipFor(group, userId, { client });
   if (!membership) {
     throw Object.assign(new Error('Join this study group to access its content'), { status: 403 });
   }
   return { group, membership };
 }
 
-async function requireGroupLeader(groupId, userId) {
-  const result = await requireGroupMember(groupId, userId);
+async function requireGroupLeader(groupId, userId, client = prisma) {
+  const result = await requireGroupMember(groupId, userId, client);
   if (result.membership.role !== 'leader') {
     throw Object.assign(new Error('Study group leader access required'), { status: 403 });
   }
@@ -521,7 +533,7 @@ async function writeForumReport({ id, type, userId, report, postId = null }) {
       throw Object.assign(new Error(type === 'CommunityPost' ? 'Post not found' : 'Reply not found'), { status: 404 });
     }
     const data = existing.data || {};
-    if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(data))) {
+    if (!isForumPubliclyVisible(data)) {
       throw Object.assign(new Error('This content is no longer reportable'), { status: 403 });
     }
 
@@ -613,6 +625,9 @@ router.get('/share/:slug', optionalAuth, async (req, res, next) => {
     // other write path could point `resourceId` at ANOTHER user's private
     // entity. Never serve a resource the link's creator does not own.
     if (resource.userId !== link.userId) {
+      return res.status(404).json({ message: 'Shared resource not found' });
+    }
+    if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(resource.data || {}))) {
       return res.status(404).json({ message: 'Shared resource not found' });
     }
 
@@ -772,7 +787,7 @@ router.get('/posts', authenticateToken, requireCommunity, async (req, res, next)
       take: 50,
       select: { id: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
-    const visible = rows.filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})));
+    const visible = rows.filter((row) => isForumPubliclyVisible(row.data || {}));
     const likes = visible.length ? await prisma.communityLike.findMany({
       where: {
         userId: req.userId,
@@ -894,7 +909,7 @@ router.post('/posts/:id/like', authenticateToken, requireCommunity, async (req, 
         if (!post || post.type !== 'CommunityPost') {
           throw Object.assign(new Error('Post not found'), { status: 404 });
         }
-        if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(post.data || {}))) {
+        if (!isForumPubliclyVisible(post.data || {})) {
           throw Object.assign(new Error('This post cannot be liked'), { status: 403 });
         }
       },
@@ -927,13 +942,17 @@ router.delete('/posts/:id/like', authenticateToken, requireCommunity, async (req
 
 router.get('/posts/:id/replies', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
+    const post = await prisma.entity.findUnique({ where: { id: req.params.id } });
+    if (!post || post.type !== 'CommunityPost' || !isForumPubliclyVisible(post.data || {})) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
     const rows = await prisma.entity.findMany({
       where: { type: 'CommunityReply', data: { path: ['post_id'], equals: req.params.id } },
       orderBy: { createdAt: 'asc' },
       take: 300,
       select: { id: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
-    const visible = rows.filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})));
+    const visible = rows.filter((row) => isForumPubliclyVisible(row.data || {}));
     // Fail closed: an is_ai_response reply whose Scripture no longer verifies is
     // omitted (user-authored replies pass through untouched).
     const servable = await serveExposableRows('CommunityReply', visible);
@@ -1046,7 +1065,7 @@ router.post('/posts/:id/reply', authenticateToken, requireCommunity, async (req,
       if (!post || post.type !== 'CommunityPost') {
         throw Object.assign(new Error('Post not found'), { status: 404 });
       }
-      if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(post.data || {}))) {
+      if (!isForumPubliclyVisible(post.data || {})) {
         throw Object.assign(new Error('This post is closed to replies'), { status: 403 });
       }
       const created = await tx.entity.create({
@@ -1143,7 +1162,7 @@ router.post('/sermons/share', authenticateToken, requireCommunity, async (req, r
     const data = {
       source_sermon_id: source.id,
       user_id: req.userId,
-      user_name: user?.full_name || user?.name || user?.email || 'Member',
+      user_name: safeCommunityDisplayName(user?.full_name, user?.name),
       title: source.data?.title || 'Untitled Sermon',
       topic: source.data?.topic || '',
       anchor_passage: source.data?.anchor_passage || '',
@@ -1583,24 +1602,28 @@ router.get('/study-groups/:id', authenticateToken, requireCommunity, async (req,
 
 router.post('/study-groups/:id/join', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const group = await findStudyGroup(req.params.id);
-    if (group.data?.is_private === true) {
-      return res.status(403).json({ message: 'This private study group does not accept open joins' });
-    }
-    const membership = await prisma.communityGroupMember.upsert({
-      where: { groupId_userId: { groupId: group.id, userId: req.userId } },
-      create: {
-        groupId: group.id,
-        userId: req.userId,
-        role: group.userId === req.userId ? 'leader' : 'member',
-        userName: await displayNameForUser(req.userId),
-        joinedAt: new Date(),
-      },
-      update: {},
+    const result = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const group = await findStudyGroup(req.params.id, tx);
+      if (group.data?.is_private === true) {
+        throw Object.assign(new Error('This private study group does not accept open joins'), { status: 403 });
+      }
+      const membership = await tx.communityGroupMember.upsert({
+        where: { groupId_userId: { groupId: group.id, userId: req.userId } },
+        create: {
+          groupId: group.id,
+          userId: req.userId,
+          role: group.userId === req.userId ? 'leader' : 'member',
+          userName: await displayNameForUser(req.userId, tx),
+          joinedAt: new Date(),
+        },
+        update: {},
+      });
+      const { memberCount } = await updateGroupMemberCount(group, tx);
+      return { group, membership, memberCount };
     });
-    const { memberCount } = await updateGroupMemberCount(group);
-    await recordCommunityAudit('community.group_join', req.userId, 'StudyGroup', group.id);
-    res.json({ membership: formatGroupMembership(membership), member_count: memberCount });
+    await recordCommunityAudit('community.group_join', req.userId, 'StudyGroup', result.group.id);
+    res.json({ membership: formatGroupMembership(result.membership), member_count: result.memberCount });
   } catch (err) {
     next(err);
   }
@@ -1608,65 +1631,109 @@ router.post('/study-groups/:id/join', authenticateToken, requireCommunity, async
 
 router.post('/study-groups/:id/members', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const { group } = await requireGroupLeader(req.params.id, req.userId);
     const parsed = groupMemberAddSchema.safeParse(req.body || {});
     if (!parsed.success) {
       return res.status(400).json({ message: 'Invalid group member', issues: parsed.error.issues });
     }
-    const target = await prisma.user.findUnique({ where: { id: parsed.data.user_id } });
-    if (!target || target.deletedAt || target.is_banned) {
-      return res.status(404).json({ message: 'Community member not found' });
-    }
-    if (!entitlementsFor(target).includes(ENTITLEMENTS.COMMUNITY)) {
-      return res.status(409).json({ message: 'That account does not currently have Community access' });
-    }
-    const membership = await prisma.communityGroupMember.upsert({
-      where: { groupId_userId: { groupId: group.id, userId: target.id } },
-      create: {
-        groupId: group.id,
-        userId: target.id,
-        role: group.userId === target.id ? 'leader' : 'member',
-        userName: target.full_name || target.name || target.email || 'Member',
-        joinedAt: new Date(),
-      },
-      update: {},
+    const result = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const { group } = await requireGroupLeader(req.params.id, req.userId, tx);
+      const target = await tx.user.findUnique({ where: { id: parsed.data.user_id } });
+      if (!target || target.deletedAt || target.is_banned) {
+        throw Object.assign(new Error('Community member not found'), { status: 404 });
+      }
+      if (!entitlementsFor(target).includes(ENTITLEMENTS.COMMUNITY)) {
+        throw Object.assign(new Error('That account does not currently have Community access'), { status: 409 });
+      }
+      const membership = await tx.communityGroupMember.upsert({
+        where: { groupId_userId: { groupId: group.id, userId: target.id } },
+        create: {
+          groupId: group.id,
+          userId: target.id,
+          role: group.userId === target.id ? 'leader' : 'member',
+          userName: safeCommunityDisplayName(target.full_name, target.name),
+          joinedAt: new Date(),
+        },
+        update: {},
+      });
+      const { memberCount } = await updateGroupMemberCount(group, tx);
+      return { group, target, membership, memberCount };
     });
-    const { memberCount } = await updateGroupMemberCount(group);
-    await recordCommunityAudit('community.group_member_add', req.userId, 'CommunityGroupMember', membership.id, {
-      groupId: group.id,
-      addedUserId: target.id,
+    await recordCommunityAudit('community.group_member_add', req.userId, 'CommunityGroupMember', result.membership.id, {
+      groupId: result.group.id,
+      addedUserId: result.target.id,
     });
-    res.json({ membership: formatGroupMembership(membership), member_count: memberCount });
+    res.json({ membership: formatGroupMembership(result.membership), member_count: result.memberCount });
   } catch (err) {
     next(err);
   }
 });
 
-router.delete('/study-groups/:id/membership', authenticateToken, requireCommunity, async (req, res, next) => {
+// Leaving is a privacy/lifecycle action and remains available after a trial or
+// promotion expires. Serialize it with every other group ownership mutation so
+// the creator cannot be silently re-added by membershipFor after departure.
+router.delete('/study-groups/:id/membership', authenticateToken, async (req, res, next) => {
   try {
-    const { group, membership } = await requireGroupMember(req.params.id, req.userId);
-    const [memberCount, leaderCount] = await Promise.all([
-      prisma.communityGroupMember.count({ where: { groupId: group.id } }),
-      prisma.communityGroupMember.count({ where: { groupId: group.id, role: 'leader' } }),
-    ]);
-    if (membership.role === 'leader' && leaderCount <= 1 && memberCount > 1) {
-      return res.status(409).json({ message: 'Promote another member before the last leader leaves' });
-    }
+    const outcome = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const { group, membership } = await requireGroupMember(req.params.id, req.userId, tx);
+      const memberships = await tx.communityGroupMember.findMany({
+        where: { groupId: group.id },
+        orderBy: { joinedAt: 'asc' },
+      });
+      const otherMemberships = memberships.filter((row) => row.userId !== req.userId);
+      const otherUsers = otherMemberships.length
+        ? await tx.user.findMany({ where: { id: { in: otherMemberships.map((row) => row.userId) } } })
+        : [];
+      const activeUserIds = new Set(otherUsers
+        .filter((user) => !user.deletedAt && !user.is_banned)
+        .map((user) => user.id));
+      const remaining = otherMemberships.filter((row) => activeUserIds.has(row.userId));
+      const staleIds = otherMemberships
+        .filter((row) => !activeUserIds.has(row.userId))
+        .map((row) => row.id);
+      if (staleIds.length) await tx.communityGroupMember.deleteMany({ where: { id: { in: staleIds } } });
 
-    if (memberCount <= 1) {
-      await prisma.$transaction(async (tx) => {
+      if (remaining.length === 0) {
+        const meetings = await tx.entity.findMany({
+          where: { type: 'GroupMeeting', data: { path: ['group_id'], equals: group.id } },
+          select: { id: true },
+        });
         await tx.communityGroupMember.deleteMany({ where: { groupId: group.id } });
+        for (const meeting of meetings) {
+          await tx.entity.deleteMany({
+            where: { type: 'MeetingAttendance', data: { path: ['meeting_id'], equals: meeting.id } },
+          });
+        }
         await tx.entity.deleteMany({ where: { data: { path: ['group_id'], equals: group.id } } });
         await tx.entity.delete({ where: { id: group.id } });
-      });
-      await recordCommunityAudit('community.group_delete_empty', req.userId, 'StudyGroup', group.id);
-      return res.json({ left: true, group_deleted: true, member_count: 0 });
-    }
+        return { groupId: group.id, deleted: true, memberCount: 0 };
+      }
 
-    await prisma.communityGroupMember.delete({ where: { id: membership.id } });
-    const { memberCount: nextCount } = await updateGroupMemberCount(group);
-    await recordCommunityAudit('community.group_leave', req.userId, 'StudyGroup', group.id);
-    res.json({ left: true, group_deleted: false, member_count: nextCount });
+      const successor = remaining.find((row) => row.role === 'leader');
+      const leavingLeadership = membership.role === 'leader' || group.userId === req.userId;
+      if (leavingLeadership && !successor) {
+        throw Object.assign(new Error('Promote another member before the last leader leaves'), { status: 409 });
+      }
+
+      await tx.communityGroupMember.delete({ where: { id: membership.id } });
+      await tx.entity.update({
+        where: { id: group.id },
+        data: {
+          ...(group.userId === req.userId ? { userId: successor.userId } : {}),
+          data: { ...(group.data || {}), member_count: remaining.length },
+        },
+      });
+      return { groupId: group.id, deleted: false, memberCount: remaining.length };
+    });
+
+    await recordCommunityAudit(
+      outcome.deleted ? 'community.group_delete_empty' : 'community.group_leave',
+      req.userId,
+      'StudyGroup',
+      outcome.groupId,
+    );
+    res.json({ left: true, group_deleted: outcome.deleted, member_count: outcome.memberCount });
   } catch (err) {
     next(err);
   }
@@ -1674,18 +1741,21 @@ router.delete('/study-groups/:id/membership', authenticateToken, requireCommunit
 
 router.patch('/study-groups/:id/members/:memberId/promote', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    await requireGroupLeader(req.params.id, req.userId);
-    const member = await prisma.communityGroupMember.findUnique({ where: { id: req.params.memberId } });
-    if (!member || member.groupId !== req.params.id) {
-      return res.status(404).json({ message: 'Group member not found' });
-    }
-    const updated = await prisma.communityGroupMember.update({
-      where: { id: member.id },
-      data: { role: 'leader' },
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      await requireGroupLeader(req.params.id, req.userId, tx);
+      const member = await tx.communityGroupMember.findUnique({ where: { id: req.params.memberId } });
+      if (!member || member.groupId !== req.params.id) {
+        throw Object.assign(new Error('Group member not found'), { status: 404 });
+      }
+      return tx.communityGroupMember.update({
+        where: { id: member.id },
+        data: { role: 'leader' },
+      });
     });
-    await recordCommunityAudit('community.group_promote', req.userId, 'CommunityGroupMember', member.id, {
+    await recordCommunityAudit('community.group_promote', req.userId, 'CommunityGroupMember', updated.id, {
       groupId: req.params.id,
-      promotedUserId: member.userId,
+      promotedUserId: updated.userId,
     });
     res.json(formatGroupMembership(updated));
   } catch (err) {
@@ -1706,7 +1776,7 @@ router.get('/study-groups/:id/messages', authenticateToken, requireCommunity, as
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    res.json([...rows].reverse().map(formatEntity));
+    res.json([...rows].reverse().map(formatPublicEntity));
   } catch (err) {
     next(err);
   }
@@ -1729,7 +1799,7 @@ router.post('/study-groups/:id/messages', authenticateToken, requireCommunity, a
         data: {
           group_id: req.params.id,
           user_id: req.userId,
-          user_name: membership.userName,
+          user_name: safeCommunityDisplayName(membership.userName),
           ...parsed.data,
           created_date: new Date().toISOString(),
         },
@@ -1836,7 +1906,7 @@ router.post('/study-groups/:id/meetings/:meetingId/rsvp', authenticateToken, req
       group_id: req.params.id,
       meeting_id: meeting.id,
       user_id: req.userId,
-      user_name: membership.userName,
+      user_name: safeCommunityDisplayName(membership.userName),
       status: parsed.data.status,
     };
     const attendance = await prisma.$transaction(async (tx) => {
@@ -1876,8 +1946,10 @@ router.post('/study-groups/:id/meetings/:meetingId/rsvp', authenticateToken, req
 router.get('/study-groups/:id/progress', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const { group } = await requireGroupMember(req.params.id, req.userId);
-    const progress = await prisma.entity.findFirst({
+    const [progress] = await prisma.entity.findMany({
       where: { type: 'GroupProgress', data: { path: ['group_id'], equals: req.params.id } },
+      orderBy: { updatedAt: 'desc' },
+      take: 1,
     });
     if (!progress) return res.json({ progress: null, plan: null });
 
@@ -1923,59 +1995,68 @@ router.get('/study-groups/:id/progress', authenticateToken, requireCommunity, as
 
 router.put('/study-groups/:id/progress', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    await requireGroupLeader(req.params.id, req.userId);
     const parsed = groupPlanSchema.safeParse(req.body || {});
     if (!parsed.success) {
       return res.status(400).json({ message: 'Invalid reading plan assignment', issues: parsed.error.issues });
     }
 
-    const plan = await prisma.entity.findUnique({ where: { id: parsed.data.plan_id } });
-    if (!plan || plan.type !== 'ReadingPlan'
-      || (plan.userId !== req.userId && plan.data?.is_public !== true)) {
-      return res.status(404).json({ message: 'Reading plan not found' });
-    }
+    const result = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      await requireGroupLeader(req.params.id, req.userId, tx);
 
-    const denomination = plan.data?.denomination
-      || (await prisma.user.findUnique({ where: { id: plan.userId }, select: { profile: true } }))?.profile?.denomination
-      || '';
-    assertGatedResourceExposable({ type: 'ReadingPlan', resourceData: plan.data || {}, denomination });
+      const plan = await tx.entity.findUnique({ where: { id: parsed.data.plan_id } });
+      if (!plan || plan.type !== 'ReadingPlan'
+        || (plan.userId !== req.userId && plan.data?.is_public !== true)) {
+        throw Object.assign(new Error('Reading plan not found'), { status: 404 });
+      }
 
-    const dailyReadings = Array.isArray(plan.data?.daily_readings) ? plan.data.daily_readings : [];
-    const requestedDays = Number(plan.data?.duration_days || plan.data?.total_days || dailyReadings.length || 1);
-    const totalDays = Math.min(366, Math.max(1, Number.isFinite(requestedDays) ? Math.trunc(requestedDays) : 1));
-    const planSnapshot = {
-      ...(plan.data || {}),
-      id: plan.id,
-      created_date: plan.createdAt,
-      updated_date: plan.updatedAt,
-    };
-    const nextData = {
-      group_id: req.params.id,
-      plan_id: plan.id,
-      assigned_by: req.userId,
-      assigned_date: new Date().toISOString(),
-      plan_denomination: denomination,
-      plan_snapshot: planSnapshot,
-      total_days: totalDays,
-      completed_days: [],
-      current_day: 1,
-      completion_percentage: 0,
-    };
-    const existing = await prisma.entity.findFirst({
-      where: { type: 'GroupProgress', data: { path: ['group_id'], equals: req.params.id } },
+      const denomination = plan.data?.denomination
+        || (await tx.user.findUnique({ where: { id: plan.userId }, select: { profile: true } }))?.profile?.denomination
+        || '';
+      assertGatedResourceExposable({ type: 'ReadingPlan', resourceData: plan.data || {}, denomination });
+
+      const dailyReadings = Array.isArray(plan.data?.daily_readings) ? plan.data.daily_readings : [];
+      const requestedDays = Number(plan.data?.duration_days || plan.data?.total_days || dailyReadings.length || 1);
+      const totalDays = Math.min(366, Math.max(1, Number.isFinite(requestedDays) ? Math.trunc(requestedDays) : 1));
+      const planSnapshot = {
+        ...(plan.data || {}),
+        id: plan.id,
+        created_date: plan.createdAt,
+        updated_date: plan.updatedAt,
+      };
+      const nextData = {
+        group_id: req.params.id,
+        plan_id: plan.id,
+        assigned_by: req.userId,
+        assigned_date: new Date().toISOString(),
+        plan_denomination: denomination,
+        plan_snapshot: planSnapshot,
+        total_days: totalDays,
+        completed_days: [],
+        current_day: 1,
+        completion_percentage: 0,
+      };
+      const existingRows = await tx.entity.findMany({
+        where: { type: 'GroupProgress', data: { path: ['group_id'], equals: req.params.id } },
+        orderBy: { updatedAt: 'desc' },
+        take: 1000,
+      });
+      const progress = existingRows[0]
+        ? await tx.entity.update({ where: { id: existingRows[0].id }, data: { data: nextData } })
+        : await tx.entity.create({ data: { type: 'GroupProgress', userId: req.userId, data: nextData } });
+      const duplicateIds = existingRows.slice(1).map((row) => row.id);
+      if (duplicateIds.length) await tx.entity.deleteMany({ where: { id: { in: duplicateIds } } });
+      return { progress, planSnapshot, planId: plan.id };
     });
-    const progress = existing
-      ? await prisma.entity.update({ where: { id: existing.id }, data: { data: nextData } })
-      : await prisma.entity.create({ data: { type: 'GroupProgress', userId: req.userId, data: nextData } });
 
-    await recordCommunityAudit('community.group_plan_assign', req.userId, 'GroupProgress', progress.id, {
+    await recordCommunityAudit('community.group_plan_assign', req.userId, 'GroupProgress', result.progress.id, {
       groupId: req.params.id,
-      planId: plan.id,
+      planId: result.planId,
     });
-    const formattedProgress = formatEntity(progress);
+    const formattedProgress = formatEntity(result.progress);
     delete formattedProgress.plan_snapshot;
     delete formattedProgress.plan_denomination;
-    res.json({ progress: formattedProgress, plan: planSnapshot });
+    res.json({ progress: formattedProgress, plan: result.planSnapshot });
   } catch (err) {
     next(err);
   }
@@ -1983,29 +2064,43 @@ router.put('/study-groups/:id/progress', authenticateToken, requireCommunity, as
 
 router.post('/study-groups/:id/progress/days/:day/complete', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    await requireGroupLeader(req.params.id, req.userId);
     const day = Number(req.params.day);
     if (!Number.isInteger(day) || day < 1 || day > 366) {
       return res.status(400).json({ message: 'Invalid reading-plan day' });
     }
-    const progress = await prisma.entity.findFirst({
-      where: { type: 'GroupProgress', data: { path: ['group_id'], equals: req.params.id } },
-    });
-    if (!progress) return res.status(404).json({ message: 'No reading plan is assigned to this group' });
-    const totalDays = Math.max(1, Number(progress.data?.total_days || 1));
-    const completedDays = [...new Set([...(progress.data?.completed_days || []), day])]
-      .filter((value) => Number.isInteger(value) && value >= 1 && value <= totalDays)
-      .sort((a, b) => a - b);
-    const updated = await prisma.entity.update({
-      where: { id: progress.id },
-      data: {
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      await requireGroupLeader(req.params.id, req.userId, tx);
+      const progressRows = await tx.entity.findMany({
+        where: { type: 'GroupProgress', data: { path: ['group_id'], equals: req.params.id } },
+        orderBy: { updatedAt: 'desc' },
+        take: 1000,
+      });
+      const progress = progressRows[0];
+      if (!progress) {
+        throw Object.assign(new Error('No reading plan is assigned to this group'), { status: 404 });
+      }
+      const totalDays = Math.max(1, Number(progress.data?.total_days || 1));
+      if (day > totalDays) {
+        throw Object.assign(new Error('Reading-plan day is outside this plan'), { status: 400 });
+      }
+      const completedDays = [...new Set([...(progress.data?.completed_days || []), day])]
+        .filter((value) => Number.isInteger(value) && value >= 1 && value <= totalDays)
+        .sort((a, b) => a - b);
+      const current = await tx.entity.update({
+        where: { id: progress.id },
         data: {
-          ...progress.data,
-          completed_days: completedDays,
-          current_day: Math.min(totalDays, Math.max(Number(progress.data?.current_day || 1), day + 1)),
-          completion_percentage: Math.round((completedDays.length / totalDays) * 100),
+          data: {
+            ...progress.data,
+            completed_days: completedDays,
+            current_day: Math.min(totalDays, Math.max(Number(progress.data?.current_day || 1), day + 1)),
+            completion_percentage: Math.round((completedDays.length / totalDays) * 100),
+          },
         },
-      },
+      });
+      const duplicateIds = progressRows.slice(1).map((row) => row.id);
+      if (duplicateIds.length) await tx.entity.deleteMany({ where: { id: { in: duplicateIds } } });
+      return current;
     });
     res.json(formatEntity(updated));
   } catch (err) {

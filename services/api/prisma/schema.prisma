@@ -11,6 +11,11 @@ model User {
   id                   String   @id @default(uuid())
   email                String   @unique
   password             String
+  // Admin-verified copy of an allowlisted promotional email. Registration
+  // never populates this field, so an unverified mailbox claim cannot grant
+  // permanent Premium access. Existing approved accounts are backfilled by an
+  // explicit migration and future changes go through the admin user route.
+  promotionalEmail     String?  @map("promotional_email")
   // Admin-controlled phone identifier used only for the owner's legacy
   // promotional allowlist. The self-service profile `phone` field is not an
   // authorization source; keeping this value on the User row prevents a user
