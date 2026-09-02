@@ -108,8 +108,11 @@ describe('community routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.reported_count).toBe(1);
-    expect(res.body.last_report.category).toBe('theology');
-    expect(res.body.reported_by).toEqual(['u-reader']);
+    expect(res.body.last_report).toBeUndefined();
+    expect(res.body.reported_by).toBeUndefined();
+    const stored = prisma._store.entity.find((row) => row.id === 'report-me');
+    expect(stored.data.last_report.category).toBe('theology');
+    expect(stored.data.reported_by).toEqual(['u-reader']);
     expect(prisma._store.auditLog.some((row) => row.action === 'community.report')).toBe(true);
   });
 
@@ -268,6 +271,16 @@ describe('community routes', () => {
     expect(replyReport.status).toBe(200);
     expect(prisma._store.entity.find((row) => row.id === 'reported-post').data.reported_by).toEqual(['u-reader']);
     expect(prisma._store.entity.find((row) => row.id === 'reported-reply').data.reported_by).toEqual(['u-reader']);
+
+    const publicPosts = await request(app)
+      .get('/api/community/posts')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+    const publicReplies = await request(app)
+      .get('/api/community/posts/reported-post/replies')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+    expect(publicPosts.body.find((row) => row.id === 'reported-post')).not.toHaveProperty('reported_by');
+    expect(publicPosts.body.find((row) => row.id === 'reported-post')).not.toHaveProperty('last_report');
+    expect(publicReplies.body.find((row) => row.id === 'reported-reply')).not.toHaveProperty('reported_by');
 
     const queue = await request(app)
       .get('/api/community/moderation/queue')
@@ -1164,10 +1177,13 @@ describe('community routes', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
     expect(forbiddenDelete.status).toBe(403);
 
+    // Retraction remains available after the author's paid/promo window ends.
+    prisma._store.user.find((row) => row.id === 'u-reader').premium = false;
     const deleted = await request(app)
       .delete(`/api/community/comments/${created.body.id}`)
       .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
     expect(deleted.status).toBe(204);
+    expect(prisma._store.communityLike.some((row) => row.contentId === created.body.id)).toBe(false);
   });
 
   it('allows an administrator to remove another member\'s abusive comment', async () => {

@@ -39,6 +39,21 @@ function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
 }
 
+function formatPublicEntity(e) {
+  const publicData = { ...(e.data || {}) };
+  for (const key of [
+    'reported_by',
+    'last_report',
+    'moderatorNotes',
+    'moderator_notes',
+    'removedAt',
+    'removed_at',
+    'removedBy',
+    'removed_by',
+  ]) delete publicData[key];
+  return { id: e.id, ...publicData, created_date: e.createdAt, updated_date: e.updatedAt };
+}
+
 function uniqueRatingsByUser(rows) {
   const byUser = new Map();
   for (const row of rows || []) {
@@ -445,7 +460,7 @@ async function interactionResult(row, extra = {}) {
       ? ((await prisma.user.findUnique({ where: { id: row.userId }, select: { profile: true } }).catch(() => null))?.profile?.denomination || '')
       : '');
   if (isPublicContentServable({ type: 'SharedContent', data, denomination })) {
-    return { ...formatEntity(row), ...extra };
+    return { ...formatPublicEntity(row), ...extra };
   }
   recordCommunityAudit('community.omitted_unverified_scripture', row.userId, 'SharedContent', row.id, {}).catch(() => {});
   return {
@@ -457,8 +472,6 @@ async function interactionResult(row, extra = {}) {
     saves_count: data.saves_count,
     reported_count: data.reported_count ?? data.reportedCount,
     reportedCount: data.reportedCount ?? data.reported_count,
-    reported_by: data.reported_by,
-    last_report: data.last_report,
     content_withheld: true,
     ...extra,
   };
@@ -564,7 +577,7 @@ router.get('/shared-content', authenticateToken, requireCommunity, async (req, r
     const servable = await serveExposableRows('SharedContent', visible);
     const authorNames = await displayNamesForRows(servable);
     res.json(servable.map((row) => ({
-      ...formatEntity(row),
+      ...formatPublicEntity(row),
       user_id: row.userId,
       user_name: authorNames.get(row.userId) || 'Member',
     })));
@@ -771,7 +784,7 @@ router.get('/posts', authenticateToken, requireCommunity, async (req, res, next)
     const liked = new Set(likes.map((row) => row.contentId));
     const authorNames = await displayNamesForRows(visible);
     res.json(visible.map((row) => ({
-      ...formatEntity(row),
+      ...formatPublicEntity(row),
       user_id: row.userId,
       user_name: authorNames.get(row.userId) || 'Member',
       likedByMe: liked.has(row.id),
@@ -886,7 +899,7 @@ router.post('/posts/:id/like', authenticateToken, requireCommunity, async (req, 
         }
       },
     });
-    res.json({ ...formatEntity(result.target), likedByMe: true });
+    res.json({ ...formatPublicEntity(result.target), likedByMe: true });
   } catch (err) {
     next(err);
   }
@@ -906,7 +919,7 @@ router.delete('/posts/:id/like', authenticateToken, requireCommunity, async (req
         }
       },
     });
-    res.json({ ...formatEntity(result.target), likedByMe: false });
+    res.json({ ...formatPublicEntity(result.target), likedByMe: false });
   } catch (err) {
     next(err);
   }
@@ -926,7 +939,7 @@ router.get('/posts/:id/replies', authenticateToken, requireCommunity, async (req
     const servable = await serveExposableRows('CommunityReply', visible);
     const authorNames = await displayNamesForRows(servable);
     res.json(servable.map((row) => ({
-      ...formatEntity(row),
+      ...formatPublicEntity(row),
       user_id: row.userId,
       user_name: authorNames.get(row.userId) || 'Member',
     })));
@@ -1091,7 +1104,7 @@ router.get('/sermons', authenticateToken, requireCommunity, async (req, res, nex
         : sort === 'recent'
           ? null
           : 'forks_count';
-    const formatted = servable.map(formatEntity);
+    const formatted = servable.map(formatPublicEntity);
     if (field) formatted.sort((a, b) => Number(b[field] || 0) - Number(a[field] || 0));
     res.json(formatted);
   } catch (err) {
@@ -1169,53 +1182,47 @@ router.post('/sermons/share', authenticateToken, requireCommunity, async (req, r
 // remove a share for support and moderation purposes.
 router.delete('/sermons/:id', authenticateToken, async (req, res, next) => {
   try {
-    const sermon = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!sermon || sermon.type !== 'SharedSermon') {
-      return res.status(404).json({ message: 'Shared sermon not found' });
-    }
     const isAdmin = req.userRole === 'admin' || req.userRole === 'dev';
-    if (sermon.userId !== req.userId && !isAdmin) {
-      return res.status(403).json({ message: 'You can only withdraw your own shared sermons' });
-    }
-
-    const comments = await prisma.entity.findMany({
-      where: {
-        type: 'Comment',
-        AND: [
-          { data: { path: ['content_type'], equals: 'sermon' } },
-          { data: { path: ['content_id'], equals: sermon.id } },
-        ],
-      },
-      select: { id: true },
-      take: 10_000,
-    });
-    const interactionIds = [sermon.id, ...comments.map((comment) => comment.id)];
-
-    await prisma.$transaction([
-      prisma.communityLike.deleteMany({ where: { contentId: { in: interactionIds } } }),
-      prisma.entity.deleteMany({
-        where: {
-          type: 'SermonRating',
-          data: { path: ['sermon_id'], equals: sermon.id },
-        },
-      }),
-      prisma.entity.deleteMany({
+    const sermon = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const current = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!current || current.type !== 'SharedSermon') {
+        throw Object.assign(new Error('Shared sermon not found'), { status: 404 });
+      }
+      if (current.userId !== req.userId && !isAdmin) {
+        throw Object.assign(new Error('You can only withdraw your own shared sermons'), { status: 403 });
+      }
+      const comments = await tx.entity.findMany({
         where: {
           type: 'Comment',
           AND: [
             { data: { path: ['content_type'], equals: 'sermon' } },
-            { data: { path: ['content_id'], equals: sermon.id } },
+            { data: { path: ['content_id'], equals: current.id } },
           ],
         },
-      }),
-      prisma.entity.deleteMany({
+        select: { id: true },
+        take: 10_000,
+      });
+      const interactionIds = [current.id, ...comments.map((comment) => comment.id)];
+      await tx.communityLike.deleteMany({ where: { contentId: { in: interactionIds } } });
+      await tx.entity.deleteMany({
+        where: { type: 'SermonRating', data: { path: ['sermon_id'], equals: current.id } },
+      });
+      await tx.entity.deleteMany({
         where: {
-          type: 'SharedLink',
-          data: { path: ['resourceId'], equals: sermon.id },
+          type: 'Comment',
+          AND: [
+            { data: { path: ['content_type'], equals: 'sermon' } },
+            { data: { path: ['content_id'], equals: current.id } },
+          ],
         },
-      }),
-      prisma.entity.delete({ where: { id: sermon.id } }),
-    ]);
+      });
+      await tx.entity.deleteMany({
+        where: { type: 'SharedLink', data: { path: ['resourceId'], equals: current.id } },
+      });
+      await tx.entity.delete({ where: { id: current.id } });
+      return current;
+    });
     await recordCommunityAudit('community.sermon_unshare', req.userId, 'SharedSermon', sermon.id, {
       ownerId: sermon.userId,
       moderator: isAdmin && sermon.userId !== req.userId,
@@ -1457,21 +1464,25 @@ router.patch('/comments/:id/pin', authenticateToken, requireCommunity, async (re
   }
 });
 
-router.delete('/comments/:id', authenticateToken, requireCommunity, async (req, res, next) => {
+router.delete('/comments/:id', authenticateToken, async (req, res, next) => {
   try {
-    const comment = await prisma.entity.findUnique({ where: { id: req.params.id } });
-    if (!comment || comment.type !== 'Comment') return res.status(404).json({ message: 'Comment not found' });
     const isAdmin = req.userRole === 'admin' || req.userRole === 'dev';
-    if (comment.userId !== req.userId && !isAdmin) {
-      return res.status(403).json({ message: 'You can only delete your own comments' });
-    }
-    await prisma.$transaction([
-      prisma.communityLike.deleteMany({ where: { contentId: comment.id, contentType: 'Comment' } }),
-      prisma.entity.delete({ where: { id: comment.id } }),
-    ]);
-    if (isAdmin && comment.userId !== req.userId) {
-      await recordCommunityAudit('community.comment_remove', req.userId, 'Comment', comment.id, {
-        ownerId: comment.userId,
+    const deleted = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const comment = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!comment || comment.type !== 'Comment') {
+        throw Object.assign(new Error('Comment not found'), { status: 404 });
+      }
+      if (comment.userId !== req.userId && !isAdmin) {
+        throw Object.assign(new Error('You can only delete your own comments'), { status: 403 });
+      }
+      await tx.communityLike.deleteMany({ where: { contentId: comment.id, contentType: 'Comment' } });
+      await tx.entity.delete({ where: { id: comment.id } });
+      return comment;
+    });
+    if (isAdmin && deleted.userId !== req.userId) {
+      await recordCommunityAudit('community.comment_remove', req.userId, 'Comment', deleted.id, {
+        ownerId: deleted.userId,
       });
     }
     res.status(204).send();
@@ -2017,7 +2028,7 @@ router.get('/reading-plans', authenticateToken, requireCommunity, async (req, re
       if (!owners.has(row.userId)) owners.set(row.userId, await displayNameForUser(row.userId));
     }));
     const formatted = servable.map((row) => ({
-      ...formatEntity(row),
+      ...formatPublicEntity(row),
       creator_id: row.userId,
       creator_name: owners.get(row.userId) || 'Member',
     }));
