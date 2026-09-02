@@ -260,10 +260,45 @@ describe('entities — allowlist (regression for broken creates)', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-premium')}`]);
     const plan = await request(app)
       .post('/api/entities/ReadingPlan')
-      .send({ name: 'Published plan', is_public: true, daily_readings: [] })
+      .send({
+        name: 'Published plan', is_public: true, daily_readings: [],
+        followers_count: 9000, average_rating: 5, ratings_count: 9000,
+      })
       .set('Cookie', [`ss_token=${tokenFor('u-premium')}`]);
     expect(shared.status).toBe(200);
     expect(plan.status).toBe(200);
+    expect(plan.body).toMatchObject({ followers_count: 0, average_rating: 0, ratings_count: 0 });
+  });
+
+  it('re-reads community-visible JSON after taking the shared mutation lock', async () => {
+    prisma._store.user.push({ id: 'u-premium', email: 'premium@x', role: 'user', premium: true });
+    prisma._store.entity.push({
+      id: 'shared-locked',
+      type: 'SharedContent',
+      userId: 'u-premium',
+      data: {
+        title: 'Before', content: 'John 3:16', content_type: 'note', visibility: 'public',
+        status: 'active', likes_count: 0,
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    // Simulate a moderation/interaction write landing after the route's first
+    // ownership lookup but before its transaction acquires the lock.
+    prisma.$queryRaw.mockImplementationOnce(async () => {
+      const row = prisma._store.entity.find((entity) => entity.id === 'shared-locked');
+      row.data = { ...row.data, status: 'removed', likes_count: 2 };
+      return [{ ok: 1 }];
+    });
+
+    const updated = await request(app)
+      .put('/api/entities/SharedContent/shared-locked')
+      .send({ title: 'After' })
+      .set('Cookie', [`ss_token=${tokenFor('u-premium')}`]);
+
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({ title: 'After', status: 'removed', likes_count: 2 });
+    expect(prisma.$queryRaw).toHaveBeenCalled();
   });
 
   it('still rejects a genuinely unknown entity type', async () => {
@@ -285,6 +320,19 @@ describe('entities — allowlist (regression for broken creates)', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
     expect(res.status).toBe(403);
     expect(prisma._store.entity.some((e) => e.type === 'SharedLink')).toBe(false);
+  });
+
+  it('cannot bypass server-managed deletion with a mismatched URL type', async () => {
+    prisma._store.entity.push({
+      id: 'managed-post', type: 'CommunityPost', userId: 'u-alice',
+      data: { title: 'Keep until dedicated cleanup', status: 'active' },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    const res = await request(app)
+      .delete('/api/entities/Sermon/managed-post')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(res.status).toBe(404);
+    expect(prisma._store.entity.some((row) => row.id === 'managed-post')).toBe(true);
   });
 
   it('forbids creating a SharedLink through the bulk entity API', async () => {

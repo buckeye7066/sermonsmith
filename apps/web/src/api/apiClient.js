@@ -668,6 +668,11 @@ const community = {
     method: 'POST',
     body: JSON.stringify(payload || {}),
   }),
+  deletePost: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }),
+  reportPost: (postId, payload = {}) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/report`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
   sermons: (sort = 'popular') => apiFetch(`/api/community/sermons?sort=${encodeURIComponent(sort)}`),
   mySharedSermons: () => apiFetch('/api/community/sermons/mine'),
   shareSermon: (payload) => apiFetch('/api/community/sermons/share', {
@@ -705,6 +710,14 @@ const community = {
       method: 'POST',
       body: JSON.stringify(payload || {}),
     }),
+  deletePostReply: (postId, replyId) => apiFetch(
+    `/api/community/posts/${encodeURIComponent(postId)}/replies/${encodeURIComponent(replyId)}`,
+    { method: 'DELETE' },
+  ),
+  reportPostReply: (postId, replyId, payload = {}) => apiFetch(
+    `/api/community/posts/${encodeURIComponent(postId)}/replies/${encodeURIComponent(replyId)}/report`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  ),
   studyGroups: () => apiFetch('/api/community/study-groups'),
   createStudyGroup: (payload) => apiFetch('/api/community/study-groups', {
     method: 'POST',

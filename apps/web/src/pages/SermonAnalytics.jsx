@@ -13,11 +13,24 @@ import { format, subDays, startOfDay } from "date-fns";
 
 const COLORS = ['#4f46e5', '#06b6d4', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
 
+// SharedSermon moved from client-authored legacy keys to a server-owned
+// representation. Normalize both shapes at the boundary so analytics remains
+// accurate for new publications without dropping historical rows.
+export function normalizeSharedSermonAnalytics(shared) {
+  return {
+    ...shared,
+    source_sermon_id: shared.source_sermon_id || shared.sermon_id || null,
+    views_count: Number(shared.views_count ?? shared.view_count ?? 0),
+    forks_count: Number(shared.forks_count ?? shared.fork_count ?? 0),
+    ratings_count: Number(shared.ratings_count ?? shared.rating_count ?? 0),
+    average_rating: Number(shared.average_rating ?? shared.avg_rating ?? 0),
+  };
+}
+
 export default function SermonAnalytics() {
   const { user, isLoadingAuth } = useAuth();
   const [sermons, setSermons] = useState([]);
   const [sharedSermons, setSharedSermons] = useState([]);
-  const [ratings, setRatings] = useState([]);
   const [series, setSeries] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [timeRange, setTimeRange] = useState(30); // days
@@ -36,16 +49,14 @@ export default function SermonAnalytics() {
     if (!user) return;
     setIsLoading(true);
     try {
-      const [userSermons, publicSermons, allRatings, userSeries] = await Promise.all([
+      const [userSermons, publicSermons, userSeries] = await Promise.all([
         api.entities.Sermon.filter({ user_id: user.id }),
-        api.entities.SharedSermon.filter({ creator_id: user.id }),
-        api.entities.SermonRating.list(),
+        api.community.mySharedSermons(),
         api.entities.SermonSeries.filter({ user_id: user.id })
       ]);
 
       setSermons(userSermons);
-      setSharedSermons(publicSermons);
-      setRatings(allRatings);
+      setSharedSermons((publicSermons || []).map(normalizeSharedSermonAnalytics));
       setSeries(userSeries);
     } catch (error) {
       toast.error(logError('Failed to load analytics data', error));
@@ -57,14 +68,15 @@ export default function SermonAnalytics() {
   // Calculate metrics
   const totalSermons = sermons.length;
   const totalShared = sharedSermons.length;
-  const totalViews = sharedSermons.reduce((sum, s) => sum + (s.view_count || 0), 0);
-  const totalForks = sharedSermons.reduce((sum, s) => sum + (s.fork_count || 0), 0);
-  
-  const userRatings = ratings.filter(r => 
-    sharedSermons.some(s => s.sermon_id === r.sermon_id)
+  const totalViews = sharedSermons.reduce((sum, s) => sum + s.views_count, 0);
+  const totalForks = sharedSermons.reduce((sum, s) => sum + s.forks_count, 0);
+  const totalRatings = sharedSermons.reduce((sum, s) => sum + s.ratings_count, 0);
+  const ratingPoints = sharedSermons.reduce(
+    (sum, s) => sum + (s.average_rating * s.ratings_count),
+    0,
   );
-  const avgRating = userRatings.length > 0
-    ? (userRatings.reduce((sum, r) => sum + r.rating, 0) / userRatings.length).toFixed(1)
+  const avgRating = totalRatings > 0
+    ? (ratingPoints / totalRatings).toFixed(1)
     : "N/A";
 
   // Engagement over time
@@ -81,8 +93,8 @@ export default function SermonAnalytics() {
 
       data.push({
         date: dateStr,
-        views: daySermons.reduce((sum, s) => sum + (s.view_count || 0), 0),
-        forks: daySermons.reduce((sum, s) => sum + (s.fork_count || 0), 0),
+        views: daySermons.reduce((sum, s) => sum + s.views_count, 0),
+        forks: daySermons.reduce((sum, s) => sum + s.forks_count, 0),
         shared: daySermons.length
       });
     }
@@ -123,18 +135,15 @@ export default function SermonAnalytics() {
   const getTopSermons = () => {
     return sharedSermons
       .map(shared => {
-        const sermon = sermons.find(s => s.id === shared.sermon_id);
-        const sermonRatings = ratings.filter(r => r.sermon_id === shared.sermon_id);
-        const avgRating = sermonRatings.length > 0
-          ? sermonRatings.reduce((sum, r) => sum + r.rating, 0) / sermonRatings.length
-          : 0;
+        const sermon = sermons.find(s => s.id === shared.source_sermon_id);
+        const sermonRating = shared.average_rating;
         
         return {
           ...shared,
-          title: sermon ? sermon.title : "Unknown",
-          topic: sermon?.topic || "",
-          engagement: (shared.view_count || 0) + (shared.fork_count || 0) * 5 + avgRating * 10,
-          avgRating
+          title: sermon?.title || shared.title || "Unknown",
+          topic: sermon?.topic || shared.topic || "",
+          engagement: shared.views_count + shared.forks_count * 5 + sermonRating * 10,
+          avgRating: sermonRating,
         };
       })
       .sort((a, b) => b.engagement - a.engagement)
@@ -146,7 +155,7 @@ export default function SermonAnalytics() {
     return series.map(s => {
       const seriesSermons = sermons.filter(sermon => sermon.series_id === s.id);
       const sharedCount = seriesSermons.filter(sermon => 
-        sharedSermons.some(shared => shared.sermon_id === sermon.id)
+        sharedSermons.some(shared => shared.source_sermon_id === sermon.id)
       ).length;
       
       return {
@@ -267,7 +276,7 @@ export default function SermonAnalytics() {
               <div className="flex items-center justify-between">
                 <TrendingUp className="w-8 h-8 text-pink-600" />
               </div>
-              <p className="text-3xl font-bold mt-2">{userRatings.length}</p>
+              <p className="text-3xl font-bold mt-2">{totalRatings}</p>
               <p className="text-sm text-gray-600">Total Ratings</p>
             </CardContent>
           </Card>
@@ -324,11 +333,11 @@ export default function SermonAnalytics() {
                       <div className="flex gap-4 text-sm">
                         <div className="flex items-center gap-1">
                           <Eye className="w-4 h-4 text-purple-600" />
-                          <span>{sermon.view_count || 0}</span>
+                          <span>{sermon.views_count}</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <Copy className="w-4 h-4 text-orange-600" />
-                          <span>{sermon.fork_count || 0}</span>
+                          <span>{sermon.forks_count}</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <Star className="w-4 h-4 text-yellow-600" />

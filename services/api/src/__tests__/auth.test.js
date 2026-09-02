@@ -335,7 +335,35 @@ describe('auth routes', () => {
       role: 'user',
       premium: false,
       tokenVersion: 0,
+      deletedAt: null,
     });
+    prisma._store.user.push(
+      { id: 'u-successor', email: 'next@example.com', role: 'user', premium: true, deletedAt: null },
+      { id: 'u-follower', email: 'follower@example.com', role: 'user', premium: true, deletedAt: null },
+    );
+    prisma._store.entity.push(
+      {
+        id: 'group-transfer', type: 'StudyGroup', userId: 'u-delete',
+        data: { name: 'Transfer me', member_count: 2 }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'group-empty', type: 'StudyGroup', userId: 'u-delete',
+        data: { name: 'Delete me', member_count: 1 }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'group-empty-message', type: 'GroupMessage', userId: 'u-delete',
+        data: { group_id: 'group-empty', message: 'Old' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+    prisma._store.communityGroupMember.push(
+      { id: 'delete-leader-transfer', groupId: 'group-transfer', userId: 'u-delete', role: 'leader', userName: 'Delete', joinedAt: new Date('2026-01-01') },
+      { id: 'successor-member', groupId: 'group-transfer', userId: 'u-successor', role: 'member', userName: 'Next', joinedAt: new Date('2026-01-02') },
+      { id: 'delete-leader-empty', groupId: 'group-empty', userId: 'u-delete', role: 'leader', userName: 'Delete', joinedAt: new Date('2026-01-01') },
+    );
+    prisma._store.communityFollow.push(
+      { id: 'delete-follows', followerId: 'u-delete', followingId: 'u-successor', createdAt: new Date() },
+      { id: 'follows-delete', followerId: 'u-follower', followingId: 'u-delete', createdAt: new Date() },
+    );
 
     const res = await request(app)
       .delete('/api/auth/me')
@@ -346,7 +374,16 @@ describe('auth routes', () => {
     expect(stored.deletedAt).toBeInstanceOf(Date);
     expect(stored.tokenVersion).toBe(1);
     expect(res.headers['set-cookie']?.[0]).toMatch(/ss_token=/);
+    expect(prisma._store.communityFollow).toHaveLength(0);
+    expect(prisma._store.communityGroupMember.some((row) => row.userId === 'u-delete')).toBe(false);
+    expect(prisma._store.communityGroupMember.find((row) => row.userId === 'u-successor')).toMatchObject({ role: 'leader' });
+    expect(prisma._store.entity.find((row) => row.id === 'group-transfer')).toMatchObject({
+      userId: 'u-successor',
+      data: expect.objectContaining({ member_count: 1 }),
+    });
+    expect(prisma._store.entity.some((row) => row.id === 'group-empty' || row.data?.group_id === 'group-empty')).toBe(false);
     expect(prisma._store.auditLog.some((row) => row.action === 'privacy.account_delete_requested')).toBe(true);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
   });
 
   it('revoke-sessions bumps tokenVersion, audits the action, and reissues the cookie', async () => {

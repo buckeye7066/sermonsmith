@@ -85,6 +85,10 @@ describe('apiClient base URL resolution', () => {
     await api.functions.shareLinks('resource 1');
     await api.functions.revokeShareableLink('link 1');
     await api.community.report('shared 1', { category: 'spam', reason: 'duplicate' });
+    await api.community.reportPost('post 1', { category: 'abuse' });
+    await api.community.reportPostReply('post 1', 'reply 1', { category: 'privacy' });
+    await api.community.deletePostReply('post 1', 'reply 1');
+    await api.community.deletePost('post 1');
     await api.admin.aiAuditSummary(14);
     await api.admin.moderationQueue();
     await api.admin.moderateCommunityContent('SharedContent', 'shared 1', { status: 'removed' });
@@ -105,6 +109,26 @@ describe('apiClient base URL resolution', () => {
         url: 'https://api.example/api/community/shared-content/shared%201/report',
         method: 'POST',
         body: JSON.stringify({ category: 'spam', reason: 'duplicate' }),
+      },
+      {
+        url: 'https://api.example/api/community/posts/post%201/report',
+        method: 'POST',
+        body: JSON.stringify({ category: 'abuse' }),
+      },
+      {
+        url: 'https://api.example/api/community/posts/post%201/replies/reply%201/report',
+        method: 'POST',
+        body: JSON.stringify({ category: 'privacy' }),
+      },
+      {
+        url: 'https://api.example/api/community/posts/post%201/replies/reply%201',
+        method: 'DELETE',
+        body: undefined,
+      },
+      {
+        url: 'https://api.example/api/community/posts/post%201',
+        method: 'DELETE',
+        body: undefined,
       },
       { url: 'https://api.example/api/ai/audit/summary?days=14', method: 'GET', body: undefined },
       { url: 'https://api.example/api/community/moderation/queue', method: 'GET', body: undefined },

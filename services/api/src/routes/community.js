@@ -8,6 +8,7 @@ import {
   requireEntitlement,
 } from '../middleware/auth.js';
 import { ENTITLEMENTS, entitlementsFor } from '../lib/entitlements.js';
+import { lockCommunityEntity, lockMeetingRsvp } from '../lib/communityEntityLock.js';
 import {
   assertGatedResourceExposable,
   isPublicContentServable,
@@ -45,13 +46,6 @@ function uniqueRatingsByUser(rows) {
     if (userId && !byUser.has(userId)) byUser.set(userId, row);
   }
   return [...byUser.values()];
-}
-
-async function lockCommunityEntity(tx, targetId) {
-  // Every route that rewrites an Entity.data JSON object must share the same
-  // target-level lock. Separate "likes" and "replies" locks would still allow
-  // one writer to overwrite the other writer's freshly updated JSON fields.
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`community-entity:${targetId}`}))`;
 }
 
 async function writeUniqueInteractionCounter({
@@ -501,6 +495,51 @@ const MODERATABLE_TYPES = Object.freeze([
   'CommunityReply',
 ]);
 
+function isCommunityAdmin(req) {
+  return req.userRole === 'admin' || req.userRole === 'dev';
+}
+
+async function writeForumReport({ id, type, userId, report, postId = null }) {
+  return prisma.$transaction(async (tx) => {
+    await lockCommunityEntity(tx, id);
+    const existing = await tx.entity.findUnique({ where: { id } });
+    if (!existing || existing.type !== type
+      || (postId && existing.data?.post_id !== postId)) {
+      throw Object.assign(new Error(type === 'CommunityPost' ? 'Post not found' : 'Reply not found'), { status: 404 });
+    }
+    const data = existing.data || {};
+    if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(data))) {
+      throw Object.assign(new Error('This content is no longer reportable'), { status: 403 });
+    }
+
+    const reportedBy = Array.isArray(data.reported_by) ? data.reported_by : [];
+    if (reportedBy.includes(userId)) {
+      return { duplicate: true, reportedCount: reportedCount(data) };
+    }
+
+    const nextCount = reportedCount(data) + 1;
+    const lastReport = {
+      ...report,
+      reporterId: userId,
+      reportedAt: new Date().toISOString(),
+    };
+    await tx.entity.update({
+      where: { id: existing.id },
+      data: {
+        data: {
+          ...data,
+          reported_count: nextCount,
+          reportedCount: nextCount,
+          reported_by: [...reportedBy, userId],
+          last_report: lastReport,
+          status: nextCount >= 3 ? 'reported' : communityStatus(data),
+        },
+      },
+    });
+    return { duplicate: false, reportedCount: nextCount };
+  });
+}
+
 router.get('/shared-content', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const contentType = req.query.type ? String(req.query.type) : null;
@@ -771,6 +810,65 @@ router.post('/posts', authenticateToken, requireCommunity, async (req, res, next
   }
 });
 
+// Retraction is a privacy control, so it remains available after a member's
+// subscription or promotional window expires. Deleting a post also removes
+// its replies and every relation that points at either row.
+router.delete('/posts/:id', authenticateToken, async (req, res, next) => {
+  try {
+    await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const post = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!post || post.type !== 'CommunityPost') {
+        throw Object.assign(new Error('Post not found'), { status: 404 });
+      }
+      if (post.userId !== req.userId && !isCommunityAdmin(req)) {
+        throw Object.assign(new Error('You can only delete your own post'), { status: 403 });
+      }
+      const replies = await tx.entity.findMany({
+        where: { type: 'CommunityReply', data: { path: ['post_id'], equals: post.id } },
+        select: { id: true },
+        take: 10_000,
+      });
+      const contentIds = [post.id, ...replies.map((reply) => reply.id)];
+      await tx.communityLike.deleteMany({ where: { contentId: { in: contentIds } } });
+      await tx.savedContent.deleteMany({ where: { contentId: { in: contentIds } } });
+      await tx.entity.deleteMany({
+        where: { type: 'CommunityReply', data: { path: ['post_id'], equals: post.id } },
+      });
+      await tx.entity.delete({ where: { id: post.id } });
+    });
+    await recordCommunityAudit('community.post_delete', req.userId, 'CommunityPost', req.params.id);
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/posts/:id/report', authenticateToken, requireCommunity, async (req, res, next) => {
+  try {
+    const parsed = reportSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid report', issues: parsed.error.issues });
+    }
+    const outcome = await writeForumReport({
+      id: req.params.id,
+      type: 'CommunityPost',
+      userId: req.userId,
+      report: parsed.data,
+    });
+    if (outcome.duplicate) {
+      return res.status(409).json({ message: 'You have already reported this post', reported_count: outcome.reportedCount });
+    }
+    await recordCommunityAudit('community.forum_report', req.userId, 'CommunityPost', req.params.id, {
+      category: parsed.data.category,
+      reportedCount: outcome.reportedCount,
+    });
+    res.json({ reported: true, reported_count: outcome.reportedCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/posts/:id/like', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const result = await writeUniqueInteractionCounter({
@@ -832,6 +930,69 @@ router.get('/posts/:id/replies', authenticateToken, requireCommunity, async (req
       user_id: row.userId,
       user_name: authorNames.get(row.userId) || 'Member',
     })));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/posts/:postId/replies/:replyId', authenticateToken, async (req, res, next) => {
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Reply creation and reply-count maintenance use the parent post lock.
+      await lockCommunityEntity(tx, req.params.postId);
+      const post = await tx.entity.findUnique({ where: { id: req.params.postId } });
+      const reply = await tx.entity.findUnique({ where: { id: req.params.replyId } });
+      if (!post || post.type !== 'CommunityPost'
+        || !reply || reply.type !== 'CommunityReply'
+        || reply.data?.post_id !== post.id) {
+        throw Object.assign(new Error('Reply not found'), { status: 404 });
+      }
+      if (reply.userId !== req.userId && !isCommunityAdmin(req)) {
+        throw Object.assign(new Error('You can only delete your own reply'), { status: 403 });
+      }
+
+      await tx.communityLike.deleteMany({ where: { contentId: reply.id } });
+      await tx.savedContent.deleteMany({ where: { contentId: reply.id } });
+      await tx.entity.delete({ where: { id: reply.id } });
+      const repliesCount = await tx.entity.count({
+        where: { type: 'CommunityReply', data: { path: ['post_id'], equals: post.id } },
+      });
+      await tx.entity.update({
+        where: { id: post.id },
+        data: { data: { ...(post.data || {}), replies_count: repliesCount } },
+      });
+    });
+    await recordCommunityAudit('community.reply_delete', req.userId, 'CommunityReply', req.params.replyId, {
+      postId: req.params.postId,
+    });
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/posts/:postId/replies/:replyId/report', authenticateToken, requireCommunity, async (req, res, next) => {
+  try {
+    const parsed = reportSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid report', issues: parsed.error.issues });
+    }
+    const outcome = await writeForumReport({
+      id: req.params.replyId,
+      type: 'CommunityReply',
+      userId: req.userId,
+      report: parsed.data,
+      postId: req.params.postId,
+    });
+    if (outcome.duplicate) {
+      return res.status(409).json({ message: 'You have already reported this reply', reported_count: outcome.reportedCount });
+    }
+    await recordCommunityAudit('community.forum_report', req.userId, 'CommunityReply', req.params.replyId, {
+      category: parsed.data.category,
+      reportedCount: outcome.reportedCount,
+      postId: req.params.postId,
+    });
+    res.json({ reported: true, reported_count: outcome.reportedCount });
   } catch (err) {
     next(err);
   }
@@ -1529,10 +1690,12 @@ router.get('/study-groups/:id/messages', authenticateToken, requireCommunity, as
         type: 'GroupMessage',
         data: { path: ['group_id'], equals: req.params.id },
       },
-      orderBy: { createdAt: 'asc' },
+      // Fetch the newest page, then restore chronological display order. An
+      // ascending query with `take: 100` permanently hid message 101 onward.
+      orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    res.json(rows.map(formatEntity));
+    res.json([...rows].reverse().map(formatEntity));
   } catch (err) {
     next(err);
   }
@@ -1584,6 +1747,7 @@ router.get('/study-groups/:id/meetings', authenticateToken, requireCommunity, as
           ...rows.map((meeting) => ({ data: { path: ['meeting_id'], equals: meeting.id } })),
         ],
       },
+      orderBy: { updatedAt: 'desc' },
       take: 100,
     }) : [];
     // Compatibility for RSVPs written before group_id was included. The
@@ -1595,7 +1759,14 @@ router.get('/study-groups/:id/meetings', authenticateToken, requireCommunity, as
         where: { id: row.id },
         data: { data: { ...row.data, group_id: req.params.id } },
       })));
-    const rsvpByMeeting = new Map(attendance.map((row) => [row.data?.meeting_id, row.data?.status]));
+    // Newest wins for any duplicate rows left by the former non-serialized
+    // implementation. The next write also removes those legacy duplicates.
+    const rsvpByMeeting = new Map();
+    for (const row of attendance) {
+      if (!rsvpByMeeting.has(row.data?.meeting_id)) {
+        rsvpByMeeting.set(row.data?.meeting_id, row.data?.status);
+      }
+    }
     res.json(rows.map((row) => ({ ...formatEntity(row), my_rsvp: rsvpByMeeting.get(row.id) || null })));
   } catch (err) {
     next(err);
@@ -1650,23 +1821,6 @@ router.post('/study-groups/:id/meetings/:meetingId/rsvp', authenticateToken, req
     if (!meeting || meeting.type !== 'GroupMeeting' || meeting.data?.group_id !== req.params.id) {
       return res.status(404).json({ message: 'Group meeting not found' });
     }
-    const existing = await prisma.entity.findFirst({
-      where: {
-        type: 'MeetingAttendance',
-        userId: req.userId,
-        OR: [
-          {
-            AND: [
-              { data: { path: ['group_id'], equals: req.params.id } },
-              { data: { path: ['meeting_id'], equals: meeting.id } },
-            ],
-          },
-          // Legacy attendance rows did not include group_id. meeting.id is
-          // globally unique and was just verified to belong to this group.
-          { data: { path: ['meeting_id'], equals: meeting.id } },
-        ],
-      },
-    });
     const data = {
       group_id: req.params.id,
       meeting_id: meeting.id,
@@ -1674,9 +1828,34 @@ router.post('/study-groups/:id/meetings/:meetingId/rsvp', authenticateToken, req
       user_name: membership.userName,
       status: parsed.data.status,
     };
-    const attendance = existing
-      ? await prisma.entity.update({ where: { id: existing.id }, data: { data: { ...existing.data, ...data } } })
-      : await prisma.entity.create({ data: { type: 'MeetingAttendance', userId: req.userId, data } });
+    const attendance = await prisma.$transaction(async (tx) => {
+      await lockMeetingRsvp(tx, meeting.id, req.userId);
+      const currentMeeting = await tx.entity.findUnique({ where: { id: meeting.id } });
+      if (!currentMeeting || currentMeeting.type !== 'GroupMeeting'
+        || currentMeeting.data?.group_id !== req.params.id) {
+        throw Object.assign(new Error('Group meeting not found'), { status: 404 });
+      }
+      const existingRows = await tx.entity.findMany({
+        where: {
+          type: 'MeetingAttendance',
+          userId: req.userId,
+          data: { path: ['meeting_id'], equals: meeting.id },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 100,
+      });
+      const existing = existingRows[0] || null;
+      const current = existing
+        ? await tx.entity.update({ where: { id: existing.id }, data: { data: { ...existing.data, ...data } } })
+        : await tx.entity.create({ data: { type: 'MeetingAttendance', userId: req.userId, data } });
+
+      // Heal duplicates created before RSVP writes were serialized.
+      const duplicateIds = existingRows.slice(1).map((row) => row.id);
+      if (duplicateIds.length) {
+        await tx.entity.deleteMany({ where: { id: { in: duplicateIds } } });
+      }
+      return current;
+    });
     res.json(formatEntity(attendance));
   } catch (err) {
     next(err);

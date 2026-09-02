@@ -235,6 +235,94 @@ describe('community routes', () => {
     expect(replies.body[0].user_id).toBe('u-reader');
   });
 
+  it('lets members report forum posts/replies once and puts both in moderation', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'reported-post', type: 'CommunityPost', userId: 'u-owner',
+        data: { title: 'Post', content: 'Body', status: 'active', reported_count: 0 },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'reported-reply', type: 'CommunityReply', userId: 'u-owner',
+        data: { post_id: 'reported-post', content: 'Reply', status: 'active', reported_count: 0 },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const postReport = await request(app)
+      .post('/api/community/posts/reported-post/report')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ category: 'abuse', reason: 'Needs review' });
+    const duplicate = await request(app)
+      .post('/api/community/posts/reported-post/report')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ category: 'spam' });
+    const replyReport = await request(app)
+      .post('/api/community/posts/reported-post/replies/reported-reply/report')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ category: 'privacy' });
+
+    expect(postReport.status).toBe(200);
+    expect(postReport.body.reported_count).toBe(1);
+    expect(duplicate.status).toBe(409);
+    expect(replyReport.status).toBe(200);
+    expect(prisma._store.entity.find((row) => row.id === 'reported-post').data.reported_by).toEqual(['u-reader']);
+    expect(prisma._store.entity.find((row) => row.id === 'reported-reply').data.reported_by).toEqual(['u-reader']);
+
+    const queue = await request(app)
+      .get('/api/community/moderation/queue')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`]);
+    expect(queue.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'reported-post', type: 'CommunityPost' }),
+      expect.objectContaining({ id: 'reported-reply', type: 'CommunityReply' }),
+    ]));
+  });
+
+  it('lets an expired/free author retract replies and posts with relation cleanup', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'owned-post', type: 'CommunityPost', userId: 'u-free',
+        data: { title: 'Mine', status: 'active', replies_count: 2 },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'owned-reply', type: 'CommunityReply', userId: 'u-free',
+        data: { post_id: 'owned-post', content: 'Mine' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'other-reply', type: 'CommunityReply', userId: 'u-owner',
+        data: { post_id: 'owned-post', content: 'Other' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+    prisma._store.communityLike.push(
+      { id: 'like-post', userId: 'u-reader', contentId: 'owned-post', contentType: 'CommunityPost' },
+      { id: 'like-reply', userId: 'u-reader', contentId: 'owned-reply', contentType: 'CommunityReply' },
+    );
+
+    const cannotDeleteOtherReply = await request(app)
+      .delete('/api/community/posts/owned-post/replies/other-reply')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    expect(cannotDeleteOtherReply.status).toBe(403);
+
+    const replyDeleted = await request(app)
+      .delete('/api/community/posts/owned-post/replies/owned-reply')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    expect(replyDeleted.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'owned-reply')).toBe(false);
+    expect(prisma._store.entity.find((row) => row.id === 'owned-post').data.replies_count).toBe(1);
+    expect(prisma._store.communityLike.some((row) => row.contentId === 'owned-reply')).toBe(false);
+
+    const postDeleted = await request(app)
+      .delete('/api/community/posts/owned-post')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    expect(postDeleted.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'owned-post' || row.data?.post_id === 'owned-post')).toBe(false);
+    expect(prisma._store.communityLike.some((row) => row.contentId === 'owned-post')).toBe(false);
+    expect(prisma._store.auditLog.some((row) => row.action === 'community.post_delete')).toBe(true);
+  });
+
   it('rejects an empty reply and an anonymous reply', async () => {
     prisma._store.entity.push({ id: 'p-x', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Q', status: 'active' }, createdAt: new Date(), updatedAt: new Date() });
     const empty = await request(app).post('/api/community/posts/p-x/reply').set('Cookie', [`ss_token=${tokenFor('u-reader')}`]).send({ content: '   ' });
@@ -678,6 +766,35 @@ describe('community routes', () => {
     expect(forbiddenAnnouncement.status).toBe(403);
   });
 
+  it('returns the newest 100 group messages in chronological display order', async () => {
+    prisma._store.entity.push({
+      id: 'group-history', type: 'StudyGroup', userId: 'u-owner',
+      data: { name: 'History', status: 'active' },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityGroupMember.push({
+      id: 'history-member', groupId: 'group-history', userId: 'u-reader', role: 'member', userName: 'Reader', joinedAt: new Date(),
+    });
+    for (let index = 1; index <= 105; index += 1) {
+      prisma._store.entity.push({
+        id: `history-${index}`,
+        type: 'GroupMessage',
+        userId: 'u-reader',
+        data: { group_id: 'group-history', message: `Message ${index}` },
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, index)),
+        updatedAt: new Date(Date.UTC(2026, 0, 1, 0, index)),
+      });
+    }
+
+    const feed = await request(app)
+      .get('/api/community/study-groups/group-history/messages')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(feed.status).toBe(200);
+    expect(feed.body).toHaveLength(100);
+    expect(feed.body[0].message).toBe('Message 6');
+    expect(feed.body.at(-1).message).toBe('Message 105');
+  });
+
   it('restricts meeting scheduling to leaders while allowing member RSVPs', async () => {
     prisma._store.entity.push({
       id: 'group-meeting', type: 'StudyGroup', userId: 'u-owner',
@@ -752,6 +869,41 @@ describe('community routes', () => {
     expect(updated.status).toBe(200);
     expect(updated.body.status).toBe('attending');
     expect(prisma._store.entity.filter((row) => row.type === 'MeetingAttendance')).toHaveLength(1);
+  });
+
+  it('serializes RSVP writes and heals legacy duplicates for one meeting/user', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'rsvp-group', type: 'StudyGroup', userId: 'u-owner',
+        data: { name: 'RSVP', status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'rsvp-meeting', type: 'GroupMeeting', userId: 'u-owner',
+        data: { group_id: 'rsvp-group', title: 'Meeting' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'rsvp-old', type: 'MeetingAttendance', userId: 'u-reader',
+        data: { meeting_id: 'rsvp-meeting', status: 'maybe' },
+        createdAt: new Date('2026-01-01T00:00:00Z'), updatedAt: new Date('2026-01-01T00:00:00Z'),
+      },
+      {
+        id: 'rsvp-new', type: 'MeetingAttendance', userId: 'u-reader',
+        data: { meeting_id: 'rsvp-meeting', status: 'attending' },
+        createdAt: new Date('2026-01-02T00:00:00Z'), updatedAt: new Date('2026-01-02T00:00:00Z'),
+      },
+    );
+    prisma._store.communityGroupMember.push({
+      id: 'rsvp-member', groupId: 'rsvp-group', userId: 'u-reader', role: 'member', userName: 'Reader', joinedAt: new Date(),
+    });
+
+    const updated = await request(app)
+      .post('/api/community/study-groups/rsvp-group/meetings/rsvp-meeting/rsvp')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ status: 'not_attending' });
+    expect(updated.status).toBe(200);
+    expect(updated.body.status).toBe('not_attending');
+    expect(prisma._store.entity.filter((row) => row.type === 'MeetingAttendance')).toHaveLength(1);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
   });
 
   it('lets leaders assign a real reading plan while blocking members and private-plan IDORs', async () => {

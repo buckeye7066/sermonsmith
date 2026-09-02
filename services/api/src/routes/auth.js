@@ -9,6 +9,7 @@ import { recordSuccessfulLogin } from '../services/firstLoginNotifier.js';
 import { signupTrialPeriod } from '../lib/signupTrial.js';
 import { grantFreePeriodToUser } from '../lib/premiumGrant.js';
 import { accessSummaryFor, normalizePhone } from '../lib/entitlements.js';
+import { lockCommunityEntity } from '../lib/communityEntityLock.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -204,6 +205,100 @@ async function recordAudit(action, userId, metadata = {}) {
   } catch {
     // Privacy operations must not fail because a best-effort audit insert did.
   }
+}
+
+async function cleanupCommunityRelationsForSoftDelete(tx, userId) {
+  const [memberships, ownedGroups] = await Promise.all([
+    tx.communityGroupMember.findMany({ where: { userId } }),
+    tx.entity.findMany({
+      where: { type: 'StudyGroup', userId },
+      select: { id: true },
+    }),
+  ]);
+  const membershipByGroup = new Map(memberships.map((row) => [row.groupId, row]));
+  const groupIds = [...new Set([
+    ...memberships.map((row) => row.groupId),
+    ...ownedGroups.map((row) => row.id),
+  ])].sort();
+  let transferredGroups = 0;
+  let deletedGroups = 0;
+
+  for (const groupId of groupIds) {
+    await lockCommunityEntity(tx, groupId);
+    const group = await tx.entity.findUnique({ where: { id: groupId } });
+    const remainingRows = await tx.communityGroupMember.findMany({
+      where: { groupId, userId: { not: userId } },
+      orderBy: { joinedAt: 'asc' },
+    });
+    const remainingUsers = remainingRows.length
+      ? await tx.user.findMany({ where: { id: { in: remainingRows.map((row) => row.userId) } } })
+      : [];
+    const activeUserIds = new Set(remainingUsers.filter((user) => !user.deletedAt).map((user) => user.id));
+    const remaining = remainingRows.filter((row) => activeUserIds.has(row.userId));
+    const staleIds = remainingRows.filter((row) => !activeUserIds.has(row.userId)).map((row) => row.id);
+    if (staleIds.length) {
+      await tx.communityGroupMember.deleteMany({ where: { id: { in: staleIds } } });
+    }
+    await tx.communityGroupMember.deleteMany({ where: { groupId, userId } });
+
+    if (!group || group.type !== 'StudyGroup') continue;
+    if (remaining.length === 0) {
+      const meetings = await tx.entity.findMany({
+        where: { type: 'GroupMeeting', data: { path: ['group_id'], equals: groupId } },
+        select: { id: true },
+      });
+      await tx.communityGroupMember.deleteMany({ where: { groupId } });
+      for (const meeting of meetings) {
+        // Compatibility cleanup for attendance written before group_id was
+        // added to RSVP data.
+        await tx.entity.deleteMany({
+          where: { type: 'MeetingAttendance', data: { path: ['meeting_id'], equals: meeting.id } },
+        });
+      }
+      await tx.entity.deleteMany({ where: { data: { path: ['group_id'], equals: groupId } } });
+      await tx.entity.delete({ where: { id: groupId } });
+      deletedGroups += 1;
+      continue;
+    }
+
+    const leaving = membershipByGroup.get(groupId);
+    let successor = remaining.find((row) => row.role === 'leader')
+      || remaining.find((row) => row.userId === group.userId)
+      || remaining[0];
+    const mustReplaceLeader = leaving?.role === 'leader'
+      && !remaining.some((row) => row.role === 'leader');
+    const mustTransferOwnership = group.userId === userId;
+    if ((mustReplaceLeader || mustTransferOwnership) && successor.role !== 'leader') {
+      successor = await tx.communityGroupMember.update({
+        where: { id: successor.id },
+        data: { role: 'leader' },
+      });
+    }
+
+    await tx.entity.update({
+      where: { id: group.id },
+      data: {
+        ...(mustTransferOwnership ? { userId: successor.userId } : {}),
+        data: { ...(group.data || {}), member_count: remaining.length },
+      },
+    });
+    if (mustTransferOwnership) transferredGroups += 1;
+  }
+
+  const removedFollows = await tx.communityFollow.deleteMany({
+    where: {
+      OR: [
+        { followerId: userId },
+        { followingId: userId },
+      ],
+    },
+  });
+  return {
+    removedMemberships: memberships.length,
+    removedFollows: removedFollows.count,
+    transferredGroups,
+    deletedGroups,
+  };
 }
 
 router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
@@ -453,11 +548,15 @@ router.delete('/me', authenticateToken, async (req, res, next) => {
     const target = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!target) return res.status(404).json({ message: 'User not found' });
 
-    await recordAudit('privacy.account_delete_requested', req.userId, { selfService: true });
-    await prisma.user.update({
-      where: { id: req.userId },
-      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+    const cleanup = await prisma.$transaction(async (tx) => {
+      const result = await cleanupCommunityRelationsForSoftDelete(tx, req.userId);
+      await tx.user.update({
+        where: { id: req.userId },
+        data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+      });
+      return result;
     });
+    await recordAudit('privacy.account_delete_requested', req.userId, { selfService: true, ...cleanup });
     res.clearCookie(AUTH_COOKIE, cookieOptions());
     res.status(204).send();
   } catch (err) {
