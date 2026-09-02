@@ -62,7 +62,6 @@ const PUBLIC_TYPES = new Set(['Verse']);
 const SERVER_MANAGED_TYPES = new Set([
   'SharedLink',
   'SharedSermon',
-  'SharedSeries',
   'SermonRating',
   'SharedPlanRating',
   'Comment',
@@ -79,7 +78,7 @@ const SERVER_MANAGED_TYPES = new Set([
 // These legacy entity types are edited through the generic API while also
 // receiving counters/status updates through Community routes. Their generic
 // mutations must use the same advisory lock and re-read after acquiring it.
-const COMMUNITY_LOCKED_TYPES = new Set(['SharedContent', 'ReadingPlan']);
+const COMMUNITY_LOCKED_TYPES = new Set(['SharedContent', 'ReadingPlan', 'SharedSeries']);
 
 function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
@@ -106,6 +105,25 @@ function bindCommunityManagedFields(req, type, data, { creating = false } = {}) 
     delete next.followers_count;
     delete next.average_rating;
     delete next.ratings_count;
+    return next;
+  }
+  if (type === 'SharedSeries') {
+    const next = { ...(data || {}) };
+    if (creating) {
+      return {
+        ...next,
+        user_name: req.userName || 'Member',
+        average_rating: 0,
+        ratings_count: 0,
+        forks_count: 0,
+        views_count: 0,
+      };
+    }
+    delete next.user_name;
+    delete next.average_rating;
+    delete next.ratings_count;
+    delete next.forks_count;
+    delete next.views_count;
     return next;
   }
   if (type !== 'SharedContent') return data;
@@ -1043,6 +1061,11 @@ router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
               { data: { path: ['content_id'], equals: current.id } },
             ],
           },
+        });
+      }
+      if (current.type === 'SharedSeries') {
+        await client.entity.deleteMany({
+          where: { type: 'SharedLink', data: { path: ['resourceId'], equals: current.id } },
         });
       }
       await client.entity.delete({ where: { id: current.id } });

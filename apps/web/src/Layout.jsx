@@ -201,6 +201,7 @@ export default function Layout({ children, currentPageName }) {
     { name: 'Bible Maps', icon: MapPin, page: 'BibleMaps', premium: true },
     { name: 'Christian Ethics', icon: Scale, page: 'ChristianEthics', premium: true },
     { name: 'Community', icon: Users, page: 'Community', premium: true },
+    { name: 'My Community Content', icon: MessageSquare, page: 'MyCommunityContent' },
     { name: 'Worldview Explorer', icon: Globe, page: 'WorldviewExplorer', premium: true },
     { name: 'Contact Support', icon: MessageSquare, page: 'ContactSupport' },
     { name: 'Settings', icon: Settings, page: 'Settings' },

@@ -493,6 +493,29 @@ describe('auth routes', () => {
     ]));
   });
 
+  it('does not transfer a soft-deleted owner group to a banned member', async () => {
+    prisma._store.user.push(
+      { id: 'u-delete-banned-owner', email: 'owner@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, is_banned: false },
+      { id: 'u-banned-successor', email: 'banned@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, is_banned: true },
+    );
+    prisma._store.entity.push({
+      id: 'group-banned-successor', type: 'StudyGroup', userId: 'u-delete-banned-owner',
+      data: { name: 'No usable successor', member_count: 2 }, createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityGroupMember.push(
+      { id: 'banned-owner-membership', groupId: 'group-banned-successor', userId: 'u-delete-banned-owner', role: 'leader', userName: 'Owner', joinedAt: new Date('2026-01-01') },
+      { id: 'banned-successor-membership', groupId: 'group-banned-successor', userId: 'u-banned-successor', role: 'member', userName: 'Banned', joinedAt: new Date('2026-01-02') },
+    );
+
+    const res = await request(app)
+      .delete('/api/auth/me')
+      .set('Cookie', [`ss_token=${tokenFor('u-delete-banned-owner')}`]);
+
+    expect(res.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'group-banned-successor')).toBe(false);
+    expect(prisma._store.communityGroupMember.some((row) => row.groupId === 'group-banned-successor')).toBe(false);
+  });
+
   it('revoke-sessions bumps tokenVersion, audits the action, and reissues the cookie', async () => {
     prisma._store.user.push({
       id: 'u-revoke',

@@ -249,7 +249,9 @@ async function cleanupCommunityRelationsForSoftDelete(tx, userId) {
     const remainingUsers = remainingRows.length
       ? await tx.user.findMany({ where: { id: { in: remainingRows.map((row) => row.userId) } } })
       : [];
-    const activeUserIds = new Set(remainingUsers.filter((user) => !user.deletedAt).map((user) => user.id));
+    const activeUserIds = new Set(remainingUsers
+      .filter((user) => !user.deletedAt && !user.is_banned)
+      .map((user) => user.id));
     const remaining = remainingRows.filter((row) => activeUserIds.has(row.userId));
     const staleIds = remainingRows.filter((row) => !activeUserIds.has(row.userId)).map((row) => row.id);
     if (staleIds.length) {

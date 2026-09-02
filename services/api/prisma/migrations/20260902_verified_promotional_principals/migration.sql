@@ -35,7 +35,16 @@ WHERE entity."user_id" = account."id"
     'CommunityPost',
     'CommunityReply',
     'Comment',
+    'SermonRating',
+    'SharedPlanRating',
     'GroupMessage',
     'MeetingAttendance'
   )
   AND lower(trim(entity."data"->>'user_name')) = lower(trim(account."email"));
+
+-- Older Reader builds mislabeled database-imported chapters with the same
+-- source tag as a provider response and could cache a one-verse result for a
+-- single-chapter book. Force those ambiguous cache entries to be rebuilt by
+-- the completeness-aware reader path.
+DELETE FROM "bible_chapter_cache"
+WHERE "payload"->>'source' = 'bible-api-parameterized';

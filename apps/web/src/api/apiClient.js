@@ -664,6 +664,7 @@ const community = {
   // Public forum/community feeds — these read across ALL users (unlike the
   // tenant-scoped entity API), so members actually see each other's content.
   posts: () => apiFetch('/api/community/posts'),
+  myForumContent: () => apiFetch('/api/community/posts/mine'),
   createPost: (payload) => apiFetch('/api/community/posts', {
     method: 'POST',
     body: JSON.stringify(payload || {}),
@@ -733,6 +734,10 @@ const community = {
   promoteStudyGroupMember: (groupId, memberId) => apiFetch(
     `/api/community/study-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}/promote`,
     { method: 'PATCH' },
+  ),
+  removeStudyGroupMember: (groupId, memberId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}`,
+    { method: 'DELETE' },
   ),
   groupMessages: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/messages`),
   sendGroupMessage: (id, payload) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/messages`, {

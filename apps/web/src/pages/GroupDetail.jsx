@@ -28,6 +28,7 @@ export default function GroupDetail() {
   const [memberQuery, setMemberQuery] = useState('');
   const [memberResults, setMemberResults] = useState([]);
   const [isSearchingMembers, setIsSearchingMembers] = useState(false);
+  const [removingMemberId, setRemovingMemberId] = useState(null);
 
   useEffect(() => {
     if (!isLoadingAuth && !user) {
@@ -83,6 +84,22 @@ export default function GroupDetail() {
       loadGroupData();
     } catch (error) {
       toast.error("Failed to promote member");
+    }
+  };
+
+  const handleRemoveMember = async (member) => {
+    if (membership?.role !== 'leader' || member.user_id === user.id) return;
+    if (!confirm(`Remove ${member.user_name} from this group?`)) return;
+
+    setRemovingMemberId(member.id);
+    try {
+      await api.community.removeStudyGroupMember(group.id, member.id);
+      toast.success(`${member.user_name} removed from the group`);
+      await loadGroupData();
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Failed to remove member');
+    } finally {
+      setRemovingMemberId(null);
     }
   };
 
@@ -255,6 +272,16 @@ export default function GroupDetail() {
                             Promote
                           </Button>
                         )}
+                        {isLeader && member.user_id !== user.id && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={Boolean(removingMemberId)}
+                            onClick={() => handleRemoveMember(member)}
+                          >
+                            {removingMemberId === member.id ? 'Removing…' : 'Remove'}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -279,8 +306,12 @@ export default function GroupDetail() {
                 onKeyDown={(event) => { if (event.key === 'Enter') handleMemberSearch(); }}
                 placeholder="Search members"
               />
-              <Button onClick={handleMemberSearch} disabled={isSearchingMembers}>
-                {isSearchingMembers ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              <Button
+                onClick={handleMemberSearch}
+                disabled={isSearchingMembers}
+                aria-label="Search community members"
+              >
+                {isSearchingMembers ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <Search className="w-4 h-4" aria-hidden="true" />}
               </Button>
             </div>
             <div className="max-h-72 space-y-2 overflow-y-auto">

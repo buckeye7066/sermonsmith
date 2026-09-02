@@ -367,6 +367,31 @@ describe('entities — allowlist (regression for broken creates)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('preserves owner CRUD for legacy SharedSeries rows', async () => {
+    prisma._store.user.find((user) => user.id === 'u-alice').premium = true;
+    const created = await request(app)
+      .post('/api/entities/SharedSeries')
+      .send({ series_title: 'Romans', series_description: 'A teaching series', views_count: 999 })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(created.status).toBe(200);
+    expect(created.body.views_count).toBe(0);
+
+    const updated = await request(app)
+      .put(`/api/entities/SharedSeries/${created.body.id}`)
+      .send({ series_title: 'Romans Revised', views_count: 999 })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(updated.status).toBe(200);
+    expect(updated.body.series_title).toBe('Romans Revised');
+    expect(updated.body.views_count).toBe(0);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+
+    const removed = await request(app)
+      .delete(`/api/entities/SharedSeries/${created.body.id}`)
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(removed.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === created.body.id)).toBe(false);
+  });
+
   // Security: SharedLink is server-managed. It grants read access to a target
   // resource by slug and must only be minted by createShareableLink (which
   // verifies ownership). Forging one through the generic API let a user point

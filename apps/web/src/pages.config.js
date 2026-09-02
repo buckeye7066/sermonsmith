@@ -17,6 +17,7 @@ const MyQuizzes = lazy(() => import('./pages/MyQuizzes'));
 const AdminImport = lazy(() => import('./pages/AdminImport'));
 const Community = lazy(() => import('./pages/Community'));
 const Forum = lazy(() => import('./pages/Forum'));
+const MyCommunityContent = lazy(() => import('./pages/MyCommunityContent'));
 const StudyGroups = lazy(() => import('./pages/StudyGroups'));
 const SharedContent = lazy(() => import('./pages/SharedContent'));
 const Downloads = lazy(() => import('./pages/Downloads'));
@@ -58,6 +59,7 @@ export const PAGES = {
     "AdminImport": AdminImport,
     "Community": Community,
     "Forum": Forum,
+    "MyCommunityContent": MyCommunityContent,
     "StudyGroups": StudyGroups,
     "SharedContent": SharedContent,
     "Downloads": Downloads,

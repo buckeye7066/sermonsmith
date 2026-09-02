@@ -378,6 +378,20 @@ async function displayNamesForRows(rows) {
   ]));
 }
 
+async function formatRatingsForCommunity(rows) {
+  const ratings = uniqueRatingsByUser(rows);
+  const currentNames = await displayNamesForRows(ratings);
+  return ratings.map((row) => ({
+    ...formatPublicEntity(row),
+    user_id: row.userId,
+    // Never trust a legacy denormalized display name. Older clients used an
+    // email fallback; prefer the current account name and neutralize anything
+    // email-shaped when the account no longer exists.
+    user_name: currentNames.get(row.userId)
+      || safeCommunityDisplayName(row.data?.user_name),
+  }));
+}
+
 async function membershipFor(group, userId, { repairOwner = true, client = prisma } = {}) {
   let membership = await client.communityGroupMember.findUnique({
     where: { groupId_userId: { groupId: group.id, userId } },
@@ -613,8 +627,10 @@ router.get('/share/:slug', optionalAuth, async (req, res, next) => {
       return res.status(410).json({ message: 'Share link expired' });
     }
 
+    const resourceId = typeof data.resourceId === 'string' ? data.resourceId : '';
+    if (!resourceId) return res.status(404).json({ message: 'Shared resource not found' });
     const resource = await prisma.entity.findUnique({
-      where: { id: data.resourceId },
+      where: { id: resourceId },
       select: { id: true, type: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
     if (!resource) return res.status(404).json({ message: 'Shared resource not found' });
@@ -629,6 +645,20 @@ router.get('/share/:slug', optionalAuth, async (req, res, next) => {
     }
     if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(resource.data || {}))) {
       return res.status(404).json({ message: 'Shared resource not found' });
+    }
+    if (resource.type === 'CommunityPost' && !isForumPubliclyVisible(resource.data || {})) {
+      return res.status(404).json({ message: 'Shared resource not found' });
+    }
+    if (resource.type === 'CommunityReply') {
+      if (!isForumPubliclyVisible(resource.data || {})) {
+        return res.status(404).json({ message: 'Shared resource not found' });
+      }
+      const parentId = typeof resource.data?.post_id === 'string' ? resource.data.post_id : '';
+      if (!parentId) return res.status(404).json({ message: 'Shared resource not found' });
+      const parent = await prisma.entity.findUnique({ where: { id: parentId } });
+      if (!parent || parent.type !== 'CommunityPost' || !isForumPubliclyVisible(parent.data || {})) {
+        return res.status(404).json({ message: 'Shared resource not found' });
+      }
     }
 
     // Serve-time Scripture gate: the resource may have been valid when the link
@@ -778,6 +808,40 @@ router.delete('/members/:id/follow', authenticateToken, requireCommunity, async 
 // routes return community-visible rows across ALL users (hiding moderated
 // ones), mirroring the shared-content pattern above.
 // ---------------------------------------------------------------------------
+
+// Retraction inventory is intentionally auth-only rather than Premium-only.
+// A lapsed member must still be able to discover and remove material they
+// previously published, including replies whose parent is now hidden.
+router.get('/posts/mine', authenticateToken, async (req, res, next) => {
+  try {
+    const rows = await prisma.entity.findMany({
+      where: { type: { in: ['CommunityPost', 'CommunityReply'] }, userId: req.userId },
+      orderBy: { createdAt: 'desc' },
+      take: 1_000,
+    });
+    const replies = rows.filter((row) => row.type === 'CommunityReply');
+    const parentIds = [...new Set(replies.map((row) => row.data?.post_id).filter(Boolean))];
+    const parents = parentIds.length
+      ? await prisma.entity.findMany({
+        where: { id: { in: parentIds }, type: 'CommunityPost' },
+        select: { id: true, data: true },
+      })
+      : [];
+    const parentTitles = new Map(parents.map((row) => [row.id, row.data?.title || 'Discussion']));
+
+    res.json({
+      posts: rows
+        .filter((row) => row.type === 'CommunityPost')
+        .map((row) => formatPublicEntity(row)),
+      replies: replies.map((row) => ({
+        ...formatPublicEntity(row),
+        parent_title: parentTitles.get(row.data?.post_id) || 'Unavailable discussion',
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/posts', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
@@ -1314,7 +1378,7 @@ router.get('/sermons/:id/ratings', authenticateToken, requireCommunity, async (r
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    const ratings = uniqueRatingsByUser(rows).map(formatEntity);
+    const ratings = await formatRatingsForCommunity(rows);
     res.json({ ratings, mine: ratings.find((rating) => rating.user_id === req.userId) || null });
   } catch (err) {
     next(err);
@@ -1512,21 +1576,36 @@ router.delete('/comments/:id', authenticateToken, async (req, res, next) => {
 
 router.get('/study-groups', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    const [rows, memberships] = await Promise.all([
-      prisma.entity.findMany({
-        where: { type: 'StudyGroup' },
-        orderBy: { createdAt: 'desc' },
-        take: 50,
-        select: { id: true, type: true, userId: true, data: true, createdAt: true, updatedAt: true },
-      }),
-      prisma.communityGroupMember.findMany({ where: { userId: req.userId } }),
-    ]);
+    const memberships = await prisma.communityGroupMember.findMany({ where: { userId: req.userId } });
     const membershipByGroup = new Map(memberships.map((row) => [row.groupId, row]));
-    const visible = rows.filter((row) => {
-      if (HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {}))) return false;
-      const isMember = membershipByGroup.has(row.id) || row.userId === req.userId;
-      return row.data?.is_private !== true || isMember;
-    });
+    const memberGroupIds = [...membershipByGroup.keys()];
+    const where = {
+      type: 'StudyGroup',
+      OR: [
+        { userId: req.userId },
+        { data: { path: ['is_private'], equals: false } },
+        ...(memberGroupIds.length ? [{ id: { in: memberGroupIds } }] : []),
+      ],
+    };
+    const visible = [];
+    const pageSize = 50;
+    let skip = 0;
+    // Visibility belongs in the database predicate so a wall of newer private
+    // groups cannot crowd valid results out of the first page. Continue past
+    // moderated rows as well until the caller has 50 actually visible groups.
+    while (visible.length < 50) {
+      const page = await prisma.entity.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: pageSize,
+        skip,
+        select: { id: true, type: true, userId: true, data: true, createdAt: true, updatedAt: true },
+      });
+      visible.push(...page.filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {}))));
+      skip += page.length;
+      if (page.length < pageSize) break;
+    }
+    visible.splice(50);
     const allMembers = visible.length
       ? await prisma.communityGroupMember.findMany({ where: { groupId: { in: visible.map((row) => row.id) } } })
       : [];
@@ -1664,6 +1743,38 @@ router.post('/study-groups/:id/members', authenticateToken, requireCommunity, as
       addedUserId: result.target.id,
     });
     res.json({ membership: formatGroupMembership(result.membership), member_count: result.memberCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Removing access to a private group is a security/lifecycle control, so a
+// leader may use it even after their own paid or promotional access expires.
+router.delete('/study-groups/:id/members/:memberId', authenticateToken, async (req, res, next) => {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const { group } = await requireGroupLeader(req.params.id, req.userId, tx);
+      const member = await tx.communityGroupMember.findUnique({ where: { id: req.params.memberId } });
+      if (!member || member.groupId !== group.id) {
+        throw Object.assign(new Error('Group member not found'), { status: 404 });
+      }
+      if (member.userId === req.userId) {
+        throw Object.assign(new Error('Use Leave Group to remove your own membership'), { status: 409 });
+      }
+      if (member.userId === group.userId) {
+        throw Object.assign(new Error('The group owner cannot be removed by another leader'), { status: 409 });
+      }
+
+      await tx.communityGroupMember.delete({ where: { id: member.id } });
+      const { memberCount } = await updateGroupMemberCount(group, tx);
+      return { group, member, memberCount };
+    });
+    await recordCommunityAudit('community.group_member_remove', req.userId, 'CommunityGroupMember', result.member.id, {
+      groupId: result.group.id,
+      removedUserId: result.member.userId,
+    });
+    res.json({ removed: true, member_count: result.memberCount });
   } catch (err) {
     next(err);
   }
@@ -2179,7 +2290,7 @@ router.get('/reading-plans/:id/ratings', authenticateToken, requireCommunity, as
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    const ratings = uniqueRatingsByUser(rows).map(formatEntity);
+    const ratings = await formatRatingsForCommunity(rows);
     res.json({ ratings, mine: ratings.find((rating) => rating.user_id === req.userId) || null });
   } catch (err) {
     next(err);

@@ -5,6 +5,7 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
 import { _resetPremiumCatalogCache } from '../services/premiumTranslations.js';
+import { versesInChapter } from '@sermonsmith/shared/scripture';
 
 const prisma = createPrismaMock();
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
@@ -123,8 +124,9 @@ describe('function routes - Bible source registry', () => {
         ok: true,
         json: async () => ({
           data: [
-            { book: 'Genesis', chapter: '2', verse: '1', text: 'Thus the heavens and the earth were finished.' },
-            { book: 'Genesis', chapter: '2', verse: '2', text: 'And on the seventh day God ended his work.' },
+            ...Array.from({ length: 25 }, (_, index) => ({
+              book: 'Genesis', chapter: '2', verse: String(index + 1), text: `Genesis 2 verse ${index + 1}`,
+            })),
             // The upstream file currently contains duplicate verse rows. The
             // Reader contract is one row per verse, so normalize at ingress.
             { book: 'Genesis', chapter: '2', verse: '1', text: 'duplicate' },
@@ -140,10 +142,43 @@ describe('function routes - Bible source registry', () => {
 
     expect(first.status).toBe(200);
     expect(first.body.reference).toBe('Genesis 2');
-    expect(first.body.verses.map((row) => row.verse)).toEqual([1, 2]);
+    expect(first.body.verses.map((row) => row.verse)).toEqual(Array.from({ length: 25 }, (_, index) => index + 1));
     expect(first.body.cacheHit).toBe(false);
     expect(second.status).toBe(200);
     expect(second.body.cacheHit).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an incomplete legacy imported chapter and falls back to a complete source', async () => {
+    prisma._store.entity.push({
+      id: 'legacy-jude-verse-one',
+      type: 'Verse',
+      userId: 'u-admin',
+      data: { translation: 'kjv', book_name: 'Jude', chapter: 1, verse: 1, text: 'Jude, the servant.' },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const fetchMock = vi.fn(async (url) => {
+      expect(String(url)).toContain('/en-kjv/books/jude/chapters/1.json');
+      return {
+        ok: true,
+        json: async () => ({
+          data: Array.from({ length: 25 }, (_, index) => ({
+            book: 'Jude', chapter: '1', verse: String(index + 1), text: `Jude verse ${index + 1}`,
+          })),
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ book: 'Jude', chapter: 1, translation: 'kjv' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.verses).toHaveLength(25);
+    expect(res.body.verses.at(-1).verse).toBe(25);
+    expect(res.body.source).toBe('wldeh-bible-api-static');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -178,15 +213,17 @@ describe('function routes - Bible source registry', () => {
         throw new Error(`Unexpected static Bible URL: ${value}`);
       }
       const [, translation, slug, chapter] = match;
+      const book = namesBySlug.get(slug);
+      const verseCount = versesInChapter(book, Number(chapter), translation);
       return {
         ok: true,
         json: async () => ({
-          data: [{
-            book: namesBySlug.get(slug),
+          data: Array.from({ length: verseCount }, (_, index) => ({
+            book,
             chapter,
-            verse: '1',
-            text: `${translation} ${slug} ${chapter}`,
-          }],
+            verse: String(index + 1),
+            text: `${translation} ${slug} ${chapter}:${index + 1}`,
+          })),
         }),
       };
     });
@@ -217,7 +254,9 @@ describe('function routes - Bible source registry', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
       json: async () => ({
-        data: [{ book: 'John', chapter: '3', verse: '16', text: 'For God so loved the world.' }],
+        data: Array.from({ length: 36 }, (_, index) => ({
+          book: 'John', chapter: '3', verse: String(index + 1), text: `John 3 verse ${index + 1}`,
+        })),
       }),
     })));
 
@@ -226,23 +265,21 @@ describe('function routes - Bible source registry', () => {
       .send({ bookCode: 'JHN', chapter: 3, translationId: 'kjv' });
 
     expect(res.status).toBe(200);
-    expect(res.body.verses).toEqual([
-      expect.objectContaining({ book_name: 'John', chapter: 3, verse: 16 }),
-    ]);
+    expect(res.body.verses).toHaveLength(36);
+    expect(res.body.verses[15]).toMatchObject({ book_name: 'John', chapter: 3, verse: 16 });
     expect(res.body.cacheHit).toBe(false);
   });
 
-  it('uses the unambiguous parameterized provider endpoint for a single-chapter book', async () => {
+  it('uses the unambiguous provider data endpoint for a single-chapter book', async () => {
     const fetchMock = vi.fn(async (url) => {
       expect(String(url)).toBe('https://bible-api.com/data/bbe/JUD/1');
       return {
         ok: true,
         json: async () => ({
           translation: { name: 'Bible in Basic English' },
-          verses: [
-            { book: 'Jude', chapter: 1, verse: 1, text: 'Jude, a servant of Jesus Christ.' },
-            { book: 'Jude', chapter: 1, verse: 25, text: 'To the only God our Saviour.' },
-          ],
+          verses: Array.from({ length: 25 }, (_, index) => ({
+            book: 'Jude', chapter: 1, verse: index + 1, text: `Jude verse ${index + 1}`,
+          })),
         }),
       };
     });
@@ -254,7 +291,8 @@ describe('function routes - Bible source registry', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.reference).toBe('Jude 1');
-    expect(res.body.verses.map((row) => row.verse)).toEqual([1, 25]);
+    expect(res.body.verses).toHaveLength(25);
+    expect(res.body.verses.map((row) => row.verse)).toEqual(Array.from({ length: 25 }, (_, index) => index + 1));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

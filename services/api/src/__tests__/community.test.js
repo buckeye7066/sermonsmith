@@ -537,6 +537,37 @@ describe('community routes', () => {
     expect(res.body.resource).toBeUndefined();
   });
 
+  it('does not let anonymous links bypass forum visibility or parent moderation', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'private-forum-post', type: 'CommunityPost', userId: 'u-owner',
+        data: { title: 'Private', visibility: 'private', status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'private-forum-link', type: 'SharedLink', userId: 'u-owner',
+        data: { slug: 'private-forum', resourceId: 'private-forum-post' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'hidden-parent', type: 'CommunityPost', userId: 'u-owner',
+        data: { title: 'Hidden', visibility: 'public', status: 'removed' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'orphaned-public-reply', type: 'CommunityReply', userId: 'u-owner',
+        data: { post_id: 'hidden-parent', content: 'No longer public', visibility: 'public', status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'orphaned-reply-link', type: 'SharedLink', userId: 'u-owner',
+        data: { slug: 'hidden-parent-reply', resourceId: 'orphaned-public-reply' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const privatePost = await request(app).get('/api/community/share/private-forum');
+    const hiddenParentReply = await request(app).get('/api/community/share/hidden-parent-reply');
+
+    expect(privatePost.status).toBe(404);
+    expect(hiddenParentReply.status).toBe(404);
+  });
+
   // --- Round-4: AI forum replies routed through the Scripture gate ---
 
   it('rejects an AI (is_ai_response) reply containing fabricated Scripture', async () => {
@@ -659,6 +690,40 @@ describe('community routes', () => {
 
     expect(forumRes.status).toBe(402);
     expect(commentRes.status).toBe(402);
+  });
+
+  it('lets a lapsed member inventory and retract their own forum content', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'free-owned-post', type: 'CommunityPost', userId: 'u-free',
+        data: { title: 'Old post', content: 'Please remove me', status: 'active', visibility: 'public' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'free-owned-reply', type: 'CommunityReply', userId: 'u-free',
+        data: { post_id: 'free-owned-post', content: 'Old reply', status: 'active', visibility: 'public' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'another-post', type: 'CommunityPost', userId: 'u-owner',
+        data: { title: 'Not mine', content: 'Keep', status: 'active', visibility: 'public' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const mine = await request(app)
+      .get('/api/community/posts/mine')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+
+    expect(mine.status).toBe(200);
+    expect(mine.body.posts.map((row) => row.id)).toEqual(['free-owned-post']);
+    expect(mine.body.replies.map((row) => row.id)).toEqual(['free-owned-reply']);
+
+    const removed = await request(app)
+      .delete('/api/community/posts/free-owned-post')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    expect(removed.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'free-owned-post' || row.id === 'free-owned-reply')).toBe(false);
   });
 
   it('finds members without exposing private profile fields and supports follow/unfollow', async () => {
@@ -821,6 +886,52 @@ describe('community routes', () => {
       .get('/api/community/study-groups')
       .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
     expect(visible.body.map((group) => group.id)).toContain(created.body.id);
+  });
+
+  it('filters private groups before the 50-group discovery limit', async () => {
+    for (let index = 0; index < 55; index += 1) {
+      prisma._store.entity.push({
+        id: `new-private-${index}`, type: 'StudyGroup', userId: 'u-admin',
+        data: { name: `Private ${index}`, is_private: true, status: 'active' },
+        createdAt: new Date(Date.UTC(2026, 8, 2, 12, index)), updatedAt: new Date(),
+      });
+    }
+    prisma._store.entity.push({
+      id: 'older-public', type: 'StudyGroup', userId: 'u-owner',
+      data: { name: 'Still discoverable', is_private: false, status: 'active' },
+      createdAt: new Date('2025-01-01'), updatedAt: new Date(),
+    });
+
+    const listed = await request(app)
+      .get('/api/community/study-groups')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(listed.status).toBe(200);
+    expect(listed.body.map((group) => group.id)).toContain('older-public');
+    expect(listed.body.some((group) => group.id.startsWith('new-private-'))).toBe(false);
+  });
+
+  it('lets a leader remove another member and revokes private-group access', async () => {
+    prisma._store.entity.push({
+      id: 'group-removal', type: 'StudyGroup', userId: 'u-owner',
+      data: { name: 'Private group', is_private: true, status: 'active', member_count: 2 },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityGroupMember.push(
+      { id: 'remove-owner', groupId: 'group-removal', userId: 'u-owner', role: 'leader', userName: 'Owner', joinedAt: new Date() },
+      { id: 'remove-reader', groupId: 'group-removal', userId: 'u-reader', role: 'member', userName: 'Reader', joinedAt: new Date() },
+    );
+
+    const removed = await request(app)
+      .delete('/api/community/study-groups/group-removal/members/remove-reader')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+    expect(removed.status).toBe(200);
+    expect(removed.body).toMatchObject({ removed: true, member_count: 1 });
+
+    const formerMemberRead = await request(app)
+      .get('/api/community/study-groups/group-removal')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(formerMemberRead.status).toBe(403);
   });
 
   it('transfers creator ownership when a promoted leader remains and does not re-add the leaver', async () => {
@@ -1232,6 +1343,32 @@ describe('community routes', () => {
     expect(updated.body).toMatchObject({ average_rating: 5, ratings_count: 1 });
     expect(prisma._store.entity.filter((row) => row.type === 'SermonRating')).toHaveLength(1);
     expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+
+  it('neutralizes legacy email display names in sermon ratings', async () => {
+    prisma._store.user.push({
+      id: 'u-legacy-rating', email: 'legacy-rating@example.com', role: 'user', premium: true,
+      full_name: null, name: null, deletedAt: null, is_banned: false,
+    });
+    prisma._store.entity.push(
+      {
+        id: 'legacy-rating-sermon', type: 'SharedSermon', userId: 'u-owner',
+        data: { title: 'Rated sermon', status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'legacy-email-rating', type: 'SermonRating', userId: 'u-legacy-rating',
+        data: { sermon_id: 'legacy-rating-sermon', user_id: 'u-legacy-rating', user_name: 'legacy-rating@example.com', rating: 4 },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const ratings = await request(app)
+      .get('/api/community/sermons/legacy-rating-sermon/ratings')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(ratings.status).toBe(200);
+    expect(ratings.body.ratings[0].user_name).toBe('Member');
+    expect(JSON.stringify(ratings.body)).not.toContain('legacy-rating@example.com');
   });
 
   it('lets owners withdraw shares after Premium expires and blocks other members', async () => {

@@ -22,6 +22,7 @@ vi.mock('./pages.config', () => {
     <div data-testid="shared-content">{publicShareOnly ? 'Public shared resource' : 'Community feed'}</div>
   );
   const ProtectedPage = () => <div data-testid="protected-page">Protected page</div>;
+  const CommunityRetraction = () => <div data-testid="community-retraction">My community content</div>;
   const Layout = ({ children }) => <div data-testid="layout">{children}</div>;
 
   return {
@@ -34,6 +35,7 @@ vi.mock('./pages.config', () => {
         SharedContent,
         Reader: ProtectedPage,
         SermonBuilder: ProtectedPage,
+        MyCommunityContent: CommunityRetraction,
       },
       Layout,
     },
@@ -205,6 +207,14 @@ describe('AuthenticatedApp route gating', () => {
 
     expect(await screen.findByTestId('protected-page')).toBeInTheDocument();
     expect(screen.getByTestId('layout')).toBeInTheDocument();
+  });
+
+  it('keeps the signed-in community retraction surface outside the Premium gate', async () => {
+    authState.isAuthenticated = true;
+    renderWithRoute('/MyCommunityContent');
+
+    expect(await screen.findByTestId('community-retraction')).toBeInTheDocument();
+    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
   });
 
   it('renders the signed-in Home inside the authenticated layout', () => {

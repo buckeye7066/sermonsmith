@@ -27,6 +27,11 @@ describe('community membership migration safety', () => {
     expect(migration).toContain('SET "user_id" = r."user_id"');
     expect(migration).toContain('"deleted"');
   });
+
+  it('normalizes legacy group privacy before database-level discovery filtering', () => {
+    expect(migration).toContain("'{is_private}'");
+    expect(migration).toContain("WHERE \"type\" = 'StudyGroup'");
+  });
 });
 
 describe('promotional identity migration safety', () => {
@@ -35,6 +40,9 @@ describe('promotional identity migration safety', () => {
     expect(promotionalIdentityMigration).toContain('WHERE "deleted_at" IS NULL');
     expect(promotionalIdentityMigration).toContain('community_group_members');
     expect(promotionalIdentityMigration).toContain("jsonb_set(entity.\"data\", '{user_name}'");
+    expect(promotionalIdentityMigration).toContain("'SermonRating'");
+    expect(promotionalIdentityMigration).toContain("'SharedPlanRating'");
+    expect(promotionalIdentityMigration).toContain('DELETE FROM "bible_chapter_cache"');
     expect(promotionalIdentityMigration).not.toContain('SET "premium"');
   });
 });

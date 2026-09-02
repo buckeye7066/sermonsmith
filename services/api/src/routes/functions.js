@@ -20,7 +20,7 @@ import {
   bookByName,
 } from '../services/premiumTranslations.js';
 import { buildVerseWordingResult } from '../services/verseWording.js';
-import { chaptersInBook } from '@sermonsmith/shared/scripture';
+import { chaptersInBook, versesInChapter } from '@sermonsmith/shared/scripture';
 import { ACCOUNT_TIERS, accountTierFor } from '../lib/entitlements.js';
 
 const router = Router();
@@ -122,6 +122,27 @@ function normalizeBibleApiChapter(payload, book, chapter, translationId) {
   };
 }
 
+function expectedVerseCountForCompleteness(book, chapter, translationId) {
+  // Exact translation-aware bounds exist for the audited static datasets.
+  // Single-chapter books also use the canonical bound for every supported
+  // public-domain translation; this is the ambiguity that historically made
+  // the provider/import path return only verse 1 for an entire book.
+  return versesInChapter(book.name, Number(chapter), translationId)
+    ?? (chaptersInBook(book.name) === 1
+      ? versesInChapter(book.name, Number(chapter))
+      : null);
+}
+
+function hasEveryExpectedVerse(chapterData, expected) {
+  if (!expected) return true;
+  const verseNumbers = new Set((chapterData?.verses || []).map((row) => Number(row.verse)));
+  if (verseNumbers.size !== expected) return false;
+  for (let verse = 1; verse <= expected; verse += 1) {
+    if (!verseNumbers.has(verse)) return false;
+  }
+  return true;
+}
+
 async function fetchBibleApiChapter(bookInput, chapter, translationId, timeoutMs = 10000) {
   const book = bookByName(bookInput);
   if (!book) throw Object.assign(new Error(`Unknown book: ${bookInput}`), { status: 400 });
@@ -133,7 +154,12 @@ async function fetchBibleApiChapter(bookInput, chapter, translationId, timeoutMs
     if (!response.ok) {
       throw Object.assign(new Error(`Bible API returned ${response.status}`), { status: response.status });
     }
-    return normalizeBibleApiChapter(await response.json(), book, chapter, translationId);
+    const normalized = normalizeBibleApiChapter(await response.json(), book, chapter, translationId);
+    const expected = expectedVerseCountForCompleteness(book, chapter, translationId);
+    if (!hasEveryExpectedVerse(normalized, expected)) {
+      throw Object.assign(new Error(`Bible source returned an incomplete chapter for ${book.name} ${chapter}`), { status: 502 });
+    }
+    return { ...normalized, source: 'bible-api-data', chapter_complete: true };
   } finally {
     clearTimeout(timeout);
   }
@@ -155,12 +181,23 @@ async function fetchImportedBibleChapter(book, chapter, translationId) {
       select: { data: true },
     });
     if (!rows.length) return null;
-    return normalizeBibleApiChapter(
+    const normalized = normalizeBibleApiChapter(
       { verses: rows.map((row) => row.data), translation: { name: translationId.toUpperCase() } },
       book,
       chapter,
       translationId,
     );
+    const expected = expectedVerseCountForCompleteness(book, chapter, translationId);
+    const markedComplete = rows.every((row) => (
+      row.data?.chapter_complete === true
+      && Number(row.data?.import_format_version) >= 2
+      && Number(row.data?.chapter_verse_count) === normalized.verses.length
+    ));
+    if ((expected && !hasEveryExpectedVerse(normalized, expected)) || (!expected && !markedComplete)) {
+      console.warn(`[Bible Reader] ignoring incomplete legacy import for ${book.name} ${chapter} (${translationId})`);
+      return null;
+    }
+    return { ...normalized, source: 'database-import', chapter_complete: true };
   } catch (error) {
     console.warn('[Bible Reader] imported verse lookup unavailable; trying external source:', error?.message || error);
     return null;
@@ -228,7 +265,12 @@ async function fetchStaticBibleChapter(bookInput, chapter, translationId, timeou
     if (!response.ok) {
       throw Object.assign(new Error(`Static Bible source returned ${response.status}`), { status: response.status });
     }
-    return normalizeStaticChapter(await response.json(), book, chapter, translationId);
+    const normalized = normalizeStaticChapter(await response.json(), book, chapter, translationId);
+    const expected = expectedVerseCountForCompleteness(book, chapter, translationId);
+    if (!hasEveryExpectedVerse(normalized, expected)) {
+      throw Object.assign(new Error(`Static Bible source returned an incomplete chapter for ${book.name} ${chapter}`), { status: 502 });
+    }
+    return { ...normalized, chapter_complete: true };
   } finally {
     clearTimeout(timeout);
   }
@@ -256,7 +298,11 @@ async function getCachedBibleChapter({ book, chapter, translationId }) {
     console.warn('[Bible Reader] chapter cache read unavailable; serving from source:', error?.message || error);
   }
 
-  if (bibleCacheFresh(cached)) {
+  const cachedExpected = expectedVerseCountForCompleteness(resolvedBook, chapter, translationId);
+  const cacheIsComplete = cached?.payload?.source !== 'bible-api-parameterized'
+    && (cached?.payload?.source !== 'database-import' || cached?.payload?.chapter_complete === true)
+    && hasEveryExpectedVerse(cached?.payload, cachedExpected);
+  if (bibleCacheFresh(cached) && cacheIsComplete) {
     return { ...cached.payload, cacheHit: true };
   }
 
@@ -508,6 +554,7 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
       translationLabel: translation.name,
       verses: data.verses || [],
       text: data.text || '',
+      source: data.source || null,
       cacheHit,
     });
   } catch (err) {
@@ -1499,18 +1546,21 @@ router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res
         for (let ch = 1; ch <= book.chapters; ch++) {
           try {
             const ref = `${book.name} ${ch}`;
-            const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translation}`;
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 15000);
-            const resp = await fetch(url, { signal: controller.signal });
-            clearTimeout(timeout);
+            // Reuse the unambiguous provider helper so single-chapter books
+            // cannot be imported as verse 1 only.
+            const data = await fetchBibleApiJson(ref, translation, 15000);
+            const resolvedBook = bookByName(book.name);
+            const normalized = normalizeBibleApiChapter(data, resolvedBook, ch, translation);
+            const expected = expectedVerseCountForCompleteness(resolvedBook, ch, translation);
+            if (expected && !hasEveryExpectedVerse(normalized, expected)) {
+              job.errors++;
+              continue;
+            }
 
-            if (!resp.ok) { job.errors++; continue; }
-            const data = await resp.json();
-
-            if (data.verses && data.verses.length > 0) {
+            if (normalized.verses.length > 0) {
+              const chapterVerseCount = normalized.verses.length;
               await prisma.$transaction(
-                data.verses.map(v =>
+                normalized.verses.map(v =>
                   prisma.entity.create({
                     data: {
                       type: 'Verse',
@@ -1521,6 +1571,9 @@ router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res
                         verse: v.verse,
                         text: v.text,
                         translation,
+                        chapter_complete: true,
+                        chapter_verse_count: chapterVerseCount,
+                        import_format_version: 2,
                         user_id: userId,
                         created_date: new Date().toISOString(),
                       },
@@ -1528,7 +1581,7 @@ router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res
                   })
                 )
               );
-              job.imported += data.verses.length;
+              job.imported += normalized.verses.length;
             }
 
             // Small delay to avoid hammering the API

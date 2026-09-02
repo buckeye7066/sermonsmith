@@ -23,6 +23,22 @@ ALTER TABLE "community_group_members"
     FOREIGN KEY ("user_id") REFERENCES "users"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- Runtime discovery filters private groups in PostgreSQL before applying the
+-- 50-row page size. Normalize legacy rows that predate `is_private` so the
+-- JSON predicate has an explicit, indexable boolean instead of treating a
+-- missing value inconsistently across Prisma/Postgres versions.
+UPDATE "entities"
+SET "data" = jsonb_set(
+    "data",
+    '{is_private}',
+    CASE
+      WHEN lower(COALESCE("data"->>'is_private', 'false')) = 'true' THEN 'true'::jsonb
+      ELSE 'false'::jsonb
+    END,
+    true
+)
+WHERE "type" = 'StudyGroup';
+
 -- Establish leadership only from a server-owned column: every StudyGroup
 -- Entity's user_id is its creator and therefore its initial leader. Never
 -- trust the legacy membership JSON's role value.
