@@ -1,5 +1,11 @@
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import {
+  ACCOUNT_TIERS,
+  accountTierFor,
+  entitlementsFor,
+  requestHasEntitlement,
+} from '../lib/entitlements.js';
 
 // Singleton — avoids spawning multiple connection pools.
 const globalForPrisma = globalThis;
@@ -114,7 +120,16 @@ export async function authenticateToken(req, res, next) {
     // Also acts as a revocation check — deleted users are rejected immediately.
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { role: true, premium: true, email: true, tokenVersion: true, deletedAt: true, premium_until: true, is_banned: true },
+      select: {
+        role: true,
+        premium: true,
+        premium_until: true,
+        email: true,
+        profile: true,
+        tokenVersion: true,
+        deletedAt: true,
+        is_banned: true,
+      },
     });
     if (!user || user.deletedAt) {
       // Treat soft-deleted accounts as gone — their tokenVersion was also bumped
@@ -139,10 +154,12 @@ export async function authenticateToken(req, res, next) {
     }
 
     req.userRole = user.role;
-    // Effective premium = a paid flag OR an unexpired free-trial window
-    // (premium_until in the future). See functions.js grantFreePeriod.
-    req.userPremium = !!user.premium
-      || (user.premium_until ? new Date(user.premium_until) > new Date() : false);
+    // One server-authoritative access decision is attached to every protected
+    // request. Route handlers must consult the entitlement list rather than
+    // accepting a client/profile-supplied tier flag.
+    req.accountTier = accountTierFor(user);
+    req.entitlements = entitlementsFor(req.accountTier);
+    req.userPremium = req.accountTier === ACCOUNT_TIERS.PREMIUM;
     req.userEmail = user.email;
     next();
   } catch {
@@ -180,8 +197,27 @@ export function requireAdmin(req, res, next) {
  * Middleware: require an active premium subscription.
  */
 export function requirePremium(req, res, next) {
-  if (!req.userPremium && req.userRole !== 'admin' && req.userRole !== 'dev') {
+  if (req.accountTier !== ACCOUNT_TIERS.PREMIUM
+      && !req.userPremium
+      && req.userRole !== 'admin'
+      && req.userRole !== 'dev') {
     return res.status(402).json({ message: 'Premium subscription required' });
   }
   next();
+}
+
+/**
+ * Middleware factory for feature-specific plan checks.
+ * Must be used after authenticateToken.
+ */
+export function requireEntitlement(entitlement) {
+  return (req, res, next) => {
+    if (!requestHasEntitlement(req, entitlement)) {
+      return res.status(402).json({
+        message: 'Premium subscription required',
+        requiredEntitlement: entitlement,
+      });
+    }
+    next();
+  };
 }

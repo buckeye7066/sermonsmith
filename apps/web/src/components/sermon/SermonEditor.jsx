@@ -6,8 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download, ShieldCheck } from "lucide-react";
+import { Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/api/apiClient";
 import { Link } from "react-router";
@@ -58,24 +57,10 @@ export default function SermonEditor({
     user.role === 'admin'
   );
 
-  const handleExport = async (format) => {
+  const handleExport = async () => {
     if (!isPremium) {
       toast.error("Export is a Premium feature", {
         description: "Upgrade to export your sermons to PDF"
-      });
-      return;
-    }
-
-    if (!sermonData?.id) {
-      toast.error("Please save your sermon first", {
-        description: "You need to save the sermon before exporting it"
-      });
-      return;
-    }
-
-    if (format !== 'pdf') {
-      toast.error(`${String(format).toUpperCase()} export isn't available yet`, {
-        description: "PDF export is ready now — slide export is still in progress."
       });
       return;
     }
@@ -91,7 +76,7 @@ export default function SermonEditor({
       });
       toast.success("Sermon exported to PDF", { description: filename });
     } catch (error) {
-      console.error(`Error exporting to ${format}:`, error);
+      console.error('Error exporting sermon to PDF:', error);
       toast.error("Failed to export to PDF", {
         description: error.message
       });
@@ -526,38 +511,20 @@ export default function SermonEditor({
           Save Sermon
         </Button>
         {isPremium ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                disabled={isExporting || !sermonData?.id}
-                className="flex-1"
-                size="lg"
-              >
-                {isExporting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 mr-2" />
-                    Export {!sermonData?.id && "(Save First)"}
-                  </>
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => handleExport('pdf')}>
-                <FileText className="w-4 h-4 mr-2" />
-                Export to PDF
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled className="opacity-60">
-                <FileText className="w-4 h-4 mr-2" />
-                Export to PPTX (coming soon)
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="outline"
+            disabled={isExporting}
+            className="flex-1"
+            size="lg"
+            onClick={handleExport}
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            {isExporting ? 'Exporting PDF...' : 'Export PDF'}
+          </Button>
         ) : (
           <Button
             variant="outline"

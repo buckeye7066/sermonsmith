@@ -21,6 +21,11 @@ import {
 } from '../services/quotationVerification.js';
 import { translationMetadata } from '../services/bibleSources.js';
 import { getCachedBiblePassage } from './functions.js';
+import {
+  accessSummaryFor,
+  entitlementForEntityType,
+  requestHasEntitlement,
+} from '../lib/entitlements.js';
 
 // Tenant-isolated entity API.
 //
@@ -48,7 +53,20 @@ const PUBLIC_TYPES = new Set(['Verse']);
 // which verifies the caller owns the resource being shared. Allowing it here
 // let any user forge a link pointing at another user's private entity. The
 // /share/:slug route now also re-checks sharer ownership (defense in depth).
-const SERVER_MANAGED_TYPES = new Set(['SharedLink']);
+const SERVER_MANAGED_TYPES = new Set([
+  'SharedLink',
+  'SharedSermon',
+  'SharedSeries',
+  'SermonRating',
+  'SharedPlanRating',
+  'Comment',
+  'StudyGroup',
+  'GroupMembership',
+  'GroupMessage',
+  'GroupMeeting',
+  'MeetingAttendance',
+  'GroupProgress',
+]);
 
 function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
@@ -85,7 +103,17 @@ function sanitizeUser(u) {
   // eslint-disable-next-line no-unused-vars
   const { password, profile, ...safeUser } = u;
   const safeProfile = cleanProfile(profile);
-  return { ...safeProfile, ...safeUser, profile: safeProfile };
+  return { ...safeProfile, ...safeUser, profile: safeProfile, ...accessSummaryFor(u) };
+}
+
+function assertEntityEntitlement(req, type) {
+  const entitlement = entitlementForEntityType(type);
+  if (entitlement && !requestHasEntitlement(req, entitlement)) {
+    throw Object.assign(new Error('Premium subscription required'), {
+      status: 402,
+      requiredEntitlement: entitlement,
+    });
+  }
 }
 
 function resolveOrderBy(raw) {
@@ -436,6 +464,7 @@ function validateEntityPayload(type, body) {
 // --- Filter (must be registered before /:type/:id to avoid route collision) ---
 router.post('/:type/filter', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
     const { _limit, _offset, _orderBy, ...filterFields } = req.body;
     const take = clampLimit(_limit);
     const skip = typeof _offset === 'number' ? _offset : 0;
@@ -500,6 +529,7 @@ const MAX_BULK_ITEMS = 200;
 
 router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
     // Public reference types (Verse) must not be writable by ordinary users —
     // those rows are world-readable, so a non-admin could otherwise inject
     // fake "Bible" data that every user sees.
@@ -550,6 +580,7 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
 // --- Create ---
 router.post('/:type', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
     // Public reference types (Verse) are read-only for non-admins — see bulk.
     if (PUBLIC_TYPES.has(req.params.type) && !isAdmin(req)) {
       return res.status(403).json({ message: `Creating '${req.params.type}' entities is not permitted.` });
@@ -580,6 +611,7 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
 // --- List (with default pagination) ---
 router.get('/:type', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
     const take = clampLimit(Number(req.query.limit) || DEFAULT_PAGE_SIZE);
     const skip = Number(req.query.offset) || 0;
 
@@ -620,6 +652,7 @@ router.get('/:type', authenticateToken, async (req, res, next) => {
 // --- Get single ---
 router.get('/:type/:id', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
     if (req.params.type === 'User') {
       if (!isAdmin(req) && req.params.id !== req.userId) {
         return res.status(403).json({ message: 'Forbidden' });
@@ -644,6 +677,10 @@ router.get('/:type/:id', authenticateToken, async (req, res, next) => {
 // --- Update ---
 router.put('/:type/:id', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' must be updated through its dedicated API.` });
+    }
     if (req.params.type === 'User') {
       return requireAdmin(req, res, async () => {
         try {
@@ -725,6 +762,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
 // the references are fixed. `acknowledged: false` withdraws a review.
 router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
     if (!REVIEWABLE_TYPES.has(req.params.type)) {
       return res.status(400).json({ message: `'${req.params.type}' does not support review acknowledgment.` });
     }
@@ -799,6 +837,10 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
 // --- Delete ---
 router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' must be deleted through its dedicated API.` });
+    }
     if (req.params.type === 'User') {
       return requireAdmin(req, res, async () => {
         try {

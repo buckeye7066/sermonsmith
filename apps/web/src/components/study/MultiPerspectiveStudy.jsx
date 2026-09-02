@@ -178,7 +178,7 @@ Be fair, accurate, and respectful to every tradition. Present each view charitab
       const response = await api.integrations.Core.InvokeLLM({
         system_prompt: LARRY_SYSTEM_PROMPT,
         prompt,
-        feature: 'study_plan',
+        feature: 'multi_perspective_study',
         response_json_schema: perspectiveSchema
       });
 

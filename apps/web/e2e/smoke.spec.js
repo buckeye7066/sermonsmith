@@ -327,3 +327,4 @@ test('mobile Safari and Android profiles keep navigation reachable without page 
   expect(metrics.smallestNavigationTarget).toBeGreaterThanOrEqual(44);
   expect(metrics.mainBottomPadding).toBeGreaterThanOrEqual(64);
 });
+

@@ -30,16 +30,17 @@ export default function RatingDialog({ open, onClose, sermon, user }) {
 
   const checkExistingRating = async () => {
     try {
-      const existing = await api.entities.SermonRating.filter({
-        sermon_id: sermon.id,
-        user_id: user.id
-      });
-
-      if (existing.length > 0) {
-        setExistingRating(existing[0]);
-        setRating(existing[0].rating);
-        setReviewText(existing[0].review_text || "");
-        setUsedInMinistry(existing[0].used_in_ministry || false);
+      const data = await api.community.sermonRatings(sermon.id);
+      if (data.mine) {
+        setExistingRating(data.mine);
+        setRating(data.mine.rating);
+        setReviewText(data.mine.review_text || "");
+        setUsedInMinistry(data.mine.used_in_ministry || false);
+      } else {
+        setExistingRating(null);
+        setRating(0);
+        setReviewText("");
+        setUsedInMinistry(false);
       }
     } catch (error) {
       console.error('Error checking existing rating:', error);
@@ -55,32 +56,10 @@ export default function RatingDialog({ open, onClose, sermon, user }) {
     setIsSubmitting(true);
 
     try {
-      if (existingRating) {
-        // Update existing rating
-        await api.entities.SermonRating.update(existingRating.id, {
-          rating,
-          review_text: reviewText.trim(),
-          used_in_ministry: usedInMinistry
-        });
-      } else {
-        // Create new rating
-        await api.entities.SermonRating.create({
-          sermon_id: sermon.id,
-          user_id: user.id,
-          user_name: user.full_name || user.email,
-          rating,
-          review_text: reviewText.trim(),
-          used_in_ministry: usedInMinistry
-        });
-      }
-
-      // Update sermon's average rating
-      const allRatings = await api.entities.SermonRating.filter({ sermon_id: sermon.id });
-      const avgRating = allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length;
-
-      await api.entities.SharedSermon.update(sermon.id, {
-        average_rating: avgRating,
-        ratings_count: allRatings.length
+      await api.community.rateSermon(sermon.id, {
+        rating,
+        review_text: reviewText.trim(),
+        used_in_ministry: usedInMinistry,
       });
 
       toast.success(existingRating ? "Rating updated!" : "Thank you for your review! 🌟");

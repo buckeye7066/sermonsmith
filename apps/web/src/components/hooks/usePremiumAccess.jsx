@@ -16,7 +16,15 @@ export function usePremiumAccess() {
 
   return useMemo(() => {
     if (isLoadingAuth) {
-      return { isPremium: false, devOverride: false, tier: 'free', loading: true, error: null };
+      return {
+        isPremium: false,
+        devOverride: false,
+        tier: 'free',
+        entitlements: [],
+        hasEntitlement: () => false,
+        loading: true,
+        error: null,
+      };
     }
 
     if (!user) {
@@ -24,13 +32,20 @@ export function usePremiumAccess() {
         isPremium: false,
         devOverride: false,
         tier: 'free',
+        entitlements: [],
+        hasEntitlement: () => false,
         loading: false,
         error: authError?.message || null,
       };
     }
 
     const isAdmin = user.role === 'admin' || user.role === 'dev';
-    const devOverride = isAdmin || user.premium_override === true;
+    const promotionalEmails = ['buckeye7066@gmail.com', 'anyawhite@rocketmail.com', 'whiterobert1201@icloud.com', 'tishka1201@icloud.com'];
+    const promotionalPhones = ['9319981779', '19319981779'];
+    const normalizedPhone = String(user.phone || '').replace(/\D/g, '');
+    const promotionalAccess = promotionalEmails.includes(String(user.email || '').toLowerCase())
+      || promotionalPhones.includes(normalizedPhone);
+    const devOverride = isAdmin || user.premium_override === true || promotionalAccess;
 
     let isPremium = false;
     if (isAdmin || devOverride) {
@@ -46,10 +61,17 @@ export function usePremiumAccess() {
       }
     }
 
+    const entitlements = Array.isArray(user.entitlements) ? user.entitlements : [];
+    const hasEntitlement = (entitlement) => entitlements.length > 0
+      ? entitlements.includes(entitlement)
+      : isPremium;
+
     return {
       isPremium,
       devOverride,
-      tier: isPremium ? 'premium' : 'free',
+      tier: isPremium ? 'premium' : (user.subscription_tier || 'free'),
+      entitlements,
+      hasEntitlement,
       loading: false,
       error: null,
     };

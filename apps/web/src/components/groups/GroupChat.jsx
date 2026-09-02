@@ -8,7 +8,7 @@ import { Send, Pin, MessageCircle, Book, Heart, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
-export default function GroupChat({ group, user }) {
+export default function GroupChat({ group, user, isLeader = false }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [messageType, setMessageType] = useState("text");
@@ -32,12 +32,8 @@ export default function GroupChat({ group, user }) {
 
   const loadMessages = async () => {
     try {
-      const msgs = await api.entities.GroupMessage.filter(
-        { group_id: group.id },
-        '-created_date',
-        100
-      );
-      setMessages(msgs.reverse());
+      const msgs = await api.community.groupMessages(group.id);
+      setMessages(msgs);
     } catch (error) {
       console.error('Error loading messages:', error);
     } finally {
@@ -49,10 +45,7 @@ export default function GroupChat({ group, user }) {
     if (!newMessage.trim()) return;
 
     try {
-      await api.entities.GroupMessage.create({
-        group_id: group.id,
-        user_id: user.id,
-        user_name: user.full_name || user.email,
+      await api.community.sendGroupMessage(group.id, {
         message: newMessage,
         message_type: messageType
       });
@@ -147,14 +140,16 @@ export default function GroupChat({ group, user }) {
               <Heart className="w-4 h-4 mr-1" />
               Prayer
             </Button>
-            <Button
-              size="sm"
-              variant={messageType === "announcement" ? "default" : "outline"}
-              onClick={() => setMessageType("announcement")}
-            >
-              <Megaphone className="w-4 h-4 mr-1" />
-              Announce
-            </Button>
+            {isLeader && (
+              <Button
+                size="sm"
+                variant={messageType === "announcement" ? "default" : "outline"}
+                onClick={() => setMessageType("announcement")}
+              >
+                <Megaphone className="w-4 h-4 mr-1" />
+                Announce
+              </Button>
+            )}
           </div>
           
           <div className="flex gap-2">

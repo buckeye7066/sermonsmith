@@ -5,16 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BookOpen, Save, AlertCircle, FileText, Crown, MessageCircle, Sparkles, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
-import { apiBinaryCall } from "@/components/utils/apiCall";
 import PrintButton from "@/components/common/PrintButton";
-import { downloadBlob } from "@/lib/downloadBlob";
 
-export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQuestions, isEnhancing, enhancementType }) {
+export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQuestions, isEnhancing, enhancementType, viewOnly = false }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState(studyData?.title || "");
   const [isExporting, setIsExporting] = useState(false);
@@ -27,44 +24,25 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
     ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'].some(p => user.phone?.replace(/[\s\-()]/g, '').includes(p.replace(/[\s\-()+]/g, '')))
   );
 
-  const handleExport = async (format) => {
+  const handleExport = async () => {
     if (!isPremium) {
       toast.error("Export is a Premium feature", {
-        description: "Upgrade to export your studies to PDF and PPTX"
-      });
-      return;
-    }
-
-    if (!studyData?.id) {
-      toast.error("Please save your study first", {
-        description: "You need to save the study before exporting it"
+        description: "Upgrade to export your studies to PDF"
       });
       return;
     }
 
     setIsExporting(true);
     try {
-      const functionName = format === 'pdf' ? 'exportToPDF' : 'exportToPPTX';
-      const { blob, filename } = await apiBinaryCall(functionName, {
-        resourceType: 'study',
-        resourceId: studyData.id
+      const { exportStudyToPdf } = await import('@/lib/studyPdf');
+      const filename = await exportStudyToPdf({
+        ...studyData,
+        title: editedTitle || studyData.title || 'Bible Study',
       });
-
-      // Diagnose an empty API response explicitly: downloadBlob would also
-      // reject it, but with "A Blob is required", which does not tell the user
-      // the export function returned nothing.
-      if (!blob) {
-        throw new Error('No data received from the API');
-      }
-
-      // Use downloadBlob rather than a hand-rolled anchor: it defers
-      // revokeObjectURL so Safari does not cancel the download mid-flight.
-      downloadBlob(blob, filename);
-
-      toast.success(`Study exported to ${format.toUpperCase()}!`);
+      toast.success('Study exported to PDF', { description: filename });
     } catch (error) {
-      console.error(`Error exporting to ${format}:`, error);
-      toast.error(`Failed to export to ${format.toUpperCase()}`, {
+      console.error('Error exporting study to PDF:', error);
+      toast.error('Failed to export to PDF', {
         description: error.message
       });
     } finally {
@@ -88,7 +66,7 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              {isEditing ? (
+              {isEditing && !viewOnly ? (
                 <Input
                   value={editedTitle}
                   onChange={(e) => setEditedTitle(e.target.value)}
@@ -107,8 +85,8 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
                 />
               ) : (
                 <CardTitle
-                  className="text-2xl cursor-pointer hover:text-indigo-600 transition-colors"
-                  onClick={() => setIsEditing(true)}
+                  className={viewOnly ? "text-2xl" : "text-2xl cursor-pointer hover:text-indigo-600 transition-colors"}
+                  onClick={() => !viewOnly && setIsEditing(true)}
                 >
                   {studyData.title}
                 </CardTitle>
@@ -283,43 +261,27 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
 
       {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-3" data-print-hidden>
-        <Button onClick={onSave} className="flex-1" size="lg">
-          <Save className="w-4 h-4 mr-2" />
-          Save Study
-        </Button>
+        {typeof onSave === 'function' && !viewOnly && (
+          <Button onClick={onSave} className="flex-1" size="lg">
+            <Save className="w-4 h-4 mr-2" />
+            Save Study
+          </Button>
+        )}
         {isPremium ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                disabled={isExporting || !studyData?.id}
-                className="flex-1"
-                size="lg"
-              >
-                {isExporting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 mr-2" />
-                    Export {!studyData?.id && "(Save First)"}
-                  </>
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => handleExport('pdf')}>
-                <FileText className="w-4 h-4 mr-2" />
-                Export to PDF
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport('pptx')}>
-                <FileText className="w-4 h-4 mr-2" />
-                Export to PPTX
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="outline"
+            disabled={isExporting}
+            className="flex-1"
+            size="lg"
+            onClick={handleExport}
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            {isExporting ? 'Exporting PDF...' : 'Export PDF'}
+          </Button>
         ) : (
           <Button
             variant="outline"

@@ -66,6 +66,8 @@ export const AI_FEATURES = {
   exegesis: { id: 'exegesis', persona: 'larry', label: 'Exegesis Helper' },
   bible_study: { id: 'bible_study', persona: 'larry', label: 'Bible Study Builder' },
   study_plan: { id: 'study_plan', persona: 'larry', label: 'Study Plan Generator' },
+  multi_perspective_study: { id: 'multi_perspective_study', persona: 'larry', label: 'Multi-Perspective Study' },
+  plan_adaptation: { id: 'plan_adaptation', persona: 'larry', label: 'Reading Plan Adaptation' },
   prayer: { id: 'prayer', persona: 'larry', label: 'Prayer Generator' },
   quiz: { id: 'quiz', persona: 'larry', label: 'Quiz Builder' },
   worldview: { id: 'worldview', persona: 'larry', label: 'Worldview Explorer' },

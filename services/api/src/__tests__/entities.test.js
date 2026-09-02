@@ -92,6 +92,16 @@ describe('entities — tenant isolation', () => {
     expect(res.status).toBe(401);
   });
 
+  it('blocks free accounts from premium entity types at the generic API boundary', async () => {
+    const res = await request(app)
+      .post('/api/entities/CommunityPost')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`])
+      .send({ title: 'Bypass attempt', content: 'Direct API call', post_type: 'discussion' });
+
+    expect(res.status).toBe(402);
+    expect(prisma._store.entity.some((row) => row.type === 'CommunityPost')).toBe(false);
+  });
+
   it('alice only sees her own sermons in list', async () => {
     const res = await request(app)
       .get('/api/entities/Sermon')
@@ -250,7 +260,7 @@ describe('entities — community forum types', () => {
   beforeEach(() => {
     prisma._reset();
     app = buildApp();
-    prisma._store.user.push({ id: 'u-carol', email: 'carol@x', role: 'user', premium: false });
+    prisma._store.user.push({ id: 'u-carol', email: 'carol@x', role: 'user', premium: true });
   });
 
   // Regression: the Forum page POSTs CommunityPost/CommunityReply, but those

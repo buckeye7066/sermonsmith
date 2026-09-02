@@ -11,7 +11,7 @@ import { Calendar, Plus, MapPin, Video, Users, Clock, CheckCircle, X } from "luc
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 
-export default function MeetingScheduler({ group, user, members }) {
+export default function MeetingScheduler({ group, user, members, isLeader = false }) {
   const [meetings, setMeetings] = useState([]);
   const [showNewMeeting, setShowNewMeeting] = useState(false);
   const [newMeeting, setNewMeeting] = useState({
@@ -34,11 +34,7 @@ export default function MeetingScheduler({ group, user, members }) {
 
   const loadMeetings = async () => {
     try {
-      const mtgs = await api.entities.GroupMeeting.filter(
-        { group_id: group.id },
-        '-scheduled_date',
-        50
-      );
+      const mtgs = await api.community.groupMeetings(group.id);
       setMeetings(mtgs);
     } catch (error) {
       console.error('Error loading meetings:', error);
@@ -52,10 +48,7 @@ export default function MeetingScheduler({ group, user, members }) {
     }
 
     try {
-      await api.entities.GroupMeeting.create({
-        ...newMeeting,
-        group_id: group.id
-      });
+      await api.community.createGroupMeeting(group.id, newMeeting);
 
       toast.success("Meeting scheduled!");
       setShowNewMeeting(false);
@@ -79,21 +72,7 @@ export default function MeetingScheduler({ group, user, members }) {
 
   const handleRSVP = async (meeting, status) => {
     try {
-      const existing = await api.entities.MeetingAttendance.filter({
-        meeting_id: meeting.id,
-        user_id: user.id
-      });
-
-      if (existing.length > 0) {
-        await api.entities.MeetingAttendance.update(existing[0].id, { status });
-      } else {
-        await api.entities.MeetingAttendance.create({
-          meeting_id: meeting.id,
-          user_id: user.id,
-          user_name: user.full_name || user.email,
-          status
-        });
-      }
+      await api.community.rsvpGroupMeeting(group.id, meeting.id, status);
 
       toast.success(`RSVP updated to: ${status}`);
       loadMeetings();
@@ -127,7 +106,7 @@ export default function MeetingScheduler({ group, user, members }) {
               <Calendar className="w-5 h-5" />
               Meetings
             </CardTitle>
-            <Dialog open={showNewMeeting} onOpenChange={setShowNewMeeting}>
+            {isLeader && <Dialog open={showNewMeeting} onOpenChange={setShowNewMeeting}>
               <DialogTrigger asChild>
                 <Button size="sm">
                   <Plus className="w-4 h-4 mr-2" />
@@ -236,7 +215,7 @@ export default function MeetingScheduler({ group, user, members }) {
                   <Button onClick={handleCreateMeeting}>Schedule Meeting</Button>
                 </DialogFooter>
               </DialogContent>
-            </Dialog>
+            </Dialog>}
           </div>
         </CardHeader>
         <CardContent className="space-y-6">

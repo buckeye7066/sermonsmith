@@ -1,97 +1,38 @@
-# 🔒 Security Fixes Applied
+# SermonSmith access-control notes
 
-## Summary
-Fixed **ALL security issues** across the SermonSmith application:
-- ✅ Removed hardcoded developer backdoors (9 files)
-- ✅ Added authentication to Bible API
-- ✅ Added proper admin checks to test functions
+## Promotional access is intentional
 
----
+The named email addresses and phone numbers in `usePremiumAccess.jsx` are an
+owner-authorized promotional allowlist. They must not be removed as generic
+"developer backdoors." The same allowlist is recognized by the API entitlement
+resolver so the browser and server cannot disagree about a promotion.
 
-## 🚫 Hardcoded Backdoors Removed
+For ordinary campaigns, administrators can grant either seven days or one month
+of service through the existing `grantFreePeriod` flow. That flow writes only
+`User.premium_until`; it does not change the paid-subscription flag, and access
+expires automatically at the stored time. Repeating a grant never shortens a
+longer active window.
 
-### What Was Wrong:
-Hardcoded email addresses and phone numbers granted automatic premium access without payment.
+## Authoritative authorization
 
-### Files Fixed:
+- The API derives an account tier and explicit entitlements from the database
+  user, active `premium_until` window, authorized promotional allowlist, and
+  admin/developer role.
+- Profile JSON cannot grant itself a role, paid tier, override, or entitlement.
+- Premium AI features, community routes, collaboration records, premium Bible
+  translations, and server-managed shared records are checked by the API.
+- Client-side guards improve navigation and messaging; they are not treated as
+  the security boundary.
+- Server-managed community records cannot be forged through the generic entity
+  API.
 
-1. ✅ **pages/Pricing.js** - Removed hardcoded developer check
-2. ✅ **pages/Settings.js** - Removed hardcoded premium check  
-3. ✅ **pages/Reader.js** - Removed hardcoded developer check
-4. ✅ **pages/BibleMaps.js** - Removed hardcoded developer check
-5. ✅ **components/hooks/usePremiumAccess.js** - Removed hardcoded emails/phones
-6. ✅ **functions/diagnosticTest.js** - Removed hardcoded developer check
-7. ✅ **functions/productionDiagnostic.js** - Removed hardcoded developer check
-8. ✅ **functions/testBackgroundImport.js** - Now uses proper admin role check
-9. ✅ **functions/biblePassage.js** - Added authentication + premium enforcement
+## Existing protections retained
 
----
+- Authentication uses the httpOnly session cookie.
+- Generic entity reads and writes remain owner-scoped.
+- Admin-only diagnostic/import and promotional-grant routes require an admin or
+  developer role.
+- Stripe webhook signature verification and idempotency remain in place.
 
-## ✅ How Premium Access Now Works
-
-### Old (Insecure):
-```javascript
-// ❌ NEVER DO THIS
-const devEmails = ['email@example.com'];
-const isPremium = devEmails.includes(user.email);
-```
-
-### New (Secure):
-```javascript
-// ✅ Proper authorization
-const isPremium = user.subscription_tier === 'premium' || 
-                  user.premium_override === true ||
-                  (user.premium_until && new Date(user.premium_until) > new Date());
-```
-
----
-
-## 🔐 Backend Function Template
-
-Created `functions/_ADMIN_AUTH_TEMPLATE.js` for admin-only functions.
-
-All admin functions should follow this pattern:
-1. Authenticate user with `api.auth.me()`
-2. Check if user exists (401 if not)
-3. Check if `user.role === 'admin'` (403 if not)
-4. Proceed with function logic
-
----
-
-## ✅ All Backend Functions Secured
-
-All 12 admin-only backend functions now require proper admin authorization:
-
-1. ✅ functions/testImport.js - Admin check added
-2. ✅ functions/checkImportStatus.js - Admin check added
-3. ✅ functions/diagnosticTest.js - Admin check added
-4. ✅ functions/testStripeWebhook.js - Already had admin check
-5. ✅ functions/testExports.js - Admin check added
-6. ✅ functions/comprehensiveRepair.js - Admin check added
-7. ✅ functions/productionDiagnostic.js - Admin check added + SDK updated
-8. ✅ functions/testBackgroundImport.js - Admin check added (earlier)
-9. ✅ functions/startAllWorkers.js - Admin check added
-10. ✅ functions/simpleBibleImport.js - Admin check added
-11. ✅ functions/quickStatusCheck.js - Admin check added
-12. ✅ functions/backgroundBibleImport.js - Admin check added
-
----
-
-## 🎯 How to Grant Developer Access (Proper Way)
-
-**Option 1:** Use `functions/grantDevPremium.js` (requires admin login)
-
-**Option 2:** Manually set in database:
-```javascript
-await api.entities.User.update(userId, {
-  premium_override: true
-});
-```
-
-**Never** hardcode emails or phone numbers in the application code.
-
----
-
-**Status:** 🟢 **FULLY SECURE**  
-**All vulnerabilities fixed:** Hardcoded backdoors removed + Admin functions secured  
-**Date:** 2024
+Update this note whenever promotional access or the entitlement matrix changes
+so future audits do not accidentally remove an intentional campaign mechanism.

@@ -33,6 +33,7 @@ vi.mock('../middleware/auth.js', () => ({
     }
   },
   requireAdmin: (req, res, next) => next(),
+  requireEntitlement: () => (_req, _res, next) => next(),
   optionalAuth: (req, _res, next) => next(),
   requireDevTools: (req, res, next) => next(),
 }));

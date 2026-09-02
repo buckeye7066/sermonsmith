@@ -38,22 +38,16 @@ export default function GroupDetail() {
 
   const loadGroupData = async () => {
     try {
-      const [groupData, groupMembers, userMembership] = await Promise.all([
-        api.entities.StudyGroup.filter({ id: groupId }),
-        api.entities.GroupMembership.filter({ group_id: groupId }),
-        api.entities.GroupMembership.filter({ group_id: groupId, user_id: user.id })
-      ]);
-
-      if (groupData.length === 0) {
-        toast.error("Group not found");
-        return;
-      }
-
-      setGroup(groupData[0]);
-      setMembers(groupMembers);
-      setMembership(userMembership[0] || null);
+      const data = await api.community.studyGroup(groupId);
+      setGroup(data.group);
+      setMembers(data.members || []);
+      setMembership(data.membership || null);
     } catch (error) {
-      toast.error("Failed to load group");
+      if (error?.status === 403) {
+        toast.error("Join this group before opening its private activity");
+      } else {
+        toast.error("Failed to load group");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -65,10 +59,7 @@ export default function GroupDetail() {
     if (!confirm("Are you sure you want to leave this group?")) return;
 
     try {
-      await api.entities.GroupMembership.delete(membership.id);
-      await api.entities.StudyGroup.update(group.id, {
-        member_count: Math.max(0, (group.member_count || 1) - 1)
-      });
+      await api.community.leaveStudyGroup(group.id);
 
       toast.success("Left group");
       window.location.href = createPageUrl('StudyGroups');
@@ -81,7 +72,7 @@ export default function GroupDetail() {
     if (membership?.role !== 'leader') return;
 
     try {
-      await api.entities.GroupMembership.update(member.id, { role: 'leader' });
+      await api.community.promoteStudyGroupMember(group.id, member.id);
       toast.success(`${member.user_name} is now a leader`);
       loadGroupData();
     } catch (error) {
@@ -182,11 +173,11 @@ export default function GroupDetail() {
           </TabsList>
 
           <TabsContent value="chat">
-            <GroupChat group={group} user={user} />
+            <GroupChat group={group} user={user} isLeader={isLeader} />
           </TabsContent>
 
           <TabsContent value="meetings">
-            <MeetingScheduler group={group} user={user} members={members} />
+            <MeetingScheduler group={group} user={user} members={members} isLeader={isLeader} />
           </TabsContent>
 
           <TabsContent value="progress">

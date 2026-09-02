@@ -70,5 +70,19 @@ describe('authenticateToken (real middleware)', () => {
     expect(req.userId).toBe('u1');
     expect(req.userRole).toBe('user');
     expect(req.userPremium).toBe(true); // unexpired trial window counts as premium
+    expect(req.accountTier).toBe('premium');
+    expect(req.entitlements).toContain('community');
+  });
+
+  it('attaches free entitlements when no paid, trial, or promotional access exists', async () => {
+    findUnique.mockResolvedValue(baseUser({ email: 'ordinary@example.com' }));
+    const req = reqWithToken(signToken({ id: 'u1', tokenVersion: 0 }));
+    const res = mockRes(); let nexted = false;
+    await authenticateToken(req, res, () => { nexted = true; });
+
+    expect(nexted).toBe(true);
+    expect(req.accountTier).toBe('free');
+    expect(req.entitlements).toContain('bible_reader');
+    expect(req.entitlements).not.toContain('community');
   });
 });

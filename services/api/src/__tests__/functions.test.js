@@ -232,6 +232,66 @@ describe('function routes - Bible source registry', () => {
     expect(res.body.cacheHit).toBe(false);
   });
 
+  it('uses the unambiguous parameterized provider endpoint for a single-chapter book', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      expect(String(url)).toBe('https://bible-api.com/data/bbe/JUD/1');
+      return {
+        ok: true,
+        json: async () => ({
+          translation: { name: 'Bible in Basic English' },
+          verses: [
+            { book: 'Jude', chapter: 1, verse: 1, text: 'Jude, a servant of Jesus Christ.' },
+            { book: 'Jude', chapter: 1, verse: 25, text: 'To the only God our Saviour.' },
+          ],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ bookCode: 'JUD', chapter: 1, translationId: 'bbe' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.reference).toBe('Jude 1');
+    expect(res.body.verses.map((row) => row.verse)).toEqual([1, 25]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an out-of-range chapter before any provider request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ bookCode: 'GEN', chapter: 51, translationId: 'kjv' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Genesis has 50 chapters/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('serves verse requests when the passage-cache migration is unavailable', async () => {
+    prisma.biblePassageCache.findUnique.mockRejectedValueOnce(new Error('table missing'));
+    prisma.biblePassageCache.upsert.mockRejectedValueOnce(new Error('table missing'));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        reference: 'John 3:16',
+        text: 'For God so loved the world.',
+        verses: [{ book_name: 'John', chapter: 3, verse: 16, text: 'For God so loved the world.' }],
+      }),
+    })));
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ book: 'John', chapter: 3, verse: 16, translation: 'kjv' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.verses[0]).toMatchObject({ chapter: 3, verse: 16 });
+    expect(res.body.cacheHit).toBe(false);
+  });
+
   it('rejects quoted wording that does not match provider text for a valid reference', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

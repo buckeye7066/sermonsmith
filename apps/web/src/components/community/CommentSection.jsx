@@ -24,11 +24,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
   const loadComments = async () => {
     setIsLoading(true);
     try {
-      const contentComments = await api.entities.Comment.filter(
-        { content_type: contentType, content_id: contentId },
-        '-created_date',
-        100
-      );
+      const contentComments = await api.community.comments(contentType, contentId);
       setComments(contentComments);
     } catch (error) {
       console.error('Error loading comments:', error);
@@ -51,14 +47,10 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
     setIsSubmitting(true);
 
     try {
-      await api.entities.Comment.create({
-        user_id: user.id,
-        user_name: user.full_name || user.email,
+      await api.community.createComment({
         content_type: contentType,
         content_id: contentId,
         comment: newComment.trim(),
-        likes_count: 0,
-        is_pinned: false
       });
 
       setNewComment("");
@@ -79,9 +71,11 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
     }
 
     try {
-      await api.entities.Comment.update(comment.id, {
-        likes_count: (comment.likes_count || 0) + 1
-      });
+      if (comment.likedByMe) {
+        await api.community.unlikeComment(comment.id);
+      } else {
+        await api.community.likeComment(comment.id);
+      }
       loadComments();
     } catch (error) {
       toast.error("Failed to like comment");
@@ -97,7 +91,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
     if (!confirm("Delete this comment?")) return;
 
     try {
-      await api.entities.Comment.delete(comment.id);
+      await api.community.deleteComment(comment.id);
       toast.success("Comment deleted");
       loadComments();
     } catch (error) {
@@ -109,9 +103,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
     if (!user || contentCreatorId !== user.id) return;
 
     try {
-      await api.entities.Comment.update(comment.id, {
-        is_pinned: !comment.is_pinned
-      });
+      await api.community.pinComment(comment.id);
       toast.success(comment.is_pinned ? "Comment unpinned" : "Comment pinned!");
       loadComments();
     } catch (error) {
@@ -223,7 +215,7 @@ export default function CommentSection({ contentType, contentId, contentCreatorI
                       disabled={!user}
                       className="text-xs"
                     >
-                      <Heart className={`w-3 h-3 mr-1 ${comment.likes_count > 0 ? 'fill-red-500 text-red-500' : ''}`} />
+                      <Heart className={`w-3 h-3 mr-1 ${comment.likedByMe ? 'fill-red-500 text-red-500' : ''}`} />
                       {comment.likes_count || 0}
                     </Button>
                   </div>

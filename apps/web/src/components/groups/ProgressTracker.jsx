@@ -19,19 +19,9 @@ export default function ProgressTracker({ group, isLeader }) {
 
   const loadProgress = async () => {
     try {
-      const groupProgress = await api.entities.GroupProgress.filter({ group_id: group.id });
-      
-      if (groupProgress.length > 0) {
-        const prog = groupProgress[0];
-        setProgress(prog);
-        
-        if (prog.plan_id) {
-          const readingPlan = await api.entities.ReadingPlan.filter({ id: prog.plan_id });
-          if (readingPlan.length > 0) {
-            setPlan(readingPlan[0]);
-          }
-        }
-      }
+      const data = await api.community.groupProgress(group.id);
+      setProgress(data.progress || null);
+      setPlan(data.plan || null);
     } catch (error) {
       console.error('Error loading progress:', error);
     } finally {
@@ -43,14 +33,7 @@ export default function ProgressTracker({ group, isLeader }) {
     if (!progress || !isLeader) return;
 
     try {
-      const completedDays = [...(progress.completed_days || []), day];
-      const completionPercentage = (completedDays.length / progress.total_days) * 100;
-
-      await api.entities.GroupProgress.update(progress.id, {
-        completed_days: completedDays,
-        current_day: day + 1,
-        completion_percentage: Math.round(completionPercentage)
-      });
+      await api.community.completeGroupProgressDay(group.id, day);
 
       toast.success("Day marked as complete!");
       loadProgress();
@@ -69,9 +52,6 @@ export default function ProgressTracker({ group, isLeader }) {
         <CardContent className="pt-6 text-center">
           <Book className="w-12 h-12 mx-auto mb-4 text-gray-400" />
           <p className="text-gray-600 mb-4">No study plan assigned to this group yet</p>
-          {isLeader && (
-            <Button>Assign a Reading Plan</Button>
-          )}
         </CardContent>
       </Card>
     );

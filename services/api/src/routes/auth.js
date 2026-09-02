@@ -8,6 +8,7 @@ import { sendPasswordResetEmail } from '../services/email.js';
 import { recordSuccessfulLogin } from '../services/firstLoginNotifier.js';
 import { signupTrialPeriod } from '../lib/signupTrial.js';
 import { grantFreePeriodToUser } from '../lib/premiumGrant.js';
+import { accessSummaryFor } from '../lib/entitlements.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -116,7 +117,12 @@ function sanitizeUser(user) {
   // eslint-disable-next-line no-unused-vars
   const { password, profile, ...safeUser } = user;
   const safeProfile = cleanProfile(profile);
-  return { ...safeProfile, ...safeUser, profile: safeProfile };
+  return {
+    ...safeProfile,
+    ...safeUser,
+    profile: safeProfile,
+    ...accessSummaryFor(user),
+  };
 }
 
 const PRIVACY_EXPORT_MODELS = [

@@ -4,11 +4,25 @@ import { useAuth } from '@/lib/AuthContext';
 import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, MessageSquare, BookOpen, TrendingUp, Heart, Calendar, Crown } from "lucide-react";
+import {
+  Users,
+  MessageSquare,
+  BookOpen,
+  TrendingUp,
+  Heart,
+  Calendar,
+  Crown,
+  Search,
+  UserPlus,
+  UserCheck,
+  Loader2,
+} from "lucide-react";
 import { Link } from "react-router";
 import { createPageUrl } from "@/utils";
+import { toast } from "sonner";
 
 
 export default function Community() {
@@ -17,6 +31,10 @@ export default function Community() {
   const [popularShared, setPopularShared] = useState([]);
   const [activeGroups, setActiveGroups] = useState([]);
   const [readingPlans, setReadingPlans] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [memberQuery, setMemberQuery] = useState('');
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [interactionId, setInteractionId] = useState(null);
 
   // Derive premium status from the shared user object; keep the dev-list
   // overrides that existed in the previous local fetch.
@@ -45,11 +63,12 @@ export default function Community() {
       // Public community feeds (across all members) — the old entity-API reads
       // were tenant-scoped, so the landing only ever showed the viewer's own
       // content and looked empty.
-      const [posts, shared, groups, plans] = await Promise.all([
+      const [posts, shared, groups, plans, memberResult] = await Promise.all([
         api.community.posts(),
         api.community.sharedContent('all'),
         api.community.studyGroups(),
         api.community.readingPlans(),
+        api.community.members(),
       ]);
 
       setRecentPosts((posts || []).slice(0, 5));
@@ -58,9 +77,71 @@ export default function Community() {
       );
       setActiveGroups((groups || []).slice(0, 5));
       setReadingPlans((plans || []).slice(0, 5));
+      setMembers(memberResult?.members || []);
     } catch (error) {
       logError('Error loading community data', error);
       setError('There was a problem loading community data. Please try again later.');
+    }
+  };
+
+  const searchMembers = async (event) => {
+    event?.preventDefault();
+    setMembersLoading(true);
+    try {
+      const result = await api.community.members({ q: memberQuery.trim() });
+      setMembers(result?.members || []);
+    } catch (searchError) {
+      logError('Error searching community members', searchError);
+      toast.error('Member search failed. Please try again.');
+    } finally {
+      setMembersLoading(false);
+    }
+  };
+
+  const toggleFollow = async (member) => {
+    setInteractionId(`member:${member.id}`);
+    try {
+      if (member.followedByMe) await api.community.unfollowMember(member.id);
+      else await api.community.followMember(member.id);
+      setMembers((current) => current.map((item) => item.id === member.id ? {
+        ...item,
+        followedByMe: !member.followedByMe,
+        followerCount: Math.max(0, Number(item.followerCount || 0) + (member.followedByMe ? -1 : 1)),
+      } : item));
+      toast.success(member.followedByMe ? `Unfollowed ${member.name}` : `Following ${member.name}`);
+    } catch (followError) {
+      logError('Error updating member follow', followError);
+      toast.error('Could not update this connection.');
+    } finally {
+      setInteractionId(null);
+    }
+  };
+
+  const togglePostLike = async (post) => {
+    setInteractionId(`post:${post.id}`);
+    try {
+      const updated = post.likedByMe
+        ? await api.community.unlikePost(post.id)
+        : await api.community.likePost(post.id);
+      setRecentPosts((current) => current.map((item) => item.id === post.id ? { ...item, ...updated } : item));
+    } catch (likeError) {
+      logError('Error updating post like', likeError);
+      toast.error('Could not update this like.');
+    } finally {
+      setInteractionId(null);
+    }
+  };
+
+  const likeSharedContent = async (content) => {
+    setInteractionId(`shared:${content.id}`);
+    try {
+      const updated = await api.community.like(content.id);
+      setPopularShared((current) => current.map((item) => item.id === content.id ? { ...item, ...updated } : item));
+    } catch (likeError) {
+      logError('Error liking shared content', likeError);
+      toast.error('Could not like this item.');
+    } finally {
+      setInteractionId(null);
     }
   };
 
@@ -173,12 +254,99 @@ export default function Community() {
           </Link>
         </div>
 
-        <Tabs defaultValue="recent" className="space-y-6">
-          <TabsList>
+        <Tabs defaultValue="members" className="space-y-6">
+          <TabsList className="h-auto flex-wrap justify-start">
+            <TabsTrigger value="members">Find Members</TabsTrigger>
             <TabsTrigger value="recent">Recent Activity</TabsTrigger>
             <TabsTrigger value="popular">Popular Content</TabsTrigger>
             <TabsTrigger value="plans">Reading Plans</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="members" className="space-y-5">
+            <div>
+              <h2 className="text-2xl font-bold">Find Community Members</h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                Search by name, discover ministry interests, and follow people whose work you value.
+              </p>
+            </div>
+            <form onSubmit={searchMembers} className="flex gap-2 max-w-2xl">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Input
+                  aria-label="Search community members"
+                  value={memberQuery}
+                  onChange={(event) => setMemberQuery(event.target.value)}
+                  placeholder="Search members by name"
+                  className="pl-9"
+                />
+              </div>
+              <Button type="submit" disabled={membersLoading}>
+                {membersLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
+              </Button>
+            </form>
+
+            {members.length === 0 && !membersLoading ? (
+              <Card>
+                <CardContent className="pt-6 text-center text-gray-500">
+                  <Users className="mx-auto mb-3 h-12 w-12 opacity-50" />
+                  <p>No members matched that search.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {members.map((member) => (
+                  <Card key={member.id}>
+                    <CardHeader>
+                      <div className="flex items-start gap-3">
+                        {member.avatar ? (
+                          <img src={member.avatar} alt="" className="h-11 w-11 rounded-full object-cover" />
+                        ) : (
+                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700">
+                            {member.name?.slice(0, 1)?.toUpperCase() || 'M'}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <CardTitle className="truncate text-lg">{member.name}</CardTitle>
+                          <CardDescription>
+                            {member.denomination || member.preachingStyle || 'Community member'}
+                          </CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {member.ministryFocus?.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {member.ministryFocus.slice(0, 4).map((focus) => (
+                            <Badge key={focus} variant="secondary">{focus}</Badge>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-4 text-xs text-gray-500">
+                        <span>{member.followerCount || 0} followers</span>
+                        <span>{member.followingCount || 0} following</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant={member.followedByMe ? 'outline' : 'default'}
+                        className="w-full"
+                        disabled={interactionId === `member:${member.id}`}
+                        onClick={() => toggleFollow(member)}
+                      >
+                        {interactionId === `member:${member.id}` ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : member.followedByMe ? (
+                          <UserCheck className="mr-2 h-4 w-4" />
+                        ) : (
+                          <UserPlus className="mr-2 h-4 w-4" />
+                        )}
+                        {member.followedByMe ? 'Following' : 'Follow'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
 
           <TabsContent value="recent" className="space-y-4">
             <h2 className="text-2xl font-bold">Recent Discussions</h2>
@@ -221,10 +389,20 @@ export default function Community() {
                         <MessageSquare className="w-4 h-4" />
                         {post.replies_count || 0} replies
                       </span>
-                      <span className="flex items-center gap-1">
-                        <Heart className="w-4 h-4" />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className={post.likedByMe ? 'text-red-600' : ''}
+                        disabled={interactionId === `post:${post.id}`}
+                        onClick={() => togglePostLike(post)}
+                      >
+                        <Heart className={`mr-1 h-4 w-4 ${post.likedByMe ? 'fill-current' : ''}`} />
                         {post.likes_count || 0} likes
-                      </span>
+                      </Button>
+                      <Link to={`${createPageUrl('Forum')}?post=${encodeURIComponent(post.id)}`}>
+                        <Button variant="outline" size="sm">Open discussion</Button>
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>
@@ -264,10 +442,16 @@ export default function Community() {
                         </Badge>
                       )}
                       <div className="flex items-center gap-4 mt-4 text-sm text-gray-600">
-                        <span className="flex items-center gap-1">
-                          <Heart className="w-4 h-4" />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={interactionId === `shared:${content.id}`}
+                          onClick={() => likeSharedContent(content)}
+                        >
+                          <Heart className="mr-1 h-4 w-4" />
                           {content.likes_count || 0}
-                        </span>
+                        </Button>
                         <span>{content.saves_count || 0} saves</span>
                       </div>
                     </CardContent>

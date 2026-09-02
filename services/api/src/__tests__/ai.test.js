@@ -71,6 +71,17 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(res.status).toBe(401);
   });
 
+  it('blocks a free account from premium AI features before contacting the provider', async () => {
+    prisma._store.user.push({ id: 'u-free-feature', role: 'user', premium: false });
+    const res = await request(app)
+      .post('/api/ai/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-free-feature')}`])
+      .send({ prompt: 'Compare these beliefs', feature: 'worldview' });
+
+    expect(res.status).toBe(402);
+    expect(res.body.requiredEntitlement).toBe('worldview');
+  });
+
   it('/stream returns a pre-stream JSON error (503) when AI is disabled', async () => {
     prisma._store.user.push({ id: 'u-s', role: 'user', premium: false });
     process.env.DISABLE_AI = '1';
@@ -289,13 +300,6 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(res.status).toBe(503);
   });
 
-  it('returns 501 (not 200) for unimplemented stub endpoints', async () => {
-    prisma._store.user.push({ id: 'u-x', role: 'user', premium: false });
-    const sms = await request(app).post('/api/ai/sms').send({ to: '+1234' }).set('Cookie', [`ss_token=${tokenFor('u-x')}`]);
-    expect(sms.status).toBe(501);
-    const upload = await request(app).post('/api/ai/upload').send({}).set('Cookie', [`ss_token=${tokenFor('u-x')}`]);
-    expect(upload.status).toBe(501);
-  });
 });
 
 describe('ai routes — /email lockdown', () => {
@@ -401,4 +405,3 @@ describe('ai routes — /email lockdown', () => {
     expect(res.status).toBe(400);
   });
 });
-

@@ -619,10 +619,7 @@ const integrations = {
       return text;
     },
     SendEmail:                  (p) => apiFetch('/api/ai/email',    { method: 'POST', body: JSON.stringify(p) }),
-    SendSMS:                    (p) => apiFetch('/api/ai/sms',      { method: 'POST', body: JSON.stringify(p) }),
-    UploadFile:                 (p) => apiFetch('/api/ai/upload',   { method: 'POST', body: JSON.stringify(p) }),
     GenerateImage:              (p) => apiFetch('/api/ai/image',    { method: 'POST', body: JSON.stringify(p) }),
-    ExtractDataFromUploadedFile:(p) => apiFetch('/api/ai/extract',  { method: 'POST', body: JSON.stringify(p) }),
   },
 };
 
@@ -665,6 +662,35 @@ const community = {
   // Public forum/community feeds — these read across ALL users (unlike the
   // tenant-scoped entity API), so members actually see each other's content.
   posts: () => apiFetch('/api/community/posts'),
+  sermons: (sort = 'popular') => apiFetch(`/api/community/sermons?sort=${encodeURIComponent(sort)}`),
+  shareSermon: (payload) => apiFetch('/api/community/sermons/share', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  recordSermonView: (id) => apiFetch(`/api/community/sermons/${encodeURIComponent(id)}/view`, { method: 'POST' }),
+  recordSermonFork: (id, createdSermonId) => apiFetch(`/api/community/sermons/${encodeURIComponent(id)}/fork`, {
+    method: 'POST',
+    body: JSON.stringify({ created_sermon_id: createdSermonId }),
+  }),
+  sermonRatings: (id) => apiFetch(`/api/community/sermons/${encodeURIComponent(id)}/ratings`),
+  rateSermon: (id, payload) => apiFetch(`/api/community/sermons/${encodeURIComponent(id)}/rating`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  comments: (contentType, contentId) => {
+    const query = new URLSearchParams({ content_type: contentType, content_id: contentId });
+    return apiFetch(`/api/community/comments?${query}`);
+  },
+  createComment: (payload) => apiFetch('/api/community/comments', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  likeComment: (id) => apiFetch(`/api/community/comments/${encodeURIComponent(id)}/like`, { method: 'POST' }),
+  unlikeComment: (id) => apiFetch(`/api/community/comments/${encodeURIComponent(id)}/like`, { method: 'DELETE' }),
+  pinComment: (id) => apiFetch(`/api/community/comments/${encodeURIComponent(id)}/pin`, { method: 'PATCH' }),
+  deleteComment: (id) => apiFetch(`/api/community/comments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  likePost: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/like`, { method: 'POST' }),
+  unlikePost: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/like`, { method: 'DELETE' }),
   postReplies: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/replies`),
   replyToPost: (postId, payload) =>
     apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/reply`, {
@@ -672,7 +698,53 @@ const community = {
       body: JSON.stringify(payload || {}),
     }),
   studyGroups: () => apiFetch('/api/community/study-groups'),
-  readingPlans: () => apiFetch('/api/community/reading-plans'),
+  createStudyGroup: (payload) => apiFetch('/api/community/study-groups', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  studyGroup: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}`),
+  joinStudyGroup: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/join`, { method: 'POST' }),
+  leaveStudyGroup: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/membership`, { method: 'DELETE' }),
+  promoteStudyGroupMember: (groupId, memberId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}/promote`,
+    { method: 'PATCH' },
+  ),
+  groupMessages: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/messages`),
+  sendGroupMessage: (id, payload) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  groupMeetings: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/meetings`),
+  createGroupMeeting: (id, payload) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/meetings`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  rsvpGroupMeeting: (groupId, meetingId, status) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/meetings/${encodeURIComponent(meetingId)}/rsvp`,
+    { method: 'POST', body: JSON.stringify({ status }) },
+  ),
+  groupProgress: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/progress`),
+  completeGroupProgressDay: (id, day) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(id)}/progress/days/${encodeURIComponent(day)}/complete`,
+    { method: 'POST' },
+  ),
+  readingPlans: (sort = 'newest') => apiFetch(`/api/community/reading-plans?sort=${encodeURIComponent(sort)}`),
+  recordPlanFork: (id, createdPlanId) => apiFetch(`/api/community/reading-plans/${encodeURIComponent(id)}/fork`, {
+    method: 'POST',
+    body: JSON.stringify({ created_plan_id: createdPlanId }),
+  }),
+  planRatings: (id) => apiFetch(`/api/community/reading-plans/${encodeURIComponent(id)}/ratings`),
+  ratePlan: (id, payload) => apiFetch(`/api/community/reading-plans/${encodeURIComponent(id)}/rating`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  members: ({ q = '', limit = 24, offset = 0 } = {}) => {
+    const query = new URLSearchParams({ q, limit: String(limit), offset: String(offset) });
+    return apiFetch(`/api/community/members?${query}`);
+  },
+  member: (id) => apiFetch(`/api/community/members/${encodeURIComponent(id)}`),
+  followMember: (id) => apiFetch(`/api/community/members/${encodeURIComponent(id)}/follow`, { method: 'POST' }),
+  unfollowMember: (id) => apiFetch(`/api/community/members/${encodeURIComponent(id)}/follow`, { method: 'DELETE' }),
   share: (slug) => apiFetch(`/api/community/share/${encodeURIComponent(slug)}`),
   like: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/like`, { method: 'POST' }),
   save: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/save`, { method: 'POST' }),

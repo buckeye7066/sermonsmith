@@ -26,8 +26,7 @@ out
 *.AppImage
 *.exe
 
-# Capacitor (android + ios platforms are committed — they carry build
-# config; Capacitor's own nested .gitignores exclude build outputs)
+# Capacitor
 .capacitor
 
 # Build artifacts
@@ -45,7 +44,6 @@ coverage/
 *.sln
 *.sw?
 
-.env
 # Playwright
 playwright-report/
 test-results/

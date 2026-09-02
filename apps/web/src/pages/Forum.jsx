@@ -29,6 +29,7 @@ export default function Forum() {
   });
   const [newReply, setNewReply] = useState('');
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [likingPostId, setLikingPostId] = useState(null);
 
   useEffect(() => {
     if (isLoadingAuth) return;
@@ -38,6 +39,10 @@ export default function Forum() {
       return;
     }
     loadPosts();
+  // loadPosts is intentionally triggered only when authentication settles or
+  // the signed-in user changes; including the render-local function would
+  // refetch on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoadingAuth, user]);
 
   const loadPosts = async () => {
@@ -45,6 +50,12 @@ export default function Forum() {
       // Public forum feed — every member's posts, not just the viewer's own.
       const allPosts = await api.community.posts();
       setPosts(allPosts);
+      const requestedPostId = new URLSearchParams(window.location.search).get('post');
+      const requestedPost = requestedPostId && allPosts.find((post) => post.id === requestedPostId);
+      if (requestedPost) {
+        setSelectedPost(requestedPost);
+        await loadReplies(requestedPost.id);
+      }
     } catch (error) {
       console.error('Error loading posts:', error);
       toast.error("Couldn't load forum posts. Please try again.");
@@ -154,6 +165,22 @@ Keep response under 300 words.`;
     loadReplies(post.id);
   };
 
+  const toggleLike = async (post, event) => {
+    event?.stopPropagation();
+    setLikingPostId(post.id);
+    try {
+      const updated = post.likedByMe
+        ? await api.community.unlikePost(post.id)
+        : await api.community.likePost(post.id);
+      setPosts((current) => current.map((item) => item.id === post.id ? { ...item, ...updated } : item));
+      setSelectedPost((current) => current?.id === post.id ? { ...current, ...updated } : current);
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not update this like');
+    } finally {
+      setLikingPostId(null);
+    }
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -195,6 +222,17 @@ Keep response under 300 words.`;
               {selectedPost.scripture_reference && (
                 <Badge variant="outline">{selectedPost.scripture_reference}</Badge>
               )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={`mt-3 ${selectedPost.likedByMe ? 'text-red-600' : ''}`}
+                disabled={likingPostId === selectedPost.id}
+                onClick={(event) => toggleLike(selectedPost, event)}
+              >
+                <Heart className={`mr-1 h-4 w-4 ${selectedPost.likedByMe ? 'fill-current' : ''}`} />
+                {selectedPost.likes_count || 0} likes
+              </Button>
             </CardContent>
           </Card>
 
@@ -379,10 +417,17 @@ Keep response under 300 words.`;
                       <MessageSquare className="w-4 h-4" />
                       {post.replies_count || 0} replies
                     </span>
-                    <span className="flex items-center gap-1">
-                      <Heart className="w-4 h-4" />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={post.likedByMe ? 'text-red-600' : ''}
+                      disabled={likingPostId === post.id}
+                      onClick={(event) => toggleLike(post, event)}
+                    >
+                      <Heart className={`mr-1 h-4 w-4 ${post.likedByMe ? 'fill-current' : ''}`} />
                       {post.likes_count || 0} likes
-                    </span>
+                    </Button>
                     {post.is_resolved && (
                       <Badge variant="outline" className="text-xs">
                         <CheckCircle2 className="w-3 h-3 mr-1" />

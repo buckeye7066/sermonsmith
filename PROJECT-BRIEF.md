@@ -184,3 +184,4 @@ See `AGENTS.md` for the full non-negotiable rule set. Key rules:
 3. All features tested on Web, Electron, and Android
 4. CI must pass before merge
 5. Auth / API / offline-cache changes require senior review
+

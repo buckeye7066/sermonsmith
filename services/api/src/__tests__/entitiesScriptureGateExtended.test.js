@@ -75,9 +75,11 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
   beforeEach(() => {
     prisma._reset();
     app = buildApp();
-    prisma._store.user.push({ id: 'u-pastor', email: 'p@x', role: 'user', premium: false, profile: {} });
+    // Premium keeps these tests focused on the Scripture gate. Entitlement
+    // denial is covered independently in entitlements.test.js.
+    prisma._store.user.push({ id: 'u-pastor', email: 'p@x', role: 'user', premium: true, profile: {} });
     prisma._store.user.push({
-      id: 'u-catholic', email: 'rc@x', role: 'user', premium: false,
+      id: 'u-catholic', email: 'rc@x', role: 'user', premium: true,
       profile: { denomination: 'Roman Catholic' },
     });
   });
@@ -430,34 +432,35 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.status).toBe(200);
   });
 
-  // --- Round-5: SharedSermon is an inherently-public gated copy ---
-  it('SharedSermon with an invalid reference is blocked even without a visibility flag', async () => {
+  // --- SharedSermon is server-managed ---
+  // Shared sermons must be copied from a caller-owned Sermon by the dedicated
+  // community endpoint. The generic entity API cannot safely establish source
+  // ownership or the server-authored identity fields.
+  it('blocks direct generic creation of an invalid SharedSermon', async () => {
     const res = await post(app, 'SharedSermon', 'u-pastor', {
       title: 'Shared bad',
       anchor_passage: 'Hezekiah 4:5',
       points: [{ supporting_scriptures: ['John 3:16'] }],
     });
-    expect(res.status).toBe(422);
-    expect(res.body.message).toMatch(/Cannot publish or share/);
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/cannot be created through the generic entity API/i);
   });
 
-  it('SharedSermon with only valid references is allowed', async () => {
+  it('blocks direct generic creation of a valid SharedSermon', async () => {
     const res = await post(app, 'SharedSermon', 'u-pastor', {
       title: 'Shared good',
       anchor_passage: 'Ephesians 2:8',
       points: [{ supporting_scriptures: ['Romans 8:28-30'] }],
     });
-    expect(res.status).toBe(200);
-    expect(res.body.scripture_validation.every((r) => r.status === 'valid')).toBe(true);
+    expect(res.status).toBe(403);
   });
 
-  it('SharedSermon strips forged trust fields', async () => {
+  it('blocks direct SharedSermon trust-field forgery', async () => {
     const res = await post(app, 'SharedSermon', 'u-pastor', {
       title: 'Shared', anchor_passage: 'John 3:16', verified: true, pastor_reviewed: true,
     });
-    expect(res.status).toBe(200);
-    expect(res.body.verified).toBeFalsy();
-    expect(res.body.pastor_reviewed).toBeFalsy();
+    expect(res.status).toBe(403);
+    expect(prisma._store.entity.some((e) => e.type === 'SharedSermon')).toBe(false);
   });
 
   // --- Bypass #3: stale trust markers must be neutralized on revalidation ---

@@ -24,7 +24,6 @@ export default function StudyGroups() {
     description: '',
     focus_book: '',
     theme: '',
-    is_private: false,
     meeting_schedule: ''
   });
 
@@ -38,20 +37,13 @@ export default function StudyGroups() {
       return;
     }
     loadGroups();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [isLoadingAuth, user]);
 
   const loadGroups = async () => {
     try {
-      const [allGroups, memberships] = await Promise.all([
-        api.entities.StudyGroup.list('-member_count', 50),
-        api.entities.GroupMembership.filter({ user_id: user.id })
-      ]);
-
+      const allGroups = await api.community.studyGroups();
       setGroups(allGroups);
-      const myGroupIds = memberships.map(m => m.group_id);
-      const userGroups = allGroups.filter(g => myGroupIds.includes(g.id));
-      setMyGroups(userGroups);
+      setMyGroups(allGroups.filter((group) => group.is_member));
     } catch (error) {
       logError('Error loading study groups', error);
       toast.error('Failed to load study groups. Please try again.');
@@ -67,24 +59,11 @@ export default function StudyGroups() {
     }
 
     try {
-      const group = await api.entities.StudyGroup.create({
-        creator_id: user.id,
-        ...newGroup,
-        member_count: 1
-      });
-
-      // Add creator as leader
-      await api.entities.GroupMembership.create({
-        group_id: group.id,
-        user_id: user.id,
-        user_name: user.full_name || user.email,
-        role: 'leader',
-        joined_date: new Date().toISOString()
-      });
+      await api.community.createStudyGroup(newGroup);
 
       toast.success("Study group created successfully!");
       setShowNewGroupDialog(false);
-      setNewGroup({ name: '', description: '', focus_book: '', theme: '', is_private: false, meeting_schedule: '' });
+      setNewGroup({ name: '', description: '', focus_book: '', theme: '', meeting_schedule: '' });
       loadGroups();
     } catch (error) {
       logError('Failed to create group', error);
@@ -95,29 +74,11 @@ export default function StudyGroups() {
   const handleJoinGroup = async (group) => {
     if (!user || !user.id) return;
     try {
-      // Check if already a member
-      const existing = await api.entities.GroupMembership.filter({
-        group_id: group.id,
-        user_id: user.id
-      });
-
-      if (existing.length > 0) {
+      if (group.is_member) {
         toast.info("You're already a member of this group");
         return;
       }
-
-      await api.entities.GroupMembership.create({
-        group_id: group.id,
-        user_id: user.id,
-        user_name: user.full_name || user.email,
-        role: 'member',
-        joined_date: new Date().toISOString()
-      });
-
-      // Update member count
-      await api.entities.StudyGroup.update(group.id, {
-        member_count: (group.member_count || 1) + 1
-      });
+      await api.community.joinStudyGroup(group.id);
 
       toast.success("Joined group successfully!");
       loadGroups();
@@ -213,16 +174,6 @@ export default function StudyGroups() {
                     value={newGroup.meeting_schedule}
                     onChange={(e) => setNewGroup({...newGroup, meeting_schedule: e.target.value})}
                   />
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="private"
-                    checked={newGroup.is_private}
-                    onChange={(e) => setNewGroup({...newGroup, is_private: e.target.checked})}
-                    className="rounded"
-                  />
-                  <label htmlFor="private" className="text-sm">Make this a private group</label>
                 </div>
               </div>
               <DialogFooter>

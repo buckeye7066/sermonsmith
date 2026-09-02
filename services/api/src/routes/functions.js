@@ -19,6 +19,8 @@ import {
   bookByName,
 } from '../services/premiumTranslations.js';
 import { buildVerseWordingResult } from '../services/verseWording.js';
+import { chaptersInBook } from '@sermonsmith/shared/scripture';
+import { ACCOUNT_TIERS, accountTierFor } from '../lib/entitlements.js';
 
 const router = Router();
 
@@ -68,7 +70,14 @@ function bibleCacheFresh(row) {
 }
 
 async function fetchBibleApiJson(ref, translationId, timeoutMs = 10000) {
-  const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translationId}`;
+  const query = new URLSearchParams({
+    translation: translationId,
+    // Without this setting the provider interprets Jude 1, Obadiah 1,
+    // Philemon 1, 2 John 1, and 3 John 1 as a single verse instead of the
+    // requested whole chapter.
+    single_chapter_book_matching: 'indifferent',
+  });
+  const url = `https://bible-api.com/${encodeURIComponent(ref)}?${query}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -82,6 +91,78 @@ async function fetchBibleApiJson(ref, translationId, timeoutMs = 10000) {
     return await response.json();
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function normalizeBibleApiChapter(payload, book, chapter, translationId) {
+  const unique = new Map();
+  for (const row of Array.isArray(payload?.verses) ? payload.verses : []) {
+    const verse = Number(row?.verse);
+    const text = typeof row?.text === 'string' ? row.text.trim() : '';
+    if (!Number.isInteger(verse) || verse < 1 || !text || unique.has(verse)) continue;
+    unique.set(verse, {
+      book_name: row.book || row.book_name || book.name,
+      chapter: Number(row.chapter) || Number(chapter),
+      verse,
+      text,
+    });
+  }
+  if (!unique.size) {
+    throw Object.assign(new Error(`Bible source returned no verses for ${book.name} ${chapter}`), { status: 502 });
+  }
+  const verses = [...unique.values()].sort((a, b) => a.verse - b.verse);
+  return {
+    reference: `${book.name} ${chapter}`,
+    translation_id: translationId,
+    translation_name: payload?.translation?.name || translationId.toUpperCase(),
+    verses,
+    text: verses.map((row) => row.text).join('\n'),
+    source: 'bible-api-parameterized',
+  };
+}
+
+async function fetchBibleApiChapter(bookInput, chapter, translationId, timeoutMs = 10000) {
+  const book = bookByName(bookInput);
+  if (!book) throw Object.assign(new Error(`Unknown book: ${bookInput}`), { status: 400 });
+  const url = `https://bible-api.com/data/${encodeURIComponent(translationId)}/${encodeURIComponent(book.osis)}/${chapter}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw Object.assign(new Error(`Bible API returned ${response.status}`), { status: response.status });
+    }
+    return normalizeBibleApiChapter(await response.json(), book, chapter, translationId);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchImportedBibleChapter(book, chapter, translationId) {
+  try {
+    const rows = await prisma.entity.findMany({
+      where: {
+        type: 'Verse',
+        AND: [
+          { data: { path: ['translation'], equals: translationId } },
+          { data: { path: ['book_name'], equals: book.name } },
+          { data: { path: ['chapter'], equals: Number(chapter) } },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 200,
+      select: { data: true },
+    });
+    if (!rows.length) return null;
+    return normalizeBibleApiChapter(
+      { verses: rows.map((row) => row.data), translation: { name: translationId.toUpperCase() } },
+      book,
+      chapter,
+      translationId,
+    );
+  } catch (error) {
+    console.warn('[Bible Reader] imported verse lookup unavailable; trying external source:', error?.message || error);
+    return null;
   }
 }
 
@@ -153,7 +234,15 @@ async function fetchStaticBibleChapter(bookInput, chapter, translationId, timeou
 }
 
 async function getCachedBibleChapter({ book, chapter, translationId }) {
-  const cacheKey = { translation: translationId, book, chapter: Number(chapter) };
+  const resolvedBook = bookByName(book);
+  if (!resolvedBook) throw Object.assign(new Error(`Unknown book: ${book}`), { status: 400 });
+  const maxChapter = chaptersInBook(resolvedBook.name);
+  if (maxChapter && Number(chapter) > maxChapter) {
+    throw Object.assign(new Error(`${resolvedBook.name} has ${maxChapter} chapter${maxChapter === 1 ? '' : 's'}`), { status: 400 });
+  }
+  // Use one canonical cache key regardless of whether the client sent GEN,
+  // Genesis, or book number 1.
+  const cacheKey = { translation: translationId, book: resolvedBook.osis, chapter: Number(chapter) };
 
   let cached = null;
   try {
@@ -170,14 +259,15 @@ async function getCachedBibleChapter({ book, chapter, translationId }) {
     return { ...cached.payload, cacheHit: true };
   }
 
-  const ref = `${book} ${chapter}`;
-  let data;
-  try {
-    data = await fetchStaticBibleChapter(book, chapter, translationId);
-  } catch (staticError) {
-    console.warn('[Bible Reader] static chapter source unavailable; trying bible-api.com:', staticError?.message || staticError);
+  let data = await fetchImportedBibleChapter(resolvedBook, chapter, translationId);
+  if (!data) {
+    try {
+      data = await fetchStaticBibleChapter(resolvedBook.name, chapter, translationId);
+    } catch (staticError) {
+      console.warn('[Bible Reader] static chapter source unavailable; trying bible-api.com:', staticError?.message || staticError);
+    }
   }
-  if (!data) data = await fetchBibleApiJson(ref, translationId);
+  if (!data) data = await fetchBibleApiChapter(resolvedBook.name, chapter, translationId);
 
   try {
     await prisma.bibleChapterCache.upsert({
@@ -205,20 +295,29 @@ async function getCachedBibleChapter({ book, chapter, translationId }) {
 async function getCachedPremiumChapter({ id, book, chapter }) {
   const cacheKey = { translation: id, book, chapter: Number(chapter) };
 
-  const cached = await prisma.bibleChapterCache.findUnique({
-    where: { translation_book_chapter: cacheKey },
-  });
+  let cached = null;
+  try {
+    cached = await prisma.bibleChapterCache.findUnique({
+      where: { translation_book_chapter: cacheKey },
+    });
+  } catch (error) {
+    console.warn('[Bible Reader] premium chapter cache read unavailable; serving from source:', error?.message || error);
+  }
   if (bibleCacheFresh(cached)) {
     return { ...cached.payload, cacheHit: true };
   }
 
   const data = await fetchPremiumChapter({ id, book, chapter });
 
-  await prisma.bibleChapterCache.upsert({
-    where: { translation_book_chapter: cacheKey },
-    create: { ...cacheKey, payload: data },
-    update: { payload: data, fetchedAt: new Date() },
-  });
+  try {
+    await prisma.bibleChapterCache.upsert({
+      where: { translation_book_chapter: cacheKey },
+      create: { ...cacheKey, payload: data },
+      update: { payload: data, fetchedAt: new Date() },
+    });
+  } catch (error) {
+    console.warn('[Bible Reader] premium chapter cache write unavailable; returning uncached text:', error?.message || error);
+  }
 
   return { ...data, cacheHit: false };
 }
@@ -231,13 +330,10 @@ async function userHasPremium(req) {
   if (!req.userId) return false;
   const u = await prisma.user.findUnique({
     where: { id: req.userId },
-    select: { role: true, premium: true, premium_until: true },
+    select: { role: true, premium: true, premium_until: true, email: true, profile: true },
   });
   if (!u) return false;
-  return !!u.premium
-    || (u.premium_until ? new Date(u.premium_until) > new Date() : false)
-    || u.role === 'admin'
-    || u.role === 'dev';
+  return accountTierFor(u) === ACCOUNT_TIERS.PREMIUM;
 }
 
 // Developer-tools gate. The Function Reviewer surface (source/metadata
@@ -267,9 +363,14 @@ export async function getCachedBiblePassage({ ref, translationId }) {
   const normalizedRef = normalizePassageRef(ref);
   const cacheKey = { translationId, normalizedRef };
 
-  const cached = await prisma.biblePassageCache.findUnique({
-    where: { translationId_normalizedRef: cacheKey },
-  });
+  let cached = null;
+  try {
+    cached = await prisma.biblePassageCache.findUnique({
+      where: { translationId_normalizedRef: cacheKey },
+    });
+  } catch (error) {
+    console.warn('[Bible Reader] passage cache read unavailable; serving from source:', error?.message || error);
+  }
 
   if (bibleCacheFresh(cached)) {
     return { ...cached.payload, cacheHit: true };
@@ -277,20 +378,24 @@ export async function getCachedBiblePassage({ ref, translationId }) {
 
   const data = await fetchBibleApiJson(ref, translationId);
 
-  await prisma.biblePassageCache.upsert({
-    where: { translationId_normalizedRef: cacheKey },
-    create: {
-      translationId,
-      reference: ref,
-      normalizedRef,
-      payload: data,
-    },
-    update: {
-      reference: ref,
-      payload: data,
-      fetchedAt: new Date(),
-    },
-  });
+  try {
+    await prisma.biblePassageCache.upsert({
+      where: { translationId_normalizedRef: cacheKey },
+      create: {
+        translationId,
+        reference: ref,
+        normalizedRef,
+        payload: data,
+      },
+      update: {
+        reference: ref,
+        payload: data,
+        fetchedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    console.warn('[Bible Reader] passage cache write unavailable; returning uncached text:', error?.message || error);
+  }
 
   return { ...data, cacheHit: false };
 }
@@ -347,8 +452,15 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
       });
     }
     const body = parsed.data;
-    const book = body.bookCode || body.book;
+    const requestedBook = body.bookCode || body.book;
+    const resolvedBook = bookByName(requestedBook);
+    if (!resolvedBook) return res.status(400).json({ message: `Unknown book: ${requestedBook}` });
+    const book = resolvedBook.name;
     const chapter = body.chapter;
+    const maxChapter = chaptersInBook(book);
+    if (maxChapter && chapter > maxChapter) {
+      return res.status(400).json({ message: `${book} has ${maxChapter} chapter${maxChapter === 1 ? '' : 's'}` });
+    }
     const translationRaw = body.translationId || body.translation || 'kjv';
     const verses = body.verses ?? body.verse;
 
@@ -504,10 +616,10 @@ router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
     try {
       const u = await prisma.user.findUnique({
         where: { id: req.userId },
-        select: { role: true, premium: true, premium_until: true },
+        select: { role: true, premium: true, premium_until: true, email: true, profile: true },
       });
       if (u) {
-        isPremium = !!u.premium || (u.premium_until ? new Date(u.premium_until) > new Date() : false);
+        isPremium = accountTierFor(u) === ACCOUNT_TIERS.PREMIUM;
         isDeveloper = u.role === 'admin' || u.role === 'dev';
       }
     } catch {
@@ -603,8 +715,15 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
       });
     }
     const data = parsed.data;
-    const book = data.bookCode || data.book;
+    const requestedBook = data.bookCode || data.book;
+    const resolvedBook = bookByName(requestedBook);
+    if (!resolvedBook) return res.status(400).json({ message: `Unknown book: ${requestedBook}` });
+    const book = resolvedBook.name;
     const { chapter } = data;
+    const maxChapter = chaptersInBook(book);
+    if (maxChapter && chapter > maxChapter) {
+      return res.status(400).json({ message: `${book} has ${maxChapter} chapter${maxChapter === 1 ? '' : 's'}` });
+    }
     const verse = data.verse ?? data.verses;
 
     // Split requested translations into public-domain (free, bible-api.com) and
@@ -911,7 +1030,7 @@ function startImportJob(translation, total, worker) {
   return job;
 }
 
-router.post('/getImportStatus', authenticateToken, async (req, res, next) => {
+router.post('/getImportStatus', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
     const translation = req.body?.translation
       ? String(req.body.translation).trim().toLowerCase()
@@ -949,15 +1068,6 @@ router.post('/getUsersLastActivity', authenticateToken, requireAdmin, async (_re
   } catch (err) {
     next(err);
   }
-});
-
-// Export stubs (handled client-side via jsPDF)
-router.post('/exportToPDF', authenticateToken, async (_req, res) => {
-  res.json({ message: 'PDF export is handled client-side via jsPDF' });
-});
-
-router.post('/exportToPPTX', authenticateToken, async (_req, res) => {
-  res.json({ message: 'PPTX export is handled client-side' });
 });
 
 // ---------------------------------------------------------------------------
@@ -1453,17 +1563,6 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
   } catch (err) {
     next(err);
   }
-});
-
-// ---------------------------------------------------------------------------
-// GitHub sync stub — the FunctionReviewer page has a "sync to GitHub" button.
-// In a self-hosted app this is informational only.
-// ---------------------------------------------------------------------------
-router.post('/syncToGitHub', authenticateToken, requireAdmin, requireDevTools, async (_req, res) => {
-  res.json({
-    ok: true,
-    message: 'SermonSmith is self-hosted — use git push to deploy changes.',
-  });
 });
 
 // Sets premium on/off for the account behind a Stripe customer id. Prefers the

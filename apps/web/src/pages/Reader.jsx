@@ -49,9 +49,10 @@ import AIExplanation from "../components/reader/AIExplanation";
 import ReligiousViewpointsDialog from "../components/reader/ReligiousViewpointsDialog";
 import StudyToolsPanel from "../components/reader/StudyToolsPanel";
 import OfflineDownloadManager from "../components/reader/OfflineDownloadManager";
-import { getChapterOffline } from "../components/reader/OfflineBibleService";
+import { getChapterOffline, saveChapterOffline } from "../components/reader/OfflineBibleService";
 import NTOnlyAlert from "../components/reader/NTOnlyAlert";
 import { getTranslationBooks, isBookInTranslation, getFirstAvailableBook, OLD_TESTAMENT_BOOKS } from "../components/reader/TranslationBookChecker";
+import { normalizeReaderChapter } from "../components/reader/normalizeChapter";
 
 // Translation ID normalization - pass through to API as-is
 // The biblePassage function handles normalization
@@ -306,35 +307,8 @@ export default function Reader() {
       // Try offline first if we're offline
       if (!navigator.onLine) {
         const offlineData = await getChapterOffline(normalizedTranslation, bookCode, currentChapter);
-        if (offlineData && offlineData.chapter?.content) {
-          // Parse offline data
-          const verseData = [];
-          let currentVerse = null;
-          let currentText = "";
-          
-          for (const item of offlineData.chapter.content) {
-            if (item.type === "verse") {
-              if (currentVerse !== null && currentText.trim()) {
-                verseData.push({ verse: currentVerse, text: currentText.trim() });
-              }
-              currentVerse = item.number;
-              currentText = "";
-            } else if (item.type === "text" && currentVerse !== null) {
-              currentText += item.text;
-            }
-          }
-          if (currentVerse !== null && currentText.trim()) {
-            verseData.push({ verse: currentVerse, text: currentText.trim() });
-          }
-
-          const formattedVerses = verseData.map((v) => ({
-            id: `${currentBook}-${currentChapter}-${v.verse}`,
-            verse: v.verse,
-            text: v.text,
-            book_name: currentBook,
-            chapter: currentChapter
-          }));
-
+        const formattedVerses = normalizeReaderChapter(offlineData, { book: currentBook, chapter: currentChapter });
+        if (formattedVerses.length > 0) {
           setVerses(formattedVerses);
           setIsCached(true);
           setIsOfflineMode(true);
@@ -350,16 +324,9 @@ export default function Reader() {
       });
 
       const responseData = result.data || result;
-      const verses = responseData?.verses || [];
+      const formattedVerses = normalizeReaderChapter(responseData, { book: currentBook, chapter: currentChapter });
 
-      if (verses && verses.length > 0) {
-        const formattedVerses = verses.map((v) => ({
-          id: `${currentBook}-${currentChapter}-${v.verse}`,
-          verse: v.verse,
-          text: v.text,
-          book_name: currentBook,
-          chapter: currentChapter
-        }));
+      if (formattedVerses.length > 0) {
 
         setVerses(formattedVerses);
         // A fresh network response is not a local cache hit — only the
@@ -369,6 +336,11 @@ export default function Reader() {
         setIsCached(false);
         setIsOfflineMode(false);
         setError(null);
+        // Keep the most recently read chapters available when connectivity
+        // drops. The offline store accepts the same `{ verses }` payload the
+        // API returns; normalizeReaderChapter handles this format on read.
+        void saveChapterOffline(normalizedTranslation, bookCode, currentChapter, responseData)
+          .catch((cacheError) => logError('Failed to cache reader chapter offline', cacheError));
 
         if (responseData?.fallbackUsed) {
           const reason = responseData.fallbackReason || `${currentTranslation} not available for this book`;
@@ -413,34 +385,8 @@ export default function Reader() {
       if (bookCode) {
         try {
           const offlineData = await getChapterOffline(normalizedTranslation, bookCode, currentChapter);
-          if (offlineData && offlineData.chapter?.content) {
-            const verseData = [];
-            let currentVerse = null;
-            let currentText = "";
-            
-            for (const item of offlineData.chapter.content) {
-              if (item.type === "verse") {
-                if (currentVerse !== null && currentText.trim()) {
-                  verseData.push({ verse: currentVerse, text: currentText.trim() });
-                }
-                currentVerse = item.number;
-                currentText = "";
-              } else if (item.type === "text" && currentVerse !== null) {
-                currentText += item.text;
-              }
-            }
-            if (currentVerse !== null && currentText.trim()) {
-              verseData.push({ verse: currentVerse, text: currentText.trim() });
-            }
-
-            const formattedVerses = verseData.map((v) => ({
-              id: `${currentBook}-${currentChapter}-${v.verse}`,
-              verse: v.verse,
-              text: v.text,
-              book_name: currentBook,
-              chapter: currentChapter
-            }));
-
+          const formattedVerses = normalizeReaderChapter(offlineData, { book: currentBook, chapter: currentChapter });
+          if (formattedVerses.length > 0) {
             setVerses(formattedVerses);
             setIsCached(true);
             setIsOfflineMode(true);

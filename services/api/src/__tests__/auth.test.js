@@ -127,6 +127,8 @@ describe('auth routes', () => {
     expect(stored.premium).not.toBe(true);
     // Returned in the response body too, not just persisted.
     expect(res.body.user.premium_until).toBeTruthy();
+    expect(res.body.user.subscription_tier).toBe('premium');
+    expect(res.body.user.entitlements).toContain('community');
   });
 
   it('register grants a per-user trial window, not a shared/global one', async () => {
@@ -161,6 +163,8 @@ describe('auth routes', () => {
     expect(res.status).toBe(200);
     const stored = prisma._store.user.find((u) => u.email === 'notrial@example.com');
     expect(stored.premium_until == null).toBe(true);
+    expect(res.body.user.subscription_tier).toBe('free');
+    expect(res.body.user.entitlements).not.toContain('community');
     delete process.env.SIGNUP_TRIAL_ENABLED;
   });
 

@@ -13,6 +13,7 @@ import { OfflineProvider } from '@/lib/offlineDetector.jsx';
 import OfflineBanner from '@/components/OfflineBanner';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import AdminGuard from '@/components/AdminGuard';
+import EntitlementGuard from '@/components/EntitlementGuard';
 
 // Pages that must never render their UI to a non-admin. The API also enforces
 // this server-side; gating here stops the admin shell (search boxes, user
@@ -24,6 +25,23 @@ const ADMIN_PAGES = new Set([
   'AdminFunctionTester',
   'AdminImport',
   'FunctionReviewer',
+  'GrantAccess',
+  'BibleAPITest',
+  'ImportStatus',
+]);
+
+const PAGE_ENTITLEMENTS = new Map([
+  ['BibleMaps', 'bible_maps'],
+  ['ChristianEthics', 'ethics'],
+  ['Community', 'community'],
+  ['Forum', 'community'],
+  ['StudyGroups', 'community'],
+  ['GroupDetail', 'community'],
+  ['SharedContent', 'community'],
+  ['SermonLibrary', 'community'],
+  ['PlanLibrary', 'community'],
+  ['WorldviewExplorer', 'worldview'],
+  ['CollaborativeSermonEditor', 'collaboration'],
 ]);
 
 
@@ -301,6 +319,10 @@ export const AuthenticatedApp = () => {
                   <AdminGuard>
                     <Page />
                   </AdminGuard>
+                ) : PAGE_ENTITLEMENTS.has(path) ? (
+                  <EntitlementGuard entitlement={PAGE_ENTITLEMENTS.get(path)}>
+                    <Page />
+                  </EntitlementGuard>
                 ) : (
                   <Page />
                 )}

@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Share2, Sparkles } from "lucide-react";
+import { Loader2, Share2 } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
@@ -39,6 +39,7 @@ export default function SharePlanDialog({ open, onClose, plan, user }) {
           prayer_points: lesson?.prayer_points
         })),
         category: 'topical',
+        age_group: plan.age_group || 'adults',
         is_public: true,
         followers_count: 0
       });
@@ -62,7 +63,7 @@ export default function SharePlanDialog({ open, onClose, plan, user }) {
             Share Study Plan
           </DialogTitle>
           <DialogDescription>
-            Share your AI-generated study plan with the community. Others can discover and adapt it for their needs.
+            Publish this study plan so community members can read and adapt it.
           </DialogDescription>
         </DialogHeader>
 
@@ -82,14 +83,6 @@ export default function SharePlanDialog({ open, onClose, plan, user }) {
             </p>
           </div>
 
-          <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
-            <div className="flex items-start gap-2">
-              <Sparkles className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-purple-800 dark:text-purple-200">
-                AI will automatically tag your plan for discoverability. Community members can fork and adapt it for their specific needs!
-              </p>
-            </div>
-          </div>
         </div>
 
         <div className="flex justify-end gap-2">

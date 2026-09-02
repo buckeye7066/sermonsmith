@@ -5,6 +5,11 @@ import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
 import { SERVER_AI_INVARIANTS, AI_FEATURES } from '@sermonsmith/shared/aiFeatures';
 import { composePeerNotesForAgent, deriveLessonsFromAudit } from '../services/agentMesh.js';
 import { extractScriptureRefsDeep, extractScriptureRefsJoined, validateScriptureRefs, CANONS } from '@sermonsmith/shared/scripture';
+import {
+  ENTITLEMENTS,
+  entitlementForAiFeature,
+  requestHasEntitlement,
+} from '../lib/entitlements.js';
 
 // Canon-agnostic Scripture screen for AI output (both the streamed trailer and
 // the /invoke response). A completion is shown to the user BEFORE any entity
@@ -75,6 +80,16 @@ export function violatesStringSchema(schema, value) {
 }
 
 const router = Router();
+
+function rejectUnentitledAiFeature(req, res, feature) {
+  const requiredEntitlement = entitlementForAiFeature(feature);
+  if (!requiredEntitlement || requestHasEntitlement(req, requiredEntitlement)) return false;
+  res.status(402).json({
+    message: 'This AI feature requires Premium.',
+    requiredEntitlement,
+  });
+  return true;
+}
 
 // The validation trailer is authenticated by a PER-STREAM crypto-random nonce
 // (see /stream). The nonce is generated per request, delivered OUT OF BAND in
@@ -682,6 +697,8 @@ router.post('/invoke', authenticateToken, async (req, res, next) => {
     }
     const { prompt, system_prompt, response_json_schema, feature, model, max_tokens, temperature } = parsed.data;
 
+    if (rejectUnentitledAiFeature(req, res, feature)) return;
+
     // Resolve model and clamp tokens/temperature BEFORE consuming usage so a
     // misconfigured allowlist or bad model name doesn't burn a daily count.
     const resolvedModel = resolveModel(model, req.userPremium);
@@ -946,6 +963,8 @@ router.post('/stream', authenticateToken, async (req, res, next) => {
     const { prompt, system_prompt, response_json_schema, feature, model, max_tokens, temperature, stream_result } = parsed.data;
     responseSchema = response_json_schema;
 
+    if (rejectUnentitledAiFeature(req, res, feature)) return;
+
     // Fail closed: the streaming path writes raw model tokens to the client
     // BEFORE Scripture/JSON validation, so the ONLY signal that the final
     // payload was unverified is the result trailer — which is opt-in. A client
@@ -1142,9 +1161,10 @@ router.post('/image', authenticateToken, async (req, res, next) => {
     }
     const { prompt, size } = parsedImage.data;
 
-    if (!req.userPremium && req.userRole !== 'admin' && req.userRole !== 'dev') {
+    if (!requestHasEntitlement(req, ENTITLEMENTS.IMAGE_GENERATION)) {
       return res.status(402).json({
         message: 'Image generation requires Premium.',
+        requiredEntitlement: ENTITLEMENTS.IMAGE_GENERATION,
       });
     }
 
@@ -1284,20 +1304,6 @@ router.post('/email', authenticateToken, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
-
-router.post('/sms', authenticateToken, async (_req, res) => {
-  // Intentionally returns 501 instead of pretending to send; the original
-  // handler returned `success: true` which was misleading.
-  res.status(501).json({ success: false, message: 'SMS sending is not implemented in this deployment.' });
-});
-
-router.post('/upload', authenticateToken, async (_req, res) => {
-  res.status(501).json({ success: false, message: 'File upload is not implemented in this deployment.' });
-});
-
-router.post('/extract', authenticateToken, async (_req, res) => {
-  res.status(501).json({ success: false, message: 'File extraction is not implemented in this deployment.' });
 });
 
 // Exposed for tests.
