@@ -1,8 +1,12 @@
 import { lazyWithReload as lazy } from './lib/lazyWithReload';
+import Reader from './pages/Reader';
+import MySermons from './pages/MySermons';
 
-const Reader = lazy(() => import('./pages/Reader'));
+// Reader and the saved-sermon library are critical post-navigation routes.
+// WebKit intermittently failed their dynamic imports after another page had
+// already mounted, leaving the URL changed but the destination content absent.
+// Keep these two routes in the entry graph; less critical pages remain lazy.
 const SermonBuilder = lazy(() => import('./pages/SermonBuilder'));
-const MySermons = lazy(() => import('./pages/MySermons'));
 const Pricing = lazy(() => import('./pages/Pricing'));
 const BibleStudy = lazy(() => import('./pages/BibleStudy'));
 const QuizBuilder = lazy(() => import('./pages/QuizBuilder'));
