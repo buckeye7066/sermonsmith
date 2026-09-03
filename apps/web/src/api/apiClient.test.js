@@ -83,6 +83,7 @@ describe('apiClient base URL resolution', () => {
     await api.auth.revokeSessions();
     await api.auth.deleteAccount();
     await api.auth.deleteUser('user 1');
+    await api.auth.setUserBanned('user 1', true);
     await api.functions.shareLinks('resource 1');
     await api.functions.revokeShareableLink('link 1');
     await api.community.report('shared 1', { category: 'spam', reason: 'duplicate' });
@@ -93,6 +94,12 @@ describe('apiClient base URL resolution', () => {
     await api.community.deleteRating('rating 1');
     await api.community.mySharedSeries();
     await api.community.unshareSeries('series 1');
+    await api.community.mySharedContent();
+    await api.community.withdrawSharedContent('shared 1');
+    await api.community.myPublicReadingPlans();
+    await api.community.withdrawReadingPlan('plan 1');
+    await api.community.myComments();
+    await api.community.mySharedSermonPage();
     await api.community.myStudyGroups();
     await api.community.deletePostReply('post 1', 'reply 1');
     await api.community.deletePost('post 1');
@@ -112,6 +119,11 @@ describe('apiClient base URL resolution', () => {
       { url: 'https://api.example/api/auth/revoke-sessions', method: 'POST', body: undefined },
       { url: 'https://api.example/api/auth/me', method: 'DELETE', body: undefined },
       { url: 'https://api.example/api/auth/users/user%201', method: 'DELETE', body: undefined },
+      {
+        url: 'https://api.example/api/auth/users/user%201/ban',
+        method: 'PATCH',
+        body: JSON.stringify({ banned: true }),
+      },
       { url: 'https://api.example/api/functions/share-links?resourceId=resource%201', method: 'GET', body: undefined },
       { url: 'https://api.example/api/functions/share-links/link%201', method: 'DELETE', body: undefined },
       {
@@ -134,6 +146,12 @@ describe('apiClient base URL resolution', () => {
       { url: 'https://api.example/api/community/ratings/rating%201', method: 'DELETE', body: undefined },
       { url: 'https://api.example/api/community/shared-series/mine?offset=0&limit=100', method: 'GET', body: undefined },
       { url: 'https://api.example/api/community/shared-series/series%201', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/community/shared-content/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/shared-content/shared%201', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/community/reading-plans/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/reading-plans/plan%201/publication', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/community/comments/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/sermons/mine?offset=0&limit=100', method: 'GET', body: undefined },
       { url: 'https://api.example/api/community/study-groups/mine?offset=0&limit=100', method: 'GET', body: undefined },
       {
         url: 'https://api.example/api/community/posts/post%201/replies/reply%201',
@@ -157,6 +175,21 @@ describe('apiClient base URL resolution', () => {
         method: 'PATCH',
         body: JSON.stringify({ status: 'removed' }),
       },
+    ]);
+  });
+
+  it('loads every shared-sermon inventory page for existing array callers', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ sermons: [{ id: 'new' }], next_offset: 100 }))
+      .mockResolvedValueOnce(jsonResponse({ sermons: [{ id: 'old' }], next_offset: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await expect(api.community.mySharedSermons()).resolves.toEqual([{ id: 'new' }, { id: 'old' }]);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://api.example/api/community/sermons/mine?offset=0&limit=100',
+      'https://api.example/api/community/sermons/mine?offset=100&limit=100',
     ]);
   });
 

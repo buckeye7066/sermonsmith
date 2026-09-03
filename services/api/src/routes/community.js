@@ -163,6 +163,11 @@ async function deleteOwnRatingAtomically({ ratingId, userId }) {
     : initial?.type === 'SharedPlanRating'
       ? 'plan_id'
       : null;
+  const expectedTargetType = initial?.type === 'SermonRating'
+    ? 'SharedSermon'
+    : initial?.type === 'SharedPlanRating'
+      ? 'ReadingPlan'
+      : null;
   if (!targetField) {
     throw Object.assign(new Error('Rating not found'), { status: 404 });
   }
@@ -197,6 +202,20 @@ async function deleteOwnRatingAtomically({ ratingId, userId }) {
     const ownedIds = ownedRows.map((row) => row.id);
     if (ownedIds.length) await tx.entity.deleteMany({ where: { id: { in: ownedIds } } });
 
+    // A legacy generic rating could point its JSON id at an arbitrary entity.
+    // Retraction must still remove that owner's public review, but it must not
+    // turn the forged reference into permission to mutate a foreign row.
+    const target = await tx.entity.findUnique({ where: { id: targetId } });
+    if (!target || target.type !== expectedTargetType) {
+      return {
+        deleted: ownedIds.length,
+        average: null,
+        count: null,
+        targetId,
+        targetUpdated: false,
+      };
+    }
+
     const remainingRows = await tx.entity.findMany({
       where: { type: current.type, data: { path: [targetField], equals: targetId } },
       orderBy: { updatedAt: 'desc' },
@@ -206,14 +225,17 @@ async function deleteOwnRatingAtomically({ ratingId, userId }) {
     const average = ratings.length
       ? ratings.reduce((sum, row) => sum + Number(row.data?.rating || 0), 0) / ratings.length
       : 0;
-    const target = await tx.entity.findUnique({ where: { id: targetId } });
-    if (target) {
-      await tx.entity.update({
-        where: { id: target.id },
-        data: { data: { ...target.data, average_rating: average, ratings_count: ratings.length } },
-      });
-    }
-    return { deleted: ownedIds.length, average, count: ratings.length, targetId };
+    await tx.entity.update({
+      where: { id: target.id },
+      data: { data: { ...target.data, average_rating: average, ratings_count: ratings.length } },
+    });
+    return {
+      deleted: ownedIds.length,
+      average,
+      count: ratings.length,
+      targetId,
+      targetUpdated: true,
+    };
   });
 }
 
@@ -678,6 +700,58 @@ router.get('/shared-content', authenticateToken, requireCommunity, async (req, r
   }
 });
 
+// Publication ownership outlives a subscription. Keep an auth-only inventory
+// and withdrawal path so an author can always make previously public material
+// private without regaining Community access.
+router.get('/shared-content/mine', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = lifecyclePageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid shared-content page', issues: parsed.error.issues });
+    }
+    const { limit, offset } = parsed.data;
+    const rows = await prisma.entity.findMany({
+      where: {
+        type: 'SharedContent',
+        userId: req.userId,
+        data: { path: ['visibility'], equals: 'public' },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+    res.json({
+      shared_content: rows.map(formatEntity),
+      next_offset: rows.length === limit ? offset + rows.length : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/shared-content/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const current = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!current || current.type !== 'SharedContent') {
+        throw Object.assign(new Error('Shared content not found'), { status: 404 });
+      }
+      if (current.userId !== req.userId) {
+        throw Object.assign(new Error('You can only withdraw your own shared content'), { status: 403 });
+      }
+      return tx.entity.update({
+        where: { id: current.id },
+        data: { data: { ...(current.data || {}), visibility: 'private' } },
+      });
+    });
+    await recordCommunityAudit('community.shared_content_withdraw', req.userId, 'SharedContent', updated.id);
+    res.json(formatEntity(updated));
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/share/:slug', optionalAuth, async (req, res, next) => {
   try {
     const link = await prisma.entity.findFirst({
@@ -967,11 +1041,14 @@ router.delete('/ratings/:id', authenticateToken, async (req, res, next) => {
     await recordCommunityAudit('community.rating_retract', req.userId, 'CommunityRating', req.params.id, {
       targetId: result.targetId,
       duplicateRowsRemoved: result.deleted,
+      targetUpdated: result.targetUpdated,
     });
     res.json({
       deleted: true,
-      average_rating: result.average,
-      ratings_count: result.count,
+      ...(result.targetUpdated ? {
+        average_rating: result.average,
+        ratings_count: result.count,
+      } : {}),
     });
   } catch (err) {
     next(err);
@@ -1387,12 +1464,21 @@ router.get('/sermons', authenticateToken, requireCommunity, async (req, res, nex
 // a user can always see and withdraw material they previously made public.
 router.get('/sermons/mine', authenticateToken, async (req, res, next) => {
   try {
+    const parsed = lifecyclePageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid shared-sermon page', issues: parsed.error.issues });
+    }
+    const { limit, offset } = parsed.data;
     const rows = await prisma.entity.findMany({
       where: { type: 'SharedSermon', userId: req.userId },
       orderBy: { createdAt: 'desc' },
-      take: 500,
+      take: limit,
+      skip: offset,
     });
-    res.json(rows.map(formatEntity));
+    res.json({
+      sermons: rows.map(formatEntity),
+      next_offset: rows.length === limit ? offset + rows.length : null,
+    });
   } catch (err) {
     next(err);
   }
@@ -1601,6 +1687,34 @@ router.post('/sermons/:id/rating', authenticateToken, requireCommunity, async (r
       rating: formatEntity(result.rating),
       average_rating: result.average,
       ratings_count: result.count,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Comments remain public contributions even after the author's subscription
+// lapses. This owner-only inventory deliberately avoids resolving the current
+// target title: a plan/sermon owner may since have made that target private.
+router.get('/comments/mine', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = lifecyclePageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid comment page', issues: parsed.error.issues });
+    }
+    const { limit, offset } = parsed.data;
+    const rows = await prisma.entity.findMany({
+      where: { type: 'Comment', userId: req.userId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+    res.json({
+      comments: rows.map((row) => ({
+        ...formatEntity(row),
+        target_type: row.data?.content_type === 'plan' ? 'reading_plan' : 'sermon',
+      })),
+      next_offset: rows.length === limit ? offset + rows.length : null,
     });
   } catch (err) {
     next(err);
@@ -2302,7 +2416,9 @@ router.get('/study-groups/:id/progress', authenticateToken, requireCommunity, as
 
     let plan = null;
     const snapshot = progress.data?.plan_snapshot;
-    if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
+    const trustedSnapshot = progress.data?.assignment_format_version === 2
+      && snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot);
+    if (trustedSnapshot) {
       assertGatedResourceExposable({
         type: 'ReadingPlan',
         resourceData: snapshot,
@@ -2378,6 +2494,7 @@ router.put('/study-groups/:id/progress', authenticateToken, requireCommunity, as
         plan_id: plan.id,
         assigned_by: req.userId,
         assigned_date: new Date().toISOString(),
+        assignment_format_version: 2,
         plan_denomination: denomination,
         plan_snapshot: planSnapshot,
         total_days: totalDays,
@@ -2391,7 +2508,10 @@ router.put('/study-groups/:id/progress', authenticateToken, requireCommunity, as
         take: 1000,
       });
       const progress = existingRows[0]
-        ? await tx.entity.update({ where: { id: existingRows[0].id }, data: { data: nextData } })
+        ? await tx.entity.update({
+          where: { id: existingRows[0].id },
+          data: { userId: req.userId, data: nextData },
+        })
         : await tx.entity.create({ data: { type: 'GroupProgress', userId: req.userId, data: nextData } });
       const duplicateIds = existingRows.slice(1).map((row) => row.id);
       if (duplicateIds.length) await tx.entity.deleteMany({ where: { id: { in: duplicateIds } } });
@@ -2451,6 +2571,55 @@ router.post('/study-groups/:id/progress/days/:day/complete', authenticateToken, 
       if (duplicateIds.length) await tx.entity.deleteMany({ where: { id: { in: duplicateIds } } });
       return current;
     });
+    res.json(formatEntity(updated));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/reading-plans/mine', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = lifecyclePageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid reading-plan page', issues: parsed.error.issues });
+    }
+    const { limit, offset } = parsed.data;
+    const rows = await prisma.entity.findMany({
+      where: {
+        type: 'ReadingPlan',
+        userId: req.userId,
+        data: { path: ['is_public'], equals: true },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+    res.json({
+      reading_plans: rows.map(formatEntity),
+      next_offset: rows.length === limit ? offset + rows.length : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/reading-plans/:id/publication', authenticateToken, async (req, res, next) => {
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const current = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!current || current.type !== 'ReadingPlan') {
+        throw Object.assign(new Error('Reading plan not found'), { status: 404 });
+      }
+      if (current.userId !== req.userId) {
+        throw Object.assign(new Error('You can only withdraw your own reading plan'), { status: 403 });
+      }
+      return tx.entity.update({
+        where: { id: current.id },
+        data: { data: { ...(current.data || {}), is_public: false } },
+      });
+    });
+    await recordCommunityAudit('community.reading_plan_withdraw', req.userId, 'ReadingPlan', updated.id);
     res.json(formatEntity(updated));
   } catch (err) {
     next(err);

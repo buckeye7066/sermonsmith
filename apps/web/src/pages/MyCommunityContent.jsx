@@ -27,7 +27,17 @@ async function loadEveryPage(loader, keys) {
 }
 
 export default function MyCommunityContent() {
-  const [content, setContent] = useState({ posts: [], replies: [], ratings: [], series: [], groups: [] });
+  const [content, setContent] = useState({
+    posts: [],
+    replies: [],
+    ratings: [],
+    series: [],
+    groups: [],
+    sermons: [],
+    shared_content: [],
+    reading_plans: [],
+    comments: [],
+  });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
@@ -36,13 +46,35 @@ export default function MyCommunityContent() {
     setLoading(true);
     setLoadError('');
     try {
-      const [forum, ratingResult, seriesResult, groupResult] = await Promise.all([
+      const [
+        forum,
+        ratingResult,
+        seriesResult,
+        groupResult,
+        sermonResult,
+        sharedContentResult,
+        readingPlanResult,
+        commentResult,
+      ] = await Promise.all([
         loadEveryPage(api.community.myForumContent, ['posts', 'replies']),
         loadEveryPage(api.community.myRatings, ['ratings']),
         loadEveryPage(api.community.mySharedSeries, ['series']),
         loadEveryPage(api.community.myStudyGroups, ['groups']),
+        loadEveryPage(api.community.mySharedSermonPage, ['sermons']),
+        loadEveryPage(api.community.mySharedContent, ['shared_content']),
+        loadEveryPage(api.community.myPublicReadingPlans, ['reading_plans']),
+        loadEveryPage(api.community.myComments, ['comments']),
       ]);
-      setContent({ ...forum, ...ratingResult, ...seriesResult, ...groupResult });
+      setContent({
+        ...forum,
+        ...ratingResult,
+        ...seriesResult,
+        ...groupResult,
+        ...sermonResult,
+        ...sharedContentResult,
+        ...readingPlanResult,
+        ...commentResult,
+      });
     } catch (error) {
       const message = error?.data?.message || error?.message || 'Could not load your community content';
       setLoadError(message);
@@ -125,8 +157,77 @@ export default function MyCommunityContent() {
     }
   };
 
+  const removeSermon = async (sermon) => {
+    if (!window.confirm('Permanently withdraw this shared sermon?')) return;
+    setDeletingId(sermon.id);
+    try {
+      await api.community.unshareSermon(sermon.id);
+      setContent((current) => ({
+        ...current,
+        sermons: current.sermons.filter((item) => item.id !== sermon.id),
+      }));
+      toast.success('Shared sermon withdrawn');
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not withdraw this shared sermon');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const withdrawSharedContent = async (item) => {
+    if (!window.confirm('Make this community publication private?')) return;
+    setDeletingId(item.id);
+    try {
+      await api.community.withdrawSharedContent(item.id);
+      setContent((current) => ({
+        ...current,
+        shared_content: current.shared_content.filter((row) => row.id !== item.id),
+      }));
+      toast.success('Community publication is now private');
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not withdraw this publication');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const withdrawReadingPlan = async (plan) => {
+    if (!window.confirm('Make this public reading plan private?')) return;
+    setDeletingId(plan.id);
+    try {
+      await api.community.withdrawReadingPlan(plan.id);
+      setContent((current) => ({
+        ...current,
+        reading_plans: current.reading_plans.filter((row) => row.id !== plan.id),
+      }));
+      toast.success('Reading plan is now private');
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not withdraw this reading plan');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const removeComment = async (comment) => {
+    if (!window.confirm('Permanently delete this public comment?')) return;
+    setDeletingId(comment.id);
+    try {
+      await api.community.deleteComment(comment.id);
+      setContent((current) => ({
+        ...current,
+        comments: current.comments.filter((row) => row.id !== comment.id),
+      }));
+      toast.success('Comment deleted');
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not delete this comment');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const empty = !content.posts.length && !content.replies.length && !content.ratings.length
-    && !content.series.length && !content.groups.length;
+    && !content.series.length && !content.groups.length && !content.sermons.length
+    && !content.shared_content.length && !content.reading_plans.length && !content.comments.length;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -136,7 +237,7 @@ export default function MyCommunityContent() {
           My Community Content
         </h1>
         <p className="mt-2 text-gray-600 dark:text-gray-300">
-          Manage groups and permanently retract posts, replies, ratings, and series you previously shared. These privacy controls remain available if Premium expires.
+          Manage groups and retract every public contribution you previously shared. These privacy controls remain available if Premium expires.
         </p>
       </div>
 
@@ -181,6 +282,51 @@ export default function MyCommunityContent() {
             ))}
           </section>
 
+          <section className="space-y-3" aria-labelledby="my-community-sermons">
+            <h2 id="my-community-sermons" className="text-xl font-semibold">Shared sermons ({content.sermons.length})</h2>
+            {content.sermons.map((sermon) => (
+              <Card key={sermon.id}>
+                <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
+                  <p className="flex items-center gap-2 font-semibold"><BookOpen className="h-4 w-4" />{sermon.title || 'Untitled sermon'}</p>
+                  <Button variant="destructive" size="sm" disabled={Boolean(deletingId)} onClick={() => removeSermon(sermon)}>
+                    <Trash2 className="mr-2 h-4 w-4" />Withdraw sermon
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </section>
+
+          <section className="space-y-3" aria-labelledby="my-community-publications">
+            <h2 id="my-community-publications" className="text-xl font-semibold">Community publications ({content.shared_content.length})</h2>
+            {content.shared_content.map((item) => (
+              <Card key={item.id}>
+                <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
+                  <div>
+                    <p className="font-semibold">{item.title || item.name || 'Untitled publication'}</p>
+                    <p className="mt-1 text-sm text-gray-600">{item.content_type || 'Shared content'}</p>
+                  </div>
+                  <Button variant="destructive" size="sm" disabled={Boolean(deletingId)} onClick={() => withdrawSharedContent(item)}>
+                    <Trash2 className="mr-2 h-4 w-4" />Make private
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </section>
+
+          <section className="space-y-3" aria-labelledby="my-community-plans">
+            <h2 id="my-community-plans" className="text-xl font-semibold">Public reading plans ({content.reading_plans.length})</h2>
+            {content.reading_plans.map((plan) => (
+              <Card key={plan.id}>
+                <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
+                  <p className="flex items-center gap-2 font-semibold"><BookOpen className="h-4 w-4" />{plan.title || plan.name || 'Untitled reading plan'}</p>
+                  <Button variant="destructive" size="sm" disabled={Boolean(deletingId)} onClick={() => withdrawReadingPlan(plan)}>
+                    <Trash2 className="mr-2 h-4 w-4" />Make private
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </section>
+
           <section className="space-y-3" aria-labelledby="my-community-series">
             <h2 id="my-community-series" className="text-xl font-semibold">Shared series ({content.series.length})</h2>
             {content.series.map((series) => (
@@ -207,6 +353,23 @@ export default function MyCommunityContent() {
                   <Button variant="destructive" size="sm" disabled={Boolean(deletingId)} onClick={() => removeRating(rating)}>
                     <Trash2 className="mr-2 h-4 w-4" />Delete rating
                   </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </section>
+
+          <section className="space-y-3" aria-labelledby="my-community-comments">
+            <h2 id="my-community-comments" className="text-xl font-semibold">Comments ({content.comments.length})</h2>
+            {content.comments.map((comment) => (
+              <Card key={comment.id}>
+                <CardContent className="space-y-3 pt-6">
+                  <p className="whitespace-pre-line text-sm text-gray-700 dark:text-gray-300">{comment.comment || comment.content || 'Comment'}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <Badge variant="outline">{comment.target_type === 'reading_plan' ? 'Reading plan' : 'Sermon'}</Badge>
+                    <Button variant="destructive" size="sm" disabled={Boolean(deletingId)} onClick={() => removeComment(comment)}>
+                      <Trash2 className="mr-2 h-4 w-4" />Delete comment
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}

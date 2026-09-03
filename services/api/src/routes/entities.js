@@ -75,6 +75,12 @@ const SERVER_MANAGED_TYPES = new Set([
   'GroupProgress',
 ]);
 
+// GroupProgress may contain an intentionally shared snapshot of a leader's
+// private ReadingPlan. Top-level Entity ownership is not authorization for
+// that snapshot after leadership changes, so it is readable only through the
+// group-membership endpoint, never through generic list/filter/get routes.
+const DEDICATED_READ_TYPES = new Set(['GroupProgress']);
+
 // These legacy entity types are edited through the generic API while also
 // receiving counters/status updates through Community routes. Their generic
 // mutations must use the same advisory lock and re-read after acquiring it.
@@ -568,6 +574,9 @@ function validateEntityPayload(type, body) {
 router.post('/:type/filter', authenticateToken, async (req, res, next) => {
   try {
     assertEntityEntitlement(req, req.params.type);
+    if (DEDICATED_READ_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' must be read through its dedicated API.` });
+    }
     const { _limit, _offset, _orderBy, ...filterFields } = req.body;
     const take = clampLimit(_limit);
     const skip = typeof _offset === 'number' ? _offset : 0;
@@ -728,6 +737,9 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
 router.get('/:type', authenticateToken, async (req, res, next) => {
   try {
     assertEntityEntitlement(req, req.params.type);
+    if (DEDICATED_READ_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' must be read through its dedicated API.` });
+    }
     const take = clampLimit(Number(req.query.limit) || DEFAULT_PAGE_SIZE);
     const skip = Number(req.query.offset) || 0;
 
@@ -783,6 +795,9 @@ router.get('/:type/:id', authenticateToken, async (req, res, next) => {
     if (entity.type !== req.params.type) {
       return res.status(404).json({ message: 'Not found' });
     }
+    if (DEDICATED_READ_TYPES.has(entity.type)) {
+      return res.status(403).json({ message: `'${entity.type}' must be read through its dedicated API.` });
+    }
 
     // The stored row type, not a caller-controlled URL segment, decides the
     // required entitlement. The equality check above also prevents using an
@@ -819,6 +834,12 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
             promotional_email: _pes,
             promotionalPhone: _pp,
             promotional_phone: _pps,
+            is_banned: _banned,
+            banned_at: _bannedAt,
+            tokenVersion: _tokenVersion,
+            token_version: _tokenVersionLegacy,
+            deletedAt: _deletedAt,
+            deleted_at: _deletedAtLegacy,
             ...safe
           } = req.body || {};
           const user = await prisma.user.update({ where: { id: req.params.id }, data: safe });

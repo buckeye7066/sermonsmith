@@ -106,6 +106,40 @@ function extractToken(req) {
       : null);
 }
 
+const AUTH_USER_SELECT = {
+  name: true,
+  full_name: true,
+  role: true,
+  premium: true,
+  premium_until: true,
+  email: true,
+  promotionalEmail: true,
+  promotionalPhone: true,
+  profile: true,
+  tokenVersion: true,
+  deletedAt: true,
+  is_banned: true,
+};
+
+function tokenVersionIsCurrent(decoded, user) {
+  return typeof decoded.tv !== 'number' || decoded.tv === (user.tokenVersion ?? 0);
+}
+
+function attachAuthenticatedUser(req, userId, user) {
+  req.userId = userId;
+  req.userRole = user.role;
+  req.accountTier = accountTierFor(user);
+  req.entitlements = entitlementsFor(req.accountTier);
+  req.userPremium = req.accountTier === ACCOUNT_TIERS.PREMIUM;
+  req.userEmail = user.email;
+  // Email is private by default and must never become a public community
+  // display name merely because both optional name columns are empty.
+  const publicName = String(user.full_name || user.name || '').trim();
+  req.userName = publicName && !/[^\s@]+@[^\s@]+\.[^\s@]+/.test(publicName)
+    ? publicName
+    : 'Member';
+}
+
 export async function authenticateToken(req, res, next) {
   const token = extractToken(req);
 
@@ -115,25 +149,11 @@ export async function authenticateToken(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, jwtSecret(), JWT_OPTS);
-    req.userId = decoded.userId;
     // Cache the user role once so route handlers never need a second DB lookup.
     // Also acts as a revocation check — deleted users are rejected immediately.
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: {
-        name: true,
-        full_name: true,
-        role: true,
-        premium: true,
-        premium_until: true,
-        email: true,
-        promotionalEmail: true,
-        promotionalPhone: true,
-        profile: true,
-        tokenVersion: true,
-        deletedAt: true,
-        is_banned: true,
-      },
+      select: AUTH_USER_SELECT,
     });
     if (!user || user.deletedAt) {
       // Treat soft-deleted accounts as gone — their tokenVersion was also bumped
@@ -153,37 +173,37 @@ export async function authenticateToken(req, res, next) {
     // claim; we accept those during the migration window so existing
     // sessions keep working — they will be re-issued with `tv` on the
     // next login/password event.
-    if (typeof decoded.tv === 'number' && decoded.tv !== (user.tokenVersion ?? 0)) {
+    if (!tokenVersionIsCurrent(decoded, user)) {
       return res.status(401).json({ message: 'Session expired — please sign in again' });
     }
 
-    req.userRole = user.role;
     // One server-authoritative access decision is attached to every protected
     // request. Route handlers must consult the entitlement list rather than
     // accepting a client/profile-supplied tier flag.
-    req.accountTier = accountTierFor(user);
-    req.entitlements = entitlementsFor(req.accountTier);
-    req.userPremium = req.accountTier === ACCOUNT_TIERS.PREMIUM;
-    req.userEmail = user.email;
-    // Email is private by default and must never become a public community
-    // display name merely because both optional name columns are empty.
-    const publicName = String(user.full_name || user.name || '').trim();
-    req.userName = publicName && !/[^\s@]+@[^\s@]+\.[^\s@]+/.test(publicName)
-      ? publicName
-      : 'Member';
+    attachAuthenticatedUser(req, decoded.userId, user);
     next();
   } catch {
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
 }
 
-export function optionalAuth(req, _res, next) {
+export async function optionalAuth(req, _res, next) {
   const token = extractToken(req);
 
   if (token) {
     try {
       const decoded = jwt.verify(token, jwtSecret(), JWT_OPTS);
-      req.userId = decoded.userId;
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        select: AUTH_USER_SELECT,
+      });
+      // Optional authentication means an anonymous caller may proceed, not
+      // that a revoked identity may keep its former tier. Only attach identity
+      // and Premium entitlements after the same active-user/token-version
+      // checks used by authenticateToken.
+      if (user && !user.deletedAt && !user.is_banned && tokenVersionIsCurrent(decoded, user)) {
+        attachAuthenticatedUser(req, decoded.userId, user);
+      }
     } catch {
       // Invalid token — continue without auth
     }

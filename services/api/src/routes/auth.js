@@ -223,7 +223,7 @@ async function recordAudit(action, userId, metadata = {}, targetId = userId) {
   }
 }
 
-async function cleanupCommunityRelationsForSoftDelete(tx, userId) {
+async function cleanupCommunityRelationsForAccessRevocation(tx, userId) {
   const [memberships, ownedGroups] = await Promise.all([
     tx.communityGroupMember.findMany({ where: { userId } }),
     tx.entity.findMany({
@@ -574,7 +574,7 @@ router.delete('/me', authenticateToken, async (req, res, next) => {
     if (!target) return res.status(404).json({ message: 'User not found' });
 
     const cleanup = await prisma.$transaction(async (tx) => {
-      const result = await cleanupCommunityRelationsForSoftDelete(tx, req.userId);
+      const result = await cleanupCommunityRelationsForAccessRevocation(tx, req.userId);
       await tx.user.update({
         where: { id: req.userId },
         data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
@@ -829,6 +829,55 @@ router.patch('/users/:id', authenticateToken, requireAdmin, async (req, res, nex
   }
 });
 
+const adminBanSchema = z.object({ banned: z.boolean() }).strict();
+
+// Banning is an immediate access-revocation event, not a generic profile
+// update. Remove the account from groups and transfer/delete owned groups in
+// the same locked transaction used by soft deletion, then bump tokenVersion so
+// unbanning cannot resurrect a pre-ban session.
+router.patch('/users/:id/ban', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = adminBanSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid ban update', issues: parsed.error.issues });
+    }
+    const target = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    let cleanup = null;
+    const user = await prisma.$transaction(async (tx) => {
+      if (parsed.data.banned) {
+        cleanup = await cleanupCommunityRelationsForAccessRevocation(tx, target.id);
+        return tx.user.update({
+          where: { id: target.id },
+          data: {
+            is_banned: true,
+            banned_at: new Date(),
+            tokenVersion: { increment: 1 },
+          },
+        });
+      }
+      return tx.user.update({
+        where: { id: target.id },
+        data: { is_banned: false, banned_at: null },
+      });
+    });
+
+    await recordAudit(
+      parsed.data.banned ? 'admin.user_banned' : 'admin.user_unbanned',
+      req.userId,
+      { targetUserId: target.id, ...(cleanup || {}) },
+      target.id,
+    );
+    if (parsed.data.banned && target.id === req.userId) {
+      res.clearCookie(AUTH_COOKIE, cookieOptions());
+    }
+    res.json(sanitizeUser(user));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Admin: delete user (soft delete).
 //
 // Instead of hard-deleting the row — which cascade-wipes every sermon, study,
@@ -842,7 +891,7 @@ router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res, ne
     const target = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!target) return res.status(404).json({ message: 'User not found' });
     const cleanup = await prisma.$transaction(async (tx) => {
-      const result = await cleanupCommunityRelationsForSoftDelete(tx, target.id);
+      const result = await cleanupCommunityRelationsForAccessRevocation(tx, target.id);
       await tx.user.update({
         where: { id: target.id },
         data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },

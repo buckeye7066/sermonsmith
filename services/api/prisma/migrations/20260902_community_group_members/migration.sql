@@ -149,23 +149,14 @@ WHERE g."type" = 'StudyGroup'
         AND gm."role" = 'leader'
   );
 
--- Legacy GroupProgress JSON was writable through the generic Entity endpoint,
--- including `assigned_by`. Purge private-plan references unless both trusted
--- top-level owner columns agree with the authoritative group owner. Public
--- plans remain safe to share, and modern rows carry an immutable snapshot.
-DELETE FROM "entities" progress
-USING "entities" group_entity, "entities" plan
-WHERE progress."type" = 'GroupProgress'
-  AND group_entity."id" = progress."data"->>'group_id'
-  AND group_entity."type" = 'StudyGroup'
-  AND plan."id" = progress."data"->>'plan_id'
-  AND plan."type" = 'ReadingPlan'
-  AND NOT (progress."data" ? 'plan_snapshot')
-  AND COALESCE(plan."data"->>'is_public', 'false') <> 'true'
-  AND (
-    plan."user_id" <> group_entity."user_id"
-    OR progress."user_id" <> group_entity."user_id"
-  );
+-- Every pre-migration GroupProgress row is untrusted. The legacy generic
+-- Entity endpoint allowed callers to write arbitrary JSON, including both
+-- `assigned_by` and a forged `plan_snapshot`; there is no historical field
+-- that can prove a snapshot came from the dedicated server route. Drop the
+-- legacy rows once at migration time. New assignments are recreated through
+-- the membership-authorized endpoint and carry assignment_format_version=2.
+DELETE FROM "entities"
+WHERE "type" = 'GroupProgress';
 
 -- Keep the denormalized card count aligned with the new relational source of
 -- truth immediately at deploy time.

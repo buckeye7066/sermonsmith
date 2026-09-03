@@ -493,6 +493,54 @@ describe('auth routes', () => {
     ]));
   });
 
+  it('admin ban revokes sessions and transfers group ownership to an active member', async () => {
+    prisma._store.user.push(
+      { id: 'u-admin-ban', email: 'admin@example.com', role: 'admin', premium: true, tokenVersion: 0, deletedAt: null, is_banned: false },
+      { id: 'u-banned-owner', email: 'owner@example.com', role: 'user', premium: true, tokenVersion: 7, deletedAt: null, is_banned: false },
+      { id: 'u-ban-successor', email: 'next@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, is_banned: false },
+    );
+    prisma._store.entity.push({
+      id: 'ban-transfer-group', type: 'StudyGroup', userId: 'u-banned-owner',
+      data: { name: 'Transfer on ban', member_count: 2 }, createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityGroupMember.push(
+      { id: 'ban-owner-membership', groupId: 'ban-transfer-group', userId: 'u-banned-owner', role: 'leader', userName: 'Owner', joinedAt: new Date('2026-01-01') },
+      { id: 'ban-next-membership', groupId: 'ban-transfer-group', userId: 'u-ban-successor', role: 'member', userName: 'Next', joinedAt: new Date('2026-01-02') },
+    );
+
+    const banned = await request(app)
+      .patch('/api/auth/users/u-banned-owner/ban')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin-ban')}`])
+      .send({ banned: true });
+
+    expect(banned.status).toBe(200);
+    expect(prisma._store.user.find((row) => row.id === 'u-banned-owner')).toMatchObject({
+      is_banned: true,
+      banned_at: expect.any(Date),
+      tokenVersion: 8,
+    });
+    expect(prisma._store.communityGroupMember.some((row) => row.userId === 'u-banned-owner')).toBe(false);
+    expect(prisma._store.communityGroupMember.find((row) => row.userId === 'u-ban-successor')).toMatchObject({ role: 'leader' });
+    expect(prisma._store.entity.find((row) => row.id === 'ban-transfer-group')).toMatchObject({
+      userId: 'u-ban-successor',
+      data: expect.objectContaining({ member_count: 1 }),
+    });
+    expect(prisma._store.auditLog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'admin.user_banned', targetId: 'u-banned-owner' }),
+    ]));
+
+    const unbanned = await request(app)
+      .patch('/api/auth/users/u-banned-owner/ban')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin-ban')}`])
+      .send({ banned: false });
+    expect(unbanned.status).toBe(200);
+    expect(prisma._store.user.find((row) => row.id === 'u-banned-owner')).toMatchObject({
+      is_banned: false,
+      banned_at: null,
+      tokenVersion: 8,
+    });
+  });
+
   it('does not transfer a soft-deleted owner group to a banned member', async () => {
     prisma._store.user.push(
       { id: 'u-delete-banned-owner', email: 'owner@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, is_banned: false },

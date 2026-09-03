@@ -311,6 +311,10 @@ const auth = {
   exportData: ()          => apiFetch('/api/auth/export'),
   deleteAccount: ()       => apiFetch('/api/auth/me', { method: 'DELETE' }),
   deleteUser: (id)        => apiFetch(`/api/auth/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setUserBanned: (id, banned) => apiFetch(`/api/auth/users/${encodeURIComponent(id)}/ban`, {
+    method: 'PATCH',
+    body: JSON.stringify({ banned: Boolean(banned) }),
+  }),
   revokeSessions: ()      => apiFetch('/api/auth/revoke-sessions', { method: 'POST' }),
 
   login: (email, password) =>
@@ -703,6 +707,20 @@ const community = {
     return apiFetch(`/api/community/shared-series/mine?${query}`);
   },
   unshareSeries: (id) => apiFetch(`/api/community/shared-series/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  mySharedContent: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/shared-content/mine?${query}`);
+  },
+  withdrawSharedContent: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  myPublicReadingPlans: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/reading-plans/mine?${query}`);
+  },
+  withdrawReadingPlan: (id) => apiFetch(`/api/community/reading-plans/${encodeURIComponent(id)}/publication`, { method: 'DELETE' }),
+  myComments: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/comments/mine?${query}`);
+  },
   createPost: (payload) => apiFetch('/api/community/posts', {
     method: 'POST',
     body: JSON.stringify(payload || {}),
@@ -713,7 +731,32 @@ const community = {
     body: JSON.stringify(payload),
   }),
   sermons: (sort = 'popular') => apiFetch(`/api/community/sermons?sort=${encodeURIComponent(sort)}`),
-  mySharedSermons: () => apiFetch('/api/community/sermons/mine'),
+  mySharedSermonPage: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/sermons/mine?${query}`);
+  },
+  // Existing analytics/library callers expect an array. Traverse every
+  // lifecycle page here while exposing mySharedSermonPage to management UIs.
+  mySharedSermons: async () => {
+    const sermons = [];
+    const seenOffsets = new Set();
+    let offset = 0;
+    for (;;) {
+      if (seenOffsets.has(offset)) throw new Error('The server returned a non-advancing shared-sermon page');
+      seenOffsets.add(offset);
+      const query = new URLSearchParams({ offset: String(offset), limit: '100' });
+      const page = await apiFetch(`/api/community/sermons/mine?${query}`);
+      // Rolling-deploy compatibility with the former unpaginated response.
+      if (Array.isArray(page)) return page;
+      sermons.push(...(page?.sermons || []));
+      if (page?.next_offset === null || page?.next_offset === undefined) return sermons;
+      const nextOffset = Number(page.next_offset);
+      if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset) {
+        throw new Error('The server returned an invalid shared-sermon page');
+      }
+      offset = nextOffset;
+    }
+  },
   shareSermon: (payload) => apiFetch('/api/community/sermons/share', {
     method: 'POST',
     body: JSON.stringify(payload || {}),

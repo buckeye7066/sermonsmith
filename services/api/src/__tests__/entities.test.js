@@ -253,6 +253,7 @@ describe('entities — allowlist (regression for broken creates)', () => {
     prisma._reset();
     app = buildApp();
     prisma._store.user.push({ id: 'u-alice', email: 'a@x', role: 'user', premium: false });
+    prisma._store.user.push({ id: 'u-admin', email: 'admin@x', role: 'admin', premium: true });
   });
 
   // Regression: these types were missing from ENTITY_SCHEMAS, so every
@@ -425,6 +426,34 @@ describe('entities — allowlist (regression for broken creates)', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
     expect(res.status).toBe(403);
     expect(prisma._store.entity.some((e) => e.type === 'SharedLink')).toBe(false);
+  });
+
+  it('blocks every generic read path for private-plan GroupProgress snapshots', async () => {
+    prisma._store.entity.push({
+      id: 'stale-progress-owner', type: 'GroupProgress', userId: 'u-admin',
+      data: { group_id: 'g-1', plan_snapshot: { title: 'Private replacement plan' } },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    const cookie = ['ss_token=' + tokenFor('u-admin')];
+
+    const [list, filtered, direct] = await Promise.all([
+      request(app).get('/api/entities/GroupProgress').set('Cookie', cookie),
+      request(app).post('/api/entities/GroupProgress/filter').set('Cookie', cookie).send({}),
+      request(app).get('/api/entities/GroupProgress/stale-progress-owner').set('Cookie', cookie),
+    ]);
+
+    expect([list.status, filtered.status, direct.status]).toEqual([403, 403, 403]);
+    expect(JSON.stringify([list.body, filtered.body, direct.body])).not.toContain('Private replacement plan');
+  });
+
+  it('does not allow the generic admin User update to bypass ban cleanup', async () => {
+    const res = await request(app)
+      .put('/api/entities/User/u-alice')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`])
+      .send({ is_banned: true, banned_at: new Date().toISOString() });
+
+    expect(res.status).toBe(200);
+    expect(prisma._store.user.find((row) => row.id === 'u-alice').is_banned).not.toBe(true);
   });
 });
 

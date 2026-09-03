@@ -12,10 +12,18 @@ vi.mock('@/api/apiClient', () => ({
       myRatings: vi.fn(),
       mySharedSeries: vi.fn(),
       myStudyGroups: vi.fn(),
+      mySharedSermonPage: vi.fn(),
+      mySharedContent: vi.fn(),
+      myPublicReadingPlans: vi.fn(),
+      myComments: vi.fn(),
       deletePost: vi.fn(),
       deletePostReply: vi.fn(),
       deleteRating: vi.fn(),
       unshareSeries: vi.fn(),
+      unshareSermon: vi.fn(),
+      withdrawSharedContent: vi.fn(),
+      withdrawReadingPlan: vi.fn(),
+      deleteComment: vi.fn(),
     },
   },
 }));
@@ -36,6 +44,10 @@ describe('MyCommunityContent', () => {
     api.community.myRatings.mockResolvedValue({ ratings: [], next_offset: null });
     api.community.mySharedSeries.mockResolvedValue({ series: [], next_offset: null });
     api.community.myStudyGroups.mockResolvedValue({ groups: [], next_offset: null });
+    api.community.mySharedSermonPage.mockResolvedValue({ sermons: [], next_offset: null });
+    api.community.mySharedContent.mockResolvedValue({ shared_content: [], next_offset: null });
+    api.community.myPublicReadingPlans.mockResolvedValue({ reading_plans: [], next_offset: null });
+    api.community.myComments.mockResolvedValue({ comments: [], next_offset: null });
   });
 
   afterEach(() => {
@@ -76,7 +88,7 @@ describe('MyCommunityContent', () => {
     expect(screen.queryByText('Praying')).not.toBeInTheDocument();
   });
 
-  it('loads every inventory page and exposes post-expiry group/rating/series controls', async () => {
+  it('loads every inventory page and exposes every post-expiry lifecycle control', async () => {
     api.community.myForumContent
       .mockResolvedValueOnce({
         posts: [{ id: 'new-post', title: 'New', content: 'Newest page' }],
@@ -100,8 +112,28 @@ describe('MyCommunityContent', () => {
       groups: [{ id: 'group-1', name: 'Pastors group', membership_role: 'leader' }],
       next_offset: null,
     });
+    api.community.mySharedSermonPage.mockResolvedValue({
+      sermons: [{ id: 'sermon-1', title: 'Shared grace sermon' }],
+      next_offset: null,
+    });
+    api.community.mySharedContent.mockResolvedValue({
+      shared_content: [{ id: 'content-1', title: 'Shared study', content_type: 'study' }],
+      next_offset: null,
+    });
+    api.community.myPublicReadingPlans.mockResolvedValue({
+      reading_plans: [{ id: 'plan-1', name: 'Grace plan' }],
+      next_offset: null,
+    });
+    api.community.myComments.mockResolvedValue({
+      comments: [{ id: 'comment-1', comment: 'Helpful study', target_type: 'reading_plan' }],
+      next_offset: null,
+    });
     api.community.deleteRating.mockResolvedValue({ deleted: true });
     api.community.unshareSeries.mockResolvedValue(undefined);
+    api.community.unshareSermon.mockResolvedValue(undefined);
+    api.community.withdrawSharedContent.mockResolvedValue(undefined);
+    api.community.withdrawReadingPlan.mockResolvedValue(undefined);
+    api.community.deleteComment.mockResolvedValue(undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     renderPage();
@@ -112,6 +144,15 @@ describe('MyCommunityContent', () => {
     await waitFor(() => expect(api.community.deleteRating).toHaveBeenCalledWith('rating-1'));
     fireEvent.click(screen.getByRole('button', { name: 'Withdraw series' }));
     await waitFor(() => expect(api.community.unshareSeries).toHaveBeenCalledWith('series-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw sermon' }));
+    await waitFor(() => expect(api.community.unshareSermon).toHaveBeenCalledWith('sermon-1'));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Make private', exact: true })[0]);
+    await waitFor(() => expect(api.community.withdrawSharedContent).toHaveBeenCalledWith('content-1'));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Make private', exact: true })).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Make private', exact: true }));
+    await waitFor(() => expect(api.community.withdrawReadingPlan).toHaveBeenCalledWith('plan-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete comment' }));
+    await waitFor(() => expect(api.community.deleteComment).toHaveBeenCalledWith('comment-1'));
     expect(api.community.myForumContent).toHaveBeenNthCalledWith(2, { offset: 100, limit: 100 });
   });
 });

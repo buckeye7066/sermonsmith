@@ -36,10 +36,11 @@ describe('community membership migration safety', () => {
     expect(migration).toContain("WHERE \"type\" = 'StudyGroup'");
   });
 
-  it('purges untrusted legacy private-plan progress references', () => {
-    expect(migration).toContain("progress.\"type\" = 'GroupProgress'");
-    expect(migration).toContain("NOT (progress.\"data\" ? 'plan_snapshot')");
-    expect(migration).toContain('progress."user_id" <> group_entity."user_id"');
+  it('purges every client-writable legacy progress row, including forged snapshots', () => {
+    expect(migration).toContain('DELETE FROM "entities"');
+    expect(migration).toContain('WHERE "type" = \'GroupProgress\'');
+    expect(migration).toContain('assignment_format_version=2');
+    expect(migration).not.toContain("NOT (progress.\"data\" ? 'plan_snapshot')");
     expect(migration).not.toContain("progress.\"data\"->>'assigned_by'");
   });
 });

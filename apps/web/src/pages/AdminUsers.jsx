@@ -120,10 +120,7 @@ export default function AdminUsers() {
 
   const banUser = async (userId) => {
     try {
-      await api.entities.User.update(userId, { 
-        is_banned: true,
-        banned_at: new Date().toISOString()
-      });
+      await api.auth.setUserBanned(userId, true);
       toast.success("User banned successfully");
       setBanConfirm(null);
       loadUsers();
@@ -135,10 +132,7 @@ export default function AdminUsers() {
 
   const unbanUser = async (userId) => {
     try {
-      await api.entities.User.update(userId, { 
-        is_banned: false,
-        banned_at: null
-      });
+      await api.auth.setUserBanned(userId, false);
       toast.success("User unbanned successfully");
       loadUsers();
     } catch (error) {

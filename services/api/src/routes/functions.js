@@ -432,17 +432,27 @@ async function getCachedPremiumChapter({ id, book, chapter }) {
   return { ...data, cacheHit: false };
 }
 
-// Resolve effective premium access for the caller. `optionalAuth` only sets
-// req.userId (no role/premium), so on those routes we look the user up. Admins
-// and devs always count as premium.
+// Resolve effective premium access for the caller. optionalAuth now attaches
+// tier data only after active-user and token-version validation; the defensive
+// lookup below also rechecks ban/deletion state before any paid provider call.
 async function userHasPremium(req) {
   if (req.userPremium || req.userRole === 'admin' || req.userRole === 'dev') return true;
   if (!req.userId) return false;
   const u = await prisma.user.findUnique({
     where: { id: req.userId },
-    select: { role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, email: true, profile: true },
+    select: {
+      role: true,
+      premium: true,
+      premium_until: true,
+      promotionalEmail: true,
+      promotionalPhone: true,
+      email: true,
+      profile: true,
+      deletedAt: true,
+      is_banned: true,
+    },
   });
-  if (!u) return false;
+  if (!u || u.deletedAt || u.is_banned) return false;
   return accountTierFor(u) === ACCOUNT_TIERS.PREMIUM;
 }
 
@@ -720,7 +730,7 @@ const REGION_NAMES = {
 };
 
 router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
-  // optionalAuth only sets req.userId; look up the flags the UI reads.
+  // Resolve the server-authoritative tier for an optional signed-in caller.
   let isPremium = false;
   let isDeveloper = false;
   if (req.userId) {

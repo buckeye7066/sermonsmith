@@ -72,8 +72,12 @@ async function mockCommonRoutes(page, { aiSermon }) {
   // MySermons loads owned drafts and the owner's community publications in a
   // single Promise.all. Make that second source deterministic too; otherwise
   // an escaped request can reject the whole load (observed only in WebKit).
-  await page.route('**/api/community/sermons/mine', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/community/sermons/mine**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ sermons: [], next_offset: null }),
+    }));
 }
 
 async function mockSermonEntity(page, { saved }) {
