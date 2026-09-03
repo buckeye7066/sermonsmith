@@ -49,7 +49,13 @@
     "cap:open:ios": "npm run open:ios -w @sermonsmith/mobile",
     "cap:sync:android": "npm run sync:android -w @sermonsmith/mobile",
     "cap:sync:ios": "npm run sync:ios -w @sermonsmith/mobile",
-    "generate:icons": "npm run generate:icons -w @sermonsmith/web"
+    "generate:icons": "npm run generate:icons -w @sermonsmith/web",
+    "memory:startup": "node scripts/obsidian-memory.mjs startup",
+    "memory:health": "node scripts/obsidian-memory.mjs health",
+    "memory:recall": "node scripts/obsidian-memory.mjs recall",
+    "memory:note": "node scripts/obsidian-memory.mjs note",
+    "predev": "npm run memory:startup",
+    "prestart": "npm run memory:startup"
   },
   "engines": {
     "node": ">=20 <25",
