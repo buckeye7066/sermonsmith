@@ -119,6 +119,16 @@ describe('loadEnv', () => {
     expect(env.corsAllowList()).toEqual(['https://a', 'https://b', 'https://localhost', 'capacitor://localhost']);
   });
 
+  it('allows both deterministic loopback origins by default in development', () => {
+    const env = loadEnv({ source: { NODE_ENV: 'development' }, warn: () => {} });
+    expect(env.corsAllowList()).toEqual([
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'https://localhost',
+      'capacitor://localhost',
+    ]);
+  });
+
   it('warns but does not throw in dev when secrets are missing', () => {
     const warnings = [];
     const env = loadEnv({ source: { NODE_ENV: 'development' }, warn: (m) => warnings.push(m) });

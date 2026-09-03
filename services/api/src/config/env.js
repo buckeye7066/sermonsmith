@@ -163,7 +163,7 @@ export function loadEnv(opts = {}) {
     releaseSha: env.RELEASE_SHA || env.RAILWAY_GIT_COMMIT_SHA || env.GITHUB_SHA || null,
 
     corsAllowList() {
-      const raw = env.CORS_ORIGIN || (isProd ? '' : 'http://localhost:5173');
+      const raw = env.CORS_ORIGIN || (isProd ? '' : 'http://localhost:5173,http://127.0.0.1:5173');
       const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
       // Capacitor mobile app (com.sermonsmith.app) origins — always allowed,
       // in code so a CORS_ORIGIN env edit can't silently break mobile login.
