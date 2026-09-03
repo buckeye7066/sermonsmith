@@ -21,8 +21,11 @@ describe('community membership migration safety', () => {
     expect(migration).toContain("'Member'");
   });
 
-  it('does not seed deleted owners and has an ownerless-group recovery path', () => {
+  it('does not seed deleted or banned accounts and has an ownerless-group recovery path', () => {
     expect(migration).toContain('u."deleted_at" IS NULL');
+    expect(migration).toContain('COALESCE(u."is_banned", false) = false');
+    expect(migration).toContain('COALESCE(owner_user."is_banned", false) = true');
+    expect(migration).toContain('COALESCE(candidate_user."is_banned", false) = false');
     expect(migration).toContain('SET "role" = \'leader\'');
     expect(migration).toContain('SET "user_id" = r."user_id"');
     expect(migration).toContain('"deleted"');
@@ -31,6 +34,13 @@ describe('community membership migration safety', () => {
   it('normalizes legacy group privacy before database-level discovery filtering', () => {
     expect(migration).toContain("'{is_private}'");
     expect(migration).toContain("WHERE \"type\" = 'StudyGroup'");
+  });
+
+  it('purges untrusted legacy private-plan progress references', () => {
+    expect(migration).toContain("progress.\"type\" = 'GroupProgress'");
+    expect(migration).toContain("NOT (progress.\"data\" ? 'plan_snapshot')");
+    expect(migration).toContain('progress."user_id" <> group_entity."user_id"');
+    expect(migration).not.toContain("progress.\"data\"->>'assigned_by'");
   });
 });
 

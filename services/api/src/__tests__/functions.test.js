@@ -459,6 +459,86 @@ describe('function routes - premium translations', () => {
   });
 });
 
+describe('function routes - Scripture API import completeness', () => {
+  let app;
+  const adminCookie = () => [`ss_token=${jwt.sign({ userId: 'u-import-admin' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' })}`];
+
+  beforeEach(() => {
+    prisma._reset();
+    app = buildApp();
+    process.env.SCRIPTURE_API_KEY = 'scripture-test-key';
+    prisma._store.user.push({ id: 'u-import-admin', email: 'import@x', role: 'admin', premium: true });
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const value = String(url);
+      if (value.endsWith('/books')) {
+        return { ok: true, status: 200, json: async () => ({ data: [{ id: 'GEN', name: 'Genesis' }] }) };
+      }
+      if (value.endsWith('/books/GEN/chapters')) {
+        return { ok: true, status: 200, json: async () => ({ data: [{ id: 'GEN.1', number: '1' }] }) };
+      }
+      if (value.endsWith('/chapters/GEN.1/verses')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              { id: 'GEN.1.1', reference: 'Genesis 1:1' },
+              { id: 'GEN.1.2', reference: 'Genesis 1:2' },
+            ],
+          }),
+        };
+      }
+      if (value.includes('/chapters/GEN.1?content-type=json')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              content: [{
+                name: 'para',
+                type: 'tag',
+                items: [
+                  { name: 'verse', type: 'tag', attrs: { number: '1', sid: 'GEN 1:1' }, items: [{ type: 'text', text: '1' }] },
+                  { type: 'text', text: 'In the beginning. ', attrs: { verseId: 'GEN.1.1' } },
+                  { name: 'verse', type: 'tag', attrs: { number: '2', sid: 'GEN 1:2' }, items: [{ type: 'text', text: '2' }] },
+                  { type: 'text', text: 'The earth was without form.', attrs: { verseId: 'GEN.1.2' } },
+                ],
+              }],
+            },
+          }),
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    }));
+  });
+
+  afterEach(() => {
+    delete process.env.SCRIPTURE_API_KEY;
+    vi.unstubAllGlobals();
+  });
+
+  it('writes defensible v2 completeness markers for an unaudited translation', async () => {
+    const response = await request(app)
+      .post('/api/functions/importFromScriptureAPI')
+      .set('Cookie', adminCookie())
+      .send({ bibleId: 'test-bible', translation: 'community-test' });
+
+    expect(response.status).toBe(202);
+    await vi.waitFor(() => {
+      expect(prisma._store.entity.filter((row) => row.type === 'Verse')).toHaveLength(2);
+    });
+    const verses = prisma._store.entity.filter((row) => row.type === 'Verse');
+    expect(verses.map((row) => row.data.verse)).toEqual([1, 2]);
+    expect(verses.map((row) => row.data.text)).toEqual([
+      'In the beginning.',
+      'The earth was without form.',
+    ]);
+    expect(verses.every((row) => row.data.chapter_complete === true)).toBe(true);
+    expect(verses.every((row) => row.data.chapter_verse_count === 2)).toBe(true);
+    expect(verses.every((row) => row.data.import_format_version === 2)).toBe(true);
+  });
+});
+
 describe('function routes - developer tools gating', () => {
   let app;
 

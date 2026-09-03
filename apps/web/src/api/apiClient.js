@@ -310,6 +310,7 @@ const auth = {
   updateMe: (data)        => apiFetch('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
   exportData: ()          => apiFetch('/api/auth/export'),
   deleteAccount: ()       => apiFetch('/api/auth/me', { method: 'DELETE' }),
+  deleteUser: (id)        => apiFetch(`/api/auth/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   revokeSessions: ()      => apiFetch('/api/auth/revoke-sessions', { method: 'POST' }),
 
   login: (email, password) =>
@@ -453,6 +454,25 @@ function isFullyValidSuccessTrailer(result, rawText) {
   return true;
 }
 
+function serverWorkflowRequest(p, { streaming = false } = {}) {
+  // Default only inside this trusted application adapter for old in-app call
+  // sites. The API still receives an explicit workflow URL and never trusts a
+  // body label; source text cannot alter the selected workflow.
+  const workflow = String(p?.feature || 'sermon').trim().toLowerCase();
+  const body = {
+    input: p?.prompt,
+    structured: Boolean(p?.response_json_schema),
+    ...(p?.model !== undefined ? { model: p.model } : {}),
+    ...(p?.max_tokens !== undefined ? { max_tokens: p.max_tokens } : {}),
+    ...(p?.temperature !== undefined ? { temperature: p.temperature } : {}),
+    ...(streaming ? { stream_result: true } : {}),
+  };
+  return {
+    path: `/api/ai/workflows/${encodeURIComponent(workflow)}`,
+    body,
+  };
+}
+
 const integrations = {
   Core: {
     // When the caller declares a `response_json_schema`, coerce the response to
@@ -462,7 +482,11 @@ const integrations = {
     // value throws React error #31 and blanks the page. Coercing here protects
     // every page at once instead of relying on per-page normalizers.
     InvokeLLM: async (p) => {
-      const result = await apiFetch('/api/ai/invoke', { method: 'POST', body: JSON.stringify(p) });
+      const workflow = serverWorkflowRequest(p);
+      const result = await apiFetch(`${workflow.path}/invoke`, {
+        method: 'POST',
+        body: JSON.stringify(workflow.body),
+      });
       if (p && p.response_json_schema) {
         try { return coerceToSchema(result, p.response_json_schema); } catch { /* fall back to raw */ }
       }
@@ -485,6 +509,7 @@ const integrations = {
     // resolved value.
     StreamLLM: async (p, onDelta) => {
       const apiBase = await getApiBaseUrl();
+      const workflow = serverWorkflowRequest(p, { streaming: true });
       // Idle-timeout guard: unlike apiFetch, a stalled stream would otherwise
       // hang the builder forever. Abort if no chunk arrives within STREAM_IDLE_MS
       // (reset on every chunk). On abort the fetch/read rejects and the caller
@@ -499,11 +524,11 @@ const integrations = {
       // A network failure here rejects naturally — callers fall back to InvokeLLM.
       let res;
       try {
-        res = await fetch(`${apiBase}/api/ai/stream`, {
+        res = await fetch(`${apiBase}${workflow.path}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ ...(p || {}), stream_result: true }),
+          body: JSON.stringify(workflow.body),
           signal: controller.signal,
         });
       } catch (err) {
@@ -516,8 +541,8 @@ const integrations = {
         const error = new Error(body.message || `API error ${res.status}`);
         error.status = res.status;
         error.data = body;
-        if (res.status === 401 && !isAuthHandshakePath('/api/ai/stream')) {
-          try { _onUnauthorized?.('/api/ai/stream'); } catch { /* never mask */ }
+        if (res.status === 401 && !isAuthHandshakePath(`${workflow.path}/stream`)) {
+          try { _onUnauthorized?.(`${workflow.path}/stream`); } catch { /* never mask */ }
         }
         throw error;
       }
@@ -664,7 +689,20 @@ const community = {
   // Public forum/community feeds — these read across ALL users (unlike the
   // tenant-scoped entity API), so members actually see each other's content.
   posts: () => apiFetch('/api/community/posts'),
-  myForumContent: () => apiFetch('/api/community/posts/mine'),
+  myForumContent: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/posts/mine?${query}`);
+  },
+  myRatings: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/ratings/mine?${query}`);
+  },
+  deleteRating: (id) => apiFetch(`/api/community/ratings/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  mySharedSeries: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/shared-series/mine?${query}`);
+  },
+  unshareSeries: (id) => apiFetch(`/api/community/shared-series/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   createPost: (payload) => apiFetch('/api/community/posts', {
     method: 'POST',
     body: JSON.stringify(payload || {}),
@@ -720,6 +758,10 @@ const community = {
     { method: 'POST', body: JSON.stringify(payload) },
   ),
   studyGroups: () => apiFetch('/api/community/study-groups'),
+  myStudyGroups: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/study-groups/mine?${query}`);
+  },
   createStudyGroup: (payload) => apiFetch('/api/community/study-groups', {
     method: 'POST',
     body: JSON.stringify(payload || {}),

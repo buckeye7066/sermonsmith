@@ -9,19 +9,18 @@
  * Two things live here:
  *
  * 1. SERVER_AI_INVARIANTS — the non-negotiable policy the API prepends as
- *    its OWN system message before any client-supplied system prompt, on
- *    every /invoke and /stream call. The client cannot remove or override
- *    it, and it explicitly outranks later prompt text and fenced user input.
+ *    its OWN system message on every workflow call. Production clients cannot
+ *    submit any system prompt or instruction-bearing response schema; their
+ *    source material is wrapped in a server-authored data envelope.
  *    It encodes the hard product rules: no fabricated Scripture or
  *    quotations, fences are data, illustrations are hypothetical unless
  *    sourced, no self-certification as human-reviewed, and pastoral-safety
  *    red lines for crisis topics.
  *
- * 2. AI_FEATURES — the registry of stable feature ids clients must send with
- *    each call. The API maps every id to an entitlement and turns `purpose`
- *    into a server-owned, non-overridable workflow contract. That keeps a
- *    caller from omitting a premium label or changing it to gain the premium
- *    workflow contract, while preserving the advertised free core builders.
+ * 2. AI_FEATURES — the registry of stable workflow ids used in server route
+ *    paths. The API maps the path id to an entitlement and turns `purpose`
+ *    into a server-owned, non-overridable workflow contract. Request bodies
+ *    cannot relabel the workflow, while advertised free core builders remain.
  *
  * Shared (web + api) so the id list and the policy text can never drift
  * between what the client sends and what the server enforces.

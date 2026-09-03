@@ -15,11 +15,14 @@ import { createPageUrl } from "@/utils";
 import GroupChat from "../components/groups/GroupChat";
 import MeetingScheduler from "../components/groups/MeetingScheduler";
 import ProgressTracker from "../components/groups/ProgressTracker";
+import { usePremiumAccess } from '@/components/hooks/usePremiumAccess';
 
 export default function GroupDetail() {
   const location = useLocation();
   const groupId = new URLSearchParams(location.search).get('id');
   const { user, isLoadingAuth } = useAuth();
+  const { hasEntitlement, loading: accessLoading } = usePremiumAccess();
+  const hasCommunityAccess = hasEntitlement('community');
   const [group, setGroup] = useState(null);
   const [members, setMembers] = useState([]);
   const [membership, setMembership] = useState(null);
@@ -131,7 +134,7 @@ export default function GroupDetail() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || accessLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
@@ -170,15 +173,70 @@ export default function GroupDetail() {
   }
 
   const isLeader = membership.role === 'leader';
+  const membersPanel = (allowAdding) => (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Members ({members.length})</CardTitle>
+          {allowAdding && isLeader && (
+            <Button size="sm" onClick={() => setShowAddMember(true)}>
+              <UserPlus className="w-4 h-4 mr-2" />
+              Add Member
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {members.map(member => (
+            <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
+              <div>
+                <p className="font-medium">{member.user_name}</p>
+                <p className="text-xs text-gray-500">
+                  Joined {new Date(member.joined_date).toLocaleDateString()}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={member.role === 'leader' ? 'default' : 'outline'}>
+                  {member.role === 'leader' && <Crown className="w-3 h-3 mr-1" />}
+                  {member.role}
+                </Badge>
+                {isLeader && member.role === 'member' && member.user_id !== user.id && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={Boolean(removingMemberId)}
+                    onClick={() => handlePromoteToLeader(member)}
+                  >
+                    Promote
+                  </Button>
+                )}
+                {isLeader && member.user_id !== user.id && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={Boolean(removingMemberId)}
+                    onClick={() => handleRemoveMember(member)}
+                  >
+                    {removingMemberId === member.id ? 'Removing…' : 'Remove'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
-          <Link to={createPageUrl('StudyGroups')}>
+          <Link to={createPageUrl(hasCommunityAccess ? 'StudyGroups' : 'MyCommunityContent')}>
             <Button variant="ghost" size="sm">
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Groups
+              {hasCommunityAccess ? 'Back to Groups' : 'Back to My Community Content'}
             </Button>
           </Link>
         </div>
@@ -203,7 +261,19 @@ export default function GroupDetail() {
           </CardHeader>
         </Card>
 
-        <Tabs defaultValue="chat" className="space-y-6">
+        {!hasCommunityAccess && (
+          <div className="space-y-4">
+            <Card className="border-purple-200">
+              <CardContent className="pt-6 text-sm text-gray-700 dark:text-gray-300">
+                Your Community access has expired. Group chat, meetings, progress, member search, and new activity are paused,
+                but you can still transfer leadership, remove members, or leave this group.
+              </CardContent>
+            </Card>
+            {membersPanel(false)}
+          </div>
+        )}
+
+        {hasCommunityAccess && <Tabs defaultValue="chat" className="space-y-6">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="chat">
               <MessageCircle className="w-4 h-4 mr-2" />
@@ -236,62 +306,11 @@ export default function GroupDetail() {
           </TabsContent>
 
           <TabsContent value="members">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle>Members ({members.length})</CardTitle>
-                  {isLeader && (
-                    <Button size="sm" onClick={() => setShowAddMember(true)}>
-                      <UserPlus className="w-4 h-4 mr-2" />
-                      Add Member
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {members.map(member => (
-                    <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium">{member.user_name}</p>
-                        <p className="text-xs text-gray-500">
-                          Joined {new Date(member.joined_date).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={member.role === 'leader' ? 'default' : 'outline'}>
-                          {member.role === 'leader' && <Crown className="w-3 h-3 mr-1" />}
-                          {member.role}
-                        </Badge>
-                        {isLeader && member.role === 'member' && member.user_id !== user.id && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handlePromoteToLeader(member)}
-                          >
-                            Promote
-                          </Button>
-                        )}
-                        {isLeader && member.user_id !== user.id && (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={Boolean(removingMemberId)}
-                            onClick={() => handleRemoveMember(member)}
-                          >
-                            {removingMemberId === member.id ? 'Removing…' : 'Remove'}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            {membersPanel(true)}
           </TabsContent>
-        </Tabs>
+        </Tabs>}
 
-        <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
+        {hasCommunityAccess && <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Add a community member</DialogTitle>
@@ -329,7 +348,7 @@ export default function GroupDetail() {
               )}
             </div>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
       </div>
     </div>
   );

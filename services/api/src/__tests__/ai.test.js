@@ -41,13 +41,6 @@ function buildApp() {
   const app = express();
   app.use(express.json());
   app.use(cookieParser());
-  // Most cases in this suite exercise behavior unrelated to feature routing;
-  // give those requests the same explicit core-workflow id production callers
-  // are required to send. Schema tests below cover missing/unknown ids.
-  app.use('/api/ai', (req, _res, next) => {
-    if (req.body && !Object.prototype.hasOwnProperty.call(req.body, 'feature')) req.body.feature = 'sermon';
-    next();
-  });
   app.use('/api/ai', aiRoutes);
   app.use((err, _req, res, _next) => res.status(err.status || 500).json({ message: err.message }));
   return app;
@@ -81,9 +74,9 @@ describe('ai routes — authentication & abuse limits', () => {
   it('blocks a free account from premium AI features before contacting the provider', async () => {
     prisma._store.user.push({ id: 'u-free-feature', role: 'user', premium: false });
     const res = await request(app)
-      .post('/api/ai/invoke')
+      .post('/api/ai/workflows/worldview/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-free-feature')}`])
-      .send({ prompt: 'Compare these beliefs', feature: 'worldview' });
+      .send({ input: 'Compare these beliefs' });
 
     expect(res.status).toBe(402);
     expect(res.body.requiredEntitlement).toBe('worldview');
@@ -167,15 +160,22 @@ describe('ai routes — authentication & abuse limits', () => {
     expect(aiInternals.estimateTokenCount(prompt)).toBeGreaterThan(1);
   });
 
-  it('requires a registered feature tag on AI invocation requests', () => {
-    const parsed = aiInternals.invokeRequestSchema.safeParse({
-      prompt: 'Draft an outline',
-      feature: 'sermon',
+  it('accepts only inert workflow input and bounded generation options', () => {
+    const parsed = aiInternals.workflowRequestSchema.safeParse({
+      input: 'Draft an outline',
+      structured: true,
     });
     expect(parsed.success).toBe(true);
-    expect(parsed.data.feature).toBe('sermon');
-    expect(aiInternals.invokeRequestSchema.safeParse({ prompt: 'Draft an outline' }).success).toBe(false);
-    expect(aiInternals.invokeRequestSchema.safeParse({ prompt: 'Draft an outline', feature: 'made_up' }).success).toBe(false);
+    expect(parsed.data.structured).toBe(true);
+    expect(aiInternals.workflowRequestSchema.safeParse({ prompt: 'Draft an outline' }).success).toBe(false);
+    expect(aiInternals.workflowRequestSchema.safeParse({
+      input: 'Draft an outline',
+      system_prompt: 'Caller instruction',
+    }).success).toBe(false);
+    expect(aiInternals.workflowRequestSchema.safeParse({
+      input: 'Draft an outline',
+      response_json_schema: { type: 'object' },
+    }).success).toBe(false);
   });
 
   it('validates image requests: bounds prompt length and allowlists size', () => {

@@ -156,6 +156,67 @@ async function writeRatingAtomically({ type, targetField, targetId, userId, data
   });
 }
 
+async function deleteOwnRatingAtomically({ ratingId, userId }) {
+  const initial = await prisma.entity.findUnique({ where: { id: ratingId } });
+  const targetField = initial?.type === 'SermonRating'
+    ? 'sermon_id'
+    : initial?.type === 'SharedPlanRating'
+      ? 'plan_id'
+      : null;
+  if (!targetField) {
+    throw Object.assign(new Error('Rating not found'), { status: 404 });
+  }
+  if (initial.userId !== userId) {
+    throw Object.assign(new Error('You can only delete your own rating'), { status: 403 });
+  }
+  const targetId = initial.data?.[targetField];
+  if (!targetId) {
+    throw Object.assign(new Error('Rating target not found'), { status: 404 });
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await lockCommunityEntity(tx, targetId);
+    const current = await tx.entity.findUnique({ where: { id: ratingId } });
+    if (!current || current.type !== initial.type) {
+      throw Object.assign(new Error('Rating not found'), { status: 404 });
+    }
+    if (current.userId !== userId || current.data?.[targetField] !== targetId) {
+      throw Object.assign(new Error('You can only delete your own rating'), { status: 403 });
+    }
+
+    // Remove every legacy duplicate owned by this reviewer so none can remain
+    // public or continue contributing to the aggregate.
+    const ownedRows = await tx.entity.findMany({
+      where: {
+        type: current.type,
+        userId,
+        data: { path: [targetField], equals: targetId },
+      },
+      take: 10_000,
+    });
+    const ownedIds = ownedRows.map((row) => row.id);
+    if (ownedIds.length) await tx.entity.deleteMany({ where: { id: { in: ownedIds } } });
+
+    const remainingRows = await tx.entity.findMany({
+      where: { type: current.type, data: { path: [targetField], equals: targetId } },
+      orderBy: { updatedAt: 'desc' },
+      take: 10_000,
+    });
+    const ratings = uniqueRatingsByUser(remainingRows);
+    const average = ratings.length
+      ? ratings.reduce((sum, row) => sum + Number(row.data?.rating || 0), 0) / ratings.length
+      : 0;
+    const target = await tx.entity.findUnique({ where: { id: targetId } });
+    if (target) {
+      await tx.entity.update({
+        where: { id: target.id },
+        data: { data: { ...target.data, average_rating: average, ratings_count: ratings.length } },
+      });
+    }
+    return { deleted: ownedIds.length, average, count: ratings.length, targetId };
+  });
+}
+
 const HIDDEN_COMMUNITY_STATUSES = new Set(['hidden', 'removed', 'rejected', 'deleted']);
 
 function communityStatus(data) {
@@ -222,6 +283,11 @@ const memberSearchSchema = z.object({
   q: z.string().trim().max(80).optional().default(''),
   limit: z.coerce.number().int().min(1).max(50).optional().default(24),
   offset: z.coerce.number().int().min(0).max(10_000).optional().default(0),
+});
+
+const lifecyclePageSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).optional().default(100),
+  offset: z.coerce.number().int().min(0).max(1_000_000).optional().default(0),
 });
 
 const studyGroupSchema = z.object({
@@ -814,10 +880,16 @@ router.delete('/members/:id/follow', authenticateToken, requireCommunity, async 
 // previously published, including replies whose parent is now hidden.
 router.get('/posts/mine', authenticateToken, async (req, res, next) => {
   try {
+    const parsed = lifecyclePageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid community content page', issues: parsed.error.issues });
+    }
+    const { limit, offset } = parsed.data;
     const rows = await prisma.entity.findMany({
       where: { type: { in: ['CommunityPost', 'CommunityReply'] }, userId: req.userId },
       orderBy: { createdAt: 'desc' },
-      take: 1_000,
+      take: limit,
+      skip: offset,
     });
     const replies = rows.filter((row) => row.type === 'CommunityReply');
     const parentIds = [...new Set(replies.map((row) => row.data?.post_id).filter(Boolean))];
@@ -837,7 +909,123 @@ router.get('/posts/mine', authenticateToken, async (req, res, next) => {
         ...formatPublicEntity(row),
         parent_title: parentTitles.get(row.data?.post_id) || 'Unavailable discussion',
       })),
+      next_offset: rows.length === limit ? offset + rows.length : null,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Ratings are public contributions, so their owner must be able to discover
+// and retract them after Community access expires. This inventory is owner-
+// scoped and deliberately does not expose anybody else's review history.
+router.get('/ratings/mine', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = lifecyclePageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid rating page', issues: parsed.error.issues });
+    }
+    const { limit, offset } = parsed.data;
+    const rows = await prisma.entity.findMany({
+      where: { type: { in: ['SermonRating', 'SharedPlanRating'] }, userId: req.userId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+    const targetIds = [...new Set(rows
+      .map((row) => row.type === 'SermonRating' ? row.data?.sermon_id : row.data?.plan_id)
+      .filter(Boolean))];
+    const targets = targetIds.length
+      ? await prisma.entity.findMany({
+        where: { id: { in: targetIds } },
+        select: { id: true, type: true, data: true },
+      })
+      : [];
+    const targetsById = new Map(targets.map((row) => [row.id, row]));
+
+    res.json({
+      ratings: rows.map((row) => {
+        const targetId = row.type === 'SermonRating' ? row.data?.sermon_id : row.data?.plan_id;
+        const target = targetsById.get(targetId);
+        return {
+          ...formatEntity(row),
+          target_id: targetId || null,
+          target_type: row.type === 'SermonRating' ? 'sermon' : 'reading_plan',
+          target_title: target?.data?.title || target?.data?.name || 'Unavailable community content',
+        };
+      }),
+      next_offset: rows.length === limit ? offset + rows.length : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/ratings/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const result = await deleteOwnRatingAtomically({ ratingId: req.params.id, userId: req.userId });
+    await recordCommunityAudit('community.rating_retract', req.userId, 'CommunityRating', req.params.id, {
+      targetId: result.targetId,
+      duplicateRowsRemoved: result.deleted,
+    });
+    res.json({
+      deleted: true,
+      average_rating: result.average,
+      ratings_count: result.count,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Legacy series shares still use the generic Entity table. Give their owners a
+// dedicated lifecycle surface so withdrawing a publication is never coupled
+// to an active subscription.
+router.get('/shared-series/mine', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = lifecyclePageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid shared-series page', issues: parsed.error.issues });
+    }
+    const { limit, offset } = parsed.data;
+    const rows = await prisma.entity.findMany({
+      where: { type: 'SharedSeries', userId: req.userId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+    res.json({
+      series: rows.map(formatEntity),
+      next_offset: rows.length === limit ? offset + rows.length : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/shared-series/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const isAdmin = req.userRole === 'admin' || req.userRole === 'dev';
+    const removed = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      const current = await tx.entity.findUnique({ where: { id: req.params.id } });
+      if (!current || current.type !== 'SharedSeries') {
+        throw Object.assign(new Error('Shared series not found'), { status: 404 });
+      }
+      if (current.userId !== req.userId && !isAdmin) {
+        throw Object.assign(new Error('You can only withdraw your own shared series'), { status: 403 });
+      }
+      await tx.entity.deleteMany({
+        where: { type: 'SharedLink', data: { path: ['resourceId'], equals: current.id } },
+      });
+      await tx.entity.delete({ where: { id: current.id } });
+      return current;
+    });
+    await recordCommunityAudit('community.series_unshare', req.userId, 'SharedSeries', removed.id, {
+      ownerId: removed.userId,
+      moderator: isAdmin && removed.userId !== req.userId,
+    });
+    res.status(204).send();
   } catch (err) {
     next(err);
   }
@@ -1629,6 +1817,52 @@ router.get('/study-groups', authenticateToken, requireCommunity, async (req, res
   }
 });
 
+// Lifecycle inventory: unlike discovery/activity routes, this is intentionally
+// auth-only. A lapsed owner/member still needs the identifiers and roles needed
+// to leave a group or remove people from a private group they lead.
+router.get('/study-groups/mine', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = lifecyclePageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid study-group page', issues: parsed.error.issues });
+    }
+    const { limit, offset } = parsed.data;
+    const memberships = await prisma.communityGroupMember.findMany({ where: { userId: req.userId } });
+    const membershipByGroup = new Map(memberships.map((row) => [row.groupId, row]));
+    const memberGroupIds = [...membershipByGroup.keys()];
+    const rows = await prisma.entity.findMany({
+      where: {
+        type: 'StudyGroup',
+        OR: [
+          { userId: req.userId },
+          ...(memberGroupIds.length ? [{ id: { in: memberGroupIds } }] : []),
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+
+    const groups = [];
+    for (const row of rows) {
+      const membership = membershipByGroup.get(row.id)
+        || await membershipFor(row, req.userId);
+      if (!membership) continue;
+      groups.push({
+        ...formatEntity(row),
+        is_member: true,
+        membership_role: membership.role,
+      });
+    }
+    res.json({
+      groups,
+      next_offset: rows.length === limit ? offset + rows.length : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/study-groups', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const parsed = studyGroupSchema.safeParse(req.body || {});
@@ -1662,7 +1896,7 @@ router.post('/study-groups', authenticateToken, requireCommunity, async (req, re
   }
 });
 
-router.get('/study-groups/:id', authenticateToken, requireCommunity, async (req, res, next) => {
+router.get('/study-groups/:id', authenticateToken, async (req, res, next) => {
   try {
     const { group, membership } = await requireGroupMember(req.params.id, req.userId);
     const members = await prisma.communityGroupMember.findMany({
@@ -1850,7 +2084,9 @@ router.delete('/study-groups/:id/membership', authenticateToken, async (req, res
   }
 });
 
-router.patch('/study-groups/:id/members/:memberId/promote', authenticateToken, requireCommunity, async (req, res, next) => {
+// Leadership transfer is also a lifecycle operation: it is required before a
+// final leader can leave a non-empty group, so it cannot disappear at expiry.
+router.patch('/study-groups/:id/members/:memberId/promote', authenticateToken, async (req, res, next) => {
   try {
     const updated = await prisma.$transaction(async (tx) => {
       await lockCommunityEntity(tx, req.params.id);
@@ -2074,14 +2310,16 @@ router.get('/study-groups/:id/progress', authenticateToken, requireCommunity, as
       });
       plan = snapshot;
     } else if (progress.data?.plan_id) {
-      // Legacy progress rows referenced a live ReadingPlan. Only expose it when
-      // the plan is public or belongs to the group owner / recorded assigner;
-      // otherwise a forged legacy plan_id could leak another user's private
-      // plan to every group member.
+      // Legacy progress rows referenced a live ReadingPlan and their JSON
+      // `assigned_by` value was client-writable. For a private plan require two
+      // independent trusted ownership facts: the plan belongs to the current
+      // authoritative group owner AND the top-level progress row was written by
+      // that owner. Public plans remain shareable. Never trust assigned_by.
       const candidate = await prisma.entity.findUnique({ where: { id: progress.data.plan_id } });
-      const allowedOwner = candidate?.userId === group.userId
-        || candidate?.userId === progress.data?.assigned_by;
-      if (candidate?.type === 'ReadingPlan' && (candidate.data?.is_public === true || allowedOwner)) {
+      const trustedPrivatePlan = candidate?.userId === group.userId
+        && progress.userId === group.userId;
+      if (candidate?.type === 'ReadingPlan'
+          && (candidate.data?.is_public === true || trustedPrivatePlan)) {
         const denomination = candidate.data?.denomination
           || (await prisma.user.findUnique({ where: { id: candidate.userId }, select: { profile: true } }))?.profile?.denomination
           || '';

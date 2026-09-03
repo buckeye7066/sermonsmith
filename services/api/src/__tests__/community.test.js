@@ -726,6 +726,89 @@ describe('community routes', () => {
     expect(prisma._store.entity.some((row) => row.id === 'free-owned-post' || row.id === 'free-owned-reply')).toBe(false);
   });
 
+  it('paginates the complete forum retraction inventory beyond 1,000 rows', async () => {
+    for (let index = 0; index < 1001; index += 1) {
+      prisma._store.entity.push({
+        id: `historical-post-${index}`,
+        type: 'CommunityPost',
+        userId: 'u-free',
+        data: { title: `Historical ${index}`, content: 'Published content', visibility: 'public' },
+        createdAt: new Date(2020, 0, 1, 0, 0, index),
+        updatedAt: new Date(2020, 0, 1, 0, 0, index),
+      });
+    }
+
+    const oldestPage = await request(app)
+      .get('/api/community/posts/mine?offset=1000&limit=100')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+
+    expect(oldestPage.status).toBe(200);
+    expect(oldestPage.body.posts.map((row) => row.id)).toEqual(['historical-post-0']);
+    expect(oldestPage.body.next_offset).toBeNull();
+  });
+
+  it('lets a lapsed owner inventory and withdraw a shared series', async () => {
+    prisma._store.entity.push({
+      id: 'old-shared-series', type: 'SharedSeries', userId: 'u-free',
+      data: { title: 'Formerly shared series', visibility: 'public' },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const mine = await request(app)
+      .get('/api/community/shared-series/mine')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    const denied = await request(app)
+      .delete('/api/community/shared-series/old-shared-series')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    const removed = await request(app)
+      .delete('/api/community/shared-series/old-shared-series')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+
+    expect(mine.status).toBe(200);
+    expect(mine.body.series.map((row) => row.id)).toEqual(['old-shared-series']);
+    expect(denied.status).toBe(403);
+    expect(removed.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'old-shared-series')).toBe(false);
+  });
+
+  it('lets a lapsed reviewer retract a rating and recomputes the target aggregate', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'rated-after-expiry', type: 'SharedSermon', userId: 'u-owner',
+        data: { title: 'Rated sermon', status: 'active', ratings_count: 2, average_rating: 4 },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'expired-rating', type: 'SermonRating', userId: 'u-free',
+        data: { sermon_id: 'rated-after-expiry', rating: 5, review_text: 'Old review' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'remaining-rating', type: 'SermonRating', userId: 'u-reader',
+        data: { sermon_id: 'rated-after-expiry', rating: 3, review_text: 'Keep me' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const mine = await request(app)
+      .get('/api/community/ratings/mine')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    const denied = await request(app)
+      .delete('/api/community/ratings/expired-rating')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+    const removed = await request(app)
+      .delete('/api/community/ratings/expired-rating')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+
+    expect(mine.status).toBe(200);
+    expect(mine.body.ratings[0]).toMatchObject({ id: 'expired-rating', target_title: 'Rated sermon' });
+    expect(denied.status).toBe(403);
+    expect(removed.status).toBe(200);
+    expect(removed.body).toMatchObject({ ratings_count: 1, average_rating: 3 });
+    expect(prisma._store.entity.find((row) => row.id === 'rated-after-expiry').data)
+      .toMatchObject({ ratings_count: 1, average_rating: 3 });
+  });
+
   it('finds members without exposing private profile fields and supports follow/unfollow', async () => {
     prisma._store.user.push({
       id: 'u-pastor',
@@ -932,6 +1015,42 @@ describe('community routes', () => {
       .get('/api/community/study-groups/group-removal')
       .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
     expect(formerMemberRead.status).toBe(403);
+  });
+
+  it('keeps group inventory, detail, leadership transfer, and removal reachable after expiry', async () => {
+    prisma._store.entity.push({
+      id: 'expired-owner-group', type: 'StudyGroup', userId: 'u-free',
+      data: { name: 'Expired owner group', is_private: true, status: 'active', member_count: 2 },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityGroupMember.push(
+      { id: 'expired-leader', groupId: 'expired-owner-group', userId: 'u-free', role: 'leader', userName: 'Former subscriber', joinedAt: new Date() },
+      { id: 'expired-member', groupId: 'expired-owner-group', userId: 'u-reader', role: 'member', userName: 'Reader', joinedAt: new Date() },
+    );
+
+    const mine = await request(app)
+      .get('/api/community/study-groups/mine')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    const detail = await request(app)
+      .get('/api/community/study-groups/expired-owner-group')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    const premiumActivity = await request(app)
+      .get('/api/community/study-groups/expired-owner-group/messages')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    const promoted = await request(app)
+      .patch('/api/community/study-groups/expired-owner-group/members/expired-member/promote')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+    const removed = await request(app)
+      .delete('/api/community/study-groups/expired-owner-group/members/expired-member')
+      .set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+
+    expect(mine.status).toBe(200);
+    expect(mine.body.groups[0]).toMatchObject({ id: 'expired-owner-group', membership_role: 'leader' });
+    expect(detail.status).toBe(200);
+    expect(detail.body.members.map((member) => member.id)).toContain('expired-member');
+    expect(premiumActivity.status).toBe(402);
+    expect(promoted.status).toBe(200);
+    expect(removed.status).toBe(200);
   });
 
   it('transfers creator ownership when a promoted leader remains and does not re-add the leaver', async () => {
@@ -1204,6 +1323,44 @@ describe('community routes', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
     expect(completed.status).toBe(200);
     expect(completed.body).toMatchObject({ completed_days: [1], completion_percentage: 14 });
+  });
+
+  it('does not trust assigned_by on a legacy progress row to expose an owner private plan', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'legacy-private-progress-group', type: 'StudyGroup', userId: 'u-owner',
+        data: { name: 'Legacy group', status: 'active' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'group-owner-private-plan', type: 'ReadingPlan', userId: 'u-owner',
+        data: { name: 'Owner private notes', is_public: false, daily_readings: [] },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'forged-legacy-progress', type: 'GroupProgress', userId: 'u-reader',
+        data: {
+          group_id: 'legacy-private-progress-group',
+          plan_id: 'group-owner-private-plan',
+          assigned_by: 'u-owner',
+          total_days: 7,
+        },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+    prisma._store.communityGroupMember.push(
+      { id: 'legacy-private-owner', groupId: 'legacy-private-progress-group', userId: 'u-owner', role: 'leader', userName: 'Owner', joinedAt: new Date() },
+      { id: 'legacy-private-reader', groupId: 'legacy-private-progress-group', userId: 'u-reader', role: 'member', userName: 'Reader', joinedAt: new Date() },
+    );
+
+    const response = await request(app)
+      .get('/api/community/study-groups/legacy-private-progress-group/progress')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(response.status).toBe(200);
+    expect(response.body.progress.id).toBe('forged-legacy-progress');
+    expect(response.body.plan).toBeNull();
+    expect(JSON.stringify(response.body)).not.toContain('Owner private notes');
   });
 
   it('re-reads progress after the group lock, preserves concurrent days, and heals legacy duplicates', async () => {

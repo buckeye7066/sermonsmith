@@ -143,6 +143,69 @@ function hasEveryExpectedVerse(chapterData, expected) {
   return true;
 }
 
+function scriptureApiVerseNumber(row) {
+  const referenceMatch = String(row?.reference || '').match(/:(\d+)(?:\D.*)?$/);
+  if (referenceMatch) return Number(referenceMatch[1]);
+  const idMatch = String(row?.id || '').match(/\.(\d+)$/);
+  return idMatch ? Number(idMatch[1]) : NaN;
+}
+
+function scriptureApiVerseNumberFromAttrs(attrs = {}) {
+  const candidates = [
+    ...(Array.isArray(attrs.verseOrgIds) ? attrs.verseOrgIds : []),
+    attrs.verseId,
+    attrs.sid,
+    attrs.number,
+  ];
+  for (const candidate of candidates) {
+    const direct = Number(candidate);
+    if (Number.isInteger(direct) && direct > 0) return direct;
+    const match = String(candidate || '').match(/(\d+)\D*$/);
+    if (match) return Number(match[1]);
+  }
+  return null;
+}
+
+function extractScriptureApiChapterText(content) {
+  const chunksByVerse = new Map();
+  const append = (verse, text) => {
+    if (!Number.isInteger(verse) || verse < 1 || typeof text !== 'string') return;
+    const chunks = chunksByVerse.get(verse) || [];
+    chunks.push(text);
+    chunksByVerse.set(verse, chunks);
+  };
+
+  const visitList = (items, inheritedVerse = null) => {
+    let activeVerse = inheritedVerse;
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!item || typeof item !== 'object') continue;
+      const attrsVerse = scriptureApiVerseNumberFromAttrs(item.attrs || {});
+      if (item.type === 'tag' && item.name === 'verse') {
+        activeVerse = attrsVerse || activeVerse;
+        // A verse marker's own text is its display number, not Scripture.
+        continue;
+      }
+      const itemVerse = attrsVerse || activeVerse;
+      if (item.type === 'text') append(itemVerse, item.text);
+      if (Array.isArray(item.items)) {
+        activeVerse = visitList(item.items, itemVerse) || activeVerse;
+      }
+    }
+    return activeVerse;
+  };
+
+  visitList(content);
+  return new Map([...chunksByVerse].map(([verse, chunks]) => [
+    verse,
+    chunks.join('').replace(/\s+/g, ' ').trim(),
+  ]).filter(([, text]) => text));
+}
+
+function hasContiguousChapterVerses(chapterData) {
+  const verses = chapterData?.verses || [];
+  return verses.length > 0 && verses.every((row, index) => Number(row.verse) === index + 1);
+}
+
 async function fetchBibleApiChapter(bookInput, chapter, translationId, timeoutMs = 10000) {
   const book = bookByName(bookInput);
   if (!book) throw Object.assign(new Error(`Unknown book: ${bookInput}`), { status: 400 });
@@ -1650,6 +1713,8 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
     startImportJob(translation, books.length, async (job) => {
       for (const book of books) {
         try {
+          const resolvedBook = bookByName(book.name);
+          if (!resolvedBook) { job.errors++; continue; }
           const chaptersResp = await fetch(`${baseUrl}/books/${book.id}/chapters`, { headers });
           if (!chaptersResp.ok) { job.errors++; continue; }
           const { data: chapters } = await chaptersResp.json();
@@ -1657,24 +1722,71 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
           for (const chapter of chapters) {
             if (chapter.id === `${book.id}.intro`) continue; // skip intro sections
             try {
+              const chapterNumber = Number.parseInt(chapter.number, 10);
+              if (!Number.isInteger(chapterNumber) || chapterNumber < 1) { job.errors++; continue; }
               const verseResp = await fetch(`${baseUrl}/chapters/${chapter.id}/verses`, { headers });
               if (!verseResp.ok) { job.errors++; continue; }
               const { data: verses } = await verseResp.json();
+              if (!Array.isArray(verses) || verses.length === 0) { job.errors++; continue; }
 
-              if (verses && verses.length > 0) {
+              // API.Bible's verse-list endpoint intentionally returns IDs and
+              // references, not text. Fetch the chapter once in structured JSON
+              // mode and associate each text node with its provider verse ID.
+              const chapterQuery = new URLSearchParams({
+                'content-type': 'json',
+                'include-notes': 'false',
+                'include-titles': 'false',
+                'include-chapter-numbers': 'false',
+                'include-verse-numbers': 'false',
+                'include-verse-spans': 'false',
+              });
+              const chapterContentResp = await fetch(
+                `${baseUrl}/chapters/${chapter.id}?${chapterQuery}`,
+                { headers },
+              );
+              if (!chapterContentResp.ok) { job.errors++; continue; }
+              const chapterPayload = await chapterContentResp.json();
+              const textByVerse = extractScriptureApiChapterText(chapterPayload?.data?.content);
+
+              if (verses.length > 0) {
+                const normalized = normalizeBibleApiChapter({
+                  verses: verses.map((verse) => ({
+                    ...verse,
+                    verse: scriptureApiVerseNumber(verse),
+                    chapter: chapterNumber,
+                    book: resolvedBook.name,
+                    text: textByVerse.get(scriptureApiVerseNumber(verse)) || '',
+                  })),
+                }, resolvedBook, chapterNumber, translation);
+                const expected = expectedVerseCountForCompleteness(resolvedBook, chapterNumber, translation);
+                // `chapter_complete` is a trust marker consumed by the Reader.
+                // Set it only when no provider row was discarded, numbering is
+                // contiguous from verse 1, and audited translations match their
+                // exact canonical verse count. Unknown translations still get a
+                // defensible completeness proof from the provider's full list.
+                if (normalized.verses.length !== verses.length
+                    || !hasContiguousChapterVerses(normalized)
+                    || (expected && !hasEveryExpectedVerse(normalized, expected))) {
+                  job.errors++;
+                  continue;
+                }
+                const chapterVerseCount = normalized.verses.length;
                 await prisma.$transaction(
-                  verses.map(v =>
+                  normalized.verses.map(v =>
                     prisma.entity.create({
                       data: {
                         type: 'Verse',
                         userId,
                         data: {
-                          book_name: book.name,
-                          chapter: parseInt(chapter.number) || 0,
-                          verse: parseInt(v.reference?.split(':')[1]) || 0,
-                          text: v.text || '',
+                          book_name: resolvedBook.name,
+                          chapter: chapterNumber,
+                          verse: v.verse,
+                          text: v.text,
                           translation,
-                          scripture_api_id: v.id,
+                          scripture_api_id: verses.find((source) => scriptureApiVerseNumber(source) === v.verse)?.id,
+                          chapter_complete: true,
+                          chapter_verse_count: chapterVerseCount,
+                          import_format_version: 2,
                           user_id: userId,
                           created_date: new Date().toISOString(),
                         },
@@ -1682,7 +1794,7 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
                     })
                   )
                 );
-                job.imported += verses.length;
+                job.imported += normalized.verses.length;
               }
 
               await new Promise(r => setTimeout(r, 100));

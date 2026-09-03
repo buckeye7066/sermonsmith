@@ -56,6 +56,7 @@ FROM "entities" g
 JOIN "users" u ON u."id" = g."user_id"
 WHERE g."type" = 'StudyGroup'
   AND u."deleted_at" IS NULL
+  AND COALESCE(u."is_banned", false) = false
 ON CONFLICT ("group_id", "user_id") DO NOTHING;
 
 -- Preserve non-owner membership only where doing so cannot disclose private
@@ -81,6 +82,7 @@ JOIN "entities" g
 JOIN "users" u
     ON u."id" = m."user_id"
    AND u."deleted_at" IS NULL
+   AND COALESCE(u."is_banned", false) = false
 WHERE m."type" = 'GroupMembership'
   AND m."user_id" <> g."user_id"
   AND COALESCE(g."data"->>'is_private', 'false') = 'false'
@@ -96,7 +98,10 @@ WITH replacements AS (
     FROM "community_group_members" gm
     JOIN "entities" g ON g."id" = gm."group_id" AND g."type" = 'StudyGroup'
     JOIN "users" owner_user ON owner_user."id" = g."user_id"
-    WHERE owner_user."deleted_at" IS NOT NULL
+    JOIN "users" candidate_user ON candidate_user."id" = gm."user_id"
+    WHERE (owner_user."deleted_at" IS NOT NULL OR COALESCE(owner_user."is_banned", false) = true)
+      AND candidate_user."deleted_at" IS NULL
+      AND COALESCE(candidate_user."is_banned", false) = false
     ORDER BY gm."group_id", gm."joined_at" ASC, gm."id" ASC
 )
 UPDATE "community_group_members" gm
@@ -112,7 +117,10 @@ WITH replacements AS (
     FROM "community_group_members" gm
     JOIN "entities" g ON g."id" = gm."group_id" AND g."type" = 'StudyGroup'
     JOIN "users" owner_user ON owner_user."id" = g."user_id"
-    WHERE owner_user."deleted_at" IS NOT NULL
+    JOIN "users" candidate_user ON candidate_user."id" = gm."user_id"
+    WHERE (owner_user."deleted_at" IS NOT NULL OR COALESCE(owner_user."is_banned", false) = true)
+      AND candidate_user."deleted_at" IS NULL
+      AND COALESCE(candidate_user."is_banned", false) = false
       AND gm."role" = 'leader'
     ORDER BY gm."group_id", gm."joined_at" ASC, gm."id" ASC
 )
@@ -133,12 +141,30 @@ WHERE g."type" = 'StudyGroup'
   AND EXISTS (
       SELECT 1 FROM "users" owner_user
       WHERE owner_user."id" = g."user_id"
-        AND owner_user."deleted_at" IS NOT NULL
+        AND (owner_user."deleted_at" IS NOT NULL OR COALESCE(owner_user."is_banned", false) = true)
   )
   AND NOT EXISTS (
       SELECT 1 FROM "community_group_members" gm
       WHERE gm."group_id" = g."id"
         AND gm."role" = 'leader'
+  );
+
+-- Legacy GroupProgress JSON was writable through the generic Entity endpoint,
+-- including `assigned_by`. Purge private-plan references unless both trusted
+-- top-level owner columns agree with the authoritative group owner. Public
+-- plans remain safe to share, and modern rows carry an immutable snapshot.
+DELETE FROM "entities" progress
+USING "entities" group_entity, "entities" plan
+WHERE progress."type" = 'GroupProgress'
+  AND group_entity."id" = progress."data"->>'group_id'
+  AND group_entity."type" = 'StudyGroup'
+  AND plan."id" = progress."data"->>'plan_id'
+  AND plan."type" = 'ReadingPlan'
+  AND NOT (progress."data" ? 'plan_snapshot')
+  AND COALESCE(plan."data"->>'is_public', 'false') <> 'true'
+  AND (
+    plan."user_id" <> group_entity."user_id"
+    OR progress."user_id" <> group_entity."user_id"
   );
 
 -- Keep the denormalized card count aligned with the new relational source of

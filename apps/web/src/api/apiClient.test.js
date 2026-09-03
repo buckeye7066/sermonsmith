@@ -82,12 +82,18 @@ describe('apiClient base URL resolution', () => {
     await api.auth.exportData();
     await api.auth.revokeSessions();
     await api.auth.deleteAccount();
+    await api.auth.deleteUser('user 1');
     await api.functions.shareLinks('resource 1');
     await api.functions.revokeShareableLink('link 1');
     await api.community.report('shared 1', { category: 'spam', reason: 'duplicate' });
     await api.community.reportPost('post 1', { category: 'abuse' });
     await api.community.reportPostReply('post 1', 'reply 1', { category: 'privacy' });
     await api.community.myForumContent();
+    await api.community.myRatings();
+    await api.community.deleteRating('rating 1');
+    await api.community.mySharedSeries();
+    await api.community.unshareSeries('series 1');
+    await api.community.myStudyGroups();
     await api.community.deletePostReply('post 1', 'reply 1');
     await api.community.deletePost('post 1');
     await api.community.removeStudyGroupMember('group 1', 'member 1');
@@ -105,6 +111,7 @@ describe('apiClient base URL resolution', () => {
       { url: 'https://api.example/api/auth/export', method: 'GET', body: undefined },
       { url: 'https://api.example/api/auth/revoke-sessions', method: 'POST', body: undefined },
       { url: 'https://api.example/api/auth/me', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/auth/users/user%201', method: 'DELETE', body: undefined },
       { url: 'https://api.example/api/functions/share-links?resourceId=resource%201', method: 'GET', body: undefined },
       { url: 'https://api.example/api/functions/share-links/link%201', method: 'DELETE', body: undefined },
       {
@@ -122,7 +129,12 @@ describe('apiClient base URL resolution', () => {
         method: 'POST',
         body: JSON.stringify({ category: 'privacy' }),
       },
-      { url: 'https://api.example/api/community/posts/mine', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/posts/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/ratings/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/ratings/rating%201', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/community/shared-series/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/shared-series/series%201', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/community/study-groups/mine?offset=0&limit=100', method: 'GET', body: undefined },
       {
         url: 'https://api.example/api/community/posts/post%201/replies/reply%201',
         method: 'DELETE',
@@ -146,6 +158,29 @@ describe('apiClient base URL resolution', () => {
         body: JSON.stringify({ status: 'removed' }),
       },
     ]);
+  });
+
+  it('binds AI calls to a workflow URL and never forwards client system/schema instructions', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ analysis: 'ok' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await api.integrations.Core.InvokeLLM({
+      feature: 'ethics',
+      prompt: 'Consider this case',
+      system_prompt: 'Caller-owned role text',
+      response_json_schema: { type: 'object', description: 'Caller-owned instruction' },
+      max_tokens: 900,
+    });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.example/api/ai/workflows/ethics/invoke');
+    expect(JSON.parse(options.body)).toEqual({
+      input: 'Consider this case',
+      structured: true,
+      max_tokens: 900,
+    });
   });
 });
 

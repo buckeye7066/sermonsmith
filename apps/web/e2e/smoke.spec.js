@@ -167,7 +167,7 @@ test('Bible Reader sidebar link opens the reader and renders scripture', async (
     });
   });
   // Verse of the Day devotional — not under test; fail it fast and quietly.
-  await page.route('**/api/ai/invoke', (route) => route.fulfill({ status: 503, body: '{}' }));
+  await page.route('**/api/ai/workflows/*/invoke', (route) => route.fulfill({ status: 503, body: '{}' }));
   await page.route('**/api/entities/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
@@ -231,7 +231,7 @@ test('authenticated desktop shell fills the viewport without sidebar clipping', 
     });
   });
 
-  await page.route('**/api/ai/invoke', async (route) => {
+  await page.route('**/api/ai/workflows/*/invoke', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -300,7 +300,7 @@ test('mobile Safari and Android profiles keep navigation reachable without page 
       }),
     });
   });
-  await page.route('**/api/ai/invoke', (route) => route.fulfill({ status: 503, body: '{}' }));
+  await page.route('**/api/ai/workflows/*/invoke', (route) => route.fulfill({ status: 503, body: '{}' }));
   await page.route('**/api/entities/**', (route) => (
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
   ));

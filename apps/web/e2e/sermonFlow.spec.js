@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
 // The AI and entity APIs are route-mocked: this is UI-truth evidence
 // (rendering, wiring, validation surfacing, save payloads), not live-model
 // evidence. Streaming is mocked as unavailable (503) so the builder takes
-// its real fallback path through /api/ai/invoke.
+// its real fallback path through the server-bound workflow invoke route.
 
 const USER = {
   id: 'user-1',
@@ -63,11 +63,17 @@ async function mockCommonRoutes(page, { aiSermon }) {
   });
 
   // Streaming unavailable → the builder exercises its real invoke fallback.
-  await page.route('**/api/ai/stream', (route) =>
+  await page.route('**/api/ai/workflows/*/stream', (route) =>
     route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'streaming disabled in e2e' }) }));
 
-  await page.route('**/api/ai/invoke', (route) =>
+  await page.route('**/api/ai/workflows/*/invoke', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(aiSermon) }));
+
+  // MySermons loads owned drafts and the owner's community publications in a
+  // single Promise.all. Make that second source deterministic too; otherwise
+  // an escaped request can reject the whole load (observed only in WebKit).
+  await page.route('**/api/community/sermons/mine', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
 }
 
 async function mockSermonEntity(page, { saved }) {
