@@ -104,6 +104,7 @@ describe('apiClient base URL resolution', () => {
     await api.community.deletePostReply('post 1', 'reply 1');
     await api.community.deletePost('post 1');
     await api.community.removeStudyGroupMember('group 1', 'member 1');
+    await api.community.deleteGroupMessage('group 1', 'message 1');
     await api.admin.aiAuditSummary(14);
     await api.admin.moderationQueue();
     await api.admin.moderateCommunityContent('SharedContent', 'shared 1', { status: 'removed' });
@@ -165,6 +166,11 @@ describe('apiClient base URL resolution', () => {
       },
       {
         url: 'https://api.example/api/community/study-groups/group%201/members/member%201',
+        method: 'DELETE',
+        body: undefined,
+      },
+      {
+        url: 'https://api.example/api/community/study-groups/group%201/messages/message%201',
         method: 'DELETE',
         body: undefined,
       },

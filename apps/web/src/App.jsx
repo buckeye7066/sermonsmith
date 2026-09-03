@@ -36,7 +36,6 @@ const PAGE_ENTITLEMENTS = new Map([
   ['Community', 'community'],
   ['Forum', 'community'],
   ['StudyGroups', 'community'],
-  ['SharedContent', 'community'],
   ['SermonLibrary', 'community'],
   ['PlanLibrary', 'community'],
   ['WorldviewExplorer', 'worldview'],

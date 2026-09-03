@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
+import { usePremiumAccess } from '@/components/hooks/usePremiumAccess';
 import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Heart, Bookmark, TrendingUp, BookOpen, Loader2, Share2 } from "lucide-react";
+import { Heart, Bookmark, TrendingUp, BookOpen, Loader2, Share2, Crown } from "lucide-react";
 import { toast } from "sonner";
 
 export default function SharedContent({ publicShareOnly = false }) {
   const { user, isLoadingAuth } = useAuth();
+  const { hasEntitlement, loading: accessLoading } = usePremiumAccess();
+  const hasCommunityAccess = hasEntitlement('community');
   const [sharedContent, setSharedContent] = useState([]);
   const [myShared, setMyShared] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -43,30 +46,27 @@ export default function SharedContent({ publicShareOnly = false }) {
       setIsLoading(false);
       return;
     }
-    if (isLoadingAuth) return;
+    if (isLoadingAuth || accessLoading) return;
     loadContent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoadingAuth, user, filter, publicShareOnly]);
+  }, [isLoadingAuth, accessLoading, user, filter, publicShareOnly, hasCommunityAccess]);
 
   const loadContent = async () => {
     setIsLoading(true);
     try {
-      // Public feed uses the dedicated /api/community route so we actually
-      // see other users' public content. Without this, the generic entity
-      // API tenant-scopes to the caller and the "public" tab is empty.
-      const allContent = await api.community.sharedContent(filter);
-      setSharedContent(allContent);
-
-      if (user) {
-        const userContent = await api.entities.SharedContent.filter(
+      // Public discovery is Premium, while the owner-scoped private library is
+      // a core account surface. Load them independently so an expired account
+      // never loses access to private notes because the public feed returns 402.
+      const [allContent, userContent] = await Promise.all([
+        hasCommunityAccess ? api.community.sharedContent(filter) : Promise.resolve([]),
+        user ? api.entities.SharedContent.filter(
           {},
           '-created_date',
           50
-        );
-        setMyShared(userContent);
-      } else {
-        setMyShared([]);
-      }
+        ) : Promise.resolve([]),
+      ]);
+      setSharedContent(allContent);
+      setMyShared(userContent);
     } catch (error) {
       toast.error(logError('Error loading shared content', error));
     } finally {
@@ -188,7 +188,9 @@ export default function SharedContent({ publicShareOnly = false }) {
             Shared Content
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Discover notes, highlights, and insights shared by the community.
+            {hasCommunityAccess
+              ? 'Discover community resources and manage your own shared or private content.'
+              : 'Manage your private notes and content without publishing to the Community.'}
           </p>
         </div>
 
@@ -223,13 +225,32 @@ export default function SharedContent({ publicShareOnly = false }) {
           </Card>
         )}
 
-        <Tabs defaultValue="popular" className="space-y-6">
+        {!hasCommunityAccess && (
+          <Card className="mb-6 border-purple-200">
+            <CardContent className="flex items-start gap-3 py-5">
+              <Crown className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
+              <div>
+                <p className="font-medium">Community discovery requires Premium</p>
+                <p className="text-sm text-gray-500">
+                  Your private content remains available below. Public feeds, likes, and saves stay locked until Community access is active.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Tabs
+          key={hasCommunityAccess ? 'community' : 'personal'}
+          defaultValue={hasCommunityAccess ? 'popular' : 'mine'}
+          className="space-y-6"
+        >
           <TabsList>
-            <TabsTrigger value="popular">Popular</TabsTrigger>
-            <TabsTrigger value="recent">Recent</TabsTrigger>
+            {hasCommunityAccess && <TabsTrigger value="popular">Popular</TabsTrigger>}
+            {hasCommunityAccess && <TabsTrigger value="recent">Recent</TabsTrigger>}
             <TabsTrigger value="mine">My Shared Content</TabsTrigger>
           </TabsList>
 
+          {hasCommunityAccess && <>
           <div className="flex gap-2 mb-6">
             <Button
               variant={filter === 'all' ? 'default' : 'outline'}
@@ -393,9 +414,14 @@ export default function SharedContent({ publicShareOnly = false }) {
               </div>
             )}
           </TabsContent>
+          </>}
 
           <TabsContent value="mine" className="space-y-4">
-            {myShared.length === 0 ? (
+            {isLoading ? (
+              <div className="text-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto text-purple-500" />
+              </div>
+            ) : myShared.length === 0 ? (
               <Card>
                 <CardContent className="pt-6 text-center">
                   <Share2 className="w-12 h-12 mx-auto mb-4 text-gray-400" />

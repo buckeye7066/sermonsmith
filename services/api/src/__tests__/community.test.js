@@ -411,6 +411,35 @@ describe('community routes', () => {
     expect(allowed.body.map((row) => row.id)).toContain('queued');
   });
 
+  it('filters moderation candidates before limiting the queue', async () => {
+    for (let index = 0; index < 205; index += 1) {
+      prisma._store.entity.push({
+        id: `ordinary-${index}`,
+        type: 'CommunityPost',
+        userId: 'u-owner',
+        data: { title: `Ordinary ${index}`, status: 'active', reported_count: 0 },
+        createdAt: new Date(Date.UTC(2026, 8, 3, 12, index)),
+        updatedAt: new Date(Date.UTC(2026, 8, 3, 12, index)),
+      });
+    }
+    prisma._store.entity.push({
+      id: 'older-unresolved-report',
+      type: 'SharedContent',
+      userId: 'u-owner',
+      data: { title: 'Needs review', status: 'reported', reported_count: 1 },
+      createdAt: new Date('2025-01-01T00:00:00Z'),
+      updatedAt: new Date('2025-01-01T00:00:00Z'),
+    });
+
+    const queue = await request(app)
+      .get('/api/community/moderation/queue')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`]);
+
+    expect(queue.status).toBe(200);
+    expect(queue.body.map((row) => row.id)).toContain('older-unresolved-report');
+    expect(queue.body.some((row) => row.id.startsWith('ordinary-'))).toBe(false);
+  });
+
   it('lets admins remove content and immediately hides it from public reads', async () => {
     prisma._store.entity.push(sharedContent('moderate-me', { reported_count: 3, status: 'reported' }));
 
@@ -901,7 +930,12 @@ describe('community routes', () => {
         denomination: 'Methodist',
         ministry_focus: ['Teaching'],
         phone: '555-111-2222',
-        profile_privacy: { show_denomination: true, show_ministry_focus: true, show_email: false },
+        profile_privacy: {
+          community_directory_opt_in: true,
+          show_denomination: true,
+          show_ministry_focus: true,
+          show_email: false,
+        },
       },
     });
 
@@ -932,6 +966,63 @@ describe('community routes', () => {
     expect(unfollow.status).toBe(200);
     expect(unfollow.body.following).toBe(false);
     expect(prisma._store.communityFollow).toHaveLength(0);
+  });
+
+  it('requires directory opt-in, defaults legacy privacy closed, and normalizes profile values', async () => {
+    prisma._store.user.push(
+      {
+        id: 'u-no-directory-consent',
+        email: 'legacy@example.com',
+        name: 'Legacy Private',
+        role: 'user',
+        premium: true,
+        deletedAt: null,
+        is_banned: false,
+        createdAt: new Date(),
+        profile: { denomination: 'Should not be enumerable' },
+      },
+      {
+        id: 'u-malformed-profile',
+        email: 'malformed@example.com',
+        name: 'Malformed Profile',
+        role: 'user',
+        premium: true,
+        deletedAt: null,
+        is_banned: false,
+        createdAt: new Date(),
+        profile: {
+          denomination: { crash: true },
+          ministry_focus: ['Teaching', { crash: true }, '  Prayer  ', 42],
+          preferred_preaching_style: { crash: true },
+          favorite_scripture_passages: ['John 3:16', { crash: true }],
+          profile_privacy: {
+            community_directory_opt_in: true,
+            show_denomination: true,
+            show_ministry_focus: true,
+            show_preaching_style: true,
+            show_favorite_passages: true,
+          },
+        },
+      },
+    );
+
+    const search = await request(app)
+      .get('/api/community/members')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(search.status).toBe(200);
+    expect(search.body.members.map((member) => member.id)).not.toContain('u-no-directory-consent');
+    expect(search.body.members).toContainEqual(expect.objectContaining({
+      id: 'u-malformed-profile',
+      denomination: '',
+      ministryFocus: ['Teaching', 'Prayer'],
+      preachingStyle: '',
+      favoritePassages: ['John 3:16'],
+    }));
+
+    const privateDetail = await request(app)
+      .get('/api/community/members/u-no-directory-consent')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(privateDetail.status).toBe(404);
   });
 
   it('likes and unlikes forum posts without allowing duplicate counts', async () => {
@@ -1198,6 +1289,37 @@ describe('community routes', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
       .send({ message: 'Official notice', message_type: 'announcement' });
     expect(forbiddenAnnouncement.status).toBe(403);
+  });
+
+  it('lets only the author retract a group message even after Community access expires', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'message-group', type: 'StudyGroup', userId: 'u-owner',
+        data: { name: 'Private prayer', status: 'active' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'sensitive-message', type: 'GroupMessage', userId: 'u-reader',
+        data: { group_id: 'message-group', user_id: 'u-reader', message: 'Sensitive request' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const denied = await request(app)
+      .delete('/api/community/study-groups/message-group/messages/sensitive-message')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+    expect(denied.status).toBe(403);
+
+    prisma._store.user.find((user) => user.id === 'u-reader').premium = false;
+    const removed = await request(app)
+      .delete('/api/community/study-groups/message-group/messages/sensitive-message')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    expect(removed.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'sensitive-message')).toBe(false);
+    expect(prisma._store.auditLog).toContainEqual(expect.objectContaining({
+      action: 'community.group_message_delete',
+      targetId: 'sensitive-message',
+    }));
   });
 
   it('returns the newest 100 group messages in chronological display order', async () => {
@@ -1612,6 +1734,35 @@ describe('community routes', () => {
     expect(reviews.status).toBe(200);
     expect(reviews.body.ratings).toHaveLength(1);
     expect(reviews.body.ratings[0].review_text).toBe('Useful and clear');
+  });
+
+  it('ranks the complete shared-sermon set before returning the top 100', async () => {
+    for (let index = 0; index < 251; index += 1) {
+      prisma._store.entity.push({
+        id: `recent-low-rated-${index}`,
+        type: 'SharedSermon',
+        userId: 'u-owner',
+        data: { title: `Recent ${index}`, status: 'active', average_rating: 1 },
+        createdAt: new Date(Date.UTC(2026, 8, 3, 12, index)),
+        updatedAt: new Date(Date.UTC(2026, 8, 3, 12, index)),
+      });
+    }
+    prisma._store.entity.push({
+      id: 'oldest-highest-rated',
+      type: 'SharedSermon',
+      userId: 'u-owner',
+      data: { title: 'Best overall', status: 'active', average_rating: 5 },
+      createdAt: new Date('2020-01-01T00:00:00Z'),
+      updatedAt: new Date('2020-01-01T00:00:00Z'),
+    });
+
+    const ranked = await request(app)
+      .get('/api/community/sermons?sort=rating')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(ranked.status).toBe(200);
+    expect(ranked.body).toHaveLength(100);
+    expect(ranked.body[0].id).toBe('oldest-highest-rated');
   });
 
   it('de-duplicates legacy ratings and serializes future rating writes per target', async () => {

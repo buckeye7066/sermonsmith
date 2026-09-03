@@ -35,7 +35,7 @@ vi.mock('../middleware/auth.js', () => ({
   },
 }));
 
-const { default: functionRoutes } = await import('../routes/functions.js');
+const { default: functionRoutes, __test: functionsTest } = await import('../routes/functions.js');
 
 function buildApp() {
   const app = express();
@@ -180,6 +180,26 @@ describe('function routes - Bible source registry', () => {
     expect(res.body.verses.at(-1).verse).toBe(25);
     expect(res.body.source).toBe('wldeh-bible-api-static');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a non-contiguous unaudited provider chapter instead of caching it as complete', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        verses: [
+          { book_name: 'Genesis', chapter: 1, verse: 1, text: 'First verse' },
+          { book_name: 'Genesis', chapter: 1, verse: 3, text: 'Third verse' },
+        ],
+      }),
+    })));
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ book: 'Genesis', chapter: 1, translation: 'bbe' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.message).toMatch(/incomplete chapter/i);
+    expect(prisma._store.bibleChapterCache).toHaveLength(0);
   });
 
   it('serves every chapter of every multi-token book from all pinned static datasets without fallback', async () => {
@@ -517,7 +537,7 @@ describe('function routes - Scripture API import completeness', () => {
     vi.unstubAllGlobals();
   });
 
-  it('writes defensible v2 completeness markers for an unaudited translation', async () => {
+  it('writes defensible v3 completeness markers for an unaudited translation', async () => {
     const response = await request(app)
       .post('/api/functions/importFromScriptureAPI')
       .set('Cookie', adminCookie())
@@ -535,7 +555,38 @@ describe('function routes - Scripture API import completeness', () => {
     ]);
     expect(verses.every((row) => row.data.chapter_complete === true)).toBe(true);
     expect(verses.every((row) => row.data.chapter_verse_count === 2)).toBe(true);
-    expect(verses.every((row) => row.data.import_format_version === 2)).toBe(true);
+    expect(verses.every((row) => row.data.import_format_version === 3)).toBe(true);
+  });
+
+  it('requires a lossless contiguous provider list before an unaudited import is trusted', () => {
+    const incompletePayload = {
+      verses: [
+        { verse: 1, text: 'One' },
+        { verse: 3, text: 'Three' },
+      ],
+    };
+    const droppedPayload = {
+      verses: [
+        { verse: 1, text: 'One' },
+        { verse: 2, text: '' },
+      ],
+    };
+
+    expect(functionsTest.hasProviderChapterCompletenessProof(
+      incompletePayload,
+      { verses: incompletePayload.verses },
+      null,
+    )).toBe(false);
+    expect(functionsTest.hasProviderChapterCompletenessProof(
+      droppedPayload,
+      { verses: [{ verse: 1, text: 'One' }] },
+      null,
+    )).toBe(false);
+    expect(functionsTest.hasProviderChapterCompletenessProof(
+      { verses: [{ verse: 1 }, { verse: 2 }] },
+      { verses: [{ verse: 1 }, { verse: 2 }] },
+      null,
+    )).toBe(true);
   });
 });
 

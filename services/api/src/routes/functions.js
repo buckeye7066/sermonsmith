@@ -206,6 +206,18 @@ function hasContiguousChapterVerses(chapterData) {
   return verses.length > 0 && verses.every((row, index) => Number(row.verse) === index + 1);
 }
 
+function hasProviderChapterCompletenessProof(payload, normalized, expected) {
+  const providerVerses = Array.isArray(payload?.verses) ? payload.verses : [];
+  // For translations without audited canonical bounds, the provider's full
+  // chapter list is our evidence. No provider row may be discarded and verse
+  // numbering must be contiguous from one. Audited translations additionally
+  // have to match their exact canonical count.
+  return providerVerses.length > 0
+    && normalized?.verses?.length === providerVerses.length
+    && hasContiguousChapterVerses(normalized)
+    && (!expected || hasEveryExpectedVerse(normalized, expected));
+}
+
 async function fetchBibleApiChapter(bookInput, chapter, translationId, timeoutMs = 10000) {
   const book = bookByName(bookInput);
   if (!book) throw Object.assign(new Error(`Unknown book: ${bookInput}`), { status: 400 });
@@ -217,12 +229,18 @@ async function fetchBibleApiChapter(bookInput, chapter, translationId, timeoutMs
     if (!response.ok) {
       throw Object.assign(new Error(`Bible API returned ${response.status}`), { status: response.status });
     }
-    const normalized = normalizeBibleApiChapter(await response.json(), book, chapter, translationId);
+    const payload = await response.json();
+    const normalized = normalizeBibleApiChapter(payload, book, chapter, translationId);
     const expected = expectedVerseCountForCompleteness(book, chapter, translationId);
-    if (!hasEveryExpectedVerse(normalized, expected)) {
+    if (!hasProviderChapterCompletenessProof(payload, normalized, expected)) {
       throw Object.assign(new Error(`Bible source returned an incomplete chapter for ${book.name} ${chapter}`), { status: 502 });
     }
-    return { ...normalized, source: 'bible-api-data', chapter_complete: true };
+    return {
+      ...normalized,
+      source: 'bible-api-data',
+      chapter_complete: true,
+      chapter_format_version: 3,
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -253,14 +271,23 @@ async function fetchImportedBibleChapter(book, chapter, translationId) {
     const expected = expectedVerseCountForCompleteness(book, chapter, translationId);
     const markedComplete = rows.every((row) => (
       row.data?.chapter_complete === true
-      && Number(row.data?.import_format_version) >= 2
+      && Number(row.data?.import_format_version) >= 3
       && Number(row.data?.chapter_verse_count) === normalized.verses.length
     ));
-    if ((expected && !hasEveryExpectedVerse(normalized, expected)) || (!expected && !markedComplete)) {
+    const losslessContiguousRows = rows.length === normalized.verses.length
+      && hasContiguousChapterVerses(normalized);
+    if (!losslessContiguousRows
+        || (expected && !hasEveryExpectedVerse(normalized, expected))
+        || (!expected && !markedComplete)) {
       console.warn(`[Bible Reader] ignoring incomplete legacy import for ${book.name} ${chapter} (${translationId})`);
       return null;
     }
-    return { ...normalized, source: 'database-import', chapter_complete: true };
+    return {
+      ...normalized,
+      source: 'database-import',
+      chapter_complete: true,
+      chapter_format_version: 3,
+    };
   } catch (error) {
     console.warn('[Bible Reader] imported verse lookup unavailable; trying external source:', error?.message || error);
     return null;
@@ -330,10 +357,10 @@ async function fetchStaticBibleChapter(bookInput, chapter, translationId, timeou
     }
     const normalized = normalizeStaticChapter(await response.json(), book, chapter, translationId);
     const expected = expectedVerseCountForCompleteness(book, chapter, translationId);
-    if (!hasEveryExpectedVerse(normalized, expected)) {
+    if (!hasContiguousChapterVerses(normalized) || !hasEveryExpectedVerse(normalized, expected)) {
       throw Object.assign(new Error(`Static Bible source returned an incomplete chapter for ${book.name} ${chapter}`), { status: 502 });
     }
-    return { ...normalized, chapter_complete: true };
+    return { ...normalized, chapter_complete: true, chapter_format_version: 3 };
   } finally {
     clearTimeout(timeout);
   }
@@ -362,9 +389,13 @@ async function getCachedBibleChapter({ book, chapter, translationId }) {
   }
 
   const cachedExpected = expectedVerseCountForCompleteness(resolvedBook, chapter, translationId);
+  const cachedHasCompletenessProof = hasContiguousChapterVerses(cached?.payload)
+    && (cachedExpected
+      ? hasEveryExpectedVerse(cached?.payload, cachedExpected)
+      : cached?.payload?.chapter_complete === true
+        && Number(cached?.payload?.chapter_format_version) >= 3);
   const cacheIsComplete = cached?.payload?.source !== 'bible-api-parameterized'
-    && (cached?.payload?.source !== 'database-import' || cached?.payload?.chapter_complete === true)
-    && hasEveryExpectedVerse(cached?.payload, cachedExpected);
+    && cachedHasCompletenessProof;
   if (bibleCacheFresh(cached) && cacheIsComplete) {
     return { ...cached.payload, cacheHit: true };
   }
@@ -1625,7 +1656,7 @@ router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res
             const resolvedBook = bookByName(book.name);
             const normalized = normalizeBibleApiChapter(data, resolvedBook, ch, translation);
             const expected = expectedVerseCountForCompleteness(resolvedBook, ch, translation);
-            if (expected && !hasEveryExpectedVerse(normalized, expected)) {
+            if (!hasProviderChapterCompletenessProof(data, normalized, expected)) {
               job.errors++;
               continue;
             }
@@ -1646,7 +1677,7 @@ router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res
                         translation,
                         chapter_complete: true,
                         chapter_verse_count: chapterVerseCount,
-                        import_format_version: 2,
+                        import_format_version: 3,
                         user_id: userId,
                         created_date: new Date().toISOString(),
                       },
@@ -1796,7 +1827,7 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
                           scripture_api_id: verses.find((source) => scriptureApiVerseNumber(source) === v.verse)?.id,
                           chapter_complete: true,
                           chapter_verse_count: chapterVerseCount,
-                          import_format_version: 2,
+                          import_format_version: 3,
                           user_id: userId,
                           created_date: new Date().toISOString(),
                         },
@@ -1930,6 +1961,6 @@ export async function handleStripeWebhook(req, res) {
 }
 
 // Test-only export so unit tests can drive the SDK lookup.
-export const __test = { getStripe };
+export const __test = { getStripe, hasProviderChapterCompletenessProof };
 
 export default router;

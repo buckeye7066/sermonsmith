@@ -28,9 +28,15 @@ export function createPrismaMock() {
       } else if (k === 'OR') {
         if (!v.some((cond) => matchesWhere(item, cond))) return false;
       } else if (typeof v === 'object' && v !== null && 'path' in v) {
-        // { path: ['key'], equals: value } — JSON column lookups
-        const target = v.path.reduce((acc, key) => (acc ? acc[key] : undefined), item.data);
-        if (target !== v.equals) return false;
+        // JSON column lookup, e.g. Entity.data or User.profile. Mirror the
+        // comparison operators used by production Prisma filters.
+        const target = v.path.reduce((acc, key) => (acc ? acc[key] : undefined), item[k]);
+        if ('equals' in v && target !== v.equals) return false;
+        if ('gt' in v && !(target > v.gt)) return false;
+        if ('gte' in v && !(target >= v.gte)) return false;
+        if ('lt' in v && !(target < v.lt)) return false;
+        if ('lte' in v && !(target <= v.lte)) return false;
+        if ('not' in v && target === v.not) return false;
       } else if (typeof v === 'object' && v !== null && ('gt' in v || 'lt' in v || 'gte' in v || 'lte' in v || 'equals' in v || 'not' in v || 'in' in v || 'contains' in v)) {
         const cur = item[k];
         if ('gt' in v && !(cur > v.gt)) return false;

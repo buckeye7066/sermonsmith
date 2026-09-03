@@ -217,6 +217,19 @@ describe('AuthenticatedApp route gating', () => {
     expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
   });
 
+  it('keeps the owner SharedContent workspace outside the page-level Community gate', async () => {
+    authState = {
+      ...authState,
+      isAuthenticated: true,
+      user: { id: 'free-user', role: 'user', entitlements: ['personal_library'] },
+    };
+    renderWithRoute('/SharedContent');
+
+    expect(await screen.findByTestId('shared-content')).toHaveTextContent('Community feed');
+    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('layout')).toBeInTheDocument();
+  });
+
   it('renders the signed-in Home inside the authenticated layout', () => {
     authState.isAuthenticated = true;
     renderWithRoute('/Home');

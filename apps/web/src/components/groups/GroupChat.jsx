@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-import { Send, Pin, MessageCircle, Book, Heart, Megaphone } from "lucide-react";
+import { Send, Pin, MessageCircle, Book, Heart, Megaphone, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -57,6 +57,18 @@ export default function GroupChat({ group, user, isLeader = false }) {
     }
   };
 
+  const handleDeleteMessage = async (message) => {
+    if (!window.confirm('Delete this message? This cannot be undone.')) return;
+    try {
+      await api.community.deleteGroupMessage(group.id, message.id);
+      setMessages((current) => current.filter((item) => item.id !== message.id));
+      toast.success('Message deleted');
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      toast.error('Failed to delete message');
+    }
+  };
+
   const getMessageIcon = (type) => {
     switch (type) {
       case "scripture_reference": return <Book className="w-4 h-4" />;
@@ -104,6 +116,18 @@ export default function GroupChat({ group, user, isLeader = false }) {
                   <span className="font-semibold text-sm">{msg.user_name}</span>
                   {getMessageIcon(msg.message_type)}
                   {msg.is_pinned && <Pin className="w-3 h-3 text-yellow-600" />}
+                  {msg.user_id === user?.id && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="ml-auto h-7 w-7 text-gray-500 hover:text-red-600"
+                      aria-label="Delete message"
+                      onClick={() => handleDeleteMessage(msg)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
                 <p className="text-sm whitespace-pre-wrap">{msg.message}</p>
                 <span className="text-xs text-gray-500 mt-1 block">

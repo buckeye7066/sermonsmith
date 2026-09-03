@@ -829,6 +829,10 @@ const community = {
     method: 'POST',
     body: JSON.stringify(payload || {}),
   }),
+  deleteGroupMessage: (groupId, messageId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: 'DELETE' },
+  ),
   groupMeetings: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/meetings`),
   createGroupMeeting: (id, payload) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/meetings`, {
     method: 'POST',

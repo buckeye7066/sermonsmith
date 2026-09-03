@@ -266,33 +266,60 @@ function safeCommunityDisplayName(...values) {
   return 'Member';
 }
 
+function safeProfileText(...values) {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const normalized = value.trim();
+    if (normalized) return normalized.slice(0, 500);
+  }
+  return '';
+}
+
+function safeProfileList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry) => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 12)
+    .map((entry) => entry.slice(0, 200));
+}
+
+const DIRECTORY_OPT_IN_FILTER = Object.freeze({
+  path: ['profile_privacy', 'community_directory_opt_in'],
+  equals: true,
+});
+
 function publicMember(user) {
   const profile = user?.profile && typeof user.profile === 'object' && !Array.isArray(user.profile)
     ? user.profile
     : {};
-  const privacy = profile.profile_privacy && typeof profile.profile_privacy === 'object'
+  const privacy = profile.profile_privacy
+    && typeof profile.profile_privacy === 'object'
+    && !Array.isArray(profile.profile_privacy)
     ? profile.profile_privacy
     : {};
-  const visible = (key, fallback = true) => privacy[key] ?? fallback;
+  // Privacy is closed by default. Legacy profiles predate the directory and
+  // must not become enumerable merely because a new surface was deployed.
+  const visible = (key) => privacy[key] === true;
 
   return {
     id: user.id,
     name: safeCommunityDisplayName(user.full_name, user.name),
-    avatar: user.avatar || null,
+    avatar: typeof user.avatar === 'string' ? user.avatar : null,
     denomination: visible('show_denomination')
-      ? (profile.denomination || profile.denominational_background || '')
+      ? safeProfileText(profile.denomination, profile.denominational_background)
       : '',
-    ministryFocus: visible('show_ministry_focus') && Array.isArray(profile.ministry_focus)
-      ? profile.ministry_focus.slice(0, 12)
+    ministryFocus: visible('show_ministry_focus')
+      ? safeProfileList(profile.ministry_focus)
       : [],
     preachingStyle: visible('show_preaching_style')
-      ? (profile.preferred_preaching_style || profile.preaching_style || '')
+      ? safeProfileText(profile.preferred_preaching_style, profile.preaching_style)
       : '',
-    favoritePassages: visible('show_favorite_passages', false)
-      && Array.isArray(profile.favorite_scripture_passages)
-      ? profile.favorite_scripture_passages.slice(0, 12)
+    favoritePassages: visible('show_favorite_passages')
+      ? safeProfileList(profile.favorite_scripture_passages)
       : [],
-    email: visible('show_email', false) ? user.email : undefined,
+    email: visible('show_email') && typeof user.email === 'string' ? user.email : undefined,
     allowDirectMessages: visible('allow_direct_messages') === true,
     joinedAt: user.createdAt,
     followerCount: Number(user._count?.followers || 0),
@@ -841,6 +868,9 @@ router.get('/members', authenticateToken, requireCommunity, async (req, res, nex
       id: { not: req.userId },
       deletedAt: null,
       is_banned: false,
+      // Directory participation is explicit. Existing/legacy accounts are
+      // private until they opt in from Profile Settings.
+      profile: DIRECTORY_OPT_IN_FILTER,
       ...(q ? {
         OR: [
           { name: { contains: q, mode: 'insensitive' } },
@@ -880,7 +910,12 @@ router.get('/members', authenticateToken, requireCommunity, async (req, res, nex
 router.get('/members/:id', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const user = await prisma.user.findFirst({
-      where: { id: req.params.id, deletedAt: null, is_banned: false },
+      where: {
+        id: req.params.id,
+        deletedAt: null,
+        is_banned: false,
+        profile: DIRECTORY_OPT_IN_FILTER,
+      },
       select: {
         id: true,
         email: true,
@@ -910,7 +945,12 @@ router.post('/members/:id/follow', authenticateToken, requireCommunity, async (r
       return res.status(400).json({ message: 'You cannot follow your own account' });
     }
     const target = await prisma.user.findFirst({
-      where: { id: req.params.id, deletedAt: null, is_banned: false },
+      where: {
+        id: req.params.id,
+        deletedAt: null,
+        is_banned: false,
+        profile: DIRECTORY_OPT_IN_FILTER,
+      },
       select: { id: true },
     });
     if (!target) return res.status(404).json({ message: 'Member not found' });
@@ -1435,26 +1475,70 @@ router.post('/posts/:id/reply', authenticateToken, requireCommunity, async (req,
 // Shared sermon library. All cross-user reads and interaction counters live
 // here; the generic Entity API remains owner-scoped by design.
 // ---------------------------------------------------------------------------
-router.get('/sermons', authenticateToken, requireCommunity, async (req, res, next) => {
-  try {
-    const sort = String(req.query.sort || 'popular');
+const SHARED_SERMON_RESULT_LIMIT = 100;
+const SHARED_SERMON_SCAN_PAGE_SIZE = 250;
+
+function sharedSermonSortField(sort) {
+  if (sort === 'rating') return 'average_rating';
+  if (sort === 'views') return 'views_count';
+  if (sort === 'recent') return null;
+  return 'forks_count';
+}
+
+function finiteMetric(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compareSharedSermons(field, a, b) {
+  const metricDifference = finiteMetric(b[field]) - finiteMetric(a[field]);
+  if (metricDifference !== 0) return metricDifference;
+  const dateDifference = new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
+  if (Number.isFinite(dateDifference) && dateDifference !== 0) return dateDifference;
+  return String(a.id).localeCompare(String(b.id));
+}
+
+async function rankedSharedSermons(sort) {
+  const field = sharedSermonSortField(sort);
+  const ranked = [];
+  let offset = 0;
+
+  // Counters live in legacy JSON, so Prisma cannot order by them before
+  // applying `take`. Traverse bounded pages and retain only the best 100;
+  // this ranks the complete visible set without loading it all at once.
+  while (true) {
     const rows = await prisma.entity.findMany({
       where: { type: 'SharedSermon' },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: SHARED_SERMON_SCAN_PAGE_SIZE,
+      skip: offset,
     });
+    if (!rows.length) break;
+
     const visible = rows.filter((row) => !HIDDEN_COMMUNITY_STATUSES.has(communityStatus(row.data || {})));
     const servable = await serveExposableRows('SharedSermon', visible);
-    const field = sort === 'rating'
-      ? 'average_rating'
-      : sort === 'views'
-        ? 'views_count'
-        : sort === 'recent'
-          ? null
-          : 'forks_count';
-    const formatted = servable.map(formatPublicEntity);
-    if (field) formatted.sort((a, b) => Number(b[field] || 0) - Number(a[field] || 0));
-    res.json(formatted);
+    ranked.push(...servable.map(formatPublicEntity));
+
+    if (field) {
+      ranked.sort((a, b) => compareSharedSermons(field, a, b));
+      ranked.splice(SHARED_SERMON_RESULT_LIMIT);
+    } else if (ranked.length >= SHARED_SERMON_RESULT_LIMIT) {
+      return ranked.slice(0, SHARED_SERMON_RESULT_LIMIT);
+    }
+
+    offset += rows.length;
+    if (rows.length < SHARED_SERMON_SCAN_PAGE_SIZE) break;
+  }
+
+  return field
+    ? ranked.sort((a, b) => compareSharedSermons(field, a, b)).slice(0, SHARED_SERMON_RESULT_LIMIT)
+    : ranked.slice(0, SHARED_SERMON_RESULT_LIMIT);
+}
+
+router.get('/sermons', authenticateToken, requireCommunity, async (req, res, next) => {
+  try {
+    const sort = String(req.query.sort || 'popular');
+    res.json(await rankedSharedSermons(sort));
   } catch (err) {
     next(err);
   }
@@ -2272,6 +2356,32 @@ router.post('/study-groups/:id/messages', authenticateToken, requireCommunity, a
   }
 });
 
+// Message retraction is an ownership/privacy control, so it remains available
+// after Community access expires and even after the author leaves the group.
+// Reading or posting still requires current membership and Community access.
+router.delete('/study-groups/:id/messages/:messageId', authenticateToken, async (req, res, next) => {
+  try {
+    const deleted = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.messageId);
+      const message = await tx.entity.findUnique({ where: { id: req.params.messageId } });
+      if (!message || message.type !== 'GroupMessage' || message.data?.group_id !== req.params.id) {
+        throw Object.assign(new Error('Group message not found'), { status: 404 });
+      }
+      if (message.userId !== req.userId) {
+        throw Object.assign(new Error('You can only delete your own group messages'), { status: 403 });
+      }
+      await tx.entity.delete({ where: { id: message.id } });
+      return message;
+    });
+    await recordCommunityAudit('community.group_message_delete', req.userId, 'GroupMessage', deleted.id, {
+      groupId: req.params.id,
+    });
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/study-groups/:id/meetings', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     await requireGroupMember(req.params.id, req.userId);
@@ -2852,7 +2962,18 @@ router.post('/shared-content/:id/save', authenticateToken, requireCommunity, asy
 router.get('/moderation/queue', authenticateToken, requireAdmin, async (_req, res, next) => {
   try {
     const rows = await prisma.entity.findMany({
-      where: { type: { in: MODERATABLE_TYPES } },
+      // Apply the queue predicate before `take`; ordinary recent forum traffic
+      // must never crowd an older unresolved report out of moderation.
+      where: {
+        type: { in: MODERATABLE_TYPES },
+        OR: [
+          { data: { path: ['reported_count'], gt: 0 } },
+          { data: { path: ['reportedCount'], gt: 0 } },
+          ...['reported', 'hidden', 'removed', 'rejected'].map((status) => ({
+            data: { path: ['status'], equals: status },
+          })),
+        ],
+      },
       orderBy: { updatedAt: 'desc' },
       take: 200,
       select: { id: true, type: true, userId: true, data: true, createdAt: true, updatedAt: true },
