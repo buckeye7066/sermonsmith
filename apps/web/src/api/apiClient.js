@@ -8,6 +8,7 @@
  */
 
 import { coerceToSchema } from '@/lib/aiStructured';
+import { outputContractFor } from '@sermonsmith/shared/aiContracts';
 
 // ---------------------------------------------------------------------------
 // API base URL resolution.
@@ -310,6 +311,11 @@ const auth = {
   updateMe: (data)        => apiFetch('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
   exportData: ()          => apiFetch('/api/auth/export'),
   deleteAccount: ()       => apiFetch('/api/auth/me', { method: 'DELETE' }),
+  deleteUser: (id)        => apiFetch(`/api/auth/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setUserBanned: (id, banned) => apiFetch(`/api/auth/users/${encodeURIComponent(id)}/ban`, {
+    method: 'PATCH',
+    body: JSON.stringify({ banned: Boolean(banned) }),
+  }),
   revokeSessions: ()      => apiFetch('/api/auth/revoke-sessions', { method: 'POST' }),
 
   login: (email, password) =>
@@ -453,6 +459,31 @@ function isFullyValidSuccessTrailer(result, rawText) {
   return true;
 }
 
+function serverWorkflowRequest(p, { streaming = false } = {}) {
+  // Default only inside this trusted application adapter for old in-app call
+  // sites. The API still receives an explicit workflow URL and never trusts a
+  // body label; source text cannot alter the selected workflow.
+  const workflow = String(p?.feature || 'sermon').trim().toLowerCase();
+  const outputContract = p?.response_json_schema
+    ? outputContractFor(workflow, p.response_json_schema)
+    : null;
+  if (p?.response_json_schema && !outputContract) {
+    throw new Error(`No trusted structured-output contract is registered for the ${workflow} workflow.`);
+  }
+  const body = {
+    input: p?.prompt,
+    ...(outputContract ? { output_contract: outputContract } : {}),
+    ...(p?.model !== undefined ? { model: p.model } : {}),
+    ...(p?.max_tokens !== undefined ? { max_tokens: p.max_tokens } : {}),
+    ...(p?.temperature !== undefined ? { temperature: p.temperature } : {}),
+    ...(streaming ? { stream_result: true } : {}),
+  };
+  return {
+    path: `/api/ai/workflows/${encodeURIComponent(workflow)}`,
+    body,
+  };
+}
+
 const integrations = {
   Core: {
     // When the caller declares a `response_json_schema`, coerce the response to
@@ -462,7 +493,11 @@ const integrations = {
     // value throws React error #31 and blanks the page. Coercing here protects
     // every page at once instead of relying on per-page normalizers.
     InvokeLLM: async (p) => {
-      const result = await apiFetch('/api/ai/invoke', { method: 'POST', body: JSON.stringify(p) });
+      const workflow = serverWorkflowRequest(p);
+      const result = await apiFetch(`${workflow.path}/invoke`, {
+        method: 'POST',
+        body: JSON.stringify(workflow.body),
+      });
       if (p && p.response_json_schema) {
         try { return coerceToSchema(result, p.response_json_schema); } catch { /* fall back to raw */ }
       }
@@ -485,6 +520,7 @@ const integrations = {
     // resolved value.
     StreamLLM: async (p, onDelta) => {
       const apiBase = await getApiBaseUrl();
+      const workflow = serverWorkflowRequest(p, { streaming: true });
       // Idle-timeout guard: unlike apiFetch, a stalled stream would otherwise
       // hang the builder forever. Abort if no chunk arrives within STREAM_IDLE_MS
       // (reset on every chunk). On abort the fetch/read rejects and the caller
@@ -499,11 +535,11 @@ const integrations = {
       // A network failure here rejects naturally — callers fall back to InvokeLLM.
       let res;
       try {
-        res = await fetch(`${apiBase}/api/ai/stream`, {
+        res = await fetch(`${apiBase}${workflow.path}/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ ...(p || {}), stream_result: true }),
+          body: JSON.stringify(workflow.body),
           signal: controller.signal,
         });
       } catch (err) {
@@ -516,8 +552,8 @@ const integrations = {
         const error = new Error(body.message || `API error ${res.status}`);
         error.status = res.status;
         error.data = body;
-        if (res.status === 401 && !isAuthHandshakePath('/api/ai/stream')) {
-          try { _onUnauthorized?.('/api/ai/stream'); } catch { /* never mask */ }
+        if (res.status === 401 && !isAuthHandshakePath(`${workflow.path}/stream`)) {
+          try { _onUnauthorized?.(`${workflow.path}/stream`); } catch { /* never mask */ }
         }
         throw error;
       }
@@ -619,10 +655,7 @@ const integrations = {
       return text;
     },
     SendEmail:                  (p) => apiFetch('/api/ai/email',    { method: 'POST', body: JSON.stringify(p) }),
-    SendSMS:                    (p) => apiFetch('/api/ai/sms',      { method: 'POST', body: JSON.stringify(p) }),
-    UploadFile:                 (p) => apiFetch('/api/ai/upload',   { method: 'POST', body: JSON.stringify(p) }),
     GenerateImage:              (p) => apiFetch('/api/ai/image',    { method: 'POST', body: JSON.stringify(p) }),
-    ExtractDataFromUploadedFile:(p) => apiFetch('/api/ai/extract',  { method: 'POST', body: JSON.stringify(p) }),
   },
 };
 
@@ -647,6 +680,27 @@ const functions = {
       retry: RETRYABLE_FUNCTIONS.has(name),
       body: JSON.stringify(params || {}),
     }),
+  shareLinkPage: (resourceId, { offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ resourceId, offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/functions/share-links?${query}`);
+  },
+  shareLinks: async (resourceId) => {
+    const links = [];
+    let offset = 0;
+    while (offset !== null) {
+      const page = await functions.shareLinkPage(resourceId, { offset, limit: 100 });
+      // Rolling compatibility with an older API that returned a bare array.
+      if (Array.isArray(page)) return { links: [...links, ...page], next_offset: null };
+      links.push(...(Array.isArray(page?.links) ? page.links : []));
+      const next = Number.isSafeInteger(page?.next_offset) ? page.next_offset : null;
+      if (next !== null && next <= offset) {
+        throw new Error('Share-link pagination returned an invalid cursor.');
+      }
+      offset = next;
+    }
+    return { links, next_offset: null };
+  },
+  revokeShareableLink: (id) => apiFetch(`/api/functions/share-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // ---------------------------------------------------------------------------
@@ -665,14 +719,190 @@ const community = {
   // Public forum/community feeds — these read across ALL users (unlike the
   // tenant-scoped entity API), so members actually see each other's content.
   posts: () => apiFetch('/api/community/posts'),
+  myForumContent: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/posts/mine?${query}`);
+  },
+  myRatings: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/ratings/mine?${query}`);
+  },
+  deleteRating: (id) => apiFetch(`/api/community/ratings/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  mySharedSeries: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/shared-series/mine?${query}`);
+  },
+  unshareSeries: (id) => apiFetch(`/api/community/shared-series/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  mySharedContent: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/shared-content/mine?${query}`);
+  },
+  withdrawSharedContent: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  myPublicReadingPlans: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/reading-plans/mine?${query}`);
+  },
+  withdrawReadingPlan: (id) => apiFetch(`/api/community/reading-plans/${encodeURIComponent(id)}/publication`, { method: 'DELETE' }),
+  myComments: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/comments/mine?${query}`);
+  },
+  createPost: (payload) => apiFetch('/api/community/posts', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  deletePost: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }),
+  reportPost: (postId, payload = {}) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/report`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+  sermons: (sort = 'popular') => apiFetch(`/api/community/sermons?sort=${encodeURIComponent(sort)}`),
+  mySharedSermonPage: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/sermons/mine?${query}`);
+  },
+  // Existing analytics/library callers expect an array. Traverse every
+  // lifecycle page here while exposing mySharedSermonPage to management UIs.
+  mySharedSermons: async () => {
+    const sermons = [];
+    const seenOffsets = new Set();
+    let offset = 0;
+    for (;;) {
+      if (seenOffsets.has(offset)) throw new Error('The server returned a non-advancing shared-sermon page');
+      seenOffsets.add(offset);
+      const query = new URLSearchParams({ offset: String(offset), limit: '100' });
+      const page = await apiFetch(`/api/community/sermons/mine?${query}`);
+      // Rolling-deploy compatibility with the former unpaginated response.
+      if (Array.isArray(page)) return page;
+      sermons.push(...(page?.sermons || []));
+      if (page?.next_offset === null || page?.next_offset === undefined) return sermons;
+      const nextOffset = Number(page.next_offset);
+      if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset) {
+        throw new Error('The server returned an invalid shared-sermon page');
+      }
+      offset = nextOffset;
+    }
+  },
+  shareSermon: (payload) => apiFetch('/api/community/sermons/share', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  unshareSermon: (id) => apiFetch(`/api/community/sermons/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  recordSermonView: (id) => apiFetch(`/api/community/sermons/${encodeURIComponent(id)}/view`, { method: 'POST' }),
+  recordSermonFork: (id, createdSermonId) => apiFetch(`/api/community/sermons/${encodeURIComponent(id)}/fork`, {
+    method: 'POST',
+    body: JSON.stringify({ created_sermon_id: createdSermonId }),
+  }),
+  sermonRatings: (id) => apiFetch(`/api/community/sermons/${encodeURIComponent(id)}/ratings`),
+  rateSermon: (id, payload) => apiFetch(`/api/community/sermons/${encodeURIComponent(id)}/rating`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  comments: (contentType, contentId) => {
+    const query = new URLSearchParams({ content_type: contentType, content_id: contentId });
+    return apiFetch(`/api/community/comments?${query}`);
+  },
+  createComment: (payload) => apiFetch('/api/community/comments', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  likeComment: (id) => apiFetch(`/api/community/comments/${encodeURIComponent(id)}/like`, { method: 'POST' }),
+  unlikeComment: (id) => apiFetch(`/api/community/comments/${encodeURIComponent(id)}/like`, { method: 'DELETE' }),
+  pinComment: (id) => apiFetch(`/api/community/comments/${encodeURIComponent(id)}/pin`, { method: 'PATCH' }),
+  deleteComment: (id) => apiFetch(`/api/community/comments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  likePost: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/like`, { method: 'POST' }),
+  unlikePost: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/like`, { method: 'DELETE' }),
+  post: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}`),
   postReplies: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/replies`),
   replyToPost: (postId, payload) =>
     apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/reply`, {
       method: 'POST',
       body: JSON.stringify(payload || {}),
     }),
+  deletePostReply: (postId, replyId) => apiFetch(
+    `/api/community/posts/${encodeURIComponent(postId)}/replies/${encodeURIComponent(replyId)}`,
+    { method: 'DELETE' },
+  ),
+  reportPostReply: (postId, replyId, payload = {}) => apiFetch(
+    `/api/community/posts/${encodeURIComponent(postId)}/replies/${encodeURIComponent(replyId)}/report`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  ),
   studyGroups: () => apiFetch('/api/community/study-groups'),
-  readingPlans: () => apiFetch('/api/community/reading-plans'),
+  myStudyGroups: ({ offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/community/study-groups/mine?${query}`);
+  },
+  createStudyGroup: (payload) => apiFetch('/api/community/study-groups', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  studyGroup: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}`),
+  joinStudyGroup: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/join`, { method: 'POST' }),
+  addStudyGroupMember: (id, userId) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId }),
+  }),
+  leaveStudyGroup: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/membership`, { method: 'DELETE' }),
+  promoteStudyGroupMember: (groupId, memberId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}/promote`,
+    { method: 'PATCH' },
+  ),
+  removeStudyGroupMember: (groupId, memberId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}`,
+    { method: 'DELETE' },
+  ),
+  groupMessages: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/messages`),
+  sendGroupMessage: (id, payload) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  deleteGroupMessage: (groupId, messageId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: 'DELETE' },
+  ),
+  groupMeetings: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/meetings`),
+  createGroupMeeting: (id, payload) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/meetings`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  updateGroupMeeting: (groupId, meetingId, payload) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/meetings/${encodeURIComponent(meetingId)}`,
+    { method: 'PATCH', body: JSON.stringify(payload || {}) },
+  ),
+  deleteGroupMeeting: (groupId, meetingId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/meetings/${encodeURIComponent(meetingId)}`,
+    { method: 'DELETE' },
+  ),
+  rsvpGroupMeeting: (groupId, meetingId, status) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/meetings/${encodeURIComponent(meetingId)}/rsvp`,
+    { method: 'POST', body: JSON.stringify({ status }) },
+  ),
+  groupProgress: (id) => apiFetch(`/api/community/study-groups/${encodeURIComponent(id)}/progress`),
+  assignGroupProgressPlan: (id, planId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(id)}/progress`,
+    { method: 'PUT', body: JSON.stringify({ plan_id: planId }) },
+  ),
+  completeGroupProgressDay: (id, day) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(id)}/progress/days/${encodeURIComponent(day)}/complete`,
+    { method: 'POST' },
+  ),
+  readingPlans: (sort = 'newest') => apiFetch(`/api/community/reading-plans?sort=${encodeURIComponent(sort)}`),
+  recordPlanFork: (id, createdPlanId) => apiFetch(`/api/community/reading-plans/${encodeURIComponent(id)}/fork`, {
+    method: 'POST',
+    body: JSON.stringify({ created_plan_id: createdPlanId }),
+  }),
+  planRatings: (id) => apiFetch(`/api/community/reading-plans/${encodeURIComponent(id)}/ratings`),
+  ratePlan: (id, payload) => apiFetch(`/api/community/reading-plans/${encodeURIComponent(id)}/rating`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  }),
+  members: ({ q = '', limit = 24, offset = 0 } = {}) => {
+    const query = new URLSearchParams({ q, limit: String(limit), offset: String(offset) });
+    return apiFetch(`/api/community/members?${query}`);
+  },
+  member: (id) => apiFetch(`/api/community/members/${encodeURIComponent(id)}`),
+  followMember: (id) => apiFetch(`/api/community/members/${encodeURIComponent(id)}/follow`, { method: 'POST' }),
+  unfollowMember: (id) => apiFetch(`/api/community/members/${encodeURIComponent(id)}/follow`, { method: 'DELETE' }),
   share: (slug) => apiFetch(`/api/community/share/${encodeURIComponent(slug)}`),
   like: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/like`, { method: 'POST' }),
   save: (id) => apiFetch(`/api/community/shared-content/${encodeURIComponent(id)}/save`, { method: 'POST' }),

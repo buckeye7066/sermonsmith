@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { MessageSquare, Plus, Heart, CheckCircle2, Loader2, Sparkles } from "lucide-react";
+import { MessageSquare, Plus, Heart, CheckCircle2, Loader2, Sparkles, Flag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Forum() {
@@ -29,6 +29,8 @@ export default function Forum() {
   });
   const [newReply, setNewReply] = useState('');
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [likingPostId, setLikingPostId] = useState(null);
+  const [contentActionId, setContentActionId] = useState(null);
 
   useEffect(() => {
     if (isLoadingAuth) return;
@@ -38,13 +40,32 @@ export default function Forum() {
       return;
     }
     loadPosts();
+  // loadPosts is intentionally triggered only when authentication settles or
+  // the signed-in user changes; including the render-local function would
+  // refetch on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoadingAuth, user]);
 
   const loadPosts = async () => {
     try {
       // Public forum feed — every member's posts, not just the viewer's own.
-      const allPosts = await api.community.posts();
+      const requestedPostId = new URLSearchParams(window.location.search).get('post');
+      const [allPosts, linkedPostResult] = await Promise.all([
+        api.community.posts(),
+        requestedPostId
+          ? api.community.post(requestedPostId)
+            .then((post) => ({ post }))
+            .catch((error) => ({ error }))
+          : Promise.resolve(null),
+      ]);
       setPosts(allPosts);
+      const requestedPost = linkedPostResult?.post;
+      if (requestedPost) {
+        setSelectedPost(requestedPost);
+        await loadReplies(requestedPost.id);
+      } else if (requestedPostId && linkedPostResult?.error) {
+        toast.error(linkedPostResult.error?.data?.message || 'This forum post is unavailable.');
+      }
     } catch (error) {
       console.error('Error loading posts:', error);
       toast.error("Couldn't load forum posts. Please try again.");
@@ -72,11 +93,7 @@ export default function Forum() {
     }
 
     try {
-      await api.entities.CommunityPost.create({
-        user_id: user.id,
-        user_name: user.full_name || user.email,
-        ...newPost
-      });
+      await api.community.createPost(newPost);
 
       toast.success("Post created successfully!");
       setShowNewPostDialog(false);
@@ -154,6 +171,95 @@ Keep response under 300 words.`;
     loadReplies(post.id);
   };
 
+  const toggleLike = async (post, event) => {
+    event?.stopPropagation();
+    setLikingPostId(post.id);
+    try {
+      const updated = post.likedByMe
+        ? await api.community.unlikePost(post.id)
+        : await api.community.likePost(post.id);
+      setPosts((current) => current.map((item) => item.id === post.id ? { ...item, ...updated } : item));
+      setSelectedPost((current) => current?.id === post.id ? { ...current, ...updated } : current);
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not update this like');
+    } finally {
+      setLikingPostId(null);
+    }
+  };
+
+  const canDelete = (item) => item?.user_id === user?.id || ['admin', 'dev'].includes(user?.role);
+
+  const deletePost = async (post, event) => {
+    event?.stopPropagation();
+    if (!confirm('Delete this post and all of its replies?')) return;
+    setContentActionId(`delete-post:${post.id}`);
+    try {
+      await api.community.deletePost(post.id);
+      setPosts((current) => current.filter((item) => item.id !== post.id));
+      if (selectedPost?.id === post.id) {
+        setSelectedPost(null);
+        setReplies([]);
+      }
+      toast.success('Post deleted');
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not delete this post');
+    } finally {
+      setContentActionId(null);
+    }
+  };
+
+  const deleteReply = async (reply) => {
+    if (!confirm('Delete this reply?')) return;
+    setContentActionId(`delete-reply:${reply.id}`);
+    try {
+      await api.community.deletePostReply(selectedPost.id, reply.id);
+      setReplies((current) => current.filter((item) => item.id !== reply.id));
+      setSelectedPost((current) => current ? {
+        ...current,
+        replies_count: Math.max(0, Number(current.replies_count || 0) - 1),
+      } : current);
+      setPosts((current) => current.map((item) => item.id === selectedPost.id ? {
+        ...item,
+        replies_count: Math.max(0, Number(item.replies_count || 0) - 1),
+      } : item));
+      toast.success('Reply deleted');
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not delete this reply');
+    } finally {
+      setContentActionId(null);
+    }
+  };
+
+  const reportPost = async (post, event) => {
+    event?.stopPropagation();
+    if (!confirm('Report this post to the moderation team?')) return;
+    setContentActionId(`report-post:${post.id}`);
+    try {
+      await api.community.reportPost(post.id, { category: 'other', reason: 'Reported by a community member' });
+      toast.success('Post reported for review');
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not report this post');
+    } finally {
+      setContentActionId(null);
+    }
+  };
+
+  const reportReply = async (reply) => {
+    if (!confirm('Report this reply to the moderation team?')) return;
+    setContentActionId(`report-reply:${reply.id}`);
+    try {
+      await api.community.reportPostReply(selectedPost.id, reply.id, {
+        category: 'other',
+        reason: 'Reported by a community member',
+      });
+      toast.success('Reply reported for review');
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || 'Could not report this reply');
+    } finally {
+      setContentActionId(null);
+    }
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -195,6 +301,42 @@ Keep response under 300 words.`;
               {selectedPost.scripture_reference && (
                 <Badge variant="outline">{selectedPost.scripture_reference}</Badge>
               )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={`mt-3 ${selectedPost.likedByMe ? 'text-red-600' : ''}`}
+                disabled={likingPostId === selectedPost.id}
+                onClick={(event) => toggleLike(selectedPost, event)}
+              >
+                <Heart className={`mr-1 h-4 w-4 ${selectedPost.likedByMe ? 'fill-current' : ''}`} />
+                {selectedPost.likes_count || 0} likes
+              </Button>
+              {canDelete(selectedPost) ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-3 text-red-600"
+                  disabled={contentActionId === `delete-post:${selectedPost.id}`}
+                  onClick={(event) => deletePost(selectedPost, event)}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" />
+                  Delete post
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-3"
+                  disabled={contentActionId === `report-post:${selectedPost.id}`}
+                  onClick={(event) => reportPost(selectedPost, event)}
+                >
+                  <Flag className="mr-1 h-4 w-4" />
+                  Report post
+                </Button>
+              )}
             </CardContent>
           </Card>
 
@@ -226,7 +368,7 @@ Keep response under 300 words.`;
                         {reply.is_ai_response && (
                           <Badge variant="secondary" className="text-xs">
                             <Sparkles className="w-3 h-3 mr-1" />
-                            AI
+                            AI-assisted
                           </Badge>
                         )}
                         {reply.is_accepted_answer && (
@@ -236,9 +378,36 @@ Keep response under 300 words.`;
                           </Badge>
                         )}
                       </div>
-                      <span className="text-xs text-gray-500">
-                        {new Date(reply.created_date).toLocaleDateString()}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-500">
+                          {new Date(reply.created_date).toLocaleDateString()}
+                        </span>
+                        {canDelete(reply) ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-red-600"
+                            disabled={contentActionId === `delete-reply:${reply.id}`}
+                            onClick={() => deleteReply(reply)}
+                            aria-label="Delete reply"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8"
+                            disabled={contentActionId === `report-reply:${reply.id}`}
+                            onClick={() => reportReply(reply)}
+                            aria-label="Report reply"
+                          >
+                            <Flag className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <p className="text-gray-700 dark:text-gray-300 whitespace-pre-line">{reply.content}</p>
                   </CardContent>
@@ -379,10 +548,17 @@ Keep response under 300 words.`;
                       <MessageSquare className="w-4 h-4" />
                       {post.replies_count || 0} replies
                     </span>
-                    <span className="flex items-center gap-1">
-                      <Heart className="w-4 h-4" />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={post.likedByMe ? 'text-red-600' : ''}
+                      disabled={likingPostId === post.id}
+                      onClick={(event) => toggleLike(post, event)}
+                    >
+                      <Heart className={`mr-1 h-4 w-4 ${post.likedByMe ? 'fill-current' : ''}`} />
                       {post.likes_count || 0} likes
-                    </span>
+                    </Button>
                     {post.is_resolved && (
                       <Badge variant="outline" className="text-xs">
                         <CheckCircle2 className="w-3 h-3 mr-1" />

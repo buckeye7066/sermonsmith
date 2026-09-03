@@ -4,7 +4,6 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
-import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
 
 // Agent-mesh route wiring tests: the run-start hook (peer-note system message
 // injected AFTER the server invariants, consumed exactly once, fail-open) and
@@ -70,7 +69,7 @@ vi.mock('openai', () => ({
   },
 }));
 
-const { default: aiRoutes } = await import('../routes/ai.js');
+const { default: aiRoutes, serverPolicyForAiFeature } = await import('../routes/ai.js');
 
 function buildApp() {
   const app = express();
@@ -117,21 +116,20 @@ describe('agent mesh route wiring', () => {
   it('/invoke appends the peer note AFTER invariants and client prompt, and consumption is stamped', async () => {
     seedLessonFromArlynn();
     const res = await request(app)
-      .post('/api/ai/invoke')
+      .post('/api/ai/workflows/sermon/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-m')}`])
-      .send({ prompt: 'p', system_prompt: 'You are Larry.', feature: 'sermon' });
+      .send({ input: 'p' });
     expect(res.status).toBe(200);
 
     const { messages } = createCalls[0];
-    // Invariants stay first and undisplaceable; the client prompt keeps its slot.
-    expect(messages[0]).toEqual({ role: 'system', content: SERVER_AI_INVARIANTS });
+    // Invariants stay first and undisplaceable; only server-owned peer notes
+    // may add another system message.
+    expect(messages[0]).toEqual({ role: 'system', content: serverPolicyForAiFeature('sermon') });
     expect(messages[1].role).toBe('system');
-    expect(messages[1].content).toMatch(/^You are Larry\./);
-    // The peer note is one server-composed system message before the user turn.
-    expect(messages[2].role).toBe('system');
-    expect(messages[2].content).toContain('Peer notes from your fellow assistant');
-    expect(messages[2].content).toContain('model gpt-4o failing repeatedly (http_500)');
-    expect(messages[3]).toEqual({ role: 'user', content: 'p' });
+    expect(messages[1].content).toContain('Peer notes from your fellow assistant');
+    expect(messages[1].content).toContain('model gpt-4o failing repeatedly (http_500)');
+    expect(messages[2].role).toBe('user');
+    expect(messages[2].content).toContain('"source_material":"p"');
 
     // The visible cross-agent consumption: Larry has now learned Arlynn's lesson.
     expect(prisma._store.agentLesson[0].consumedBy.larry).toBeTruthy();
@@ -139,21 +137,21 @@ describe('agent mesh route wiring', () => {
 
   it('/invoke appends no peer note when there are no lessons or messages', async () => {
     const res = await request(app)
-      .post('/api/ai/invoke')
+      .post('/api/ai/workflows/sermon/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-m')}`])
-      .send({ prompt: 'p', system_prompt: 'You are Larry.', feature: 'sermon' });
+      .send({ input: 'p' });
     expect(res.status).toBe(200);
     const { messages } = createCalls[0];
-    expect(messages).toHaveLength(3);
+    expect(messages).toHaveLength(2);
     expect(messages.some((m) => m.content.includes('Peer notes'))).toBe(false);
   });
 
   it('an agent does not receive its own lessons as peer notes', async () => {
     seedLessonFromArlynn({ authorAgent: 'larry' });
     await request(app)
-      .post('/api/ai/invoke')
+      .post('/api/ai/workflows/sermon/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-m')}`])
-      .send({ prompt: 'p', feature: 'sermon' });
+      .send({ input: 'p' });
     const { messages } = createCalls[0];
     expect(messages.some((m) => m.content.includes('Peer notes'))).toBe(false);
   });
@@ -161,9 +159,9 @@ describe('agent mesh route wiring', () => {
   it('the same lesson is consumed once: the second run gets no peer note', async () => {
     seedLessonFromArlynn();
     const send = () => request(app)
-      .post('/api/ai/invoke')
+      .post('/api/ai/workflows/sermon/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-m')}`])
-      .send({ prompt: 'p', feature: 'sermon' });
+      .send({ input: 'p' });
     await send();
     await send();
     expect(createCalls[0].messages.some((m) => m.content.includes('Peer notes'))).toBe(true);
@@ -173,13 +171,12 @@ describe('agent mesh route wiring', () => {
   it('/stream gets the same peer note via the shared helper', async () => {
     seedLessonFromArlynn();
     const res = await request(app)
-      .post('/api/ai/stream')
+      .post('/api/ai/workflows/sermon_series/stream')
       .set('Cookie', [`ss_token=${tokenFor('u-m')}`])
-      .send({ prompt: 'p', system_prompt: 'You are Arlynn.', feature: 'sermon_series', stream_result: true });
+      .send({ input: 'p', stream_result: true });
     expect(res.status).toBe(200);
     const { messages } = createCalls[0];
-    expect(messages[0].content).toBe(SERVER_AI_INVARIANTS);
-    expect(messages[1].content).toBe('You are Arlynn.');
+    expect(messages[0].content).toBe(serverPolicyForAiFeature('sermon_series'));
     // feature sermon_series → acting agent arlynn... who authored this lesson,
     // so she must NOT receive it. Re-check with a larry-authored lesson.
     expect(messages.some((m) => m.content.includes('Peer notes'))).toBe(false);
@@ -189,9 +186,9 @@ describe('agent mesh route wiring', () => {
     createCalls.length = 0;
     seedLessonFromArlynn({ authorAgent: 'larry', claim: 'model gpt-4o-mini failing repeatedly (http_429)' });
     const res2 = await request(app)
-      .post('/api/ai/stream')
+      .post('/api/ai/workflows/sermon_series/stream')
       .set('Cookie', [`ss_token=${tokenFor('u-m')}`])
-      .send({ prompt: 'p', system_prompt: 'You are Arlynn.', feature: 'sermon_series', stream_result: true });
+      .send({ input: 'p', stream_result: true });
     expect(res2.status).toBe(200);
     const note = createCalls[0].messages.find((m) => m.content.includes('Peer notes'));
     expect(note).toBeTruthy();
@@ -203,9 +200,9 @@ describe('agent mesh route wiring', () => {
     seedLessonFromArlynn();
     prisma.agentMessage.findMany.mockRejectedValueOnce(new Error('mesh table on fire'));
     const res = await request(app)
-      .post('/api/ai/invoke')
+      .post('/api/ai/workflows/sermon/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-m')}`])
-      .send({ prompt: 'p', system_prompt: 'You are Larry.', feature: 'sermon' });
+      .send({ input: 'p' });
     expect(res.status).toBe(200);
     const { messages } = createCalls[0];
     expect(messages.some((m) => m.content.includes('Peer notes'))).toBe(false);
@@ -216,9 +213,9 @@ describe('agent mesh route wiring', () => {
   it('teaching hook: 3 provider-side failures record a lesson + peer message; 1 does not', async () => {
     mockFailure = Object.assign(new Error('upstream request timeout'), { status: 408 });
     const fail = () => request(app)
-      .post('/api/ai/invoke')
+      .post('/api/ai/workflows/sermon/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-m')}`])
-      .send({ prompt: 'p', feature: 'sermon' });
+      .send({ input: 'p' });
 
     const r1 = await fail();
     expect(r1.status).toBe(408);
@@ -244,9 +241,9 @@ describe('agent mesh route wiring', () => {
     mockFailure = null;
     createCalls.length = 0;
     const ok = await request(app)
-      .post('/api/ai/invoke')
+      .post('/api/ai/workflows/sermon_series/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-m')}`])
-      .send({ prompt: 'p', feature: 'sermon_series' });
+      .send({ input: 'p' });
     expect(ok.status).toBe(200);
     const note = createCalls[0].messages.find((m) => m.content.includes('Peer notes'));
     expect(note).toBeTruthy();

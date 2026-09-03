@@ -37,5 +37,7 @@ contextBridge.exposeInMainWorld('electron', {
     const config = await ipcRenderer.invoke('get-config');
     return config?.apiUrl || null;
   },
+  savePdf: (payload) => ipcRenderer.invoke('save-pdf', payload),
   isElectron: true,
 });
+

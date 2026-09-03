@@ -30,12 +30,8 @@ export default function SermonViewer({ open, onClose, sermon, onFork, onRate }) 
 
   const loadReviews = async () => {
     try {
-      const sermonReviews = await api.entities.SermonRating.filter(
-        { sermon_id: sermon.id },
-        '-created_date',
-        10
-      );
-      setReviews(sermonReviews);
+      const data = await api.community.sermonRatings(sermon.id);
+      setReviews((data.ratings || []).slice(0, 10));
     } catch (error) {
       logError('Error loading sermon reviews', error);
     }

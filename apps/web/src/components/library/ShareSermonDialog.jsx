@@ -69,22 +69,11 @@ Return comprehensive tags for discoverability.`;
 
       setIsGeneratingTags(false);
 
-      // Create shared sermon
-      await api.entities.SharedSermon.create({
-        user_id: user.id,
-        user_name: user.full_name || user.email,
-        title: sermon.title,
-        topic: sermon.topic,
-        anchor_passage: sermon.anchor_passage,
-        big_idea: sermon.big_idea,
-        points: sermon.points,
-        denomination: user.denomination,
-        ai_tags: tagsResponse.content_tags,
-        style_tags: tagsResponse.style_tags,
-        average_rating: 0,
-        ratings_count: 0,
-        forks_count: 0,
-        views_count: 0
+      await api.community.shareSermon({
+        source_sermon_id: sermon.id,
+        ai_tags: tagsResponse.content_tags || [],
+        style_tags: tagsResponse.style_tags || [],
+        category: tagsResponse.category || '',
       });
 
       toast.success("Sermon shared with the community! 🎉");

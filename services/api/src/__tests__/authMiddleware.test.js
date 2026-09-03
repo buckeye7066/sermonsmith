@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // soft-delete enforcement all live here and were previously run by zero tests.
 process.env.JWT_SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 
-const { authenticateToken, signToken, prisma, AUTH_COOKIE } = await import('../middleware/auth.js');
+const { authenticateToken, optionalAuth, signToken, prisma, AUTH_COOKIE } = await import('../middleware/auth.js');
 
 function mockRes() {
   return {
@@ -70,5 +70,71 @@ describe('authenticateToken (real middleware)', () => {
     expect(req.userId).toBe('u1');
     expect(req.userRole).toBe('user');
     expect(req.userPremium).toBe(true); // unexpired trial window counts as premium
+    expect(req.accountTier).toBe('premium');
+    expect(req.entitlements).toContain('community');
+  });
+
+  it('attaches free entitlements when no paid, trial, or promotional access exists', async () => {
+    findUnique.mockResolvedValue(baseUser({ email: 'ordinary@example.com' }));
+    const req = reqWithToken(signToken({ id: 'u1', tokenVersion: 0 }));
+    const res = mockRes(); let nexted = false;
+    await authenticateToken(req, res, () => { nexted = true; });
+
+    expect(nexted).toBe(true);
+    expect(req.accountTier).toBe('free');
+    expect(req.entitlements).toContain('bible_reader');
+    expect(req.entitlements).not.toContain('community');
+  });
+
+  it('requires the admin-controlled promotional email and never uses email as a display name', async () => {
+    findUnique.mockResolvedValue(baseUser({
+      email: 'buckeye7066@gmail.com',
+      name: null,
+      full_name: null,
+    }));
+    const unverifiedReq = reqWithToken(signToken({ id: 'u1', tokenVersion: 0 }));
+    await authenticateToken(unverifiedReq, mockRes(), () => {});
+    expect(unverifiedReq.accountTier).toBe('free');
+    expect(unverifiedReq.userName).toBe('Member');
+
+    findUnique.mockResolvedValue(baseUser({
+      email: 'buckeye7066@gmail.com',
+      promotionalEmail: 'buckeye7066@gmail.com',
+      name: 'owner@example.com',
+    }));
+    const verifiedReq = reqWithToken(signToken({ id: 'u2', tokenVersion: 0 }));
+    await authenticateToken(verifiedReq, mockRes(), () => {});
+    expect(verifiedReq.accountTier).toBe('premium');
+    expect(verifiedReq.userName).toBe('Member');
+  });
+
+  it.each([
+    ['soft-deleted', { deletedAt: new Date() }, 0],
+    ['banned', { is_banned: true }, 0],
+    ['token-revoked', { tokenVersion: 2 }, 0],
+  ])('optionalAuth never attaches a %s premium identity', async (_label, userPatch, tokenVersion) => {
+    findUnique.mockResolvedValue(baseUser({ premium: true, ...userPatch }));
+    const req = reqWithToken(signToken({ id: 'u-optional', tokenVersion }));
+    let nexted = false;
+
+    await optionalAuth(req, mockRes(), () => { nexted = true; });
+
+    expect(nexted).toBe(true);
+    expect(req.userId).toBeUndefined();
+    expect(req.userPremium).toBeUndefined();
+    expect(req.entitlements).toBeUndefined();
+  });
+
+  it('optionalAuth attaches server-derived Premium only for an active current token', async () => {
+    findUnique.mockResolvedValue(baseUser({ premium: true, tokenVersion: 3 }));
+    const req = reqWithToken(signToken({ id: 'u-optional', tokenVersion: 3 }));
+    let nexted = false;
+
+    await optionalAuth(req, mockRes(), () => { nexted = true; });
+
+    expect(nexted).toBe(true);
+    expect(req.userId).toBe('u-optional');
+    expect(req.userPremium).toBe(true);
+    expect(req.entitlements).toContain('premium_translations');
   });
 });

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -9,19 +9,33 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Share2, Copy, Check, ExternalLink, Loader2 } from "lucide-react";
+import { Share2, Copy, Check, ExternalLink, Loader2, Link2Off } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function ShareDialog({ open, onClose, resourceType, resourceId, title }) {
   const [shareUrl, setShareUrl] = useState('');
+  const [shareLinkId, setShareLinkId] = useState(null);
+  const [activeLinks, setActiveLinks] = useState([]);
+  const [linksLoading, setLinksLoading] = useState(false);
+  const [revokingId, setRevokingId] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shareTitle, setShareTitle] = useState(title || '');
   const [description, setDescription] = useState('');
-  const [accessLevel, setAccessLevel] = useState('view');
   const [expiresInDays, setExpiresInDays] = useState('');
+
+  useEffect(() => {
+    if (!open || !resourceId) return;
+    setLinksLoading(true);
+    api.functions.shareLinks(resourceId)
+      .then((result) => setActiveLinks(result?.links || []))
+      .catch((error) => {
+        console.error('Error loading share links:', error);
+        toast.error('Could not load existing share links');
+      })
+      .finally(() => setLinksLoading(false));
+  }, [open, resourceId]);
 
   const handleGenerateLink = async () => {
     setIsGenerating(true);
@@ -31,7 +45,7 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
         resourceId,
         title: shareTitle,
         description,
-        accessLevel,
+        accessLevel: 'view',
         expiresInDays: expiresInDays.trim() !== '' ? parseInt(expiresInDays) : null
       });
 
@@ -40,6 +54,8 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
       }
 
       setShareUrl(result.shareUrl);
+      setShareLinkId(result.id);
+      setActiveLinks((current) => [result, ...current.filter((link) => link.id !== result.id)]);
       toast.success("Share link generated!");
     } catch (error) {
       console.error('Error generating link:', error);
@@ -58,6 +74,24 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
 
   const handleOpenLink = () => {
     window.open(shareUrl, '_blank');
+  };
+
+  const handleRevokeLink = async (linkId) => {
+    setRevokingId(linkId);
+    try {
+      await api.functions.revokeShareableLink(linkId);
+      setActiveLinks((current) => current.filter((link) => link.id !== linkId));
+      if (shareLinkId === linkId) {
+        setShareLinkId(null);
+        setShareUrl('');
+      }
+      toast.success('Share link revoked');
+    } catch (error) {
+      console.error('Error revoking share link:', error);
+      toast.error(error?.message || 'Failed to revoke share link');
+    } finally {
+      setRevokingId(null);
+    }
   };
 
   return (
@@ -98,17 +132,8 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-2 block">Access Level</label>
-                  <Select value={accessLevel} onValueChange={setAccessLevel}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="view">View Only</SelectItem>
-                      <SelectItem value="copy">View & Copy</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input value="View Only" readOnly />
                 </div>
-
                 <div>
                   <label className="text-sm font-medium mb-2 block">Expires In (Days)</label>
                   <Input
@@ -117,6 +142,7 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
                     value={expiresInDays}
                     onChange={(e) => setExpiresInDays(e.target.value)}
                     min="1"
+                    max="365"
                   />
                 </div>
               </div>
@@ -183,7 +209,7 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
                 </h4>
                 <ul className="text-sm text-green-800 dark:text-green-200 space-y-1">
                   <li>• Share this link with anyone</li>
-                  <li>• Access level: <strong>{accessLevel === 'view' ? 'View Only' : 'View & Copy'}</strong></li>
+                  <li>• Access level: <strong>View Only</strong></li>
                   {expiresInDays && (
                     <li>• Expires in <strong>{expiresInDays} days</strong></li>
                   )}
@@ -194,6 +220,14 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
               </div>
 
               <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  onClick={() => handleRevokeLink(shareLinkId)}
+                  disabled={!shareLinkId || revokingId === shareLinkId}
+                >
+                  {revokingId === shareLinkId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2Off className="mr-2 h-4 w-4" />}
+                  Revoke
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -211,6 +245,40 @@ export default function ShareDialog({ open, onClose, resourceType, resourceId, t
               </div>
             </>
           )}
+
+          <div className="border-t pt-4">
+            <div className="mb-2 flex items-center justify-between">
+              <h4 className="text-sm font-medium">Active links</h4>
+              {linksLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            </div>
+            {!linksLoading && activeLinks.length === 0 ? (
+              <p className="text-sm text-gray-500">No active share links.</p>
+            ) : (
+              <div className="max-h-40 space-y-2 overflow-y-auto">
+                {activeLinks.map((link) => (
+                  <div key={link.id} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{link.title || title || resourceType}</p>
+                      <p className="text-xs text-gray-500">
+                        {link.expiresAt ? `Expires ${new Date(link.expiresAt).toLocaleDateString()}` : 'Does not expire'}
+                        {` • ${Number(link.views || 0)} views`}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRevokeLink(link.id)}
+                      disabled={revokingId === link.id}
+                    >
+                      {revokingId === link.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2Off className="h-4 w-4" />}
+                      <span className="sr-only">Revoke link</span>
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

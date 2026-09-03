@@ -1,21 +1,26 @@
 import React, { useState, useEffect } from "react";
 import { api } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
+import { usePremiumAccess } from '@/components/hooks/usePremiumAccess';
 import { logError } from '@/lib/logError';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Heart, Bookmark, TrendingUp, BookOpen, Loader2, Share2 } from "lucide-react";
+import { Heart, Bookmark, TrendingUp, BookOpen, Loader2, Share2, Crown } from "lucide-react";
 import { toast } from "sonner";
 
-export default function SharedContent() {
+export default function SharedContent({ publicShareOnly = false }) {
   const { user, isLoadingAuth } = useAuth();
+  const { hasEntitlement, loading: accessLoading } = usePremiumAccess();
+  const hasCommunityAccess = hasEntitlement('community');
   const [sharedContent, setSharedContent] = useState([]);
   const [myShared, setMyShared] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [sharedLink, setSharedLink] = useState(null);
+  const [shareLoading, setShareLoading] = useState(publicShareOnly);
+  const [shareError, setShareError] = useState(null);
 
   useEffect(() => {
     // When the URL carries ?link=<slug> we resolve it through the dedicated
@@ -24,39 +29,44 @@ export default function SharedContent() {
     const params = new URLSearchParams(window.location.search);
     const linkSlug = params.get('link');
     if (linkSlug) {
+      setShareLoading(true);
       api.community.share(linkSlug)
         .then((result) => setSharedLink(result))
         .catch((err) => {
-          toast.error(logError('Could not load share link', err));
-        });
+          const message = logError('Could not load share link', err);
+          setShareError(message);
+          if (!publicShareOnly) toast.error(message);
+        })
+        .finally(() => setShareLoading(false));
     }
-  }, []);
+  }, [publicShareOnly]);
 
   useEffect(() => {
-    if (isLoadingAuth) return;
+    if (publicShareOnly) {
+      setIsLoading(false);
+      return;
+    }
+    if (isLoadingAuth || accessLoading) return;
     loadContent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoadingAuth, user, filter]);
+  }, [isLoadingAuth, accessLoading, user, filter, publicShareOnly, hasCommunityAccess]);
 
   const loadContent = async () => {
     setIsLoading(true);
     try {
-      // Public feed uses the dedicated /api/community route so we actually
-      // see other users' public content. Without this, the generic entity
-      // API tenant-scopes to the caller and the "public" tab is empty.
-      const allContent = await api.community.sharedContent(filter);
-      setSharedContent(allContent);
-
-      if (user) {
-        const userContent = await api.entities.SharedContent.filter(
+      // Public discovery is Premium, while the owner-scoped private library is
+      // a core account surface. Load them independently so an expired account
+      // never loses access to private notes because the public feed returns 402.
+      const [allContent, userContent] = await Promise.all([
+        hasCommunityAccess ? api.community.sharedContent(filter) : Promise.resolve([]),
+        user ? api.entities.SharedContent.filter(
           {},
           '-created_date',
           50
-        );
-        setMyShared(userContent);
-      } else {
-        setMyShared([]);
-      }
+        ) : Promise.resolve([]),
+      ]);
+      setSharedContent(allContent);
+      setMyShared(userContent);
     } catch (error) {
       toast.error(logError('Error loading shared content', error));
     } finally {
@@ -96,6 +106,79 @@ export default function SharedContent() {
     }
   };
 
+  if (publicShareOnly) {
+    const resource = sharedLink?.resource;
+    const link = sharedLink?.link;
+    const primaryText = resource?.content
+      || resource?.body
+      || resource?.overview
+      || resource?.big_idea
+      || resource?.description
+      || '';
+
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 dark:bg-gray-900 md:p-8">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-8 text-center">
+            <BookOpen className="mx-auto mb-3 h-10 w-10 text-indigo-600" />
+            <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">SermonSmith shared resource</p>
+          </div>
+          {shareLoading ? (
+            <div className="flex justify-center py-20">
+              <Loader2 className="h-9 w-9 animate-spin text-indigo-600" />
+            </div>
+          ) : shareError || !resource ? (
+            <Card className="border-red-200">
+              <CardContent className="space-y-3 py-10 text-center">
+                <h1 className="text-2xl font-bold">This share link is unavailable</h1>
+                <p className="text-gray-600 dark:text-gray-300">
+                  It may be invalid, expired, or the resource may no longer be eligible for sharing.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-2xl">
+                  {link?.title || resource.title || resource.name || 'Shared resource'}
+                </CardTitle>
+                {link?.description && <CardDescription>{link.description}</CardDescription>}
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {resource.anchor_passage && (
+                  <Badge variant="outline"><BookOpen className="mr-1 h-3 w-3" />{resource.anchor_passage}</Badge>
+                )}
+                {primaryText && (
+                  <div className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">{primaryText}</div>
+                )}
+                {Array.isArray(resource.points) && resource.points.length > 0 && (
+                  <div className="space-y-4">
+                    {resource.points.map((point, index) => (
+                      <section key={`${point?.title || 'point'}-${index}`} className="rounded-lg border p-4">
+                        <h2 className="font-semibold">{point?.title || `Point ${index + 1}`}</h2>
+                        {(point?.explanation || point?.content) && (
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+                            {point.explanation || point.content}
+                          </p>
+                        )}
+                      </section>
+                    ))}
+                  </div>
+                )}
+                {!primaryText && (!Array.isArray(resource.points) || resource.points.length === 0) && (
+                  <p className="text-gray-600 dark:text-gray-300">The resource is available, but it has no text preview.</p>
+                )}
+                <p className="border-t pt-4 text-xs text-gray-500">
+                  Shared read-only. Verify Scripture wording, context, and citations before teaching or distributing it.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -105,7 +188,9 @@ export default function SharedContent() {
             Shared Content
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Discover notes, highlights, and insights shared by the community.
+            {hasCommunityAccess
+              ? 'Discover community resources and manage your own shared or private content.'
+              : 'Manage your private notes and content without publishing to the Community.'}
           </p>
         </div>
 
@@ -140,13 +225,32 @@ export default function SharedContent() {
           </Card>
         )}
 
-        <Tabs defaultValue="popular" className="space-y-6">
+        {!hasCommunityAccess && (
+          <Card className="mb-6 border-purple-200">
+            <CardContent className="flex items-start gap-3 py-5">
+              <Crown className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
+              <div>
+                <p className="font-medium">Community discovery requires Premium</p>
+                <p className="text-sm text-gray-500">
+                  Your private content remains available below. Public feeds, likes, and saves stay locked until Community access is active.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Tabs
+          key={hasCommunityAccess ? 'community' : 'personal'}
+          defaultValue={hasCommunityAccess ? 'popular' : 'mine'}
+          className="space-y-6"
+        >
           <TabsList>
-            <TabsTrigger value="popular">Popular</TabsTrigger>
-            <TabsTrigger value="recent">Recent</TabsTrigger>
+            {hasCommunityAccess && <TabsTrigger value="popular">Popular</TabsTrigger>}
+            {hasCommunityAccess && <TabsTrigger value="recent">Recent</TabsTrigger>}
             <TabsTrigger value="mine">My Shared Content</TabsTrigger>
           </TabsList>
 
+          {hasCommunityAccess && <>
           <div className="flex gap-2 mb-6">
             <Button
               variant={filter === 'all' ? 'default' : 'outline'}
@@ -310,9 +414,14 @@ export default function SharedContent() {
               </div>
             )}
           </TabsContent>
+          </>}
 
           <TabsContent value="mine" className="space-y-4">
-            {myShared.length === 0 ? (
+            {isLoading ? (
+              <div className="text-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto text-purple-500" />
+              </div>
+            ) : myShared.length === 0 ? (
               <Card>
                 <CardContent className="pt-6 text-center">
                   <Share2 className="w-12 h-12 mx-auto mb-4 text-gray-400" />

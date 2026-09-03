@@ -1,11 +1,8 @@
 /**
  * Client-side sermon PDF export.
  *
- * The backend `exportToPDF`/`exportToPPTX` endpoints are stubs that return a
- * JSON message, not a document; the previous export path wrapped that JSON in a
- * Blob, so a paying user downloaded an unopenable file while the UI reported
- * success. Generating the document here (the same approach QuizViewer already
- * uses) keeps the export honest and works offline.
+ * Generated locally so export works offline and never depends on a response
+ * that might not contain a document.
  *
  * Layout targets the pulpit, not the screen: generous leading, points that stay
  * with their first block of text, and scripture references kept on one line so

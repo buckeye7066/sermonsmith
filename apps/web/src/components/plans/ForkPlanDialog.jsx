@@ -74,6 +74,7 @@ export default function ForkPlanDialog({ open, onClose, plan, user }) {
         duration_days: plan.duration_days,
         daily_readings: plan.daily_readings,
         category: plan.category,
+        source_shared_plan_id: plan.id,
         is_public: false
       };
 
@@ -129,7 +130,7 @@ Make it punchier while preserving the journey.`
           const response = await api.integrations.Core.InvokeLLM({
             system_prompt: LARRY_SYSTEM_PROMPT,
             prompt: adaptationPrompt[forkType],
-            feature: 'library',
+            feature: 'plan_adaptation',
             response_json_schema: {
               type: "object",
               properties: {
@@ -183,12 +184,8 @@ Make it punchier while preserving the journey.`
       }
 
       // Save forked plan
-      await api.entities.ReadingPlan.create(forkedPlan);
-
-      // Update fork count
-      await api.entities.ReadingPlan.update(plan.id, {
-        followers_count: (plan.followers_count || 0) + 1
-      });
+      const created = await api.entities.ReadingPlan.create(forkedPlan);
+      await api.community.recordPlanFork(plan.id, created.id);
 
       toast.success("Study plan forked successfully! 🎉");
       onClose();

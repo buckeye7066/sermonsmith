@@ -11,39 +11,21 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Share2, Users, Globe, Lock } from "lucide-react";
+import { Share2, Globe, Lock } from "lucide-react";
 import { api } from '@/api/apiClient';
 import { toast } from "sonner";
 
 export default function ShareMenu({ open, onClose, content, contentType, user }) {
   const [visibility, setVisibility] = useState("public");
-  const [selectedGroup, setSelectedGroup] = useState("");
-  const [studyGroups, setStudyGroups] = useState([]);
   const [title, setTitle] = useState("");
   const [isSharing, setIsSharing] = useState(false);
 
   useEffect(() => {
     if (open && user && user.id) {
-      loadStudyGroups();
       generateTitle();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
   }, [open, user]);
-
-  const loadStudyGroups = async () => {
-    try {
-      const memberships = await api.entities.GroupMembership.filter({ user_id: user.id });
-      const groupIds = memberships.map(m => m.group_id);
-      
-      if (groupIds.length > 0) {
-        const groups = await api.entities.StudyGroup.filter({ id: { $in: groupIds } });
-        setStudyGroups(groups);
-      }
-    } catch (error) {
-      console.error('Error loading groups:', error);
-    }
-  };
 
   const generateTitle = () => {
     if (contentType === 'note' && content.book_name && content.chapter && content.verse) {
@@ -67,11 +49,6 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
       return;
     }
 
-    if (visibility === 'group' && !selectedGroup) {
-      toast.error("Please select a study group");
-      return;
-    }
-
     setIsSharing(true);
 
     try {
@@ -84,8 +61,7 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
         scripture_reference: content.verse 
           ? `${content.book_name} ${content.chapter}:${content.verse}`
           : "",
-        visibility: visibility,
-        group_id: visibility === 'group' ? selectedGroup : null
+        visibility: visibility
       };
 
       await api.entities.SharedContent.create(sharedContent);
@@ -141,17 +117,6 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
                 </div>
 
                 <div className="flex items-center space-x-3 p-3 rounded-lg border hover:border-blue-500 transition-colors cursor-pointer">
-                  <RadioGroupItem value="group" id="group" />
-                  <Label htmlFor="group" className="cursor-pointer flex items-center gap-2 flex-1">
-                    <Users className="w-4 h-4" />
-                    <div>
-                      <div className="font-medium">Study Group</div>
-                      <div className="text-xs text-gray-500">Share with a specific group</div>
-                    </div>
-                  </Label>
-                </div>
-
-                <div className="flex items-center space-x-3 p-3 rounded-lg border hover:border-blue-500 transition-colors cursor-pointer">
                   <RadioGroupItem value="private" id="private" />
                   <Label htmlFor="private" className="cursor-pointer flex items-center gap-2 flex-1">
                     <Lock className="w-4 h-4" />
@@ -164,30 +129,6 @@ export default function ShareMenu({ open, onClose, content, contentType, user })
               </div>
             </RadioGroup>
           </div>
-
-          {visibility === 'group' && (
-            <div>
-              <Label htmlFor="group-select">Select Study Group</Label>
-              <Select value={selectedGroup} onValueChange={setSelectedGroup}>
-                <SelectTrigger id="group-select">
-                  <SelectValue placeholder="Choose a group..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {studyGroups.length === 0 ? (
-                    <div className="p-4 text-sm text-gray-500 text-center">
-                      No study groups joined yet
-                    </div>
-                  ) : (
-                    studyGroups.map((group) => (
-                      <SelectItem key={group.id} value={group.id}>
-                        {group.name}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
 
           <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
             <p className="text-sm text-blue-800 dark:text-blue-200">

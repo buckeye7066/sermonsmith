@@ -21,6 +21,17 @@ import {
 } from '../services/quotationVerification.js';
 import { translationMetadata } from '../services/bibleSources.js';
 import { getCachedBiblePassage } from './functions.js';
+import {
+  ENTITLEMENTS,
+  accessSummaryFor,
+  entitlementForEntityType,
+  requestHasEntitlement,
+} from '../lib/entitlements.js';
+import { lockCommunityEntity } from '../lib/communityEntityLock.js';
+import {
+  isPrivateCommunityMetadataKey,
+  withoutPrivateCommunityMetadata,
+} from '../lib/communityPrivacy.js';
 
 // Tenant-isolated entity API.
 //
@@ -48,10 +59,102 @@ const PUBLIC_TYPES = new Set(['Verse']);
 // which verifies the caller owns the resource being shared. Allowing it here
 // let any user forge a link pointing at another user's private entity. The
 // /share/:slug route now also re-checks sharer ownership (defense in depth).
-const SERVER_MANAGED_TYPES = new Set(['SharedLink']);
+const SERVER_MANAGED_TYPES = new Set([
+  'SharedLink',
+  'SharedSermon',
+  'SermonRating',
+  'SharedPlanRating',
+  'Comment',
+  'CommunityPost',
+  'CommunityReply',
+  'StudyGroup',
+  'GroupMembership',
+  'GroupMessage',
+  'GroupMeeting',
+  'MeetingAttendance',
+  'GroupProgress',
+]);
+
+// GroupProgress may contain an intentionally shared snapshot of a leader's
+// private ReadingPlan. Top-level Entity ownership is not authorization for
+// that snapshot after leadership changes, so it is readable only through the
+// group-membership endpoint, never through generic list/filter/get routes.
+const DEDICATED_READ_TYPES = new Set(['GroupProgress']);
+
+// These legacy entity types are edited through the generic API while also
+// receiving counters/status updates through Community routes. Their generic
+// mutations must use the same advisory lock and re-read after acquiring it.
+const COMMUNITY_LOCKED_TYPES = new Set(['SharedContent', 'ReadingPlan', 'SharedSeries']);
 
 function formatEntity(e) {
   return { id: e.id, ...e.data, created_date: e.createdAt, updated_date: e.updatedAt };
+}
+
+function formatEntityForRequest(req, entity) {
+  if (isAdmin(req)) return formatEntity(entity);
+  return formatEntity({
+    ...entity,
+    data: withoutPrivateCommunityMetadata(entity.data),
+  });
+}
+
+// SharedContent and ReadingPlan remain available through the generic API
+// because the same rows back private work and optional public Community
+// publication. Public identity, moderation state, and interaction counters are
+// nevertheless server-owned and cannot be seeded or overwritten by clients.
+function bindCommunityManagedFields(req, type, data, { creating = false } = {}) {
+  if (type === 'ReadingPlan') {
+    const next = { ...(data || {}) };
+    if (creating) {
+      return { ...next, followers_count: 0, average_rating: 0, ratings_count: 0 };
+    }
+    delete next.followers_count;
+    delete next.average_rating;
+    delete next.ratings_count;
+    return next;
+  }
+  if (type === 'SharedSeries') {
+    const next = { ...(data || {}) };
+    if (creating) {
+      return {
+        ...next,
+        user_name: req.userName || 'Member',
+        average_rating: 0,
+        ratings_count: 0,
+        forks_count: 0,
+        views_count: 0,
+      };
+    }
+    delete next.user_name;
+    delete next.average_rating;
+    delete next.ratings_count;
+    delete next.forks_count;
+    delete next.views_count;
+    return next;
+  }
+  if (type !== 'SharedContent') return data;
+  const next = { ...(data || {}), user_name: req.userName || 'Member' };
+  if (creating) {
+    return {
+      ...next,
+      status: 'active',
+      likes_count: 0,
+      saves_count: 0,
+      reported_count: 0,
+      reported_by: [],
+    };
+  }
+  for (const key of [
+    'status',
+    'likes_count',
+    'saves_count',
+    'reported_count',
+    'reportedCount',
+    'reported_by',
+    'last_report',
+    'moderatorNotes',
+  ]) delete next[key];
+  return next;
 }
 
 // Same RESERVED_PROFILE_KEYS hardening as /api/auth — a malicious user could
@@ -66,6 +169,10 @@ const RESERVED_PROFILE_KEYS = new Set([
   'premium_override',
   'subscription_tier',
   'premium_until',
+  'promotionalEmail',
+  'promotional_email',
+  'promotionalPhone',
+  'promotional_phone',
   'tokenVersion',
   'token_version',
   'createdAt',
@@ -85,7 +192,37 @@ function sanitizeUser(u) {
   // eslint-disable-next-line no-unused-vars
   const { password, profile, ...safeUser } = u;
   const safeProfile = cleanProfile(profile);
-  return { ...safeProfile, ...safeUser, profile: safeProfile };
+  return { ...safeProfile, ...safeUser, profile: safeProfile, ...accessSummaryFor(u) };
+}
+
+function assertEntityEntitlement(req, type) {
+  const entitlement = entitlementForEntityType(type);
+  if (entitlement && !requestHasEntitlement(req, entitlement)) {
+    throw Object.assign(new Error('Premium subscription required'), {
+      status: 402,
+      requiredEntitlement: entitlement,
+    });
+  }
+}
+
+// SharedContent and ReadingPlan serve two different product surfaces through
+// the same legacy entity type: private records belong to the free personal
+// library, while public records are published into the Premium Community.
+// A type-only entitlement map cannot express that distinction, so every
+// create/update/bulk write checks the effective visibility as well. Owners can
+// still make an existing record private (or delete it) after Premium expires.
+function assertCommunityPublicationEntitlement(req, type, data, existingData = {}) {
+  const effective = { ...(existingData || {}), ...(data || {}) };
+  const publishesToCommunity = type === 'SharedContent'
+    ? effective.visibility === 'public'
+    : type === 'ReadingPlan' && effective.is_public === true;
+
+  if (publishesToCommunity && !requestHasEntitlement(req, ENTITLEMENTS.COMMUNITY)) {
+    throw Object.assign(new Error('Publishing to the Community requires Premium'), {
+      status: 402,
+      requiredEntitlement: ENTITLEMENTS.COMMUNITY,
+    });
+  }
 }
 
 function resolveOrderBy(raw) {
@@ -436,6 +573,10 @@ function validateEntityPayload(type, body) {
 // --- Filter (must be registered before /:type/:id to avoid route collision) ---
 router.post('/:type/filter', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
+    if (DEDICATED_READ_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' must be read through its dedicated API.` });
+    }
     const { _limit, _offset, _orderBy, ...filterFields } = req.body;
     const take = clampLimit(_limit);
     const skip = typeof _offset === 'number' ? _offset : 0;
@@ -445,11 +586,12 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
       // Listing users is admin-only.
       if (!isAdmin(req)) return res.status(403).json({ message: 'Admin access required' });
       const users = await prisma.user.findMany({
+        where: { deletedAt: null },
         select: {
           id: true, email: true, name: true, full_name: true, avatar: true,
-          role: true, premium: true, premium_until: true, profile: true, onboarding_completed: true,
+          role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, profile: true, onboarding_completed: true,
           special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
-          is_banned: true, banned_at: true,
+          is_banned: true, banned_at: true, deletedAt: true,
         },
         orderBy,
         take,
@@ -476,6 +618,11 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
         }
         continue;
       }
+      // A response sanitizer alone is insufficient: accepting reporter ids as
+      // filter predicates would give an author a yes/no enumeration oracle.
+      if (!isAdmin(req) && isPrivateCommunityMetadataKey(key)) {
+        return res.status(400).json({ message: 'Unsupported private filter field' });
+      }
       if (value !== undefined && value !== null) {
         conditions.push({ data: { path: [key], equals: value } });
       }
@@ -489,7 +636,7 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
       take,
       skip,
     });
-    res.json(entities.map(formatEntity));
+    res.json(entities.map((entity) => formatEntityForRequest(req, entity)));
   } catch (err) {
     next(err);
   }
@@ -500,6 +647,7 @@ const MAX_BULK_ITEMS = 200;
 
 router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
     // Public reference types (Verse) must not be writable by ordinary users —
     // those rows are world-readable, so a non-admin could otherwise inject
     // fake "Bible" data that every user sees.
@@ -526,7 +674,13 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
       // they're creating an entity on someone else's behalf.
       // eslint-disable-next-line no-unused-vars
       const { user_id, userId, id, ...item } = rawItem || {};
-      return applyScriptureGate(req, req.params.type, validateEntityPayload(req.params.type, item));
+      const validItem = validateEntityPayload(req.params.type, item);
+      assertCommunityPublicationEntitlement(req, req.params.type, validItem);
+      return applyScriptureGate(
+        req,
+        req.params.type,
+        bindCommunityManagedFields(req, req.params.type, validItem, { creating: true }),
+      );
     }));
 
     const created = await prisma.$transaction(
@@ -541,7 +695,7 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
       )
     );
 
-    res.json(created.map(formatEntity));
+    res.json(created.map((entity) => formatEntityForRequest(req, entity)));
   } catch (err) {
     next(err);
   }
@@ -550,6 +704,7 @@ router.post('/:type/bulk', authenticateToken, async (req, res, next) => {
 // --- Create ---
 router.post('/:type', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
     // Public reference types (Verse) are read-only for non-admins — see bulk.
     if (PUBLIC_TYPES.has(req.params.type) && !isAdmin(req)) {
       return res.status(403).json({ message: `Creating '${req.params.type}' entities is not permitted.` });
@@ -559,10 +714,12 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
     }
     // eslint-disable-next-line no-unused-vars
     const { user_id, userId, id, ...rawBody } = req.body || {};
+    const validBody = validateEntityPayload(req.params.type, rawBody);
+    assertCommunityPublicationEntitlement(req, req.params.type, validBody);
     const body = await applyScriptureGate(
       req,
       req.params.type,
-      validateEntityPayload(req.params.type, rawBody),
+      bindCommunityManagedFields(req, req.params.type, validBody, { creating: true }),
     );
     const entity = await prisma.entity.create({
       data: {
@@ -571,7 +728,7 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
         data: { ...body, user_id: req.userId, created_date: new Date().toISOString() },
       },
     });
-    res.json(formatEntity(entity));
+    res.json(formatEntityForRequest(req, entity));
   } catch (err) {
     next(err);
   }
@@ -580,17 +737,22 @@ router.post('/:type', authenticateToken, async (req, res, next) => {
 // --- List (with default pagination) ---
 router.get('/:type', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
+    if (DEDICATED_READ_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' must be read through its dedicated API.` });
+    }
     const take = clampLimit(Number(req.query.limit) || DEFAULT_PAGE_SIZE);
     const skip = Number(req.query.offset) || 0;
 
     if (req.params.type === 'User') {
       if (!isAdmin(req)) return res.status(403).json({ message: 'Admin access required' });
       const users = await prisma.user.findMany({
+        where: { deletedAt: null },
         select: {
           id: true, email: true, name: true, full_name: true, avatar: true,
-          role: true, premium: true, premium_until: true, profile: true, onboarding_completed: true,
+          role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, profile: true, onboarding_completed: true,
           special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
-          is_banned: true, banned_at: true,
+          is_banned: true, banned_at: true, deletedAt: true,
         },
         orderBy: { createdAt: 'desc' },
         take,
@@ -611,7 +773,7 @@ router.get('/:type', authenticateToken, async (req, res, next) => {
       take,
       skip,
     });
-    res.json(entities.map(formatEntity));
+    res.json(entities.map((entity) => formatEntityForRequest(req, entity)));
   } catch (err) {
     next(err);
   }
@@ -621,6 +783,7 @@ router.get('/:type', authenticateToken, async (req, res, next) => {
 router.get('/:type/:id', authenticateToken, async (req, res, next) => {
   try {
     if (req.params.type === 'User') {
+      assertEntityEntitlement(req, 'User');
       if (!isAdmin(req) && req.params.id !== req.userId) {
         return res.status(403).json({ message: 'Forbidden' });
       }
@@ -631,11 +794,22 @@ router.get('/:type/:id', authenticateToken, async (req, res, next) => {
 
     const entity = await prisma.entity.findUnique({ where: { id: req.params.id } });
     if (!entity) return res.status(404).json({ message: 'Not found' });
+    if (entity.type !== req.params.type) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+    if (DEDICATED_READ_TYPES.has(entity.type)) {
+      return res.status(403).json({ message: `'${entity.type}' must be read through its dedicated API.` });
+    }
+
+    // The stored row type, not a caller-controlled URL segment, decides the
+    // required entitlement. The equality check above also prevents using an
+    // ungated type name to retrieve a known Premium entity id.
+    assertEntityEntitlement(req, entity.type);
 
     if (!PUBLIC_TYPES.has(entity.type) && entity.userId !== req.userId && !isAdmin(req)) {
       return res.status(403).json({ message: 'Forbidden' });
     }
-    res.json(formatEntity(entity));
+    res.json(formatEntityForRequest(req, entity));
   } catch (err) {
     next(err);
   }
@@ -644,12 +818,32 @@ router.get('/:type/:id', authenticateToken, async (req, res, next) => {
 // --- Update ---
 router.put('/:type/:id', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' must be updated through its dedicated API.` });
+    }
     if (req.params.type === 'User') {
       return requireAdmin(req, res, async () => {
         try {
           // Block client-supplied role/premium/email/password from a
           // generic entity-update path; admins must use /api/auth/users.
-          const { password: _p, role: _r, premium: _pr, email: _e, ...safe } = req.body || {};
+          const {
+            password: _p,
+            role: _r,
+            premium: _pr,
+            email: _e,
+            promotionalEmail: _pe,
+            promotional_email: _pes,
+            promotionalPhone: _pp,
+            promotional_phone: _pps,
+            is_banned: _banned,
+            banned_at: _bannedAt,
+            tokenVersion: _tokenVersion,
+            token_version: _tokenVersionLegacy,
+            deletedAt: _deletedAt,
+            deleted_at: _deletedAtLegacy,
+            ...safe
+          } = req.body || {};
           const user = await prisma.user.update({ where: { id: req.params.id }, data: safe });
           res.json(sanitizeUser(user));
         } catch (err) { next(err); }
@@ -673,6 +867,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       return res.status(404).json({ message: 'Not found' });
     }
     const storedType = existing.type;
+    assertEntityEntitlement(req, storedType);
 
     if (existing.userId !== req.userId && !isAdmin(req)) {
       return res.status(403).json({ message: 'You can only update your own items' });
@@ -699,15 +894,37 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       patch = parsed.data;
     }
 
-    patch = await applyScriptureGate(req, storedType, patch, existing.data);
+    const updateCurrent = async (client, current) => {
+      if (!current || current.type !== storedType) {
+        throw Object.assign(new Error('Not found'), { status: 404 });
+      }
+      if (current.userId !== req.userId && !isAdmin(req)) {
+        throw Object.assign(new Error('You can only update your own items'), { status: 403 });
+      }
 
-    const entity = await prisma.entity.update({
-      where: { id: req.params.id },
-      data: {
-        data: { ...existing.data, ...patch, updated_date: new Date().toISOString() },
-      },
-    });
-    res.json(formatEntity(entity));
+      assertCommunityPublicationEntitlement(req, storedType, patch, current.data);
+      let safePatch = bindCommunityManagedFields(req, storedType, patch);
+      safePatch = await applyScriptureGate(req, storedType, safePatch, current.data);
+
+      return client.entity.update({
+        where: { id: current.id },
+        data: {
+          data: { ...current.data, ...safePatch, updated_date: new Date().toISOString() },
+        },
+      });
+    };
+
+    // Re-read after the shared lock is acquired. Reusing `existing` here would
+    // still allow a concurrent like/rating/moderation write to be overwritten
+    // by the stale JSON snapshot fetched above.
+    const entity = COMMUNITY_LOCKED_TYPES.has(storedType)
+      ? await prisma.$transaction(async (tx) => {
+          await lockCommunityEntity(tx, existing.id);
+          const current = await tx.entity.findUnique({ where: { id: existing.id } });
+          return updateCurrent(tx, current);
+        })
+      : await updateCurrent(prisma, existing);
+    res.json(formatEntityForRequest(req, entity));
   } catch (err) {
     next(err);
   }
@@ -725,6 +942,7 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
 // the references are fixed. `acknowledged: false` withdraws a review.
 router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
     if (!REVIEWABLE_TYPES.has(req.params.type)) {
       return res.status(400).json({ message: `'${req.params.type}' does not support review acknowledgment.` });
     }
@@ -790,7 +1008,7 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
     }
 
     const entity = await prisma.entity.findUnique({ where: { id: existing.id } });
-    res.json(formatEntity(entity));
+    res.json(formatEntityForRequest(req, entity));
   } catch (err) {
     next(err);
   }
@@ -799,6 +1017,10 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
 // --- Delete ---
 router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
   try {
+    assertEntityEntitlement(req, req.params.type);
+    if (SERVER_MANAGED_TYPES.has(req.params.type)) {
+      return res.status(403).json({ message: `'${req.params.type}' must be deleted through its dedicated API.` });
+    }
     if (req.params.type === 'User') {
       return requireAdmin(req, res, async () => {
         try {
@@ -809,16 +1031,78 @@ router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
     }
 
     const existing = await prisma.entity.findUnique({
-      select: { id: true, type: true, userId: true },
+      select: { id: true, type: true, userId: true, data: true },
       where: { id: req.params.id },
     });
     if (!existing) return res.status(404).json({ message: 'Not found' });
+
+    // The stored type is authoritative here just as it is for PUT. Without
+    // this check, DELETE /Sermon/<CommunityPost id> bypassed the dedicated
+    // server-managed deletion path and left replies/interactions orphaned.
+    if (existing.type !== req.params.type) {
+      return res.status(404).json({ message: 'Not found' });
+    }
 
     if (existing.userId !== req.userId && !isAdmin(req)) {
       return res.status(403).json({ message: 'You can only delete your own items' });
     }
 
-    await prisma.entity.delete({ where: { id: req.params.id } });
+    const deleteCurrent = async (client, current) => {
+      if (!current || current.type !== existing.type) {
+        throw Object.assign(new Error('Not found'), { status: 404 });
+      }
+      if (current.userId !== req.userId && !isAdmin(req)) {
+        throw Object.assign(new Error('You can only delete your own items'), { status: 403 });
+      }
+      if (current.type === 'SharedContent') {
+        await client.communityLike.deleteMany({ where: { contentId: current.id } });
+        await client.savedContent.deleteMany({ where: { contentId: current.id } });
+      }
+      if (current.type === 'ReadingPlan') {
+        const comments = await client.entity.findMany({
+          where: {
+            type: 'Comment',
+            AND: [
+              { data: { path: ['content_type'], equals: 'plan' } },
+              { data: { path: ['content_id'], equals: current.id } },
+            ],
+          },
+          select: { id: true },
+          take: 10_000,
+        });
+        await client.communityLike.deleteMany({
+          where: { contentId: { in: [current.id, ...comments.map((comment) => comment.id)] } },
+        });
+        await client.entity.deleteMany({
+          where: { type: 'SharedPlanRating', data: { path: ['plan_id'], equals: current.id } },
+        });
+        await client.entity.deleteMany({
+          where: {
+            type: 'Comment',
+            AND: [
+              { data: { path: ['content_type'], equals: 'plan' } },
+              { data: { path: ['content_id'], equals: current.id } },
+            ],
+          },
+        });
+      }
+      if (current.type === 'SharedSeries') {
+        await client.entity.deleteMany({
+          where: { type: 'SharedLink', data: { path: ['resourceId'], equals: current.id } },
+        });
+      }
+      await client.entity.delete({ where: { id: current.id } });
+    };
+
+    if (COMMUNITY_LOCKED_TYPES.has(existing.type)) {
+      await prisma.$transaction(async (tx) => {
+        await lockCommunityEntity(tx, existing.id);
+        const current = await tx.entity.findUnique({ where: { id: existing.id } });
+        await deleteCurrent(tx, current);
+      });
+    } else {
+      await deleteCurrent(prisma, existing);
+    }
     res.status(204).send();
   } catch (err) {
     next(err);

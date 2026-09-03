@@ -129,7 +129,7 @@ Help users discover sermons and verses that deepen this study.`;
       
       if (user) {
         try {
-          const sharedSermons = await api.entities.SharedSermon.list('-views_count', 50);
+          const sharedSermons = await api.community.sermons('views');
           
           const filterPrompt = `Given these themes: ${themes.join(', ')}
 And topics: ${topics.join(', ')}
@@ -156,11 +156,7 @@ Return indices (1-based) of the 5 most relevant.`;
 
           // Fetch related plans if applicable
           if (sourceType !== 'plan') { // Only suggest plans if the source is not already a plan
-            const publicPlans = await api.entities.ReadingPlan.filter(
-              { is_public: true },
-              '-followers_count',
-              20
-            );
+            const publicPlans = await api.community.readingPlans();
 
             if (publicPlans.length > 0) {
               const planFilterPrompt = `Given these themes: ${themes.join(', ')}

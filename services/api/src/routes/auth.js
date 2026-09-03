@@ -8,6 +8,14 @@ import { sendPasswordResetEmail } from '../services/email.js';
 import { recordSuccessfulLogin } from '../services/firstLoginNotifier.js';
 import { signupTrialPeriod } from '../lib/signupTrial.js';
 import { grantFreePeriodToUser } from '../lib/premiumGrant.js';
+import {
+  accessSummaryFor,
+  isAllowlistedPromotionalEmail,
+  normalizePhone,
+  normalizePromotionalEmail,
+} from '../lib/entitlements.js';
+import { lockCommunityEntity } from '../lib/communityEntityLock.js';
+import { withoutPrivateCommunityMetadata } from '../lib/communityPrivacy.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -93,6 +101,10 @@ const RESERVED_PROFILE_KEYS = new Set([
   'premium_override',
   'subscription_tier',
   'premium_until',
+  'promotionalEmail',
+  'promotional_email',
+  'promotionalPhone',
+  'promotional_phone',
   'tokenVersion',
   'token_version',
   'createdAt',
@@ -116,7 +128,12 @@ function sanitizeUser(user) {
   // eslint-disable-next-line no-unused-vars
   const { password, profile, ...safeUser } = user;
   const safeProfile = cleanProfile(profile);
-  return { ...safeProfile, ...safeUser, profile: safeProfile };
+  return {
+    ...safeProfile,
+    ...safeUser,
+    profile: safeProfile,
+    ...accessSummaryFor(user),
+  };
 }
 
 const PRIVACY_EXPORT_MODELS = [
@@ -138,10 +155,18 @@ async function exportRows(modelName, userId) {
   const model = prisma[modelName];
   if (!model?.findMany) return [];
   try {
-    return await model.findMany({
+    const rows = await model.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 5000,
+    });
+    if (!['sharedContent', 'forumPost'].includes(modelName)) return rows;
+    return rows.map((row) => {
+      const safe = withoutPrivateCommunityMetadata(row);
+      if (safe.content && typeof safe.content === 'object' && !Array.isArray(safe.content)) {
+        safe.content = withoutPrivateCommunityMetadata(safe.content);
+      }
+      return safe;
     });
   } catch {
     // During phased deploys, the route should still return the generic Entity
@@ -150,7 +175,38 @@ async function exportRows(modelName, userId) {
   }
 }
 
-async function recordAudit(action, userId, metadata = {}) {
+async function exportCommunityRelations(userId) {
+  try {
+    const [following, followers, groupMemberships] = await Promise.all([
+      prisma.communityFollow.findMany({
+        where: { followerId: userId },
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+        select: { id: true, followingId: true, createdAt: true },
+      }),
+      prisma.communityFollow.findMany({
+        where: { followingId: userId },
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+        select: { id: true, followerId: true, createdAt: true },
+      }),
+      prisma.communityGroupMember.findMany({
+        where: { userId },
+        orderBy: { joinedAt: 'desc' },
+        take: 5000,
+        select: { id: true, groupId: true, role: true, userName: true, joinedAt: true },
+      }),
+    ]);
+    return { following, followers, groupMemberships };
+  } catch {
+    // Rolling deploy compatibility: a server may start before the new
+    // relation tables have been migrated. Keep the export available and
+    // expose empty collections until the migration completes.
+    return { following: [], followers: [], groupMemberships: [] };
+  }
+}
+
+async function recordAudit(action, userId, metadata = {}, targetId = userId) {
   if (!prisma.auditLog?.create) return;
   try {
     await prisma.auditLog.create({
@@ -158,13 +214,109 @@ async function recordAudit(action, userId, metadata = {}) {
         userId,
         action,
         targetType: 'User',
-        targetId: userId,
+        targetId,
         metadata,
       },
     });
   } catch {
     // Privacy operations must not fail because a best-effort audit insert did.
   }
+}
+
+async function cleanupCommunityRelationsForAccessRevocation(tx, userId) {
+  const [memberships, ownedGroups] = await Promise.all([
+    tx.communityGroupMember.findMany({ where: { userId } }),
+    tx.entity.findMany({
+      where: { type: 'StudyGroup', userId },
+      select: { id: true },
+    }),
+  ]);
+  const membershipByGroup = new Map(memberships.map((row) => [row.groupId, row]));
+  const groupIds = [...new Set([
+    ...memberships.map((row) => row.groupId),
+    ...ownedGroups.map((row) => row.id),
+  ])].sort();
+  let transferredGroups = 0;
+  let deletedGroups = 0;
+
+  for (const groupId of groupIds) {
+    await lockCommunityEntity(tx, groupId);
+    const group = await tx.entity.findUnique({ where: { id: groupId } });
+    const remainingRows = await tx.communityGroupMember.findMany({
+      where: { groupId, userId: { not: userId } },
+      orderBy: { joinedAt: 'asc' },
+    });
+    const remainingUsers = remainingRows.length
+      ? await tx.user.findMany({ where: { id: { in: remainingRows.map((row) => row.userId) } } })
+      : [];
+    const activeUserIds = new Set(remainingUsers
+      .filter((user) => !user.deletedAt && !user.is_banned)
+      .map((user) => user.id));
+    const remaining = remainingRows.filter((row) => activeUserIds.has(row.userId));
+    const staleIds = remainingRows.filter((row) => !activeUserIds.has(row.userId)).map((row) => row.id);
+    if (staleIds.length) {
+      await tx.communityGroupMember.deleteMany({ where: { id: { in: staleIds } } });
+    }
+    await tx.communityGroupMember.deleteMany({ where: { groupId, userId } });
+
+    if (!group || group.type !== 'StudyGroup') continue;
+    if (remaining.length === 0) {
+      const meetings = await tx.entity.findMany({
+        where: { type: 'GroupMeeting', data: { path: ['group_id'], equals: groupId } },
+        select: { id: true },
+      });
+      await tx.communityGroupMember.deleteMany({ where: { groupId } });
+      for (const meeting of meetings) {
+        // Compatibility cleanup for attendance written before group_id was
+        // added to RSVP data.
+        await tx.entity.deleteMany({
+          where: { type: 'MeetingAttendance', data: { path: ['meeting_id'], equals: meeting.id } },
+        });
+      }
+      await tx.entity.deleteMany({ where: { data: { path: ['group_id'], equals: groupId } } });
+      await tx.entity.delete({ where: { id: groupId } });
+      deletedGroups += 1;
+      continue;
+    }
+
+    const leaving = membershipByGroup.get(groupId);
+    let successor = remaining.find((row) => row.role === 'leader')
+      || remaining.find((row) => row.userId === group.userId)
+      || remaining[0];
+    const mustReplaceLeader = leaving?.role === 'leader'
+      && !remaining.some((row) => row.role === 'leader');
+    const mustTransferOwnership = group.userId === userId;
+    if ((mustReplaceLeader || mustTransferOwnership) && successor.role !== 'leader') {
+      successor = await tx.communityGroupMember.update({
+        where: { id: successor.id },
+        data: { role: 'leader' },
+      });
+    }
+
+    await tx.entity.update({
+      where: { id: group.id },
+      data: {
+        ...(mustTransferOwnership ? { userId: successor.userId } : {}),
+        data: { ...(group.data || {}), member_count: remaining.length },
+      },
+    });
+    if (mustTransferOwnership) transferredGroups += 1;
+  }
+
+  const removedFollows = await tx.communityFollow.deleteMany({
+    where: {
+      OR: [
+        { followerId: userId },
+        { followingId: userId },
+      ],
+    },
+  });
+  return {
+    removedMemberships: memberships.length,
+    removedFollows: removedFollows.count,
+    transferredGroups,
+    deletedGroups,
+  };
 }
 
 router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
@@ -189,7 +341,9 @@ router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
     }
 
     const hashed = await bcrypt.hash(password, 12);
-    const displayName = name || normalizedEmail.split('@')[0];
+    const displayName = typeof name === 'string' && name.trim()
+      ? name.trim().slice(0, 100)
+      : 'Member';
     const admin = isAdminEmail(normalizedEmail);
 
     let user = await prisma.user.create({
@@ -323,6 +477,10 @@ router.patch('/me', authenticateToken, async (req, res, next) => {
       'premium_override',
       'subscription_tier',
       'premium_until',
+      'promotionalEmail',
+      'promotional_email',
+      'promotionalPhone',
+      'promotional_phone',
       'role',
       'email',
       'password',
@@ -380,20 +538,30 @@ router.get('/export', authenticateToken, async (req, res, next) => {
       select: { id: true, type: true, data: true, createdAt: true, updatedAt: true },
     });
 
-    const typedEntries = await Promise.all(
-      PRIVACY_EXPORT_MODELS.map(async ([key, modelName]) => [key, await exportRows(modelName, req.userId)])
-    );
+    const [typedEntries, communityRelations] = await Promise.all([
+      Promise.all(
+        PRIVACY_EXPORT_MODELS.map(async ([key, modelName]) => [key, await exportRows(modelName, req.userId)])
+      ),
+      exportCommunityRelations(req.userId),
+    ]);
 
     await recordAudit('privacy.export', req.userId, {
       entityCount: entities.length,
       typedCounts: Object.fromEntries(typedEntries.map(([key, rows]) => [key, rows.length])),
+      communityRelationCounts: Object.fromEntries(
+        Object.entries(communityRelations).map(([key, rows]) => [key, rows.length])
+      ),
     });
 
     res.json({
       exportedAt: new Date().toISOString(),
       user: sanitizeUser(user),
-      entities,
+      entities: entities.map((entity) => ({
+        ...entity,
+        data: withoutPrivateCommunityMetadata(entity.data),
+      })),
       typed: Object.fromEntries(typedEntries),
+      community: communityRelations,
     });
   } catch (err) {
     next(err);
@@ -405,11 +573,15 @@ router.delete('/me', authenticateToken, async (req, res, next) => {
     const target = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!target) return res.status(404).json({ message: 'User not found' });
 
-    await recordAudit('privacy.account_delete_requested', req.userId, { selfService: true });
-    await prisma.user.update({
-      where: { id: req.userId },
-      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+    const cleanup = await prisma.$transaction(async (tx) => {
+      const result = await cleanupCommunityRelationsForAccessRevocation(tx, req.userId);
+      await tx.user.update({
+        where: { id: req.userId },
+        data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+      });
+      return result;
     });
+    await recordAudit('privacy.account_delete_requested', req.userId, { selfService: true, ...cleanup });
     res.clearCookie(AUTH_COOKIE, cookieOptions());
     res.status(204).send();
   } catch (err) {
@@ -590,7 +762,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => 
       where: { deletedAt: null },
       select: {
         id: true, email: true, name: true, full_name: true,
-        role: true, premium: true, premium_until: true, avatar: true, profile: true,
+        role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, avatar: true, profile: true,
         createdAt: true, updatedAt: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -613,6 +785,8 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res, next) => 
 const adminUserUpdateSchema = z.object({
   role: z.enum(['user', 'admin', 'dev']).optional(),
   premium: z.boolean().optional(),
+  promotionalEmail: z.string().trim().email().max(254).nullable().optional(),
+  promotionalPhone: z.string().trim().max(40).nullable().optional(),
   name: z.string().max(100).optional(),
   full_name: z.string().max(100).optional(),
 }).strict();
@@ -626,10 +800,78 @@ router.patch('/users/:id', authenticateToken, requireAdmin, async (req, res, nex
         issues: parsed.error.issues,
       });
     }
+    const update = { ...parsed.data };
+    const target = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!target) return res.status(404).json({ message: 'User not found' });
+    if (Object.prototype.hasOwnProperty.call(update, 'promotionalEmail')) {
+      const normalized = normalizePromotionalEmail(update.promotionalEmail);
+      if (normalized && (
+        !isAllowlistedPromotionalEmail(normalized)
+        || normalized !== normalizePromotionalEmail(target.email)
+      )) {
+        return res.status(400).json({
+          message: 'Promotional email must be an approved address that matches this account',
+        });
+      }
+      update.promotionalEmail = normalized || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(update, 'promotionalPhone')) {
+      const normalized = normalizePhone(update.promotionalPhone);
+      update.promotionalPhone = normalized || null;
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
-      data: parsed.data,
+      data: update,
     });
+    res.json(sanitizeUser(user));
+  } catch (err) {
+    next(err);
+  }
+});
+
+const adminBanSchema = z.object({ banned: z.boolean() }).strict();
+
+// Banning is an immediate access-revocation event, not a generic profile
+// update. Remove the account from groups and transfer/delete owned groups in
+// the same locked transaction used by soft deletion, then bump tokenVersion so
+// unbanning cannot resurrect a pre-ban session.
+router.patch('/users/:id/ban', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    const parsed = adminBanSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid ban update', issues: parsed.error.issues });
+    }
+    const target = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    let cleanup = null;
+    const user = await prisma.$transaction(async (tx) => {
+      if (parsed.data.banned) {
+        cleanup = await cleanupCommunityRelationsForAccessRevocation(tx, target.id);
+        return tx.user.update({
+          where: { id: target.id },
+          data: {
+            is_banned: true,
+            banned_at: new Date(),
+            tokenVersion: { increment: 1 },
+          },
+        });
+      }
+      return tx.user.update({
+        where: { id: target.id },
+        data: { is_banned: false, banned_at: null },
+      });
+    });
+
+    await recordAudit(
+      parsed.data.banned ? 'admin.user_banned' : 'admin.user_unbanned',
+      req.userId,
+      { targetUserId: target.id, ...(cleanup || {}) },
+      target.id,
+    );
+    if (parsed.data.banned && target.id === req.userId) {
+      res.clearCookie(AUTH_COOKIE, cookieOptions());
+    }
     res.json(sanitizeUser(user));
   } catch (err) {
     next(err);
@@ -648,10 +890,19 @@ router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res, ne
   try {
     const target = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!target) return res.status(404).json({ message: 'User not found' });
-    await prisma.user.update({
-      where: { id: req.params.id },
-      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+    const cleanup = await prisma.$transaction(async (tx) => {
+      const result = await cleanupCommunityRelationsForAccessRevocation(tx, target.id);
+      await tx.user.update({
+        where: { id: target.id },
+        data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+      });
+      return result;
     });
+    await recordAudit('admin.user_soft_delete', req.userId, {
+      targetUserId: target.id,
+      ...cleanup,
+    }, target.id);
+    if (target.id === req.userId) res.clearCookie(AUTH_COOKIE, cookieOptions());
     res.status(204).send();
   } catch (err) {
     next(err);

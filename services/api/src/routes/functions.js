@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
 import { FREE_PERIOD_DAYS, grantFreePeriodToUser } from '../lib/premiumGrant.js';
 import { assertGatedResourceExposable } from '../services/scriptureGate.js';
@@ -19,6 +20,8 @@ import {
   bookByName,
 } from '../services/premiumTranslations.js';
 import { buildVerseWordingResult } from '../services/verseWording.js';
+import { chaptersInBook, versesInChapter } from '@sermonsmith/shared/scripture';
+import { ACCOUNT_TIERS, accountTierFor } from '../lib/entitlements.js';
 
 const router = Router();
 
@@ -46,6 +49,12 @@ const passageSchema = z.object({
   translations: z.array(z.string().min(1).max(20)).max(5).optional(),
 }).refine((d) => d.book || d.bookCode, { message: 'book or bookCode is required' });
 
+const shareLinkPageSchema = z.object({
+  resourceId: z.string().trim().min(1).max(200),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(100),
+  offset: z.coerce.number().int().min(0).max(1_000_000).optional().default(0),
+});
+
 // ---------------------------------------------------------------------------
 // Bible chapter cache.
 //
@@ -68,7 +77,14 @@ function bibleCacheFresh(row) {
 }
 
 async function fetchBibleApiJson(ref, translationId, timeoutMs = 10000) {
-  const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translationId}`;
+  const query = new URLSearchParams({
+    translation: translationId,
+    // Without this setting the provider interprets Jude 1, Obadiah 1,
+    // Philemon 1, 2 John 1, and 3 John 1 as a single verse instead of the
+    // requested whole chapter.
+    single_chapter_book_matching: 'indifferent',
+  });
+  const url = `https://bible-api.com/${encodeURIComponent(ref)}?${query}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -82,6 +98,205 @@ async function fetchBibleApiJson(ref, translationId, timeoutMs = 10000) {
     return await response.json();
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function normalizeBibleApiChapter(payload, book, chapter, translationId) {
+  const unique = new Map();
+  for (const row of Array.isArray(payload?.verses) ? payload.verses : []) {
+    const verse = Number(row?.verse);
+    const text = typeof row?.text === 'string' ? row.text.trim() : '';
+    if (!Number.isInteger(verse) || verse < 1 || !text || unique.has(verse)) continue;
+    unique.set(verse, {
+      book_name: row.book || row.book_name || book.name,
+      chapter: Number(row.chapter) || Number(chapter),
+      verse,
+      text,
+    });
+  }
+  if (!unique.size) {
+    throw Object.assign(new Error(`Bible source returned no verses for ${book.name} ${chapter}`), { status: 502 });
+  }
+  const verses = [...unique.values()].sort((a, b) => a.verse - b.verse);
+  return {
+    reference: `${book.name} ${chapter}`,
+    translation_id: translationId,
+    translation_name: payload?.translation?.name || translationId.toUpperCase(),
+    verses,
+    text: verses.map((row) => row.text).join('\n'),
+    source: 'bible-api-parameterized',
+  };
+}
+
+function expectedVerseCountForCompleteness(book, chapter, translationId) {
+  // Exact translation-aware bounds exist for the audited static datasets.
+  // Single-chapter books also use the canonical bound for every supported
+  // public-domain translation; this is the ambiguity that historically made
+  // the provider/import path return only verse 1 for an entire book.
+  return versesInChapter(book.name, Number(chapter), translationId)
+    ?? (chaptersInBook(book.name) === 1
+      ? versesInChapter(book.name, Number(chapter))
+      : null);
+}
+
+function hasEveryExpectedVerse(chapterData, expected) {
+  if (!expected) return true;
+  const verseNumbers = new Set((chapterData?.verses || []).map((row) => Number(row.verse)));
+  if (verseNumbers.size !== expected) return false;
+  for (let verse = 1; verse <= expected; verse += 1) {
+    if (!verseNumbers.has(verse)) return false;
+  }
+  return true;
+}
+
+function scriptureApiVerseNumber(row) {
+  const referenceMatch = String(row?.reference || '').match(/:(\d+)(?:\D.*)?$/);
+  if (referenceMatch) return Number(referenceMatch[1]);
+  const idMatch = String(row?.id || '').match(/\.(\d+)$/);
+  return idMatch ? Number(idMatch[1]) : NaN;
+}
+
+function scriptureApiVerseNumberFromAttrs(attrs = {}) {
+  const candidates = [
+    ...(Array.isArray(attrs.verseOrgIds) ? attrs.verseOrgIds : []),
+    attrs.verseId,
+    attrs.sid,
+    attrs.number,
+  ];
+  for (const candidate of candidates) {
+    const direct = Number(candidate);
+    if (Number.isInteger(direct) && direct > 0) return direct;
+    const match = String(candidate || '').match(/(\d+)\D*$/);
+    if (match) return Number(match[1]);
+  }
+  return null;
+}
+
+function extractScriptureApiChapterText(content) {
+  const chunksByVerse = new Map();
+  const append = (verse, text) => {
+    if (!Number.isInteger(verse) || verse < 1 || typeof text !== 'string') return;
+    const chunks = chunksByVerse.get(verse) || [];
+    chunks.push(text);
+    chunksByVerse.set(verse, chunks);
+  };
+
+  const visitList = (items, inheritedVerse = null) => {
+    let activeVerse = inheritedVerse;
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!item || typeof item !== 'object') continue;
+      const attrsVerse = scriptureApiVerseNumberFromAttrs(item.attrs || {});
+      if (item.type === 'tag' && item.name === 'verse') {
+        activeVerse = attrsVerse || activeVerse;
+        // A verse marker's own text is its display number, not Scripture.
+        continue;
+      }
+      const itemVerse = attrsVerse || activeVerse;
+      if (item.type === 'text') append(itemVerse, item.text);
+      if (Array.isArray(item.items)) {
+        activeVerse = visitList(item.items, itemVerse) || activeVerse;
+      }
+    }
+    return activeVerse;
+  };
+
+  visitList(content);
+  return new Map([...chunksByVerse].map(([verse, chunks]) => [
+    verse,
+    chunks.join('').replace(/\s+/g, ' ').trim(),
+  ]).filter(([, text]) => text));
+}
+
+function hasContiguousChapterVerses(chapterData) {
+  const verses = chapterData?.verses || [];
+  return verses.length > 0 && verses.every((row, index) => Number(row.verse) === index + 1);
+}
+
+function hasProviderChapterCompletenessProof(payload, normalized, expected) {
+  const providerVerses = Array.isArray(payload?.verses) ? payload.verses : [];
+  // For translations without audited canonical bounds, the provider's full
+  // chapter list is our evidence. No provider row may be discarded and verse
+  // numbering must be contiguous from one. Audited translations additionally
+  // have to match their exact canonical count.
+  return providerVerses.length > 0
+    && normalized?.verses?.length === providerVerses.length
+    && hasContiguousChapterVerses(normalized)
+    && (!expected || hasEveryExpectedVerse(normalized, expected));
+}
+
+async function fetchBibleApiChapter(bookInput, chapter, translationId, timeoutMs = 10000) {
+  const book = bookByName(bookInput);
+  if (!book) throw Object.assign(new Error(`Unknown book: ${bookInput}`), { status: 400 });
+  const url = `https://bible-api.com/data/${encodeURIComponent(translationId)}/${encodeURIComponent(book.osis)}/${chapter}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw Object.assign(new Error(`Bible API returned ${response.status}`), { status: response.status });
+    }
+    const payload = await response.json();
+    const normalized = normalizeBibleApiChapter(payload, book, chapter, translationId);
+    const expected = expectedVerseCountForCompleteness(book, chapter, translationId);
+    if (!hasProviderChapterCompletenessProof(payload, normalized, expected)) {
+      throw Object.assign(new Error(`Bible source returned an incomplete chapter for ${book.name} ${chapter}`), { status: 502 });
+    }
+    return {
+      ...normalized,
+      source: 'bible-api-data',
+      chapter_complete: true,
+      chapter_format_version: 3,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchImportedBibleChapter(book, chapter, translationId) {
+  try {
+    const rows = await prisma.entity.findMany({
+      where: {
+        type: 'Verse',
+        AND: [
+          { data: { path: ['translation'], equals: translationId } },
+          { data: { path: ['book_name'], equals: book.name } },
+          { data: { path: ['chapter'], equals: Number(chapter) } },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 200,
+      select: { data: true },
+    });
+    if (!rows.length) return null;
+    const normalized = normalizeBibleApiChapter(
+      { verses: rows.map((row) => row.data), translation: { name: translationId.toUpperCase() } },
+      book,
+      chapter,
+      translationId,
+    );
+    const expected = expectedVerseCountForCompleteness(book, chapter, translationId);
+    const markedComplete = rows.every((row) => (
+      row.data?.chapter_complete === true
+      && Number(row.data?.import_format_version) >= 3
+      && Number(row.data?.chapter_verse_count) === normalized.verses.length
+    ));
+    const losslessContiguousRows = rows.length === normalized.verses.length
+      && hasContiguousChapterVerses(normalized);
+    if (!losslessContiguousRows
+        || (expected && !hasEveryExpectedVerse(normalized, expected))
+        || (!expected && !markedComplete)) {
+      console.warn(`[Bible Reader] ignoring incomplete legacy import for ${book.name} ${chapter} (${translationId})`);
+      return null;
+    }
+    return {
+      ...normalized,
+      source: 'database-import',
+      chapter_complete: true,
+      chapter_format_version: 3,
+    };
+  } catch (error) {
+    console.warn('[Bible Reader] imported verse lookup unavailable; trying external source:', error?.message || error);
+    return null;
   }
 }
 
@@ -146,14 +361,27 @@ async function fetchStaticBibleChapter(bookInput, chapter, translationId, timeou
     if (!response.ok) {
       throw Object.assign(new Error(`Static Bible source returned ${response.status}`), { status: response.status });
     }
-    return normalizeStaticChapter(await response.json(), book, chapter, translationId);
+    const normalized = normalizeStaticChapter(await response.json(), book, chapter, translationId);
+    const expected = expectedVerseCountForCompleteness(book, chapter, translationId);
+    if (!hasContiguousChapterVerses(normalized) || !hasEveryExpectedVerse(normalized, expected)) {
+      throw Object.assign(new Error(`Static Bible source returned an incomplete chapter for ${book.name} ${chapter}`), { status: 502 });
+    }
+    return { ...normalized, chapter_complete: true, chapter_format_version: 3 };
   } finally {
     clearTimeout(timeout);
   }
 }
 
 async function getCachedBibleChapter({ book, chapter, translationId }) {
-  const cacheKey = { translation: translationId, book, chapter: Number(chapter) };
+  const resolvedBook = bookByName(book);
+  if (!resolvedBook) throw Object.assign(new Error(`Unknown book: ${book}`), { status: 400 });
+  const maxChapter = chaptersInBook(resolvedBook.name);
+  if (maxChapter && Number(chapter) > maxChapter) {
+    throw Object.assign(new Error(`${resolvedBook.name} has ${maxChapter} chapter${maxChapter === 1 ? '' : 's'}`), { status: 400 });
+  }
+  // Use one canonical cache key regardless of whether the client sent GEN,
+  // Genesis, or book number 1.
+  const cacheKey = { translation: translationId, book: resolvedBook.osis, chapter: Number(chapter) };
 
   let cached = null;
   try {
@@ -166,18 +394,27 @@ async function getCachedBibleChapter({ book, chapter, translationId }) {
     console.warn('[Bible Reader] chapter cache read unavailable; serving from source:', error?.message || error);
   }
 
-  if (bibleCacheFresh(cached)) {
+  const cachedExpected = expectedVerseCountForCompleteness(resolvedBook, chapter, translationId);
+  const cachedHasCompletenessProof = hasContiguousChapterVerses(cached?.payload)
+    && (cachedExpected
+      ? hasEveryExpectedVerse(cached?.payload, cachedExpected)
+      : cached?.payload?.chapter_complete === true
+        && Number(cached?.payload?.chapter_format_version) >= 3);
+  const cacheIsComplete = cached?.payload?.source !== 'bible-api-parameterized'
+    && cachedHasCompletenessProof;
+  if (bibleCacheFresh(cached) && cacheIsComplete) {
     return { ...cached.payload, cacheHit: true };
   }
 
-  const ref = `${book} ${chapter}`;
-  let data;
-  try {
-    data = await fetchStaticBibleChapter(book, chapter, translationId);
-  } catch (staticError) {
-    console.warn('[Bible Reader] static chapter source unavailable; trying bible-api.com:', staticError?.message || staticError);
+  let data = await fetchImportedBibleChapter(resolvedBook, chapter, translationId);
+  if (!data) {
+    try {
+      data = await fetchStaticBibleChapter(resolvedBook.name, chapter, translationId);
+    } catch (staticError) {
+      console.warn('[Bible Reader] static chapter source unavailable; trying bible-api.com:', staticError?.message || staticError);
+    }
   }
-  if (!data) data = await fetchBibleApiJson(ref, translationId);
+  if (!data) data = await fetchBibleApiChapter(resolvedBook.name, chapter, translationId);
 
   try {
     await prisma.bibleChapterCache.upsert({
@@ -205,39 +442,55 @@ async function getCachedBibleChapter({ book, chapter, translationId }) {
 async function getCachedPremiumChapter({ id, book, chapter }) {
   const cacheKey = { translation: id, book, chapter: Number(chapter) };
 
-  const cached = await prisma.bibleChapterCache.findUnique({
-    where: { translation_book_chapter: cacheKey },
-  });
+  let cached = null;
+  try {
+    cached = await prisma.bibleChapterCache.findUnique({
+      where: { translation_book_chapter: cacheKey },
+    });
+  } catch (error) {
+    console.warn('[Bible Reader] premium chapter cache read unavailable; serving from source:', error?.message || error);
+  }
   if (bibleCacheFresh(cached)) {
     return { ...cached.payload, cacheHit: true };
   }
 
   const data = await fetchPremiumChapter({ id, book, chapter });
 
-  await prisma.bibleChapterCache.upsert({
-    where: { translation_book_chapter: cacheKey },
-    create: { ...cacheKey, payload: data },
-    update: { payload: data, fetchedAt: new Date() },
-  });
+  try {
+    await prisma.bibleChapterCache.upsert({
+      where: { translation_book_chapter: cacheKey },
+      create: { ...cacheKey, payload: data },
+      update: { payload: data, fetchedAt: new Date() },
+    });
+  } catch (error) {
+    console.warn('[Bible Reader] premium chapter cache write unavailable; returning uncached text:', error?.message || error);
+  }
 
   return { ...data, cacheHit: false };
 }
 
-// Resolve effective premium access for the caller. `optionalAuth` only sets
-// req.userId (no role/premium), so on those routes we look the user up. Admins
-// and devs always count as premium.
+// Resolve effective premium access for the caller. optionalAuth now attaches
+// tier data only after active-user and token-version validation; the defensive
+// lookup below also rechecks ban/deletion state before any paid provider call.
 async function userHasPremium(req) {
   if (req.userPremium || req.userRole === 'admin' || req.userRole === 'dev') return true;
   if (!req.userId) return false;
   const u = await prisma.user.findUnique({
     where: { id: req.userId },
-    select: { role: true, premium: true, premium_until: true },
+    select: {
+      role: true,
+      premium: true,
+      premium_until: true,
+      promotionalEmail: true,
+      promotionalPhone: true,
+      email: true,
+      profile: true,
+      deletedAt: true,
+      is_banned: true,
+    },
   });
-  if (!u) return false;
-  return !!u.premium
-    || (u.premium_until ? new Date(u.premium_until) > new Date() : false)
-    || u.role === 'admin'
-    || u.role === 'dev';
+  if (!u || u.deletedAt || u.is_banned) return false;
+  return accountTierFor(u) === ACCOUNT_TIERS.PREMIUM;
 }
 
 // Developer-tools gate. The Function Reviewer surface (source/metadata
@@ -267,9 +520,14 @@ export async function getCachedBiblePassage({ ref, translationId }) {
   const normalizedRef = normalizePassageRef(ref);
   const cacheKey = { translationId, normalizedRef };
 
-  const cached = await prisma.biblePassageCache.findUnique({
-    where: { translationId_normalizedRef: cacheKey },
-  });
+  let cached = null;
+  try {
+    cached = await prisma.biblePassageCache.findUnique({
+      where: { translationId_normalizedRef: cacheKey },
+    });
+  } catch (error) {
+    console.warn('[Bible Reader] passage cache read unavailable; serving from source:', error?.message || error);
+  }
 
   if (bibleCacheFresh(cached)) {
     return { ...cached.payload, cacheHit: true };
@@ -277,20 +535,24 @@ export async function getCachedBiblePassage({ ref, translationId }) {
 
   const data = await fetchBibleApiJson(ref, translationId);
 
-  await prisma.biblePassageCache.upsert({
-    where: { translationId_normalizedRef: cacheKey },
-    create: {
-      translationId,
-      reference: ref,
-      normalizedRef,
-      payload: data,
-    },
-    update: {
-      reference: ref,
-      payload: data,
-      fetchedAt: new Date(),
-    },
-  });
+  try {
+    await prisma.biblePassageCache.upsert({
+      where: { translationId_normalizedRef: cacheKey },
+      create: {
+        translationId,
+        reference: ref,
+        normalizedRef,
+        payload: data,
+      },
+      update: {
+        reference: ref,
+        payload: data,
+        fetchedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    console.warn('[Bible Reader] passage cache write unavailable; returning uncached text:', error?.message || error);
+  }
 
   return { ...data, cacheHit: false };
 }
@@ -347,8 +609,15 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
       });
     }
     const body = parsed.data;
-    const book = body.bookCode || body.book;
+    const requestedBook = body.bookCode || body.book;
+    const resolvedBook = bookByName(requestedBook);
+    if (!resolvedBook) return res.status(400).json({ message: `Unknown book: ${requestedBook}` });
+    const book = resolvedBook.name;
     const chapter = body.chapter;
+    const maxChapter = chaptersInBook(book);
+    if (maxChapter && chapter > maxChapter) {
+      return res.status(400).json({ message: `${book} has ${maxChapter} chapter${maxChapter === 1 ? '' : 's'}` });
+    }
     const translationRaw = body.translationId || body.translation || 'kjv';
     const verses = body.verses ?? body.verse;
 
@@ -395,6 +664,7 @@ router.post('/biblePassage', optionalAuth, async (req, res, next) => {
       translationLabel: translation.name,
       verses: data.verses || [],
       text: data.text || '',
+      source: data.source || null,
       cacheHit,
     });
   } catch (err) {
@@ -497,17 +767,17 @@ const REGION_NAMES = {
 };
 
 router.post('/listAvailableTranslations', optionalAuth, async (req, res) => {
-  // optionalAuth only sets req.userId; look up the flags the UI reads.
+  // Resolve the server-authoritative tier for an optional signed-in caller.
   let isPremium = false;
   let isDeveloper = false;
   if (req.userId) {
     try {
       const u = await prisma.user.findUnique({
         where: { id: req.userId },
-        select: { role: true, premium: true, premium_until: true },
+        select: { role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, email: true, profile: true },
       });
       if (u) {
-        isPremium = !!u.premium || (u.premium_until ? new Date(u.premium_until) > new Date() : false);
+        isPremium = accountTierFor(u) === ACCOUNT_TIERS.PREMIUM;
         isDeveloper = u.role === 'admin' || u.role === 'dev';
       }
     } catch {
@@ -603,8 +873,15 @@ router.post('/getPassageMultiSource', optionalAuth, async (req, res, next) => {
       });
     }
     const data = parsed.data;
-    const book = data.bookCode || data.book;
+    const requestedBook = data.bookCode || data.book;
+    const resolvedBook = bookByName(requestedBook);
+    if (!resolvedBook) return res.status(400).json({ message: `Unknown book: ${requestedBook}` });
+    const book = resolvedBook.name;
     const { chapter } = data;
+    const maxChapter = chaptersInBook(book);
+    if (maxChapter && chapter > maxChapter) {
+      return res.status(400).json({ message: `${book} has ${maxChapter} chapter${maxChapter === 1 ? '' : 's'}` });
+    }
     const verse = data.verse ?? data.verses;
 
     // Split requested translations into public-domain (free, bible-api.com) and
@@ -911,7 +1188,7 @@ function startImportJob(translation, total, worker) {
   return job;
 }
 
-router.post('/getImportStatus', authenticateToken, async (req, res, next) => {
+router.post('/getImportStatus', authenticateToken, requireAdmin, async (req, res, next) => {
   try {
     const translation = req.body?.translation
       ? String(req.body.translation).trim().toLowerCase()
@@ -951,24 +1228,48 @@ router.post('/getUsersLastActivity', authenticateToken, requireAdmin, async (_re
   }
 });
 
-// Export stubs (handled client-side via jsPDF)
-router.post('/exportToPDF', authenticateToken, async (_req, res) => {
-  res.json({ message: 'PDF export is handled client-side via jsPDF' });
-});
-
-router.post('/exportToPPTX', authenticateToken, async (_req, res) => {
-  res.json({ message: 'PPTX export is handled client-side' });
-});
-
 // ---------------------------------------------------------------------------
 // Shareable links — create a SharedLink entity with a unique slug
 // ---------------------------------------------------------------------------
+const shareLinkCreateSchema = z.object({
+  resourceType: z.string().trim().min(1).max(80),
+  resourceId: z.string().trim().min(1).max(200),
+  title: z.string().trim().max(200).optional().default(''),
+  description: z.string().trim().max(2000).optional().default(''),
+  // Public share pages are intentionally read-only. Do not advertise or store
+  // an unenforced "copy/edit" permission.
+  accessLevel: z.literal('view').optional().default('view'),
+  expiresInDays: z.coerce.number().int().min(1).max(365).nullable().optional(),
+}).strict();
+
+function shareUrlForSlug(slug) {
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
+  return `${frontendUrl}/SharedContent?link=${encodeURIComponent(slug)}`;
+}
+
+function formatOwnedShareLink(row) {
+  return {
+    id: row.id,
+    slug: row.data?.slug,
+    resourceType: row.data?.resourceType,
+    resourceId: row.data?.resourceId,
+    title: row.data?.title || '',
+    description: row.data?.description || '',
+    accessLevel: 'view',
+    expiresAt: row.data?.expiresAt || null,
+    views: Number(row.data?.views || 0),
+    shareUrl: shareUrlForSlug(row.data?.slug || ''),
+    createdAt: row.createdAt,
+  };
+}
+
 router.post('/createShareableLink', authenticateToken, async (req, res, next) => {
   try {
-    const { resourceType, resourceId, title, description, accessLevel, expiresInDays } = req.body;
-    if (!resourceType || !resourceId) {
-      return res.status(400).json({ message: 'resourceType and resourceId are required' });
+    const parsed = shareLinkCreateSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid share-link request', issues: parsed.error.issues });
     }
+    const { resourceType, resourceId, title, description, accessLevel, expiresInDays } = parsed.data;
 
     // Verify the resource exists and belongs to the user
     const resource = await prisma.entity.findUnique({ where: { id: resourceId } });
@@ -995,13 +1296,15 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
       || '';
     assertGatedResourceExposable({ type: resource.type, resourceData: resource.data, denomination: shareDenomination });
 
-    const slug = `${resourceType.toLowerCase()}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // 144 random bits makes an unlisted link infeasible to guess. The previous
+    // timestamp + Math.random suffix was both predictable and too short for a
+    // URL that grants anonymous access to otherwise private content.
+    const slug = `${resourceType.toLowerCase()}-${crypto.randomBytes(18).toString('base64url')}`;
     const expiresAt = expiresInDays
       ? new Date(Date.now() + expiresInDays * 86400000).toISOString()
       : null;
 
-    await prisma.entity.create({
+    const link = await prisma.entity.create({
       data: {
         type: 'SharedLink',
         userId: req.userId,
@@ -1020,7 +1323,65 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
       },
     });
 
-    res.json({ shareUrl: `${frontendUrl}/SharedContent?link=${slug}` });
+    res.json({ ...formatOwnedShareLink(link), shareUrl: shareUrlForSlug(slug) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Owners can enumerate and revoke every link for one of their resources. This
+// remains available after a subscription/promotion expires because revoking
+// anonymous access is a privacy control, not a Premium benefit.
+router.get('/share-links', authenticateToken, async (req, res, next) => {
+  try {
+    const parsed = shareLinkPageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid share-link page', issues: parsed.error.issues });
+    }
+    const { resourceId, limit, offset } = parsed.data;
+    const resource = await prisma.entity.findUnique({ where: { id: resourceId } });
+    if (!resource || resource.userId !== req.userId) {
+      return res.status(404).json({ message: 'Owned resource not found' });
+    }
+    const rows = await prisma.entity.findMany({
+      where: {
+        type: 'SharedLink',
+        userId: req.userId,
+        data: { path: ['resourceId'], equals: resourceId },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit + 1,
+      skip: offset,
+    });
+    const hasMore = rows.length > limit;
+    res.json({
+      links: rows.slice(0, limit).map(formatOwnedShareLink),
+      next_offset: hasMore ? offset + limit : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/share-links/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const link = await prisma.entity.findUnique({ where: { id: req.params.id } });
+    // Return one not-found shape for missing and foreign links so ids cannot be
+    // used as an ownership oracle.
+    if (!link || link.type !== 'SharedLink' || link.userId !== req.userId) {
+      return res.status(404).json({ message: 'Owned share link not found' });
+    }
+    await prisma.entity.delete({ where: { id: link.id } });
+    await prisma.auditLog?.create({
+      data: {
+        userId: req.userId,
+        action: 'sharing.link_revoke',
+        targetType: 'SharedLink',
+        targetId: link.id,
+        metadata: { resourceId: link.data?.resourceId, slug: link.data?.slug },
+      },
+    }).catch(() => null);
+    res.status(204).send();
   } catch (err) {
     next(err);
   }
@@ -1301,18 +1662,21 @@ router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res
         for (let ch = 1; ch <= book.chapters; ch++) {
           try {
             const ref = `${book.name} ${ch}`;
-            const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${translation}`;
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 15000);
-            const resp = await fetch(url, { signal: controller.signal });
-            clearTimeout(timeout);
+            // Reuse the unambiguous provider helper so single-chapter books
+            // cannot be imported as verse 1 only.
+            const data = await fetchBibleApiJson(ref, translation, 15000);
+            const resolvedBook = bookByName(book.name);
+            const normalized = normalizeBibleApiChapter(data, resolvedBook, ch, translation);
+            const expected = expectedVerseCountForCompleteness(resolvedBook, ch, translation);
+            if (!hasProviderChapterCompletenessProof(data, normalized, expected)) {
+              job.errors++;
+              continue;
+            }
 
-            if (!resp.ok) { job.errors++; continue; }
-            const data = await resp.json();
-
-            if (data.verses && data.verses.length > 0) {
+            if (normalized.verses.length > 0) {
+              const chapterVerseCount = normalized.verses.length;
               await prisma.$transaction(
-                data.verses.map(v =>
+                normalized.verses.map(v =>
                   prisma.entity.create({
                     data: {
                       type: 'Verse',
@@ -1323,6 +1687,9 @@ router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res
                         verse: v.verse,
                         text: v.text,
                         translation,
+                        chapter_complete: true,
+                        chapter_verse_count: chapterVerseCount,
+                        import_format_version: 3,
                         user_id: userId,
                         created_date: new Date().toISOString(),
                       },
@@ -1330,7 +1697,7 @@ router.post('/importFullBible', authenticateToken, requireAdmin, async (req, res
                   })
                 )
               );
-              job.imported += data.verses.length;
+              job.imported += normalized.verses.length;
             }
 
             // Small delay to avoid hammering the API
@@ -1399,6 +1766,8 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
     startImportJob(translation, books.length, async (job) => {
       for (const book of books) {
         try {
+          const resolvedBook = bookByName(book.name);
+          if (!resolvedBook) { job.errors++; continue; }
           const chaptersResp = await fetch(`${baseUrl}/books/${book.id}/chapters`, { headers });
           if (!chaptersResp.ok) { job.errors++; continue; }
           const { data: chapters } = await chaptersResp.json();
@@ -1406,24 +1775,71 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
           for (const chapter of chapters) {
             if (chapter.id === `${book.id}.intro`) continue; // skip intro sections
             try {
+              const chapterNumber = Number.parseInt(chapter.number, 10);
+              if (!Number.isInteger(chapterNumber) || chapterNumber < 1) { job.errors++; continue; }
               const verseResp = await fetch(`${baseUrl}/chapters/${chapter.id}/verses`, { headers });
               if (!verseResp.ok) { job.errors++; continue; }
               const { data: verses } = await verseResp.json();
+              if (!Array.isArray(verses) || verses.length === 0) { job.errors++; continue; }
 
-              if (verses && verses.length > 0) {
+              // API.Bible's verse-list endpoint intentionally returns IDs and
+              // references, not text. Fetch the chapter once in structured JSON
+              // mode and associate each text node with its provider verse ID.
+              const chapterQuery = new URLSearchParams({
+                'content-type': 'json',
+                'include-notes': 'false',
+                'include-titles': 'false',
+                'include-chapter-numbers': 'false',
+                'include-verse-numbers': 'false',
+                'include-verse-spans': 'false',
+              });
+              const chapterContentResp = await fetch(
+                `${baseUrl}/chapters/${chapter.id}?${chapterQuery}`,
+                { headers },
+              );
+              if (!chapterContentResp.ok) { job.errors++; continue; }
+              const chapterPayload = await chapterContentResp.json();
+              const textByVerse = extractScriptureApiChapterText(chapterPayload?.data?.content);
+
+              if (verses.length > 0) {
+                const normalized = normalizeBibleApiChapter({
+                  verses: verses.map((verse) => ({
+                    ...verse,
+                    verse: scriptureApiVerseNumber(verse),
+                    chapter: chapterNumber,
+                    book: resolvedBook.name,
+                    text: textByVerse.get(scriptureApiVerseNumber(verse)) || '',
+                  })),
+                }, resolvedBook, chapterNumber, translation);
+                const expected = expectedVerseCountForCompleteness(resolvedBook, chapterNumber, translation);
+                // `chapter_complete` is a trust marker consumed by the Reader.
+                // Set it only when no provider row was discarded, numbering is
+                // contiguous from verse 1, and audited translations match their
+                // exact canonical verse count. Unknown translations still get a
+                // defensible completeness proof from the provider's full list.
+                if (normalized.verses.length !== verses.length
+                    || !hasContiguousChapterVerses(normalized)
+                    || (expected && !hasEveryExpectedVerse(normalized, expected))) {
+                  job.errors++;
+                  continue;
+                }
+                const chapterVerseCount = normalized.verses.length;
                 await prisma.$transaction(
-                  verses.map(v =>
+                  normalized.verses.map(v =>
                     prisma.entity.create({
                       data: {
                         type: 'Verse',
                         userId,
                         data: {
-                          book_name: book.name,
-                          chapter: parseInt(chapter.number) || 0,
-                          verse: parseInt(v.reference?.split(':')[1]) || 0,
-                          text: v.text || '',
+                          book_name: resolvedBook.name,
+                          chapter: chapterNumber,
+                          verse: v.verse,
+                          text: v.text,
                           translation,
-                          scripture_api_id: v.id,
+                          scripture_api_id: verses.find((source) => scriptureApiVerseNumber(source) === v.verse)?.id,
+                          chapter_complete: true,
+                          chapter_verse_count: chapterVerseCount,
+                          import_format_version: 3,
                           user_id: userId,
                           created_date: new Date().toISOString(),
                         },
@@ -1431,7 +1847,7 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
                     })
                   )
                 );
-                job.imported += verses.length;
+                job.imported += normalized.verses.length;
               }
 
               await new Promise(r => setTimeout(r, 100));
@@ -1453,17 +1869,6 @@ router.post('/importFromScriptureAPI', authenticateToken, requireAdmin, async (r
   } catch (err) {
     next(err);
   }
-});
-
-// ---------------------------------------------------------------------------
-// GitHub sync stub — the FunctionReviewer page has a "sync to GitHub" button.
-// In a self-hosted app this is informational only.
-// ---------------------------------------------------------------------------
-router.post('/syncToGitHub', authenticateToken, requireAdmin, requireDevTools, async (_req, res) => {
-  res.json({
-    ok: true,
-    message: 'SermonSmith is self-hosted — use git push to deploy changes.',
-  });
 });
 
 // Sets premium on/off for the account behind a Stripe customer id. Prefers the
@@ -1568,6 +1973,6 @@ export async function handleStripeWebhook(req, res) {
 }
 
 // Test-only export so unit tests can drive the SDK lookup.
-export const __test = { getStripe };
+export const __test = { getStripe, hasProviderChapterCompletenessProof };
 
 export default router;

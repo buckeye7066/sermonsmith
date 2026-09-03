@@ -18,7 +18,11 @@ vi.mock('./pages.config', () => {
   const Home = () => <h1>SermonSmith Home</h1>;
   const Pricing = () => <h1>Choose Your Plan</h1>;
   const Downloads = () => <h1>Scripture Downloads</h1>;
+  const SharedContent = ({ publicShareOnly }) => (
+    <div data-testid="shared-content">{publicShareOnly ? 'Public shared resource' : 'Community feed'}</div>
+  );
   const ProtectedPage = () => <div data-testid="protected-page">Protected page</div>;
+  const CommunityRetraction = () => <div data-testid="community-retraction">My community content</div>;
   const Layout = ({ children }) => <div data-testid="layout">{children}</div>;
 
   return {
@@ -28,8 +32,10 @@ vi.mock('./pages.config', () => {
         Home,
         Pricing,
         Downloads,
+        SharedContent,
         Reader: ProtectedPage,
         SermonBuilder: ProtectedPage,
+        MyCommunityContent: CommunityRetraction,
       },
       Layout,
     },
@@ -144,6 +150,14 @@ describe('AuthenticatedApp route gating', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/Downloads');
   });
 
+  it('opens a tokenized public share without authentication or the Community shell', () => {
+    renderWithRoute('/SharedContent?link=sermon-safe-token');
+
+    expect(screen.getByTestId('shared-content')).toHaveTextContent('Public shared resource');
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/SharedContent?link=sermon-safe-token');
+  });
+
   it('keeps Login/register reachable while auth initializes', async () => {
     authState.isLoadingAuth = true;
     renderWithRoute('/Login?mode=register');
@@ -192,6 +206,27 @@ describe('AuthenticatedApp route gating', () => {
     renderWithRoute('/SermonBuilder');
 
     expect(await screen.findByTestId('protected-page')).toBeInTheDocument();
+    expect(screen.getByTestId('layout')).toBeInTheDocument();
+  });
+
+  it('keeps the signed-in community retraction surface outside the Premium gate', async () => {
+    authState.isAuthenticated = true;
+    renderWithRoute('/MyCommunityContent');
+
+    expect(await screen.findByTestId('community-retraction')).toBeInTheDocument();
+    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the owner SharedContent workspace outside the page-level Community gate', async () => {
+    authState = {
+      ...authState,
+      isAuthenticated: true,
+      user: { id: 'free-user', role: 'user', entitlements: ['personal_library'] },
+    };
+    renderWithRoute('/SharedContent');
+
+    expect(await screen.findByTestId('shared-content')).toHaveTextContent('Community feed');
+    expect(screen.queryByText(/premium feature/i)).not.toBeInTheDocument();
     expect(screen.getByTestId('layout')).toBeInTheDocument();
   });
 

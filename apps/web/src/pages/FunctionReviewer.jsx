@@ -21,8 +21,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
-  RefreshCw,
-  Github
+  RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -125,7 +124,6 @@ export default function FunctionReviewer() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [activeTab, setActiveTab] = useState("code");
-  const [syncing, setSyncing] = useState(false);
   
   const categories = useMemo(() => {
     const cats = [...new Set(functions.map(f => f.category))];
@@ -256,83 +254,6 @@ export default function FunctionReviewer() {
     return colors[category] || colors.system;
   };
 
-  const [syncProgress, setSyncProgress] = useState(null);
-
-  const syncAllToGitHub = async () => {
-    setSyncing(true);
-    setSyncProgress({ phase: 'collecting', collected: 0, total: 0 });
-    
-    try {
-      const filesToSync = [];
-      const allDiscoveredFiles = [
-        ...allFiles.functions,
-        ...allFiles.pages,
-        ...allFiles.components,
-        ...allFiles.entities,
-        ...allFiles.other
-      ];
-      
-      setSyncProgress({ phase: 'fetching', collected: 0, total: allDiscoveredFiles.length });
-
-      // Fetch content for all files in parallel batches
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < allDiscoveredFiles.length; i += BATCH_SIZE) {
-        const batch = allDiscoveredFiles.slice(i, i + BATCH_SIZE);
-        const batchPromises = batch.map(async (file) => {
-          try {
-            if (file.type === 'function') {
-              const r = await api.functions.invoke('getFunctionDetails', { functionId: file.id });
-              const rd = r?.data || r;
-              if (r?.ok && rd?.sourceCode) {
-                return { path: file.path, content: rd.sourceCode };
-              }
-            }
-            // For non-functions, content should already be available from discovery if includeContent was true
-            // Otherwise we skip them (they're already on GitHub)
-            return null;
-          } catch {
-            return null;
-          }
-        });
-        
-        const batchResults = await Promise.all(batchPromises);
-        const validResults = batchResults.filter(r => r !== null);
-        filesToSync.push(...validResults);
-        
-        setSyncProgress({ phase: 'fetching', collected: filesToSync.length, total: allDiscoveredFiles.length });
-      }
-
-      if (filesToSync.length === 0) {
-        toast.error("No files to sync");
-        setSyncing(false);
-        setSyncProgress(null);
-        return;
-      }
-
-      setSyncProgress({ phase: 'uploading', collected: filesToSync.length, total: filesToSync.length });
-
-      const syncResult = await api.functions.invoke('syncToGitHub', {
-        files: filesToSync,
-        message: `Auto-sync ${filesToSync.length} files from server`
-      });
-
-      if (syncResult?.ok) {
-        const { success, failed } = syncResult.data || syncResult;
-        if (failed > 0) {
-          toast.warning(`Synced ${success} files, ${failed} failed`);
-        } else {
-          toast.success(`Synced ${success} files to GitHub (parallel mode)`);
-        }
-      } else {
-        toast.error(syncResult?.error || "Sync failed");
-      }
-    } catch (err) {
-      toast.error(err.message || "Sync failed");
-    } finally {
-      setSyncing(false);
-      setSyncProgress(null);
-    }
-  };
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -361,23 +282,7 @@ export default function FunctionReviewer() {
               )}
               {discovering ? "Discovering..." : "Refresh"}
             </Button>
-            <Button
-              onClick={syncAllToGitHub}
-              disabled={syncing}
-              className="bg-gray-900 hover:bg-gray-800"
-            >
-              {syncing ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Github className="w-4 h-4 mr-2" />
-              )}
-              {syncing 
-                ? syncProgress 
-                  ? `${syncProgress.phase}: ${syncProgress.collected}/${syncProgress.total}`
-                  : "Syncing..." 
-                : "Sync All to GitHub"}
-              </Button>
-              </div>
+          </div>
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">

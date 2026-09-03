@@ -25,20 +25,38 @@ const MINISTRY_FOCUS_OPTIONS = [
   "Prayer", "Leadership Development", "Seniors Ministry", "Marriage & Family"
 ];
 
+const DEFAULT_PROFILE_PRIVACY = Object.freeze({
+  community_directory_opt_in: false,
+  show_denomination: false,
+  show_ministry_focus: false,
+  show_preaching_style: false,
+  show_favorite_passages: false,
+  show_email: false,
+  allow_direct_messages: false,
+});
+
+function initialText(value) {
+  return typeof value === 'string' ? value : '';
+}
+
+function initialTextList(value) {
+  return Array.isArray(value) ? value.filter((entry) => typeof entry === 'string') : [];
+}
+
+function initialPrivacy(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return Object.fromEntries(
+    Object.keys(DEFAULT_PROFILE_PRIVACY).map((key) => [key, source[key] === true]),
+  );
+}
+
 export default function ProfileEditor({ user, onUpdate }) {
-  const [preachingStyle, setPreachingStyle] = useState(user && user.preferred_preaching_style || "");
-  const [ministryFocus, setMinistryFocus] = useState(user && user.ministry_focus || []);
-  const [denominationalBackground, setDenominationalBackground] = useState(user && user.denominational_background || "");
-  const [favoritePassages, setFavoritePassages] = useState(user && user.favorite_scripture_passages || []);
+  const [preachingStyle, setPreachingStyle] = useState(initialText(user?.preferred_preaching_style));
+  const [ministryFocus, setMinistryFocus] = useState(initialTextList(user?.ministry_focus));
+  const [denominationalBackground, setDenominationalBackground] = useState(initialText(user?.denominational_background));
+  const [favoritePassages, setFavoritePassages] = useState(initialTextList(user?.favorite_scripture_passages));
   const [newPassage, setNewPassage] = useState("");
-  const [privacy, setPrivacy] = useState(user && user.profile_privacy || {
-    show_denomination: true,
-    show_ministry_focus: true,
-    show_preaching_style: true,
-    show_favorite_passages: false,
-    show_email: false,
-    allow_direct_messages: true
-  });
+  const [privacy, setPrivacy] = useState(initialPrivacy(user?.profile_privacy));
   const [isSaving, setIsSaving] = useState(false);
 
   const addMinistryFocus = (focus) => {
@@ -227,11 +245,22 @@ export default function ProfileEditor({ user, onUpdate }) {
         <CardContent className="space-y-4">
           <Alert>
             <AlertDescription className="text-sm">
-              Your name and basic profile are always visible. These settings control additional information.
+              Your profile is excluded from member search until you explicitly join the directory. Each additional field stays private unless enabled below.
             </AlertDescription>
           </Alert>
 
           <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="font-medium">Appear in Member Directory</p>
+                <p className="text-sm text-gray-500">Let Community members find your name and the profile fields you choose to share</p>
+              </div>
+              <Switch
+                checked={privacy.community_directory_opt_in === true}
+                onCheckedChange={(checked) => setPrivacy({ ...privacy, community_directory_opt_in: checked })}
+              />
+            </div>
+
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <p className="font-medium">Show Denomination</p>

@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import {
   saveChapterOffline,
+  getChapterOffline,
   saveTranslationMeta,
   getDownloadedTranslations,
   getDownloadProgress,
@@ -106,7 +107,14 @@ export default function OfflineDownloadManager({ open, onClose, translations = [
     setActiveDownloads(prev => ({ ...prev, [translation.id]: 'downloading' }));
     
     let downloaded = 0;
-    const total = TOTAL_CHAPTERS;
+    let processed = 0;
+    let failed = 0;
+    const books = translation.scope === 'nt'
+      ? BIBLE_BOOKS.slice(39)
+      : translation.scope === 'ot'
+        ? BIBLE_BOOKS.slice(0, 39)
+        : BIBLE_BOOKS;
+    const total = books.reduce((sum, book) => sum + book.chapters, 0) || TOTAL_CHAPTERS;
     
     try {
       // Save translation metadata first
@@ -118,7 +126,7 @@ export default function OfflineDownloadManager({ open, onClose, translations = [
       });
 
       // Download each book and chapter
-      for (const book of BIBLE_BOOKS) {
+      for (const book of books) {
         for (let chapter = 1; chapter <= book.chapters; chapter++) {
           // Check if aborted
           if (abortControllers.current[translation.id]?.signal.aborted) {
@@ -126,6 +134,12 @@ export default function OfflineDownloadManager({ open, onClose, translations = [
           }
           
           try {
+            const existing = await getChapterOffline(translation.id, book.code, chapter);
+            if (existing?.verses?.length || existing?.chapter?.content?.length) {
+              downloaded++;
+              processed++;
+              continue;
+            }
             // Download through OUR backend (biblePassage), which resolves OSIS
             // book codes for every translation — free (bible-api.com) AND premium
             // (gb:/ab: via getBible/API.Bible). The previous hardcoded
@@ -138,6 +152,9 @@ export default function OfflineDownloadManager({ open, onClose, translations = [
             });
             if (data && Array.isArray(data.verses) && data.verses.length > 0) {
               await saveChapterOffline(translation.id, book.code, chapter, data);
+              downloaded++;
+            } else {
+              failed++;
             }
           } catch (fetchError) {
             if (fetchError.name === 'AbortError') {
@@ -145,12 +162,13 @@ export default function OfflineDownloadManager({ open, onClose, translations = [
             }
             // Skip failed chapters, continue with others
             console.warn(`Failed to download ${book.code} ${chapter}:`, fetchError);
+            failed++;
           }
           
-          downloaded++;
+          processed++;
           
           // Update progress every 10 chapters
-          if (downloaded % 10 === 0) {
+          if (processed % 10 === 0) {
             await updateDownloadProgress(translation.id, downloaded, total, 'downloading');
             setDownloadProgress(prev => ({
               ...prev,
@@ -165,11 +183,17 @@ export default function OfflineDownloadManager({ open, onClose, translations = [
         }
       }
       
-      // Mark as complete
-      await updateDownloadProgress(translation.id, total, total, 'complete');
+      // Never label a translation complete when one or more chapters failed.
+      const finalStatus = downloaded === total ? 'complete' : 'error';
+      await updateDownloadProgress(translation.id, downloaded, total, finalStatus);
       setDownloadProgress(prev => ({
         ...prev,
-        [translation.id]: { downloaded: total, total, percentage: 100, status: 'complete' }
+        [translation.id]: {
+          downloaded,
+          total,
+          percentage: Math.round((downloaded / total) * 100),
+          status: finalStatus,
+        }
       }));
       
       setActiveDownloads(prev => {
@@ -181,9 +205,15 @@ export default function OfflineDownloadManager({ open, onClose, translations = [
       await loadDownloadedTranslations();
       await loadStorageInfo();
       
-      toast.success(`Downloaded: ${translation.name}`, {
-        description: "Now available for offline reading!"
-      });
+      if (finalStatus === 'complete') {
+        toast.success(`Downloaded: ${translation.name}`, {
+          description: "Now available for offline reading!"
+        });
+      } else {
+        toast.warning(`${translation.name} download is incomplete`, {
+          description: `${downloaded} of ${total} chapters saved; ${failed} failed. Choose Resume to retry only missing chapters.`,
+        });
+      }
       
     } catch (error) {
       console.error('Download failed:', error);

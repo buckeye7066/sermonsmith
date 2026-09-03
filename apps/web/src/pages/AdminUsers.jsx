@@ -108,8 +108,8 @@ export default function AdminUsers() {
 
   const deleteUser = async (userId) => {
     try {
-      await api.entities.User.delete(userId);
-      toast.success("User deleted successfully");
+      await api.auth.deleteUser(userId);
+      toast.success("User account deactivated");
       setDeleteConfirm(null);
       loadUsers();
     } catch (error) {
@@ -120,10 +120,7 @@ export default function AdminUsers() {
 
   const banUser = async (userId) => {
     try {
-      await api.entities.User.update(userId, { 
-        is_banned: true,
-        banned_at: new Date().toISOString()
-      });
+      await api.auth.setUserBanned(userId, true);
       toast.success("User banned successfully");
       setBanConfirm(null);
       loadUsers();
@@ -135,10 +132,7 @@ export default function AdminUsers() {
 
   const unbanUser = async (userId) => {
     try {
-      await api.entities.User.update(userId, { 
-        is_banned: false,
-        banned_at: null
-      });
+      await api.auth.setUserBanned(userId, false);
       toast.success("User unbanned successfully");
       loadUsers();
     } catch (error) {
@@ -494,11 +488,11 @@ export default function AdminUsers() {
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-red-600" />
-                Delete User?
+                Deactivate User?
               </AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete <strong>{deleteConfirm?.email}</strong>? 
-                This action cannot be undone. All their data will be permanently deleted.
+                Deactivate <strong>{deleteConfirm?.email}</strong>? Their access and sessions will be revoked,
+                while records required for recovery, ownership cleanup, and audit are retained under the account-deletion policy.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -507,7 +501,7 @@ export default function AdminUsers() {
                 onClick={() => deleteUser(deleteConfirm?.id)}
                 className="bg-red-600 hover:bg-red-700"
               >
-                Delete User
+                Deactivate User
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

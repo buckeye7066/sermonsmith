@@ -73,6 +73,7 @@ export default function ForkSermonDialog({ open, onClose, sermon = {}, user }) {
         anchor_passage: sermon.anchor_passage,
         big_idea: sermon.big_idea,
         points: sermon.points,
+        source_shared_sermon_id: sermon.id,
         status: "draft"
       };
 
@@ -113,7 +114,7 @@ Keep the most crucial points, tighten illustrations, focus on core message. Make
           const response = await api.integrations.Core.InvokeLLM({
             system_prompt: LARRY_SYSTEM_PROMPT,
             prompt: adaptationPrompt[forkType],
-            feature: 'library',
+            feature: 'sermon_adaptation',
             response_json_schema: {
               type: "object",
               properties: {
@@ -149,12 +150,8 @@ Keep the most crucial points, tighten illustrations, focus on core message. Make
       }
 
       // Save forked sermon
-      await api.entities.Sermon.create(forkedSermon);
-
-      // Update fork count
-      await api.entities.SharedSermon.update(sermon.id, {
-        forks_count: (sermon.forks_count || 0) + 1
-      });
+      const created = await api.entities.Sermon.create(forkedSermon);
+      await api.community.recordSermonFork(sermon.id, created.id);
 
       toast.success("Sermon forked successfully! 🎉");
       onClose();

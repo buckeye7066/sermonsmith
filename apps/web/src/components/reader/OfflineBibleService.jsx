@@ -39,8 +39,6 @@ export async function initOfflineDB() {
       // Store for download progress/meta
       if (!database.objectStoreNames.contains(META_STORE)) {
         database.createObjectStore(META_STORE, { keyPath: 'translationId' });
-      } else {
-        console.error('Error: META_STORE already exists during onupgradeneeded event.');
       }
     }
   });

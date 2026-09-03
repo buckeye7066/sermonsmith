@@ -75,9 +75,11 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
   beforeEach(() => {
     prisma._reset();
     app = buildApp();
-    prisma._store.user.push({ id: 'u-pastor', email: 'p@x', role: 'user', premium: false, profile: {} });
+    // Premium keeps these tests focused on the Scripture gate. Entitlement
+    // denial is covered independently in entitlements.test.js.
+    prisma._store.user.push({ id: 'u-pastor', email: 'p@x', role: 'user', premium: true, profile: {} });
     prisma._store.user.push({
-      id: 'u-catholic', email: 'rc@x', role: 'user', premium: false,
+      id: 'u-catholic', email: 'rc@x', role: 'user', premium: true,
       profile: { denomination: 'Roman Catholic' },
     });
   });
@@ -349,11 +351,11 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.status).toBe(422);
   });
 
-  it('rejects a generic-API AI reply with a LOWERCASE fabricated ref', async () => {
+  it('blocks generic-API AI replies with lowercase fabricated refs', async () => {
     const res = await post(app, 'CommunityReply', 'u-pastor', {
       post_id: 'p1', content: 'per hezekiah 4:5, take heart', is_ai_response: true,
     });
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(403);
   });
 
   // --- Round-8: formatting-variant citations are caught through the gate ---
@@ -377,11 +379,11 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.status).toBe(422); // 2 John 1:20 is out_of_range, not John 1:20 (valid)
   });
 
-  it('rejects a generic-API AI reply with an abbreviated fabricated ref', async () => {
+  it('blocks generic-API AI replies with abbreviated fabricated refs', async () => {
     const res = await post(app, 'CommunityReply', 'u-pastor', {
       post_id: 'p1', content: 'per Hez. 4:5, take heart', is_ai_response: true,
     });
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(403);
   });
 
   // --- Round-6 R6-1: Sermon validator deep-scans ALL prose fields ---
@@ -406,58 +408,58 @@ describe('entities — Scripture gate extended to all persisted AI types', () =>
     expect(res.body.scripture_validation.some((r) => r.status === 'invalid_book')).toBe(true);
   });
 
-  // --- Round-6 R6-2: generic-API CommunityReply is_ai_response is gated ---
-  it('rejects a generic-API CommunityReply with is_ai_response + a fabricated ref', async () => {
+  // --- Round-6 R6-2: CommunityReply is now server-managed ---
+  it('blocks a generic-API CommunityReply with is_ai_response + a fabricated ref', async () => {
     const res = await post(app, 'CommunityReply', 'u-pastor', {
       post_id: 'p1', content: 'Per Hezekiah 4:5, be encouraged.', is_ai_response: true,
     });
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(403);
     expect(prisma._store.entity.some((e) => e.type === 'CommunityReply')).toBe(false);
   });
 
-  it('allows a generic-API CommunityReply with is_ai_response and valid refs', async () => {
+  it('blocks a generic-API CommunityReply even when its references are valid', async () => {
     const res = await post(app, 'CommunityReply', 'u-pastor', {
       post_id: 'p1', content: 'See John 3:16.', is_ai_response: true,
     });
-    expect(res.status).toBe(200);
-    expect(res.body.is_ai_response).toBe(true);
+    expect(res.status).toBe(403);
   });
 
-  it('does NOT gate a user-authored (is_ai_response:false) CommunityReply via generic API', async () => {
+  it('routes user-authored CommunityReply creation through the dedicated API too', async () => {
     const res = await post(app, 'CommunityReply', 'u-pastor', {
       post_id: 'p1', content: 'I like Hezekiah 4:5 (my opinion).', is_ai_response: false,
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
   });
 
-  // --- Round-5: SharedSermon is an inherently-public gated copy ---
-  it('SharedSermon with an invalid reference is blocked even without a visibility flag', async () => {
+  // --- SharedSermon is server-managed ---
+  // Shared sermons must be copied from a caller-owned Sermon by the dedicated
+  // community endpoint. The generic entity API cannot safely establish source
+  // ownership or the server-authored identity fields.
+  it('blocks direct generic creation of an invalid SharedSermon', async () => {
     const res = await post(app, 'SharedSermon', 'u-pastor', {
       title: 'Shared bad',
       anchor_passage: 'Hezekiah 4:5',
       points: [{ supporting_scriptures: ['John 3:16'] }],
     });
-    expect(res.status).toBe(422);
-    expect(res.body.message).toMatch(/Cannot publish or share/);
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/cannot be created through the generic entity API/i);
   });
 
-  it('SharedSermon with only valid references is allowed', async () => {
+  it('blocks direct generic creation of a valid SharedSermon', async () => {
     const res = await post(app, 'SharedSermon', 'u-pastor', {
       title: 'Shared good',
       anchor_passage: 'Ephesians 2:8',
       points: [{ supporting_scriptures: ['Romans 8:28-30'] }],
     });
-    expect(res.status).toBe(200);
-    expect(res.body.scripture_validation.every((r) => r.status === 'valid')).toBe(true);
+    expect(res.status).toBe(403);
   });
 
-  it('SharedSermon strips forged trust fields', async () => {
+  it('blocks direct SharedSermon trust-field forgery', async () => {
     const res = await post(app, 'SharedSermon', 'u-pastor', {
       title: 'Shared', anchor_passage: 'John 3:16', verified: true, pastor_reviewed: true,
     });
-    expect(res.status).toBe(200);
-    expect(res.body.verified).toBeFalsy();
-    expect(res.body.pastor_reviewed).toBeFalsy();
+    expect(res.status).toBe(403);
+    expect(prisma._store.entity.some((e) => e.type === 'SharedSermon')).toBe(false);
   });
 
   // --- Bypass #3: stale trust markers must be neutralized on revalidation ---

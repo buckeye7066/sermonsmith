@@ -31,16 +31,17 @@ export default function PlanRatingDialog({ open, onClose, plan, user }) {
 
   const checkExistingRating = async () => {
     try {
-      const existing = await api.entities.SharedPlanRating.filter({
-        plan_id: plan.id,
-        user_id: user.id
-      });
-
-      if (existing.length > 0) {
-        setExistingRating(existing[0]);
-        setRating(existing[0].rating);
-        setReviewText(existing[0].review_text || "");
-        setUsedPlan(existing[0].used_plan || false);
+      const data = await api.community.planRatings(plan.id);
+      if (data.mine) {
+        setExistingRating(data.mine);
+        setRating(data.mine.rating);
+        setReviewText(data.mine.review_text || "");
+        setUsedPlan(data.mine.used_plan || false);
+      } else {
+        setExistingRating(null);
+        setRating(0);
+        setReviewText("");
+        setUsedPlan(false);
       }
     } catch (error) {
       console.error('Error checking existing rating:', error);
@@ -56,37 +57,10 @@ export default function PlanRatingDialog({ open, onClose, plan, user }) {
     setIsSubmitting(true);
 
     try {
-      if (existingRating) {
-        try {
-          await api.entities.SharedPlanRating.update(existingRating.id, {
-            rating,
-            review_text: reviewText.trim(),
-            used_plan: usedPlan
-          });
-        } catch (error) {
-          console.error('Error updating existing rating:', error);
-          toast.error("Failed to update existing rating");
-          setIsSubmitting(false);
-          return;
-        }
-      } else {
-        await api.entities.SharedPlanRating.create({
-          plan_id: plan.id,
-          user_id: user.id,
-          user_name: user.full_name || user.email,
-          rating,
-          review_text: reviewText.trim(),
-          used_plan: usedPlan
-        });
-      }
-
-      // Update plan's average rating
-      const allRatings = await api.entities.SharedPlanRating.filter({ plan_id: plan.id });
-      const avgRating = allRatings.length > 0 ? allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length : 0;
-
-      await api.entities.ReadingPlan.update(plan.id, {
-        average_rating: avgRating,
-        ratings_count: allRatings.length
+      await api.community.ratePlan(plan.id, {
+        rating,
+        review_text: reviewText.trim(),
+        used_plan: usedPlan,
       });
 
       toast.success(existingRating ? "Rating updated!" : "Thank you for your review! 🌟");

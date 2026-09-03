@@ -13,6 +13,7 @@ import { OfflineProvider } from '@/lib/offlineDetector.jsx';
 import OfflineBanner from '@/components/OfflineBanner';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import AdminGuard from '@/components/AdminGuard';
+import EntitlementGuard from '@/components/EntitlementGuard';
 
 // Pages that must never render their UI to a non-admin. The API also enforces
 // this server-side; gating here stops the admin shell (search boxes, user
@@ -24,6 +25,21 @@ const ADMIN_PAGES = new Set([
   'AdminFunctionTester',
   'AdminImport',
   'FunctionReviewer',
+  'GrantAccess',
+  'BibleAPITest',
+  'ImportStatus',
+]);
+
+const PAGE_ENTITLEMENTS = new Map([
+  ['BibleMaps', 'bible_maps'],
+  ['ChristianEthics', 'ethics'],
+  ['Community', 'community'],
+  ['Forum', 'community'],
+  ['StudyGroups', 'community'],
+  ['SermonLibrary', 'community'],
+  ['PlanLibrary', 'community'],
+  ['WorldviewExplorer', 'worldview'],
+  ['CollaborativeSermonEditor', 'collaboration'],
 ]);
 
 
@@ -203,6 +219,9 @@ export const AuthenticatedApp = () => {
   // global auth gate redirected every logged-out path except /privacy to Login,
   // which made the landing and pricing pages unusable as public web pages.
   const publicPath = location.pathname.toLowerCase();
+  const publicShareSlug = publicPath === '/sharedcontent'
+    ? new URLSearchParams(location.search).get('link')
+    : null;
   const PublicPage =
     publicPath === '/' || publicPath === '/home'
       ? Pages.Home
@@ -224,6 +243,19 @@ export const AuthenticatedApp = () => {
     return (
       <Suspense fallback={<PageLoader />}>
         <TermsOfUse />
+      </Suspense>
+    );
+  }
+
+  // A share link is intentionally public and the API validates its slug,
+  // expiration, ownership, and current Scripture content before returning the
+  // resource. Render the narrow public-link view without opening the Premium
+  // Community feed or the authenticated application shell.
+  if (publicShareSlug) {
+    const PublicSharedContent = Pages.SharedContent;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <PublicSharedContent publicShareOnly />
       </Suspense>
     );
   }
@@ -301,6 +333,10 @@ export const AuthenticatedApp = () => {
                   <AdminGuard>
                     <Page />
                   </AdminGuard>
+                ) : PAGE_ENTITLEMENTS.has(path) ? (
+                  <EntitlementGuard entitlement={PAGE_ENTITLEMENTS.get(path)}>
+                    <Page />
+                  </EntitlementGuard>
                 ) : (
                   <Page />
                 )}

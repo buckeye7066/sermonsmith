@@ -28,19 +28,34 @@ export function createPrismaMock() {
       } else if (k === 'OR') {
         if (!v.some((cond) => matchesWhere(item, cond))) return false;
       } else if (typeof v === 'object' && v !== null && 'path' in v) {
-        // { path: ['key'], equals: value } — JSON column lookups
-        const target = v.path.reduce((acc, key) => (acc ? acc[key] : undefined), item.data);
-        if (target !== v.equals) return false;
-      } else if (typeof v === 'object' && v !== null && ('gt' in v || 'lt' in v || 'gte' in v || 'lte' in v || 'equals' in v || 'not' in v)) {
+        // JSON column lookup, e.g. Entity.data or User.profile. Mirror the
+        // comparison operators used by production Prisma filters.
+        const target = v.path.reduce((acc, key) => (acc ? acc[key] : undefined), item[k]);
+        if ('equals' in v && target !== v.equals) return false;
+        if ('gt' in v && !(target > v.gt)) return false;
+        if ('gte' in v && !(target >= v.gte)) return false;
+        if ('lt' in v && !(target < v.lt)) return false;
+        if ('lte' in v && !(target <= v.lte)) return false;
+        if ('not' in v && target === v.not) return false;
+      } else if (typeof v === 'object' && v !== null && ('gt' in v || 'lt' in v || 'gte' in v || 'lte' in v || 'equals' in v || 'not' in v || 'in' in v || 'contains' in v)) {
         const cur = item[k];
         if ('gt' in v && !(cur > v.gt)) return false;
         if ('gte' in v && !(cur >= v.gte)) return false;
         if ('lt' in v && !(cur < v.lt)) return false;
         if ('lte' in v && !(cur <= v.lte)) return false;
         if ('equals' in v && cur !== v.equals) return false;
+        if ('in' in v && !v.in.includes(cur)) return false;
+        if ('contains' in v) {
+          const source = String(cur || '');
+          const needle = String(v.contains || '');
+          const matches = v.mode === 'insensitive'
+            ? source.toLowerCase().includes(needle.toLowerCase())
+            : source.includes(needle);
+          if (!matches) return false;
+        }
         // Prisma's `{ not: x }` — including `{ not: null }` (i.e. IS NOT NULL).
         if ('not' in v && (cur === v.not || (v.not === null && (cur === null || cur === undefined)))) return false;
-      } else if (item[k] !== v) {
+      } else if (v === null ? item[k] != null : item[k] !== v) {
         return false;
       }
     }
@@ -188,9 +203,13 @@ export function createPrismaMock() {
     studyGroup: makeModel('studyGroup'),
     communityLike: makeModel('communityLike'),
     savedContent: makeModel('savedContent'),
+    communityFollow: makeModel('communityFollow'),
+    communityGroupMember: makeModel('communityGroupMember'),
     agentMessage: makeModel('agentMessage'),
     agentLesson: makeModel('agentLesson'),
-    $transaction: vi.fn(async (ops) => Promise.all(ops)),
+    $transaction: vi.fn(async (ops) => (
+      typeof ops === 'function' ? ops(prisma) : Promise.all(ops)
+    )),
     $queryRaw: vi.fn(async () => [{ ok: 1 }]),
     _store: store,
     _reset() {
@@ -225,6 +244,8 @@ export function createPrismaMock() {
     'studyGroup',
     'communityLike',
     'savedContent',
+    'communityFollow',
+    'communityGroupMember',
     'agentMessage',
     'agentLesson',
   ].forEach((m) => getStore(m));

@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -23,11 +22,10 @@ import {
   Loader2,
   Sparkles,
   Filter,
-  Users,
   FileText,
   Layers,
   Share2,
-  Download
+  Trash2
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,7 +41,6 @@ import SeriesManager from "@/components/library/SeriesManager";
 export default function SermonLibrary() {
   const { user } = useAuth();
   const [sermons, setSermons] = useState([]); // Renamed from sharedSermons
-  const [sharedSeries, setSharedSeries] = useState([]);
   const [mySermons, setMySermons] = useState([]);
   const [filteredContent, setFilteredContent] = useState([]);
   const [isLoading, setIsLoading] = useState(true); // Overall loading for the page
@@ -53,7 +50,6 @@ export default function SermonLibrary() {
   const [selectedSeries, setSelectedSeries] = useState("all");
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [sortBy, setSortBy] = useState("popular");
-  const [viewMode, setViewMode] = useState("sermons"); // sermons or series
   const [selectedSermon, setSelectedSermon] = useState(null); // Used for viewing, sharing, forking, rating
   const [showSermonViewer, setShowSermonViewer] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
@@ -101,22 +97,13 @@ export default function SermonLibrary() {
   useEffect(() => {
     filterContent();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- legacy effect intentionally keeps existing trigger behavior.
-  }, [sermons, sharedSeries, searchQuery, selectedTags, selectedDenomination, selectedSeries, dateRange, viewMode]); // Removed sortBy because loadData now handles sort order for sermons
+  }, [sermons, searchQuery, selectedTags, selectedDenomination, selectedSeries, dateRange]);
 
   const loadData = async () => {
     try {
-      const currentSortBy =
-        sortBy === 'rating' ? '-average_rating' :
-        sortBy === 'popular' ? '-forks_count' : // Changed to forks_count for popular as per outline
-        '-created_date'; // Default to recent if no specific sort applies
+      const fetchedSermons = await api.community.sermons(sortBy);
 
-      const [fetchedSermons, fetchedSeries] = await Promise.all([
-        api.entities.SharedSermon.list(currentSortBy, 100),
-        api.entities.SharedSeries.list('-average_rating', 50)
-      ]);
-
-      setSermons(fetchedSermons); // Update sermons state (renamed from sharedSermons)
-      setSharedSeries(fetchedSeries);
+      setSermons(fetchedSermons);
 
       // Extract all unique tags
       const tags = new Set();
@@ -143,7 +130,7 @@ export default function SermonLibrary() {
   };
 
   const filterContent = () => {
-    let results = viewMode === 'sermons' ? [...sermons] : [...sharedSeries]; // Use `sermons` state
+    let results = [...sermons];
 
     // Search filter - enhanced with keywords
     if (searchQuery.trim()) {
@@ -186,26 +173,6 @@ export default function SermonLibrary() {
     }
     if (dateRange.end) {
       results = results.filter(item => new Date(item.created_date) <= new Date(dateRange.end));
-    }
-
-    // IMPORTANT: Remove sorting for sermons, as `loadData` now fetches them pre-sorted by `sortBy`.
-    // Only sort series if `viewMode` is 'series' and apply relevant sorting logic for series.
-    if (viewMode === 'series') {
-        switch (sortBy) {
-            case 'popular':
-            case 'rating': // Apply rating/popular for series as well, if applicable
-                results.sort((a, b) => b.average_rating - a.average_rating);
-                break;
-            case 'recent':
-                results.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
-                break;
-            case 'forked':
-                results.sort((a, b) => b.forks_count - a.forks_count);
-                break;
-            // 'views' is generally for sermons, not series, so skip for series
-            default:
-                break; // No specific sort for series if sortBy is not directly applicable
-        }
     }
 
     setFilteredContent(results);
@@ -351,11 +318,11 @@ Be strategic and personalized.`;
 
     // Increment view count
     try {
-      await api.entities.SharedSermon.update(sermon.id, {
-        views_count: (sermon.views_count || 0) + 1
-      });
+      const result = await api.community.recordSermonView(sermon.id);
       // Optionally update the sermon in `sermons` locally
-      setSermons(prevSermons => prevSermons.map(s => s.id === sermon.id ? { ...s, views_count: (s.views_count || 0) + 1 } : s));
+      setSermons(prevSermons => prevSermons.map(s => (
+        s.id === sermon.id ? { ...s, views_count: result.views_count } : s
+      )));
     } catch (error) {
       console.error('Error updating views:', error);
     }
@@ -382,6 +349,18 @@ Be strategic and personalized.`;
   const handleDiscoverRelated = (sermon) => {
     setSelectedForThematic(sermon);
     setShowThematicLinks(true);
+  };
+
+  const handleUnshare = async (sermon) => {
+    if (!window.confirm(`Withdraw “${sermon.title}” from the community?`)) return;
+    try {
+      await api.community.unshareSermon(sermon.id);
+      setSermons((current) => current.filter((item) => item.id !== sermon.id));
+      toast.success('Sermon withdrawn from the community');
+    } catch (error) {
+      console.error('Error withdrawing shared sermon:', error);
+      toast.error(error?.message || 'Failed to withdraw sermon');
+    }
   };
 
   const toggleTag = (tag) => {
@@ -667,20 +646,7 @@ Be strategic and personalized.`;
           </Card>
         )}
 
-        {/* Main Content */}
-        <Tabs value={viewMode} onValueChange={setViewMode}>
-          <TabsList>
-            <TabsTrigger value="sermons">
-              <FileText className="w-4 h-4 mr-2" />
-              Individual Sermons ({sermons.length}) {/* Use `sermons` state */}
-            </TabsTrigger>
-            <TabsTrigger value="series">
-              <Layers className="w-4 h-4 mr-2" />
-              Sermon Series ({sharedSeries.length})
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="sermons" className="mt-6">
+        <section className="mt-6" aria-label={`Community sermons (${sermons.length})`}>
             {filteredContent.length === 0 ? (
               <Card>
                 <CardContent className="pt-6 text-center py-12">
@@ -785,17 +751,27 @@ Be strategic and personalized.`;
                             <Sparkles className="w-3 h-3" />
                           </Button>
                           {user && sermon.user_id === user.id && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedSermon(sermon);
-                                setShowTagsNotesDialog(true);
-                              }}
-                              title="Edit tags & notes"
-                            >
-                              <FileText className="w-3 h-3" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedSermon(sermon);
+                                  setShowTagsNotesDialog(true);
+                                }}
+                                title="Edit tags & notes"
+                              >
+                                <FileText className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleUnshare(sermon)}
+                                title="Withdraw from community"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </>
                           )}
                         </div>
                       </CardContent>
@@ -828,79 +804,7 @@ Be strategic and personalized.`;
                 )}
               </>
             )}
-          </TabsContent>
-
-          <TabsContent value="series" className="mt-6">
-            {filteredContent.length === 0 ? (
-              <Card>
-                <CardContent className="pt-6 text-center py-12">
-                  <Layers className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                  <h3 className="text-xl font-semibold mb-2">No series found</h3>
-                  <p className="text-gray-600">
-                    {sharedSeries.length === 0
-                      ? "Create sermon series to organize your content and share with your congregation"
-                      : "Try adjusting your filters"}
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {filteredContent.map((series) => (
-                  <Card key={series.id} className="hover:shadow-xl transition-shadow">
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Badge>{series.series_length} Weeks</Badge>
-                            <Badge variant="outline">{series.series_type}</Badge>
-                          </div>
-                          <CardTitle className="text-xl">{series.series_title}</CardTitle>
-                          <CardDescription className="mt-2">
-                            {series.series_description}
-                          </CardDescription>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 flex items-center gap-2">
-                            <Users className="w-3 h-3" />
-                            {series.user_name}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Stats */}
-                      <div className="flex items-center gap-4 mt-3 text-sm text-gray-600 dark:text-gray-400">
-                        <div className="flex items-center gap-1">
-                          <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                          <span>{series.average_rating?.toFixed(1) || '0.0'}</span>
-                          <span className="text-xs">({series.ratings_count || 0})</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <GitFork className="w-4 h-4" />
-                          <span>{series.forks_count || 0}</span>
-                        </div>
-                      </div>
-                    </CardHeader>
-
-                    <CardContent>
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="default" size="sm">
-                          <Eye className="w-3 h-3 mr-1" />
-                          View Series
-                        </Button>
-                        <Button variant="outline" size="sm">
-                          <Download className="w-3 h-3 mr-1" />
-                          Fork All
-                        </Button>
-                        <Button variant="outline" size="sm">
-                          <Star className="w-3 h-3 mr-1" />
-                          Rate
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
+        </section>
 
         {/* Dialogs */}
         {selectedSermon && (

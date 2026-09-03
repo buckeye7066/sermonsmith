@@ -82,7 +82,29 @@ describe('apiClient base URL resolution', () => {
     await api.auth.exportData();
     await api.auth.revokeSessions();
     await api.auth.deleteAccount();
+    await api.auth.deleteUser('user 1');
+    await api.auth.setUserBanned('user 1', true);
+    await api.functions.shareLinks('resource 1');
+    await api.functions.revokeShareableLink('link 1');
     await api.community.report('shared 1', { category: 'spam', reason: 'duplicate' });
+    await api.community.reportPost('post 1', { category: 'abuse' });
+    await api.community.reportPostReply('post 1', 'reply 1', { category: 'privacy' });
+    await api.community.myForumContent();
+    await api.community.myRatings();
+    await api.community.deleteRating('rating 1');
+    await api.community.mySharedSeries();
+    await api.community.unshareSeries('series 1');
+    await api.community.mySharedContent();
+    await api.community.withdrawSharedContent('shared 1');
+    await api.community.myPublicReadingPlans();
+    await api.community.withdrawReadingPlan('plan 1');
+    await api.community.myComments();
+    await api.community.mySharedSermonPage();
+    await api.community.myStudyGroups();
+    await api.community.deletePostReply('post 1', 'reply 1');
+    await api.community.deletePost('post 1');
+    await api.community.removeStudyGroupMember('group 1', 'member 1');
+    await api.community.deleteGroupMessage('group 1', 'message 1');
     await api.admin.aiAuditSummary(14);
     await api.admin.moderationQueue();
     await api.admin.moderateCommunityContent('SharedContent', 'shared 1', { status: 'removed' });
@@ -97,10 +119,60 @@ describe('apiClient base URL resolution', () => {
       { url: 'https://api.example/api/auth/export', method: 'GET', body: undefined },
       { url: 'https://api.example/api/auth/revoke-sessions', method: 'POST', body: undefined },
       { url: 'https://api.example/api/auth/me', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/auth/users/user%201', method: 'DELETE', body: undefined },
+      {
+        url: 'https://api.example/api/auth/users/user%201/ban',
+        method: 'PATCH',
+        body: JSON.stringify({ banned: true }),
+      },
+      { url: 'https://api.example/api/functions/share-links?resourceId=resource+1&offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/functions/share-links/link%201', method: 'DELETE', body: undefined },
       {
         url: 'https://api.example/api/community/shared-content/shared%201/report',
         method: 'POST',
         body: JSON.stringify({ category: 'spam', reason: 'duplicate' }),
+      },
+      {
+        url: 'https://api.example/api/community/posts/post%201/report',
+        method: 'POST',
+        body: JSON.stringify({ category: 'abuse' }),
+      },
+      {
+        url: 'https://api.example/api/community/posts/post%201/replies/reply%201/report',
+        method: 'POST',
+        body: JSON.stringify({ category: 'privacy' }),
+      },
+      { url: 'https://api.example/api/community/posts/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/ratings/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/ratings/rating%201', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/community/shared-series/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/shared-series/series%201', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/community/shared-content/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/shared-content/shared%201', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/community/reading-plans/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/reading-plans/plan%201/publication', method: 'DELETE', body: undefined },
+      { url: 'https://api.example/api/community/comments/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/sermons/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/community/study-groups/mine?offset=0&limit=100', method: 'GET', body: undefined },
+      {
+        url: 'https://api.example/api/community/posts/post%201/replies/reply%201',
+        method: 'DELETE',
+        body: undefined,
+      },
+      {
+        url: 'https://api.example/api/community/posts/post%201',
+        method: 'DELETE',
+        body: undefined,
+      },
+      {
+        url: 'https://api.example/api/community/study-groups/group%201/members/member%201',
+        method: 'DELETE',
+        body: undefined,
+      },
+      {
+        url: 'https://api.example/api/community/study-groups/group%201/messages/message%201',
+        method: 'DELETE',
+        body: undefined,
       },
       { url: 'https://api.example/api/ai/audit/summary?days=14', method: 'GET', body: undefined },
       { url: 'https://api.example/api/community/moderation/queue', method: 'GET', body: undefined },
@@ -110,6 +182,78 @@ describe('apiClient base URL resolution', () => {
         body: JSON.stringify({ status: 'removed' }),
       },
     ]);
+  });
+
+  it('loads every shared-sermon inventory page for existing array callers', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ sermons: [{ id: 'new' }], next_offset: 100 }))
+      .mockResolvedValueOnce(jsonResponse({ sermons: [{ id: 'old' }], next_offset: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await expect(api.community.mySharedSermons()).resolves.toEqual([{ id: 'new' }, { id: 'old' }]);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://api.example/api/community/sermons/mine?offset=0&limit=100',
+      'https://api.example/api/community/sermons/mine?offset=100&limit=100',
+    ]);
+  });
+
+  it('loads every share-link page for the revoke dialog', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ links: [{ id: 'new' }], next_offset: 100 }))
+      .mockResolvedValueOnce(jsonResponse({ links: [{ id: 'old' }], next_offset: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await expect(api.functions.shareLinks('resource 1')).resolves.toEqual({
+      links: [{ id: 'new' }, { id: 'old' }],
+      next_offset: null,
+    });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://api.example/api/functions/share-links?resourceId=resource+1&offset=0&limit=100',
+      'https://api.example/api/functions/share-links?resourceId=resource+1&offset=100&limit=100',
+    ]);
+  });
+
+  it('binds AI calls to a workflow URL and never forwards client system/schema instructions', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ analysis: 'ok' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { AI_OUTPUT_CONTRACTS } = await import('@sermonsmith/shared/aiContracts');
+    const ethicsContract = AI_OUTPUT_CONTRACTS.find((contract) => contract.feature === 'ethics');
+    const { api } = await loadClient();
+    await api.integrations.Core.InvokeLLM({
+      feature: 'ethics',
+      prompt: 'Consider this case',
+      system_prompt: 'Caller-owned role text',
+      response_json_schema: ethicsContract.schema,
+      max_tokens: 900,
+    });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.example/api/ai/workflows/ethics/invoke');
+    expect(JSON.parse(options.body)).toEqual({
+      input: 'Consider this case',
+      output_contract: ethicsContract.id,
+      max_tokens: 900,
+    });
+  });
+
+  it('fails before the network when a structured schema has no trusted server contract', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await expect(api.integrations.Core.InvokeLLM({
+      feature: 'ethics',
+      prompt: 'Consider this case',
+      response_json_schema: { type: 'object', properties: { injected: { type: 'string' } } },
+    })).rejects.toThrow(/trusted structured-output contract/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

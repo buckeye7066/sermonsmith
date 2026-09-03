@@ -92,6 +92,74 @@ describe('entities — tenant isolation', () => {
     expect(res.status).toBe(401);
   });
 
+  it('blocks free accounts from premium entity types at the generic API boundary', async () => {
+    const res = await request(app)
+      .post('/api/entities/CommunityPost')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`])
+      .send({ title: 'Bypass attempt', content: 'Direct API call', post_type: 'discussion' });
+
+    expect(res.status).toBe(402);
+    expect(prisma._store.entity.some((row) => row.type === 'CommunityPost')).toBe(false);
+  });
+
+  it('cannot retrieve an owned Premium entity through an ungated URL type', async () => {
+    prisma._store.entity.push({
+      id: 'premium-owned-post', type: 'CommunityPost', userId: 'u-alice',
+      data: { title: 'Premium record', status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const mismatched = await request(app)
+      .get('/api/entities/Sermon/premium-owned-post')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const correctlyTyped = await request(app)
+      .get('/api/entities/CommunityPost/premium-owned-post')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+
+    expect(mismatched.status).toBe(404);
+    expect(mismatched.body.title).toBeUndefined();
+    expect(correctlyTyped.status).toBe(402);
+  });
+
+  it('keeps reporter and moderator metadata out of owner-facing generic responses', async () => {
+    prisma._store.entity.push({
+      id: 'reported-owned-content', type: 'SharedContent', userId: 'u-alice',
+      data: {
+        title: 'Owned note', content: 'Body', content_type: 'note', visibility: 'private',
+        status: 'reported', reported_count: 1, reported_by: ['u-bob'],
+        last_report: { reporterId: 'u-bob', reason: 'Private report' },
+        moderator_notes: 'Internal only', removedBy: 'u-admin',
+      },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const direct = await request(app)
+      .get('/api/entities/SharedContent/reported-owned-content')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const filtered = await request(app)
+      .post('/api/entities/SharedContent/filter')
+      .send({})
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const reporterProbe = await request(app)
+      .post('/api/entities/SharedContent/filter')
+      .send({ reported_by: ['u-bob'] })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const updated = await request(app)
+      .put('/api/entities/SharedContent/reported-owned-content')
+      .send({ title: 'Updated title' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+
+    for (const payload of [direct.body, filtered.body[0], updated.body]) {
+      expect(payload).not.toHaveProperty('reported_by');
+      expect(payload).not.toHaveProperty('last_report');
+      expect(payload).not.toHaveProperty('moderator_notes');
+      expect(payload).not.toHaveProperty('removedBy');
+    }
+    expect(reporterProbe.status).toBe(400);
+    const stored = prisma._store.entity.find((row) => row.id === 'reported-owned-content');
+    expect(stored.data.reported_by).toEqual(['u-bob']);
+    expect(stored.data.last_report.reporterId).toBe('u-bob');
+  });
+
   it('alice only sees her own sermons in list', async () => {
     const res = await request(app)
       .get('/api/entities/Sermon')
@@ -159,6 +227,20 @@ describe('entities — tenant isolation', () => {
     expect(res.body.length).toBe(3);
   });
 
+  it('admin user inventory omits soft-deactivated accounts', async () => {
+    prisma._store.user.push({
+      id: 'u-deactivated', email: 'gone@x', role: 'user', premium: false,
+      deletedAt: new Date(),
+    });
+
+    const res = await request(app)
+      .get('/api/entities/User')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.map((user) => user.id)).not.toContain('u-deactivated');
+  });
+
   it('admin can list all sermons', async () => {
     const res = await request(app)
       .get('/api/entities/Sermon')
@@ -185,6 +267,7 @@ describe('entities — allowlist (regression for broken creates)', () => {
     prisma._reset();
     app = buildApp();
     prisma._store.user.push({ id: 'u-alice', email: 'a@x', role: 'user', premium: false });
+    prisma._store.user.push({ id: 'u-admin', email: 'admin@x', role: 'admin', premium: true });
   });
 
   // Regression: these types were missing from ENTITY_SCHEMAS, so every
@@ -214,12 +297,114 @@ describe('entities — allowlist (regression for broken creates)', () => {
     expect(plan.status).toBe(200);
   });
 
+  it('keeps private saves free but blocks public Community publication without entitlement', async () => {
+    const privateContent = await request(app)
+      .post('/api/entities/SharedContent')
+      .send({ title: 'Private note', content: 'My note', content_type: 'note', visibility: 'private' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(privateContent.status).toBe(200);
+
+    const publicContent = await request(app)
+      .post('/api/entities/SharedContent')
+      .send({ title: 'Public note', content: 'My note', content_type: 'note', visibility: 'public' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(publicContent.status).toBe(402);
+    expect(publicContent.body.message).toMatch(/Community requires Premium/i);
+
+    const publicPlan = await request(app)
+      .post('/api/entities/ReadingPlan')
+      .send({ name: 'Published plan', is_public: true })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(publicPlan.status).toBe(402);
+
+    const publishExisting = await request(app)
+      .put(`/api/entities/SharedContent/${privateContent.body.id}`)
+      .send({ visibility: 'public' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(publishExisting.status).toBe(402);
+    expect(prisma._store.entity.find((row) => row.id === privateContent.body.id).data.visibility).toBe('private');
+  });
+
+  it('allows an entitled account to publish SharedContent and ReadingPlan rows', async () => {
+    prisma._store.user.push({ id: 'u-premium', email: 'premium@x', role: 'user', premium: true });
+    const shared = await request(app)
+      .post('/api/entities/SharedContent')
+      .send({ title: 'Public note', content: 'John 3:16', content_type: 'note', visibility: 'public' })
+      .set('Cookie', [`ss_token=${tokenFor('u-premium')}`]);
+    const plan = await request(app)
+      .post('/api/entities/ReadingPlan')
+      .send({
+        name: 'Published plan', is_public: true, daily_readings: [],
+        followers_count: 9000, average_rating: 5, ratings_count: 9000,
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-premium')}`]);
+    expect(shared.status).toBe(200);
+    expect(plan.status).toBe(200);
+    expect(plan.body).toMatchObject({ followers_count: 0, average_rating: 0, ratings_count: 0 });
+  });
+
+  it('re-reads community-visible JSON after taking the shared mutation lock', async () => {
+    prisma._store.user.push({ id: 'u-premium', email: 'premium@x', role: 'user', premium: true });
+    prisma._store.entity.push({
+      id: 'shared-locked',
+      type: 'SharedContent',
+      userId: 'u-premium',
+      data: {
+        title: 'Before', content: 'John 3:16', content_type: 'note', visibility: 'public',
+        status: 'active', likes_count: 0,
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    // Simulate a moderation/interaction write landing after the route's first
+    // ownership lookup but before its transaction acquires the lock.
+    prisma.$queryRaw.mockImplementationOnce(async () => {
+      const row = prisma._store.entity.find((entity) => entity.id === 'shared-locked');
+      row.data = { ...row.data, status: 'removed', likes_count: 2 };
+      return [{ ok: 1 }];
+    });
+
+    const updated = await request(app)
+      .put('/api/entities/SharedContent/shared-locked')
+      .send({ title: 'After' })
+      .set('Cookie', [`ss_token=${tokenFor('u-premium')}`]);
+
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({ title: 'After', status: 'removed', likes_count: 2 });
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+
   it('still rejects a genuinely unknown entity type', async () => {
     const res = await request(app)
       .post('/api/entities/TotallyMadeUpType')
       .send({ foo: 'bar' })
       .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
     expect(res.status).toBe(400);
+  });
+
+  it('preserves owner CRUD for legacy SharedSeries rows', async () => {
+    prisma._store.user.find((user) => user.id === 'u-alice').premium = true;
+    const created = await request(app)
+      .post('/api/entities/SharedSeries')
+      .send({ series_title: 'Romans', series_description: 'A teaching series', views_count: 999 })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(created.status).toBe(200);
+    expect(created.body.views_count).toBe(0);
+
+    const updated = await request(app)
+      .put(`/api/entities/SharedSeries/${created.body.id}`)
+      .send({ series_title: 'Romans Revised', views_count: 999 })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(updated.status).toBe(200);
+    expect(updated.body.series_title).toBe('Romans Revised');
+    expect(updated.body.views_count).toBe(0);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+
+    const removed = await request(app)
+      .delete(`/api/entities/SharedSeries/${created.body.id}`)
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(removed.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === created.body.id)).toBe(false);
   });
 
   // Security: SharedLink is server-managed. It grants read access to a target
@@ -235,6 +420,19 @@ describe('entities — allowlist (regression for broken creates)', () => {
     expect(prisma._store.entity.some((e) => e.type === 'SharedLink')).toBe(false);
   });
 
+  it('cannot bypass server-managed deletion with a mismatched URL type', async () => {
+    prisma._store.entity.push({
+      id: 'managed-post', type: 'CommunityPost', userId: 'u-alice',
+      data: { title: 'Keep until dedicated cleanup', status: 'active' },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    const res = await request(app)
+      .delete('/api/entities/Sermon/managed-post')
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(res.status).toBe(404);
+    expect(prisma._store.entity.some((row) => row.id === 'managed-post')).toBe(true);
+  });
+
   it('forbids creating a SharedLink through the bulk entity API', async () => {
     const res = await request(app)
       .post('/api/entities/SharedLink/bulk')
@@ -243,6 +441,34 @@ describe('entities — allowlist (regression for broken creates)', () => {
     expect(res.status).toBe(403);
     expect(prisma._store.entity.some((e) => e.type === 'SharedLink')).toBe(false);
   });
+
+  it('blocks every generic read path for private-plan GroupProgress snapshots', async () => {
+    prisma._store.entity.push({
+      id: 'stale-progress-owner', type: 'GroupProgress', userId: 'u-admin',
+      data: { group_id: 'g-1', plan_snapshot: { title: 'Private replacement plan' } },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    const cookie = ['ss_token=' + tokenFor('u-admin')];
+
+    const [list, filtered, direct] = await Promise.all([
+      request(app).get('/api/entities/GroupProgress').set('Cookie', cookie),
+      request(app).post('/api/entities/GroupProgress/filter').set('Cookie', cookie).send({}),
+      request(app).get('/api/entities/GroupProgress/stale-progress-owner').set('Cookie', cookie),
+    ]);
+
+    expect([list.status, filtered.status, direct.status]).toEqual([403, 403, 403]);
+    expect(JSON.stringify([list.body, filtered.body, direct.body])).not.toContain('Private replacement plan');
+  });
+
+  it('does not allow the generic admin User update to bypass ban cleanup', async () => {
+    const res = await request(app)
+      .put('/api/entities/User/u-alice')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`])
+      .send({ is_banned: true, banned_at: new Date().toISOString() });
+
+    expect(res.status).toBe(200);
+    expect(prisma._store.user.find((row) => row.id === 'u-alice').is_banned).not.toBe(true);
+  });
 });
 
 describe('entities — community forum types', () => {
@@ -250,13 +476,12 @@ describe('entities — community forum types', () => {
   beforeEach(() => {
     prisma._reset();
     app = buildApp();
-    prisma._store.user.push({ id: 'u-carol', email: 'carol@x', role: 'user', premium: false });
+    prisma._store.user.push({ id: 'u-carol', email: 'carol@x', role: 'user', premium: true });
   });
 
-  // Regression: the Forum page POSTs CommunityPost/CommunityReply, but those
-  // types were absent from ENTITY_SCHEMAS, so every "New Post" 400'd with
-  // "Unsupported entity type: CommunityPost".
-  it('creates a CommunityPost', async () => {
+  // Public forum identities and counters are server-authored by the dedicated
+  // Community routes; the generic document API must not mint either type.
+  it('blocks generic CommunityPost creation', async () => {
     const res = await request(app)
       .post('/api/entities/CommunityPost')
       .send({
@@ -267,35 +492,31 @@ describe('entities — community forum types', () => {
         user_name: 'Carol',
       })
       .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
-    expect(res.status).toBe(200);
-    expect(res.body.title).toBe('How should I study Romans?');
-    expect(res.body.post_type).toBe('question');
+    expect(res.status).toBe(403);
   });
 
-  it('defaults CommunityPost.post_type to discussion when omitted', async () => {
+  it('blocks abbreviated generic CommunityPost creation paths too', async () => {
     const res = await request(app)
       .post('/api/entities/CommunityPost')
       .send({ title: 'Just sharing', content: 'A testimony of grace.' })
       .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
-    expect(res.status).toBe(200);
-    expect(res.body.post_type).toBe('discussion');
+    expect(res.status).toBe(403);
   });
 
-  it('creates a CommunityReply', async () => {
+  it('blocks generic CommunityReply creation', async () => {
     const res = await request(app)
       .post('/api/entities/CommunityReply')
       .send({ post_id: 'p-1', content: 'Great question — start with the gospel framing.', user_name: 'Carol' })
       .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
-    expect(res.status).toBe(200);
-    expect(res.body.content).toBe('Great question — start with the gospel framing.');
+    expect(res.status).toBe(403);
   });
 
-  it('rejects a CommunityPost with no content (400)', async () => {
+  it('blocks generic CommunityPost creation before payload validation', async () => {
     const res = await request(app)
       .post('/api/entities/CommunityPost')
       .send({ title: 'Empty body' })
       .set('Cookie', [`ss_token=${tokenFor('u-carol')}`]);
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
   });
 
   it('still rejects a genuinely unknown entity type (400)', async () => {

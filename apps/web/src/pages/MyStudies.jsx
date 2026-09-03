@@ -119,7 +119,7 @@ export default function MyStudies() {
                     <DialogHeader>
                         <DialogTitle>{selectedStudy?.title}</DialogTitle>
                     </DialogHeader>
-                    {selectedStudy && <StudyGuideViewer studyData={selectedStudy} viewOnly />}
+                    {selectedStudy && <StudyGuideViewer studyData={selectedStudy} user={user} viewOnly />}
                 </DialogContent>
             </Dialog>
         </div>

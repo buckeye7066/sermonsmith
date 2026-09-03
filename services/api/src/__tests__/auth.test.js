@@ -127,6 +127,8 @@ describe('auth routes', () => {
     expect(stored.premium).not.toBe(true);
     // Returned in the response body too, not just persisted.
     expect(res.body.user.premium_until).toBeTruthy();
+    expect(res.body.user.subscription_tier).toBe('premium');
+    expect(res.body.user.entitlements).toContain('community');
   });
 
   it('register grants a per-user trial window, not a shared/global one', async () => {
@@ -161,6 +163,22 @@ describe('auth routes', () => {
     expect(res.status).toBe(200);
     const stored = prisma._store.user.find((u) => u.email === 'notrial@example.com');
     expect(stored.premium_until == null).toBe(true);
+    expect(res.body.user.subscription_tier).toBe('free');
+    expect(res.body.user.entitlements).not.toContain('community');
+    delete process.env.SIGNUP_TRIAL_ENABLED;
+  });
+
+  it('does not turn a self-asserted allowlisted registration email into a permanent grant', async () => {
+    process.env.SIGNUP_TRIAL_ENABLED = 'false';
+    const res = await request(app).post('/api/auth/register').send({
+      email: 'buckeye7066@gmail.com',
+      password: 'longenough123',
+    });
+    const stored = prisma._store.user.find((u) => u.email === 'buckeye7066@gmail.com');
+    expect(res.status).toBe(200);
+    expect(stored.promotionalEmail ?? null).toBeNull();
+    expect(res.body.user.subscription_tier).toBe('free');
+    expect(res.body.user.entitlements).not.toContain('community');
     delete process.env.SIGNUP_TRIAL_ENABLED;
   });
 
@@ -210,6 +228,75 @@ describe('auth routes', () => {
     expect(res.body.message).toMatch(/invalid email or password/i);
   });
 
+  it('does not grant Premium when a user copies a promotional phone into profile data', async () => {
+    prisma._store.user.push({
+      id: 'u-phone-claim',
+      email: 'ordinary@example.com',
+      password: 'hash',
+      role: 'user',
+      premium: false,
+      premium_until: null,
+      promotionalEmail: null,
+      promotionalPhone: null,
+      profile: {},
+    });
+
+    const res = await request(app)
+      .patch('/api/auth/me')
+      .set('Cookie', [`ss_token=${tokenFor('u-phone-claim')}`])
+      .send({
+        phone: '(931) 998-1779',
+        promotionalEmail: 'buckeye7066@gmail.com',
+        profile: { phone: '(931) 998-1779', promotionalEmail: 'buckeye7066@gmail.com' },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.subscription_tier).toBe('free');
+    expect(res.body.entitlements).not.toContain('community');
+    const stored = prisma._store.user.find((row) => row.id === 'u-phone-claim');
+    expect(stored.profile.phone).toBe('(931) 998-1779');
+    expect(stored.promotionalEmail).toBeNull();
+  });
+
+  it('allows an admin to assign the server-controlled promotional phone', async () => {
+    prisma._store.user.push(
+      { id: 'u-admin', email: 'admin@example.com', password: 'hash', role: 'admin', premium: true, profile: {} },
+      { id: 'u-promo', email: 'promo@example.com', password: 'hash', role: 'user', premium: false, profile: {} },
+    );
+
+    const res = await request(app)
+      .patch('/api/auth/users/u-promo')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`])
+      .send({ promotionalPhone: '+1 (931) 998-1779' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.promotionalPhone).toBe('19319981779');
+    expect(res.body.subscription_tier).toBe('premium');
+  });
+
+  it('allows an admin to verify a matching promotional email but rejects mismatches', async () => {
+    prisma._store.user.push(
+      { id: 'u-admin', email: 'admin@example.com', password: 'hash', role: 'admin', premium: true, profile: {} },
+      { id: 'u-promo', email: 'buckeye7066@gmail.com', password: 'hash', role: 'user', premium: false, profile: {} },
+      { id: 'u-other', email: 'other@example.com', password: 'hash', role: 'user', premium: false, profile: {} },
+    );
+
+    const granted = await request(app)
+      .patch('/api/auth/users/u-promo')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`])
+      .send({ promotionalEmail: 'BUCKEYE7066@GMAIL.COM' });
+    const rejected = await request(app)
+      .patch('/api/auth/users/u-other')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`])
+      .send({ promotionalEmail: 'buckeye7066@gmail.com' });
+
+    expect(granted.status).toBe(200);
+    expect(granted.body.promotionalEmail).toBe('buckeye7066@gmail.com');
+    expect(granted.body.subscription_tier).toBe('premium');
+    expect(rejected.status).toBe(400);
+    expect(prisma._store.user.find((row) => row.id === 'u-other').promotionalEmail).toBeUndefined();
+  });
+
   it('forgot-password stores hashed token and never returns it', async () => {
     prisma._store.user.push({ id: 'u1', email: 'alice@example.com', password: 'x', role: 'user', premium: false });
     const res = await request(app).post('/api/auth/forgot-password').send({ email: 'alice@example.com' });
@@ -247,7 +334,12 @@ describe('auth routes', () => {
       id: 'entity-1',
       type: 'Sermon',
       userId: 'u-export',
-      data: { title: 'Generic Sermon' },
+      data: {
+        title: 'Generic Sermon',
+        reported_by: ['u-reporter'],
+        last_report: { reporterId: 'u-reporter', reason: 'Confidential report' },
+        moderator_notes: 'Staff only',
+      },
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -260,6 +352,23 @@ describe('auth routes', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    prisma._store.sharedContent.push({
+      id: 'typed-shared-1',
+      userId: 'u-export',
+      title: 'Reported typed content',
+      moderatorNotes: 'Staff note',
+      removedBy: 'u-admin',
+      content: { body: 'Text', last_report: { reporterId: 'u-reporter' } },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    prisma._store.communityFollow.push(
+      { id: 'follow-out', followerId: 'u-export', followingId: 'u-other', createdAt: new Date() },
+      { id: 'follow-in', followerId: 'u-other', followingId: 'u-export', createdAt: new Date() },
+    );
+    prisma._store.communityGroupMember.push({
+      id: 'membership-1', groupId: 'group-1', userId: 'u-export', role: 'member', userName: 'Export User', joinedAt: new Date(),
+    });
 
     const res = await request(app)
       .get('/api/auth/export')
@@ -270,7 +379,16 @@ describe('auth routes', () => {
     expect(res.body.user.profile.role).toBeUndefined();
     expect(res.body.user.theme).toBe('dark');
     expect(res.body.entities).toHaveLength(1);
+    expect(res.body.entities[0].data).not.toHaveProperty('reported_by');
+    expect(res.body.entities[0].data).not.toHaveProperty('last_report');
+    expect(res.body.entities[0].data).not.toHaveProperty('moderator_notes');
     expect(res.body.typed.sermons).toHaveLength(1);
+    expect(res.body.typed.sharedContents[0]).not.toHaveProperty('moderatorNotes');
+    expect(res.body.typed.sharedContents[0]).not.toHaveProperty('removedBy');
+    expect(res.body.typed.sharedContents[0].content).not.toHaveProperty('last_report');
+    expect(res.body.community.following).toMatchObject([{ followingId: 'u-other' }]);
+    expect(res.body.community.followers).toMatchObject([{ followerId: 'u-other' }]);
+    expect(res.body.community.groupMemberships).toMatchObject([{ groupId: 'group-1', role: 'member' }]);
     expect(prisma._store.auditLog.some((row) => row.action === 'privacy.export')).toBe(true);
   });
 
@@ -282,7 +400,35 @@ describe('auth routes', () => {
       role: 'user',
       premium: false,
       tokenVersion: 0,
+      deletedAt: null,
     });
+    prisma._store.user.push(
+      { id: 'u-successor', email: 'next@example.com', role: 'user', premium: true, deletedAt: null },
+      { id: 'u-follower', email: 'follower@example.com', role: 'user', premium: true, deletedAt: null },
+    );
+    prisma._store.entity.push(
+      {
+        id: 'group-transfer', type: 'StudyGroup', userId: 'u-delete',
+        data: { name: 'Transfer me', member_count: 2 }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'group-empty', type: 'StudyGroup', userId: 'u-delete',
+        data: { name: 'Delete me', member_count: 1 }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'group-empty-message', type: 'GroupMessage', userId: 'u-delete',
+        data: { group_id: 'group-empty', message: 'Old' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+    prisma._store.communityGroupMember.push(
+      { id: 'delete-leader-transfer', groupId: 'group-transfer', userId: 'u-delete', role: 'leader', userName: 'Delete', joinedAt: new Date('2026-01-01') },
+      { id: 'successor-member', groupId: 'group-transfer', userId: 'u-successor', role: 'member', userName: 'Next', joinedAt: new Date('2026-01-02') },
+      { id: 'delete-leader-empty', groupId: 'group-empty', userId: 'u-delete', role: 'leader', userName: 'Delete', joinedAt: new Date('2026-01-01') },
+    );
+    prisma._store.communityFollow.push(
+      { id: 'delete-follows', followerId: 'u-delete', followingId: 'u-successor', createdAt: new Date() },
+      { id: 'follows-delete', followerId: 'u-follower', followingId: 'u-delete', createdAt: new Date() },
+    );
 
     const res = await request(app)
       .delete('/api/auth/me')
@@ -293,7 +439,129 @@ describe('auth routes', () => {
     expect(stored.deletedAt).toBeInstanceOf(Date);
     expect(stored.tokenVersion).toBe(1);
     expect(res.headers['set-cookie']?.[0]).toMatch(/ss_token=/);
+    expect(prisma._store.communityFollow).toHaveLength(0);
+    expect(prisma._store.communityGroupMember.some((row) => row.userId === 'u-delete')).toBe(false);
+    expect(prisma._store.communityGroupMember.find((row) => row.userId === 'u-successor')).toMatchObject({ role: 'leader' });
+    expect(prisma._store.entity.find((row) => row.id === 'group-transfer')).toMatchObject({
+      userId: 'u-successor',
+      data: expect.objectContaining({ member_count: 1 }),
+    });
+    expect(prisma._store.entity.some((row) => row.id === 'group-empty' || row.data?.group_id === 'group-empty')).toBe(false);
     expect(prisma._store.auditLog.some((row) => row.action === 'privacy.account_delete_requested')).toBe(true);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+
+  it('admin soft-delete runs the same follow, membership, and ownership cleanup', async () => {
+    prisma._store.user.push(
+      { id: 'u-admin-delete', email: 'admin@example.com', role: 'admin', premium: true, tokenVersion: 0, deletedAt: null },
+      { id: 'u-target-delete', email: 'target@example.com', role: 'user', premium: true, tokenVersion: 4, deletedAt: null },
+      { id: 'u-next-leader', email: 'next@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null },
+    );
+    prisma._store.entity.push({
+      id: 'admin-transfer-group', type: 'StudyGroup', userId: 'u-target-delete',
+      data: { name: 'Transfer', member_count: 2 }, createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityGroupMember.push(
+      { id: 'admin-target-membership', groupId: 'admin-transfer-group', userId: 'u-target-delete', role: 'leader', userName: 'Target', joinedAt: new Date('2026-01-01') },
+      { id: 'admin-next-membership', groupId: 'admin-transfer-group', userId: 'u-next-leader', role: 'leader', userName: 'Next', joinedAt: new Date('2026-01-02') },
+    );
+    prisma._store.communityFollow.push({
+      id: 'admin-target-follow', followerId: 'u-next-leader', followingId: 'u-target-delete', createdAt: new Date(),
+    });
+
+    const res = await request(app)
+      .delete('/api/auth/users/u-target-delete')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin-delete')}`]);
+
+    expect(res.status).toBe(204);
+    expect(prisma._store.user.find((row) => row.id === 'u-target-delete')).toMatchObject({
+      tokenVersion: 5,
+      deletedAt: expect.any(Date),
+    });
+    expect(prisma._store.communityFollow).toHaveLength(0);
+    expect(prisma._store.communityGroupMember.some((row) => row.userId === 'u-target-delete')).toBe(false);
+    expect(prisma._store.entity.find((row) => row.id === 'admin-transfer-group')).toMatchObject({
+      userId: 'u-next-leader',
+      data: expect.objectContaining({ member_count: 1 }),
+    });
+    expect(prisma._store.auditLog).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: 'admin.user_soft_delete',
+        userId: 'u-admin-delete',
+        targetId: 'u-target-delete',
+      }),
+    ]));
+  });
+
+  it('admin ban revokes sessions and transfers group ownership to an active member', async () => {
+    prisma._store.user.push(
+      { id: 'u-admin-ban', email: 'admin@example.com', role: 'admin', premium: true, tokenVersion: 0, deletedAt: null, is_banned: false },
+      { id: 'u-banned-owner', email: 'owner@example.com', role: 'user', premium: true, tokenVersion: 7, deletedAt: null, is_banned: false },
+      { id: 'u-ban-successor', email: 'next@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, is_banned: false },
+    );
+    prisma._store.entity.push({
+      id: 'ban-transfer-group', type: 'StudyGroup', userId: 'u-banned-owner',
+      data: { name: 'Transfer on ban', member_count: 2 }, createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityGroupMember.push(
+      { id: 'ban-owner-membership', groupId: 'ban-transfer-group', userId: 'u-banned-owner', role: 'leader', userName: 'Owner', joinedAt: new Date('2026-01-01') },
+      { id: 'ban-next-membership', groupId: 'ban-transfer-group', userId: 'u-ban-successor', role: 'member', userName: 'Next', joinedAt: new Date('2026-01-02') },
+    );
+
+    const banned = await request(app)
+      .patch('/api/auth/users/u-banned-owner/ban')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin-ban')}`])
+      .send({ banned: true });
+
+    expect(banned.status).toBe(200);
+    expect(prisma._store.user.find((row) => row.id === 'u-banned-owner')).toMatchObject({
+      is_banned: true,
+      banned_at: expect.any(Date),
+      tokenVersion: 8,
+    });
+    expect(prisma._store.communityGroupMember.some((row) => row.userId === 'u-banned-owner')).toBe(false);
+    expect(prisma._store.communityGroupMember.find((row) => row.userId === 'u-ban-successor')).toMatchObject({ role: 'leader' });
+    expect(prisma._store.entity.find((row) => row.id === 'ban-transfer-group')).toMatchObject({
+      userId: 'u-ban-successor',
+      data: expect.objectContaining({ member_count: 1 }),
+    });
+    expect(prisma._store.auditLog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'admin.user_banned', targetId: 'u-banned-owner' }),
+    ]));
+
+    const unbanned = await request(app)
+      .patch('/api/auth/users/u-banned-owner/ban')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin-ban')}`])
+      .send({ banned: false });
+    expect(unbanned.status).toBe(200);
+    expect(prisma._store.user.find((row) => row.id === 'u-banned-owner')).toMatchObject({
+      is_banned: false,
+      banned_at: null,
+      tokenVersion: 8,
+    });
+  });
+
+  it('does not transfer a soft-deleted owner group to a banned member', async () => {
+    prisma._store.user.push(
+      { id: 'u-delete-banned-owner', email: 'owner@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, is_banned: false },
+      { id: 'u-banned-successor', email: 'banned@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, is_banned: true },
+    );
+    prisma._store.entity.push({
+      id: 'group-banned-successor', type: 'StudyGroup', userId: 'u-delete-banned-owner',
+      data: { name: 'No usable successor', member_count: 2 }, createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityGroupMember.push(
+      { id: 'banned-owner-membership', groupId: 'group-banned-successor', userId: 'u-delete-banned-owner', role: 'leader', userName: 'Owner', joinedAt: new Date('2026-01-01') },
+      { id: 'banned-successor-membership', groupId: 'group-banned-successor', userId: 'u-banned-successor', role: 'member', userName: 'Banned', joinedAt: new Date('2026-01-02') },
+    );
+
+    const res = await request(app)
+      .delete('/api/auth/me')
+      .set('Cookie', [`ss_token=${tokenFor('u-delete-banned-owner')}`]);
+
+    expect(res.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'group-banned-successor')).toBe(false);
+    expect(prisma._store.communityGroupMember.some((row) => row.groupId === 'group-banned-successor')).toBe(false);
   });
 
   it('revoke-sessions bumps tokenVersion, audits the action, and reissues the cookie', async () => {

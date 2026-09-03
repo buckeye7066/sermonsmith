@@ -5,6 +5,7 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
 import { _resetPremiumCatalogCache } from '../services/premiumTranslations.js';
+import { versesInChapter } from '@sermonsmith/shared/scripture';
 
 const prisma = createPrismaMock();
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
@@ -34,7 +35,7 @@ vi.mock('../middleware/auth.js', () => ({
   },
 }));
 
-const { default: functionRoutes } = await import('../routes/functions.js');
+const { default: functionRoutes, __test: functionsTest } = await import('../routes/functions.js');
 
 function buildApp() {
   const app = express();
@@ -123,8 +124,9 @@ describe('function routes - Bible source registry', () => {
         ok: true,
         json: async () => ({
           data: [
-            { book: 'Genesis', chapter: '2', verse: '1', text: 'Thus the heavens and the earth were finished.' },
-            { book: 'Genesis', chapter: '2', verse: '2', text: 'And on the seventh day God ended his work.' },
+            ...Array.from({ length: 25 }, (_, index) => ({
+              book: 'Genesis', chapter: '2', verse: String(index + 1), text: `Genesis 2 verse ${index + 1}`,
+            })),
             // The upstream file currently contains duplicate verse rows. The
             // Reader contract is one row per verse, so normalize at ingress.
             { book: 'Genesis', chapter: '2', verse: '1', text: 'duplicate' },
@@ -140,11 +142,64 @@ describe('function routes - Bible source registry', () => {
 
     expect(first.status).toBe(200);
     expect(first.body.reference).toBe('Genesis 2');
-    expect(first.body.verses.map((row) => row.verse)).toEqual([1, 2]);
+    expect(first.body.verses.map((row) => row.verse)).toEqual(Array.from({ length: 25 }, (_, index) => index + 1));
     expect(first.body.cacheHit).toBe(false);
     expect(second.status).toBe(200);
     expect(second.body.cacheHit).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an incomplete legacy imported chapter and falls back to a complete source', async () => {
+    prisma._store.entity.push({
+      id: 'legacy-jude-verse-one',
+      type: 'Verse',
+      userId: 'u-admin',
+      data: { translation: 'kjv', book_name: 'Jude', chapter: 1, verse: 1, text: 'Jude, the servant.' },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const fetchMock = vi.fn(async (url) => {
+      expect(String(url)).toContain('/en-kjv/books/jude/chapters/1.json');
+      return {
+        ok: true,
+        json: async () => ({
+          data: Array.from({ length: 25 }, (_, index) => ({
+            book: 'Jude', chapter: '1', verse: String(index + 1), text: `Jude verse ${index + 1}`,
+          })),
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ book: 'Jude', chapter: 1, translation: 'kjv' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.verses).toHaveLength(25);
+    expect(res.body.verses.at(-1).verse).toBe(25);
+    expect(res.body.source).toBe('wldeh-bible-api-static');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a non-contiguous unaudited provider chapter instead of caching it as complete', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        verses: [
+          { book_name: 'Genesis', chapter: 1, verse: 1, text: 'First verse' },
+          { book_name: 'Genesis', chapter: 1, verse: 3, text: 'Third verse' },
+        ],
+      }),
+    })));
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ book: 'Genesis', chapter: 1, translation: 'bbe' });
+
+    expect(res.status).toBe(502);
+    expect(res.body.message).toMatch(/incomplete chapter/i);
+    expect(prisma._store.bibleChapterCache).toHaveLength(0);
   });
 
   it('serves every chapter of every multi-token book from all pinned static datasets without fallback', async () => {
@@ -178,15 +233,17 @@ describe('function routes - Bible source registry', () => {
         throw new Error(`Unexpected static Bible URL: ${value}`);
       }
       const [, translation, slug, chapter] = match;
+      const book = namesBySlug.get(slug);
+      const verseCount = versesInChapter(book, Number(chapter), translation);
       return {
         ok: true,
         json: async () => ({
-          data: [{
-            book: namesBySlug.get(slug),
+          data: Array.from({ length: verseCount }, (_, index) => ({
+            book,
             chapter,
-            verse: '1',
-            text: `${translation} ${slug} ${chapter}`,
-          }],
+            verse: String(index + 1),
+            text: `${translation} ${slug} ${chapter}:${index + 1}`,
+          })),
         }),
       };
     });
@@ -217,7 +274,9 @@ describe('function routes - Bible source registry', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
       json: async () => ({
-        data: [{ book: 'John', chapter: '3', verse: '16', text: 'For God so loved the world.' }],
+        data: Array.from({ length: 36 }, (_, index) => ({
+          book: 'John', chapter: '3', verse: String(index + 1), text: `John 3 verse ${index + 1}`,
+        })),
       }),
     })));
 
@@ -226,9 +285,68 @@ describe('function routes - Bible source registry', () => {
       .send({ bookCode: 'JHN', chapter: 3, translationId: 'kjv' });
 
     expect(res.status).toBe(200);
-    expect(res.body.verses).toEqual([
-      expect.objectContaining({ book_name: 'John', chapter: 3, verse: 16 }),
-    ]);
+    expect(res.body.verses).toHaveLength(36);
+    expect(res.body.verses[15]).toMatchObject({ book_name: 'John', chapter: 3, verse: 16 });
+    expect(res.body.cacheHit).toBe(false);
+  });
+
+  it('uses the unambiguous provider data endpoint for a single-chapter book', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      expect(String(url)).toBe('https://bible-api.com/data/bbe/JUD/1');
+      return {
+        ok: true,
+        json: async () => ({
+          translation: { name: 'Bible in Basic English' },
+          verses: Array.from({ length: 25 }, (_, index) => ({
+            book: 'Jude', chapter: 1, verse: index + 1, text: `Jude verse ${index + 1}`,
+          })),
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ bookCode: 'JUD', chapter: 1, translationId: 'bbe' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.reference).toBe('Jude 1');
+    expect(res.body.verses).toHaveLength(25);
+    expect(res.body.verses.map((row) => row.verse)).toEqual(Array.from({ length: 25 }, (_, index) => index + 1));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an out-of-range chapter before any provider request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ bookCode: 'GEN', chapter: 51, translationId: 'kjv' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Genesis has 50 chapters/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('serves verse requests when the passage-cache migration is unavailable', async () => {
+    prisma.biblePassageCache.findUnique.mockRejectedValueOnce(new Error('table missing'));
+    prisma.biblePassageCache.upsert.mockRejectedValueOnce(new Error('table missing'));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        reference: 'John 3:16',
+        text: 'For God so loved the world.',
+        verses: [{ book_name: 'John', chapter: 3, verse: 16, text: 'For God so loved the world.' }],
+      }),
+    })));
+
+    const res = await request(app)
+      .post('/api/functions/biblePassage')
+      .send({ book: 'John', chapter: 3, verse: 16, translation: 'kjv' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.verses[0]).toMatchObject({ chapter: 3, verse: 16 });
     expect(res.body.cacheHit).toBe(false);
   });
 
@@ -358,6 +476,117 @@ describe('function routes - premium translations', () => {
       .post('/api/functions/biblePassage')
       .send({ book: 'John', chapter: 3, translationId: 'gb:akjv' });
     expect(res.status).toBe(402);
+  });
+});
+
+describe('function routes - Scripture API import completeness', () => {
+  let app;
+  const adminCookie = () => [`ss_token=${jwt.sign({ userId: 'u-import-admin' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' })}`];
+
+  beforeEach(() => {
+    prisma._reset();
+    app = buildApp();
+    process.env.SCRIPTURE_API_KEY = 'scripture-test-key';
+    prisma._store.user.push({ id: 'u-import-admin', email: 'import@x', role: 'admin', premium: true });
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const value = String(url);
+      if (value.endsWith('/books')) {
+        return { ok: true, status: 200, json: async () => ({ data: [{ id: 'GEN', name: 'Genesis' }] }) };
+      }
+      if (value.endsWith('/books/GEN/chapters')) {
+        return { ok: true, status: 200, json: async () => ({ data: [{ id: 'GEN.1', number: '1' }] }) };
+      }
+      if (value.endsWith('/chapters/GEN.1/verses')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              { id: 'GEN.1.1', reference: 'Genesis 1:1' },
+              { id: 'GEN.1.2', reference: 'Genesis 1:2' },
+            ],
+          }),
+        };
+      }
+      if (value.includes('/chapters/GEN.1?content-type=json')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: {
+              content: [{
+                name: 'para',
+                type: 'tag',
+                items: [
+                  { name: 'verse', type: 'tag', attrs: { number: '1', sid: 'GEN 1:1' }, items: [{ type: 'text', text: '1' }] },
+                  { type: 'text', text: 'In the beginning. ', attrs: { verseId: 'GEN.1.1' } },
+                  { name: 'verse', type: 'tag', attrs: { number: '2', sid: 'GEN 1:2' }, items: [{ type: 'text', text: '2' }] },
+                  { type: 'text', text: 'The earth was without form.', attrs: { verseId: 'GEN.1.2' } },
+                ],
+              }],
+            },
+          }),
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    }));
+  });
+
+  afterEach(() => {
+    delete process.env.SCRIPTURE_API_KEY;
+    vi.unstubAllGlobals();
+  });
+
+  it('writes defensible v3 completeness markers for an unaudited translation', async () => {
+    const response = await request(app)
+      .post('/api/functions/importFromScriptureAPI')
+      .set('Cookie', adminCookie())
+      .send({ bibleId: 'test-bible', translation: 'community-test' });
+
+    expect(response.status).toBe(202);
+    await vi.waitFor(() => {
+      expect(prisma._store.entity.filter((row) => row.type === 'Verse')).toHaveLength(2);
+    });
+    const verses = prisma._store.entity.filter((row) => row.type === 'Verse');
+    expect(verses.map((row) => row.data.verse)).toEqual([1, 2]);
+    expect(verses.map((row) => row.data.text)).toEqual([
+      'In the beginning.',
+      'The earth was without form.',
+    ]);
+    expect(verses.every((row) => row.data.chapter_complete === true)).toBe(true);
+    expect(verses.every((row) => row.data.chapter_verse_count === 2)).toBe(true);
+    expect(verses.every((row) => row.data.import_format_version === 3)).toBe(true);
+  });
+
+  it('requires a lossless contiguous provider list before an unaudited import is trusted', () => {
+    const incompletePayload = {
+      verses: [
+        { verse: 1, text: 'One' },
+        { verse: 3, text: 'Three' },
+      ],
+    };
+    const droppedPayload = {
+      verses: [
+        { verse: 1, text: 'One' },
+        { verse: 2, text: '' },
+      ],
+    };
+
+    expect(functionsTest.hasProviderChapterCompletenessProof(
+      incompletePayload,
+      { verses: incompletePayload.verses },
+      null,
+    )).toBe(false);
+    expect(functionsTest.hasProviderChapterCompletenessProof(
+      droppedPayload,
+      { verses: [{ verse: 1, text: 'One' }] },
+      null,
+    )).toBe(false);
+    expect(functionsTest.hasProviderChapterCompletenessProof(
+      { verses: [{ verse: 1 }, { verse: 2 }] },
+      { verses: [{ verse: 1 }, { verse: 2 }] },
+      null,
+    )).toBe(true);
   });
 });
 

@@ -24,6 +24,7 @@ const premiumFeatures = [
     "Multi-perspective study prompts for comparison and review",
     "AI-assisted language adaptation that requires human review",
     "Worldview and ethics study tools",
+    "Community member discovery, discussions, and study groups",
     "Export sermons to PDF",
     "Interactive Bible maps and journeys",
     "Teaching-context adaptation (VBS, Sunday School, youth, and more)",

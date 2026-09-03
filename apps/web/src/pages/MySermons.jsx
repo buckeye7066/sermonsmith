@@ -13,7 +13,7 @@ import {
   DialogHeader as ShadcnDialogHeader,
   DialogTitle as ShadcnDialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, Printer, Trash2, Loader2, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation, Users, MessageSquare, Edit3 } from "lucide-react";
+import { FileText, Printer, Trash2, Loader2, CheckCircle, Tag, Folder, Search, Filter, FolderPlus, Plus, Wand2, Presentation, Users, MessageSquare, Edit3, Layers, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router";
 import { createPageUrl } from "@/utils";
@@ -24,10 +24,12 @@ import SermonAdaptation from "@/components/sermon/SermonAdaptation";
 import PresentationMode from "@/components/sermon/PresentationMode";
 import CollaboratorManager from "@/components/collaboration/CollaboratorManager";
 import CommentPanel from "@/components/collaboration/CommentPanel";
+import SeriesManager from "@/components/library/SeriesManager";
 
 export default function MySermons() {
   const [searchParams] = useSearchParams();
   const [sermons, setSermons] = useState([]);
+  const [sharedSermons, setSharedSermons] = useState([]);
   const [filteredSermons, setFilteredSermons] = useState([]);
   const [collections, setCollections] = useState([]);
   const [tags, setTags] = useState([]);
@@ -47,6 +49,7 @@ export default function MySermons() {
   const [collaboratingSermon, setCollaboratingSermon] = useState(null);
   const [showComments, setShowComments] = useState(false);
   const [commentingSermon, setCommentingSermon] = useState(null);
+  const [showSeriesManager, setShowSeriesManager] = useState(false);
 
   useEffect(() => {
     logActivity('page_view', { page_name: 'MySermons' });
@@ -74,9 +77,13 @@ export default function MySermons() {
   const loadSermons = async () => {
     if (!user || !user.id) return;
     try {
-      const userSermons = await api.entities.Sermon.filter({ user_id: user.id }, '-created_date');
+      const [userSermons, userShares] = await Promise.all([
+        api.entities.Sermon.filter({ user_id: user.id }, '-created_date'),
+        api.community.mySharedSermons(),
+      ]);
       setSermons(userSermons);
       setFilteredSermons(userSermons);
+      setSharedSermons(userShares || []);
       
       // Log viewing sermons list
       if (userSermons.length > 0) {
@@ -147,6 +154,17 @@ export default function MySermons() {
       loadTags();
     } catch (error) {
       toast.error("Failed to delete sermon");
+    }
+  };
+
+  const handleUnshare = async (sharedSermon) => {
+    if (!confirm(`Withdraw “${sharedSermon.title}” from the community?`)) return;
+    try {
+      await api.community.unshareSermon(sharedSermon.id);
+      setSharedSermons((current) => current.filter((item) => item.id !== sharedSermon.id));
+      toast.success('Sermon withdrawn from the community');
+    } catch (error) {
+      toast.error(error?.message || 'Failed to withdraw sermon');
     }
   };
 
@@ -400,6 +418,13 @@ export default function MySermons() {
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
+              onClick={() => setShowSeriesManager(true)}
+            >
+              <Layers className="w-4 h-4 mr-2" />
+              Manage Series
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => setShowAdvancedSearch(true)}
             >
               <Search className="w-4 h-4 mr-2" />
@@ -455,6 +480,7 @@ export default function MySermons() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredSermons.map((sermon) => {
                   const sermonTags = getSermonTags(sermon.id);
+                  const sharedSermon = sharedSermons.find((shared) => shared.source_sermon_id === sermon.id);
                   
                   return (
                     <Card key={sermon.id} className="hover:shadow-lg transition-shadow">
@@ -472,6 +498,7 @@ export default function MySermons() {
                               Done
                             </Badge>
                           )}
+                          {sharedSermon && <Badge className="ml-2 bg-blue-600">Shared</Badge>}
                         </div>
                         {sermonTags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-2">
@@ -581,6 +608,17 @@ export default function MySermons() {
                           >
                             <Trash2 className="w-3 h-3" />
                           </Button>
+                          {sharedSermon && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleUnshare(sharedSermon)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <UserMinus className="w-3 h-3 mr-1" />
+                              Unshare
+                            </Button>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -761,6 +799,12 @@ export default function MySermons() {
             </ShadcnDialogContent>
           </ShadcnDialog>
         )}
+
+        <SeriesManager
+          open={showSeriesManager}
+          onClose={() => setShowSeriesManager(false)}
+          user={user}
+        />
       </div>
     </div>
   );

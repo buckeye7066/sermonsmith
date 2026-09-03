@@ -61,11 +61,7 @@ export default function PlanLibrary() {
   const loadPlans = async () => {
     setIsLoading(true);
     try {
-      const publicPlans = await api.entities.ReadingPlan.filter(
-        { is_public: true },
-        sortBy === 'rating' ? '-average_rating' : sortBy === 'popular' ? '-followers_count' : '-created_date',
-        100
-      );
+      const publicPlans = await api.community.readingPlans(sortBy);
       setPlans(publicPlans);
       // Immediately apply current filters to the newly loaded plans
       // This is handled by the filterPlans useEffect now that `plans` state is updated.
