@@ -50,7 +50,7 @@ describe('GroupChat message retraction', () => {
 
     await waitFor(() => {
       expect(api.community.deleteGroupMessage).toHaveBeenCalledWith('group-1', 'message-1');
+      expect(screen.queryByText('Sensitive prayer request')).not.toBeInTheDocument();
     });
-    expect(screen.queryByText('Sensitive prayer request')).not.toBeInTheDocument();
   });
 });
