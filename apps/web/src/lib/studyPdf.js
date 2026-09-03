@@ -1,3 +1,6 @@
+import { downloadBlob } from './downloadBlob';
+import { isNativeApp } from './platform';
+
 const MARGIN = 20;
 const LINE_HEIGHT = 5;
 const FOOTER_HEIGHT = 18;
@@ -110,9 +113,69 @@ export async function renderStudyPdf(study) {
   return doc;
 }
 
+function pdfBase64(doc) {
+  const dataUri = doc.output('datauristring');
+  const marker = 'base64,';
+  const markerIndex = String(dataUri || '').indexOf(marker);
+  if (markerIndex === -1) throw new Error('PDF renderer did not produce binary document data');
+  return dataUri.slice(markerIndex + marker.length);
+}
+
+export async function persistStudyPdf(doc, filename, {
+  electron = typeof window !== 'undefined' ? window.electron : null,
+  native = isNativeApp(),
+  loadFilesystem = () => import('@capacitor/filesystem'),
+  loadShare = () => import('@capacitor/share'),
+  browserDownload = downloadBlob,
+} = {}) {
+  const data = pdfBase64(doc);
+
+  if (electron?.isElectron && typeof electron.savePdf === 'function') {
+    const result = await electron.savePdf({ filename, data });
+    if (result?.canceled) return null;
+    if (!result?.success) throw new Error(result?.error || 'Desktop PDF save failed');
+    return result.fileName || filename;
+  }
+
+  if (native) {
+    const { Filesystem, Directory } = await loadFilesystem();
+    const permission = await Filesystem.checkPermissions();
+    if (permission?.publicStorage === 'prompt' || permission?.publicStorage === 'prompt-with-rationale') {
+      const requested = await Filesystem.requestPermissions();
+      if (requested?.publicStorage === 'denied') throw new Error('Storage permission was denied');
+    } else if (permission?.publicStorage === 'denied') {
+      throw new Error('Storage permission was denied');
+    }
+
+    // Documents is the durable copy. Cache is a second, share-provider-safe
+    // copy because Android's Capacitor FileProvider exposes cache paths by
+    // default but not arbitrary public folders.
+    await Filesystem.writeFile({ path: filename, data, directory: Directory.Documents });
+    const shareable = await Filesystem.writeFile({ path: filename, data, directory: Directory.Cache });
+    try {
+      const { Share } = await loadShare();
+      const canShare = await Share.canShare();
+      if (canShare?.value && shareable?.uri) {
+        await Share.share({
+          title: filename,
+          text: 'Bible study exported from SermonSmith',
+          files: [shareable.uri],
+          dialogTitle: 'Save or share PDF',
+        });
+      }
+    } catch {
+      // The durable Documents copy already succeeded. Dismissing or lacking a
+      // share sheet must not turn a completed export into a failure.
+    }
+    return filename;
+  }
+
+  browserDownload(doc.output('blob'), filename);
+  return filename;
+}
+
 export async function exportStudyToPdf(study) {
   const doc = await renderStudyPdf(study);
   const filename = buildStudyFilename(study);
-  doc.save(filename);
-  return filename;
+  return persistStudyPdf(doc, filename);
 }

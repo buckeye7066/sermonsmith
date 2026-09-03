@@ -1049,6 +1049,59 @@ describe('community routes', () => {
     expect(unlike.body.likedByMe).toBe(false);
   });
 
+  it('does not expose or mutate a hidden post through the unlike route', async () => {
+    prisma._store.entity.push({
+      id: 'hidden-liked-post', type: 'CommunityPost', userId: 'u-owner',
+      data: { title: 'Moderated title', content: 'Moderated body', status: 'hidden', likes_count: 1 },
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    prisma._store.communityLike.push({
+      id: 'hidden-like', userId: 'u-reader', contentId: 'hidden-liked-post', contentType: 'CommunityPost',
+    });
+
+    const unlike = await request(app)
+      .delete('/api/community/posts/hidden-liked-post/like')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(unlike.status).toBe(403);
+    expect(unlike.body).not.toHaveProperty('content');
+    expect(prisma._store.communityLike).toContainEqual(expect.objectContaining({ id: 'hidden-like' }));
+    expect(prisma._store.entity.find((row) => row.id === 'hidden-liked-post').data.likes_count).toBe(1);
+  });
+
+  it('resolves a visible forum deep link outside the newest 50-row feed', async () => {
+    const old = new Date('2020-01-01T00:00:00.000Z');
+    prisma._store.entity.push({
+      id: 'old-linked-post', type: 'CommunityPost', userId: 'u-owner',
+      data: { title: 'Still linkable', content: 'Full older discussion', status: 'active', likes_count: 1 },
+      createdAt: old, updatedAt: old,
+    });
+    prisma._store.communityLike.push({
+      id: 'old-post-like', userId: 'u-reader', contentId: 'old-linked-post', contentType: 'CommunityPost',
+    });
+    for (let index = 0; index < 51; index += 1) {
+      const createdAt = new Date(Date.UTC(2026, 8, 3, 12, index));
+      prisma._store.entity.push({
+        id: `newer-forum-${index}`, type: 'CommunityPost', userId: 'u-owner',
+        data: { title: `Newer ${index}`, content: 'Feed post', status: 'active' },
+        createdAt, updatedAt: createdAt,
+      });
+    }
+
+    const feed = await request(app)
+      .get('/api/community/posts')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    const linked = await request(app)
+      .get('/api/community/posts/old-linked-post')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(feed.body.map((post) => post.id)).not.toContain('old-linked-post');
+    expect(linked.status).toBe(200);
+    expect(linked.body).toMatchObject({
+      id: 'old-linked-post', content: 'Full older discussion', likedByMe: true, user_id: 'u-owner',
+    });
+  });
+
   it('derives concurrent post-like counts from relational interactions', async () => {
     prisma._store.user.push({ id: 'u-reader-two', role: 'user', premium: true, deletedAt: null, is_banned: false });
     prisma._store.entity.push({
@@ -1388,6 +1441,80 @@ describe('community routes', () => {
     expect(rsvp.body.status).toBe('attending');
   });
 
+  it('lets leaders edit meetings and cancel them with their RSVPs', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'managed-group', type: 'StudyGroup', userId: 'u-owner',
+        data: { name: 'Managed group', status: 'active' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'managed-meeting', type: 'GroupMeeting', userId: 'u-owner',
+        data: {
+          group_id: 'managed-group', title: 'Original title', status: 'scheduled',
+          scheduled_date: '2026-09-10T23:00:00.000Z', discussion_leader_id: 'u-owner',
+          discussion_leader_name: 'Owner',
+        },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'managed-rsvp', type: 'MeetingAttendance', userId: 'u-reader',
+        data: { group_id: 'managed-group', meeting_id: 'managed-meeting', status: 'attending' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+    prisma._store.communityGroupMember.push(
+      { id: 'managed-owner', groupId: 'managed-group', userId: 'u-owner', role: 'leader', userName: 'Owner', joinedAt: new Date() },
+      { id: 'managed-reader', groupId: 'managed-group', userId: 'u-reader', role: 'member', userName: 'Reader', joinedAt: new Date() },
+    );
+
+    const blocked = await request(app)
+      .patch('/api/community/study-groups/managed-group/meetings/managed-meeting')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ title: 'Unauthorized edit' });
+    expect(blocked.status).toBe(403);
+
+    const invalidLeader = await request(app)
+      .patch('/api/community/study-groups/managed-group/meetings/managed-meeting')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
+      .send({ discussion_leader_id: 'u-free' });
+    expect(invalidLeader.status).toBe(400);
+
+    const edited = await request(app)
+      .patch('/api/community/study-groups/managed-group/meetings/managed-meeting')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
+      .send({
+        title: 'Updated title',
+        scheduled_date: '2026-09-12T01:30:00Z',
+        discussion_leader_id: 'u-reader',
+        discussion_leader_name: 'spoofed name',
+      });
+    expect(edited.status).toBe(200);
+    expect(edited.body).toMatchObject({
+      id: 'managed-meeting',
+      group_id: 'managed-group',
+      title: 'Updated title',
+      status: 'scheduled',
+      scheduled_date: '2026-09-12T01:30:00.000Z',
+      discussion_leader_id: 'u-reader',
+      discussion_leader_name: 'Reader',
+    });
+
+    // Cancellation is deliberately retained as a lifecycle control after a
+    // leader's paid or promotional Community access expires.
+    prisma._store.user.find((user) => user.id === 'u-owner').premium = false;
+    const removed = await request(app)
+      .delete('/api/community/study-groups/managed-group/meetings/managed-meeting')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);
+    expect(removed.status).toBe(204);
+    expect(prisma._store.entity.some((row) => row.id === 'managed-meeting')).toBe(false);
+    expect(prisma._store.entity.some((row) => row.id === 'managed-rsvp')).toBe(false);
+    expect(prisma._store.auditLog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'community.group_meeting_update', targetId: 'managed-meeting' }),
+      expect.objectContaining({ action: 'community.group_meeting_delete', targetId: 'managed-meeting' }),
+    ]));
+  });
+
   it('shows and upgrades legacy RSVPs that were stored without group_id', async () => {
     prisma._store.entity.push(
       {
@@ -1683,7 +1810,18 @@ describe('community routes', () => {
         title: 'Grace That Forms Us',
         topic: 'Grace',
         big_idea: 'Grace trains the whole person.',
-        points: [{ title: 'Grace teaches' }],
+        points: [
+          {
+            title: 'Grace teaches',
+            exegesis: null,
+            content: 'Legacy point body',
+            illustration: { unsafe: 'object' },
+            application: 'Practice grace',
+            supporting_scriptures: ['Titus 2:11', { reference: 'Ephesians 2:8' }, { unsafe: true }],
+            private_nested_data: { should_not: 'publish' },
+          },
+          ['not', 'a', 'point'],
+        ],
       },
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -1694,6 +1832,13 @@ describe('community routes', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
       .send({ source_sermon_id: 'private-sermon', ai_tags: ['grace'], style_tags: ['teaching'] });
     expect(shared.status).toBe(201);
+    expect(shared.body.points).toEqual([{
+      title: 'Grace teaches',
+      exegesis: 'Legacy point body',
+      illustration: '',
+      application: 'Practice grace',
+      supporting_scriptures: ['Titus 2:11', 'Ephesians 2:8'],
+    }]);
 
     const feed = await request(app)
       .get('/api/community/sermons?sort=recent')
@@ -1763,6 +1908,40 @@ describe('community routes', () => {
     expect(ranked.status).toBe(200);
     expect(ranked.body).toHaveLength(100);
     expect(ranked.body[0].id).toBe('oldest-highest-rated');
+  });
+
+  it('ranks the complete public reading-plan set before returning the top 50', async () => {
+    for (let index = 0; index < 251; index += 1) {
+      const createdAt = new Date(Date.UTC(2026, 8, 3, 12, index));
+      prisma._store.entity.push({
+        id: `recent-low-plan-${index}`,
+        type: 'ReadingPlan',
+        userId: 'u-owner',
+        data: { name: `Recent plan ${index}`, is_public: true, average_rating: 1, followers_count: 1 },
+        createdAt,
+        updatedAt: createdAt,
+      });
+    }
+    prisma._store.entity.push({
+      id: 'oldest-highest-plan',
+      type: 'ReadingPlan',
+      userId: 'u-owner',
+      data: { name: 'Best plan overall', is_public: true, average_rating: 5, followers_count: 500 },
+      createdAt: new Date('2020-01-01T00:00:00Z'),
+      updatedAt: new Date('2020-01-01T00:00:00Z'),
+    });
+
+    const byRating = await request(app)
+      .get('/api/community/reading-plans?sort=rating')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+    const byPopularity = await request(app)
+      .get('/api/community/reading-plans?sort=popular')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(byRating.status).toBe(200);
+    expect(byRating.body).toHaveLength(50);
+    expect(byRating.body[0]).toMatchObject({ id: 'oldest-highest-plan', creator_id: 'u-owner' });
+    expect(byPopularity.body[0].id).toBe('oldest-highest-plan');
   });
 
   it('de-duplicates legacy ratings and serializes future rating writes per target', async () => {

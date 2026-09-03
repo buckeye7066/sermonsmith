@@ -7,25 +7,37 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar, Plus, MapPin, Video, Users, Clock, CheckCircle, X } from "lucide-react";
+import { Calendar, Plus, MapPin, Video, Users, Clock, CheckCircle, Pencil, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 
-export default function MeetingScheduler({ group, user, members, isLeader = false }) {
-  const [meetings, setMeetings] = useState([]);
-  const [showNewMeeting, setShowNewMeeting] = useState(false);
-  const [newMeeting, setNewMeeting] = useState({
+function emptyMeeting(user) {
+  return {
     title: "",
     description: "",
     meeting_type: "virtual",
     scheduled_date: "",
     duration_minutes: 60,
     location: "",
-    discussion_leader_id: user.id,
-    discussion_leader_name: user.full_name || user.email,
+    discussion_leader_id: user?.id || "",
+    discussion_leader_name: user?.full_name || user?.email || "",
     study_passage: "",
     agenda: []
-  });
+  };
+}
+
+function toLocalDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export default function MeetingScheduler({ group, user, members = [], isLeader = false }) {
+  const [meetings, setMeetings] = useState([]);
+  const [showNewMeeting, setShowNewMeeting] = useState(false);
+  const [editingMeetingId, setEditingMeetingId] = useState(null);
+  const [newMeeting, setNewMeeting] = useState(() => emptyMeeting(user));
 
   useEffect(() => {
     loadMeetings();
@@ -41,7 +53,34 @@ export default function MeetingScheduler({ group, user, members, isLeader = fals
     }
   };
 
-  const handleCreateMeeting = async () => {
+  const resetMeetingForm = () => {
+    setEditingMeetingId(null);
+    setNewMeeting(emptyMeeting(user));
+  };
+
+  const handleDialogChange = (open) => {
+    setShowNewMeeting(open);
+    if (!open) resetMeetingForm();
+  };
+
+  const handleEditMeeting = (meeting) => {
+    setEditingMeetingId(meeting.id);
+    setNewMeeting({
+      title: meeting.title || "",
+      description: meeting.description || "",
+      meeting_type: meeting.meeting_type || "virtual",
+      scheduled_date: toLocalDateTime(meeting.scheduled_date),
+      duration_minutes: meeting.duration_minutes || 60,
+      location: meeting.location || "",
+      discussion_leader_id: meeting.discussion_leader_id || user?.id || "",
+      discussion_leader_name: meeting.discussion_leader_name || "",
+      study_passage: meeting.study_passage || "",
+      agenda: Array.isArray(meeting.agenda) ? meeting.agenda : [],
+    });
+    setShowNewMeeting(true);
+  };
+
+  const handleSaveMeeting = async () => {
     if (!newMeeting.title || !newMeeting.scheduled_date || !newMeeting.discussion_leader_id) {
       toast.error("Title, date, and leader are required");
       return;
@@ -56,28 +95,33 @@ export default function MeetingScheduler({ group, user, members, isLeader = fals
         toast.error('Enter a valid meeting date and time');
         return;
       }
-      await api.community.createGroupMeeting(group.id, {
+      const payload = {
         ...newMeeting,
         scheduled_date: scheduledDate.toISOString(),
-      });
+      };
+      if (editingMeetingId) {
+        await api.community.updateGroupMeeting(group.id, editingMeetingId, payload);
+      } else {
+        await api.community.createGroupMeeting(group.id, payload);
+      }
 
-      toast.success("Meeting scheduled!");
+      toast.success(editingMeetingId ? "Meeting updated!" : "Meeting scheduled!");
       setShowNewMeeting(false);
-      setNewMeeting({
-        title: "",
-        description: "",
-        meeting_type: "virtual",
-        scheduled_date: "",
-        duration_minutes: 60,
-        location: "",
-        discussion_leader_id: user.id,
-        discussion_leader_name: user.full_name || user.email,
-        study_passage: "",
-        agenda: []
-      });
-      loadMeetings();
+      resetMeetingForm();
+      await loadMeetings();
     } catch (error) {
-      toast.error("Failed to schedule meeting");
+      toast.error(error?.message || (editingMeetingId ? "Failed to update meeting" : "Failed to schedule meeting"));
+    }
+  };
+
+  const handleDeleteMeeting = async (meeting) => {
+    if (!window.confirm(`Cancel “${meeting.title}”? Existing RSVPs will also be removed.`)) return;
+    try {
+      await api.community.deleteGroupMeeting(group.id, meeting.id);
+      setMeetings((current) => current.filter((item) => item.id !== meeting.id));
+      toast.success("Meeting canceled");
+    } catch (error) {
+      toast.error(error?.message || "Failed to cancel meeting");
     }
   };
 
@@ -117,16 +161,16 @@ export default function MeetingScheduler({ group, user, members, isLeader = fals
               <Calendar className="w-5 h-5" />
               Meetings
             </CardTitle>
-            {isLeader && <Dialog open={showNewMeeting} onOpenChange={setShowNewMeeting}>
+            {isLeader && <Dialog open={showNewMeeting} onOpenChange={handleDialogChange}>
               <DialogTrigger asChild>
-                <Button size="sm">
+                <Button size="sm" onClick={resetMeetingForm}>
                   <Plus className="w-4 h-4 mr-2" />
                   Schedule Meeting
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                  <DialogTitle>Schedule New Meeting</DialogTitle>
+                  <DialogTitle>{editingMeetingId ? "Edit Meeting" : "Schedule New Meeting"}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>
@@ -222,8 +266,10 @@ export default function MeetingScheduler({ group, user, members, isLeader = fals
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setShowNewMeeting(false)}>Cancel</Button>
-                  <Button onClick={handleCreateMeeting}>Schedule Meeting</Button>
+                  <Button variant="outline" onClick={() => handleDialogChange(false)}>Cancel</Button>
+                  <Button onClick={handleSaveMeeting}>
+                    {editingMeetingId ? "Save Changes" : "Schedule Meeting"}
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>}
@@ -245,7 +291,29 @@ export default function MeetingScheduler({ group, user, members, isLeader = fals
                             <p className="text-sm text-gray-600">{meeting.description}</p>
                           </div>
                         </div>
-                        <Badge>{meeting.meeting_type}</Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge>{meeting.meeting_type}</Badge>
+                          {isLeader && (
+                            <>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label={`Edit ${meeting.title}`}
+                                onClick={() => handleEditMeeting(meeting)}
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label={`Cancel ${meeting.title}`}
+                                onClick={() => handleDeleteMeeting(meeting)}
+                              >
+                                <Trash2 className="w-4 h-4 text-red-600" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
                       <div className="space-y-2 text-sm">
                         <div className="flex items-center gap-2">

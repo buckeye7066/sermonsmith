@@ -40,7 +40,8 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
         ...studyData,
         title: editedTitle || studyData.title || 'Bible Study',
       });
-      toast.success('Study exported to PDF', { description: filename });
+      if (filename) toast.success('Study exported to PDF', { description: filename });
+      else toast.info('PDF export canceled');
     } catch (error) {
       console.error('Error exporting study to PDF:', error);
       toast.error('Failed to export to PDF', {

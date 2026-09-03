@@ -6,8 +6,9 @@
 // loaded as ESM and threw at startup. Renaming to `.cjs` opts those two
 // files back into CommonJS while leaving the rest of the package free to
 // stay ESM-first.
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs/promises');
 const Store = require('electron-store');
 
 const store = new Store();
@@ -143,6 +144,53 @@ ipcMain.handle('update-config', async (_event, config) => {
   }
 });
 
+const MAX_PDF_BYTES = 25 * 1024 * 1024;
+
+function trustedRenderer(event) {
+  try {
+    const sender = new URL(event.senderFrame.url);
+    return sender.protocol === 'file:'
+      || (sender.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(sender.hostname));
+  } catch {
+    return false;
+  }
+}
+
+ipcMain.handle('save-pdf', async (event, payload) => {
+  try {
+    if (!trustedRenderer(event)) return { success: false, error: 'Untrusted renderer.' };
+    const filename = typeof payload?.filename === 'string' ? payload.filename.trim() : '';
+    const data = typeof payload?.data === 'string' ? payload.data : '';
+    if (!filename || filename.length > 120 || path.basename(filename) !== filename
+        || !/^[\\w .()-]+\\.pdf$/i.test(filename)) {
+      return { success: false, error: 'Invalid PDF filename.' };
+    }
+    if (!data || data.length > Math.ceil(MAX_PDF_BYTES * 4 / 3) + 4
+        || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
+      return { success: false, error: 'Invalid PDF data.' };
+    }
+    const bytes = Buffer.from(data, 'base64');
+    if (bytes.length === 0 || bytes.length > MAX_PDF_BYTES
+        || bytes.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      return { success: false, error: 'Invalid PDF document.' };
+    }
+
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showSaveDialog(ownerWindow, {
+      title: 'Save Bible study PDF',
+      defaultPath: path.join(app.getPath('documents'), filename),
+      filters: [{ name: 'PDF document', extensions: ['pdf'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    });
+    if (result.canceled || !result.filePath) return { success: false, canceled: true };
+    await fs.writeFile(result.filePath, bytes, { flag: 'w' });
+    return { success: true, fileName: path.basename(result.filePath) };
+  } catch (error) {
+    console.error('Error saving PDF:', error);
+    return { success: false, error: 'The PDF could not be saved.' };
+  }
+});
+
 app.whenReady().then(() => {
   if (!isFirstRun()) {
     const config = store.get('sermonsmithConfig');
@@ -172,3 +220,4 @@ app.on('window-all-closed', () => {
 process.on('uncaughtException', (error) => {
   console.error('Uncaught exception:', error);
 });
+

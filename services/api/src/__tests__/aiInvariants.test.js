@@ -5,6 +5,7 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createPrismaMock } from './setup.js';
 import { SERVER_AI_INVARIANTS } from '@sermonsmith/shared/aiFeatures';
+import { AI_OUTPUT_CONTRACTS } from '@sermonsmith/shared/aiContracts';
 
 // Server-owned AI invariants.
 //
@@ -78,6 +79,7 @@ function buildApp() {
 
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 const tokenFor = (id) => jwt.sign({ userId: id }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+const sermonContract = AI_OUTPUT_CONTRACTS.find((contract) => contract.feature === 'sermon');
 
 describe('server-owned AI invariants', () => {
   let app;
@@ -112,17 +114,35 @@ describe('server-owned AI invariants', () => {
     const res = await request(app)
       .post('/api/ai/workflows/sermon/invoke')
       .set('Cookie', [`ss_token=${tokenFor('u-i')}`])
-      .send({ input: 'p', structured: true });
+      .send({ input: 'p', output_contract: sermonContract.id });
     expect(res.status).toBe(200);
     const { messages } = createCalls[0];
     expect(messages[0]).toEqual({ role: 'system', content: serverPolicyForAiFeature('sermon') });
     expect(messages[1].role).toBe('user');
     expect(messages[1].content).toMatch(/SOURCE_DATA_JSON/);
     expect(messages[1].content).toContain('"source_material":"p"');
-    // The generic structured-output instruction lands on the data turn, never
-    // on the immutable server policy.
+    // The exact trusted sermon schema lands on the data turn, never on the
+    // immutable server policy.
     expect(messages[0].content).not.toMatch(/JSON/i);
     expect(messages[1].content).toMatch(/JSON/);
+    expect(messages[1].content).toContain('"points"');
+    expect(messages[1].content).toContain('"supporting_scriptures"');
+  });
+
+  it('rejects output contracts that are unknown or belong to another workflow', async () => {
+    const ethicsContract = AI_OUTPUT_CONTRACTS.find((contract) => contract.feature === 'ethics');
+    const unknown = await request(app)
+      .post('/api/ai/workflows/sermon/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-i')}`])
+      .send({ input: 'p', output_contract: 'sermon-not-registered' });
+    const wrongWorkflow = await request(app)
+      .post('/api/ai/workflows/sermon/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-i')}`])
+      .send({ input: 'p', output_contract: ethicsContract.id });
+
+    expect(unknown.status).toBe(400);
+    expect(wrongWorkflow.status).toBe(400);
+    expect(createCalls).toHaveLength(0);
   });
 
   it('/invoke without structured output still leads with the policy', async () => {

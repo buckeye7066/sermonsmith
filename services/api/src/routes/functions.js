@@ -49,6 +49,12 @@ const passageSchema = z.object({
   translations: z.array(z.string().min(1).max(20)).max(5).optional(),
 }).refine((d) => d.book || d.bookCode, { message: 'book or bookCode is required' });
 
+const shareLinkPageSchema = z.object({
+  resourceId: z.string().trim().min(1).max(200),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(100),
+  offset: z.coerce.number().int().min(0).max(1_000_000).optional().default(0),
+});
+
 // ---------------------------------------------------------------------------
 // Bible chapter cache.
 //
@@ -1328,10 +1334,11 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
 // anonymous access is a privacy control, not a Premium benefit.
 router.get('/share-links', authenticateToken, async (req, res, next) => {
   try {
-    const resourceId = String(req.query.resourceId || '').trim();
-    if (!resourceId || resourceId.length > 200) {
-      return res.status(400).json({ message: 'A valid resourceId is required' });
+    const parsed = shareLinkPageSchema.safeParse(req.query || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid share-link page', issues: parsed.error.issues });
     }
+    const { resourceId, limit, offset } = parsed.data;
     const resource = await prisma.entity.findUnique({ where: { id: resourceId } });
     if (!resource || resource.userId !== req.userId) {
       return res.status(404).json({ message: 'Owned resource not found' });
@@ -1343,9 +1350,14 @@ router.get('/share-links', authenticateToken, async (req, res, next) => {
         data: { path: ['resourceId'], equals: resourceId },
       },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: limit + 1,
+      skip: offset,
     });
-    res.json({ links: rows.map(formatOwnedShareLink) });
+    const hasMore = rows.length > limit;
+    res.json({
+      links: rows.slice(0, limit).map(formatOwnedShareLink),
+      next_offset: hasMore ? offset + limit : null,
+    });
   } catch (err) {
     next(err);
   }

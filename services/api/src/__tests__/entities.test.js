@@ -227,6 +227,20 @@ describe('entities — tenant isolation', () => {
     expect(res.body.length).toBe(3);
   });
 
+  it('admin user inventory omits soft-deactivated accounts', async () => {
+    prisma._store.user.push({
+      id: 'u-deactivated', email: 'gone@x', role: 'user', premium: false,
+      deletedAt: new Date(),
+    });
+
+    const res = await request(app)
+      .get('/api/entities/User')
+      .set('Cookie', [`ss_token=${tokenFor('u-admin')}`]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.map((user) => user.id)).not.toContain('u-deactivated');
+  });
+
   it('admin can list all sermons', async () => {
     const res = await request(app)
       .get('/api/entities/Sermon')

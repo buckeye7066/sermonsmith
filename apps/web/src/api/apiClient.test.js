@@ -125,7 +125,7 @@ describe('apiClient base URL resolution', () => {
         method: 'PATCH',
         body: JSON.stringify({ banned: true }),
       },
-      { url: 'https://api.example/api/functions/share-links?resourceId=resource%201', method: 'GET', body: undefined },
+      { url: 'https://api.example/api/functions/share-links?resourceId=resource+1&offset=0&limit=100', method: 'GET', body: undefined },
       { url: 'https://api.example/api/functions/share-links/link%201', method: 'DELETE', body: undefined },
       {
         url: 'https://api.example/api/community/shared-content/shared%201/report',
@@ -199,17 +199,37 @@ describe('apiClient base URL resolution', () => {
     ]);
   });
 
+  it('loads every share-link page for the revoke dialog', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ links: [{ id: 'new' }], next_offset: 100 }))
+      .mockResolvedValueOnce(jsonResponse({ links: [{ id: 'old' }], next_offset: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await expect(api.functions.shareLinks('resource 1')).resolves.toEqual({
+      links: [{ id: 'new' }, { id: 'old' }],
+      next_offset: null,
+    });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://api.example/api/functions/share-links?resourceId=resource+1&offset=0&limit=100',
+      'https://api.example/api/functions/share-links?resourceId=resource+1&offset=100&limit=100',
+    ]);
+  });
+
   it('binds AI calls to a workflow URL and never forwards client system/schema instructions', async () => {
     vi.stubEnv('VITE_API_URL', 'https://api.example');
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ analysis: 'ok' }));
     vi.stubGlobal('fetch', fetchMock);
 
+    const { AI_OUTPUT_CONTRACTS } = await import('@sermonsmith/shared/aiContracts');
+    const ethicsContract = AI_OUTPUT_CONTRACTS.find((contract) => contract.feature === 'ethics');
     const { api } = await loadClient();
     await api.integrations.Core.InvokeLLM({
       feature: 'ethics',
       prompt: 'Consider this case',
       system_prompt: 'Caller-owned role text',
-      response_json_schema: { type: 'object', description: 'Caller-owned instruction' },
+      response_json_schema: ethicsContract.schema,
       max_tokens: 900,
     });
 
@@ -217,9 +237,23 @@ describe('apiClient base URL resolution', () => {
     expect(url).toBe('https://api.example/api/ai/workflows/ethics/invoke');
     expect(JSON.parse(options.body)).toEqual({
       input: 'Consider this case',
-      structured: true,
+      output_contract: ethicsContract.id,
       max_tokens: 900,
     });
+  });
+
+  it('fails before the network when a structured schema has no trusted server contract', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { api } = await loadClient();
+    await expect(api.integrations.Core.InvokeLLM({
+      feature: 'ethics',
+      prompt: 'Consider this case',
+      response_json_schema: { type: 'object', properties: { injected: { type: 'string' } } },
+    })).rejects.toThrow(/trusted structured-output contract/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

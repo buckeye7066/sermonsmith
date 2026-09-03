@@ -55,7 +55,7 @@ export function createPrismaMock() {
         }
         // Prisma's `{ not: x }` — including `{ not: null }` (i.e. IS NOT NULL).
         if ('not' in v && (cur === v.not || (v.not === null && (cur === null || cur === undefined)))) return false;
-      } else if (item[k] !== v) {
+      } else if (v === null ? item[k] != null : item[k] !== v) {
         return false;
       }
     }

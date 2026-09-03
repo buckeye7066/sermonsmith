@@ -49,13 +49,22 @@ export default function Forum() {
   const loadPosts = async () => {
     try {
       // Public forum feed — every member's posts, not just the viewer's own.
-      const allPosts = await api.community.posts();
-      setPosts(allPosts);
       const requestedPostId = new URLSearchParams(window.location.search).get('post');
-      const requestedPost = requestedPostId && allPosts.find((post) => post.id === requestedPostId);
+      const [allPosts, linkedPostResult] = await Promise.all([
+        api.community.posts(),
+        requestedPostId
+          ? api.community.post(requestedPostId)
+            .then((post) => ({ post }))
+            .catch((error) => ({ error }))
+          : Promise.resolve(null),
+      ]);
+      setPosts(allPosts);
+      const requestedPost = linkedPostResult?.post;
       if (requestedPost) {
         setSelectedPost(requestedPost);
         await loadReplies(requestedPost.id);
+      } else if (requestedPostId && linkedPostResult?.error) {
+        toast.error(linkedPostResult.error?.data?.message || 'This forum post is unavailable.');
       }
     } catch (error) {
       console.error('Error loading posts:', error);

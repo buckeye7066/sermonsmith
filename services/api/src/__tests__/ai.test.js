@@ -163,10 +163,10 @@ describe('ai routes — authentication & abuse limits', () => {
   it('accepts only inert workflow input and bounded generation options', () => {
     const parsed = aiInternals.workflowRequestSchema.safeParse({
       input: 'Draft an outline',
-      structured: true,
+      output_contract: 'sermon-8ce791af7263',
     });
     expect(parsed.success).toBe(true);
-    expect(parsed.data.structured).toBe(true);
+    expect(parsed.data.output_contract).toBe('sermon-8ce791af7263');
     expect(aiInternals.workflowRequestSchema.safeParse({ prompt: 'Draft an outline' }).success).toBe(false);
     expect(aiInternals.workflowRequestSchema.safeParse({
       input: 'Draft an outline',

@@ -285,6 +285,31 @@ function safeProfileList(value) {
     .map((entry) => entry.slice(0, 200));
 }
 
+function safePublishedText(value, maxLength = 20_000) {
+  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function normalizePublishedSermonPoints(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((point) => point && typeof point === 'object' && !Array.isArray(point))
+    .slice(0, 20)
+    .map((point) => ({
+      title: safePublishedText(point.title, 500),
+      exegesis: safePublishedText(point.exegesis ?? point.content),
+      illustration: safePublishedText(point.illustration),
+      application: safePublishedText(point.application),
+      supporting_scriptures: (Array.isArray(point.supporting_scriptures) ? point.supporting_scriptures : [])
+        .map((entry) => {
+          if (typeof entry === 'string') return safePublishedText(entry, 300);
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return '';
+          return safePublishedText(entry.reference ?? entry.ref ?? entry.citation, 300);
+        })
+        .filter(Boolean)
+        .slice(0, 30),
+    }));
+}
+
 const DIRECTORY_OPT_IN_FILTER = Object.freeze({
   path: ['profile_privacy', 'community_directory_opt_in'],
   equals: true,
@@ -375,6 +400,13 @@ const groupMeetingSchema = z.object({
   study_passage: z.string().trim().max(300).optional().default(''),
   agenda: z.array(z.string().max(500)).max(30).optional().default([]),
 });
+
+const groupMeetingUpdateSchema = groupMeetingSchema
+  .omit({ discussion_leader_name: true })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one meeting field to update',
+  });
 
 const rsvpSchema = z.object({
   status: z.enum(['attending', 'maybe', 'not_attending']),
@@ -1178,6 +1210,35 @@ router.get('/posts', authenticateToken, requireCommunity, async (req, res, next)
   }
 });
 
+// Resolve a visible thread independently of the 50-row feed window so copied
+// and bookmarked forum URLs remain usable as the community grows.
+router.get('/posts/:id', authenticateToken, requireCommunity, async (req, res, next) => {
+  try {
+    const post = await prisma.entity.findUnique({ where: { id: req.params.id } });
+    if (!post || post.type !== 'CommunityPost' || !isForumPubliclyVisible(post.data || {})) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+    const like = await prisma.communityLike.findUnique({
+      where: {
+        userId_contentId_contentType: {
+          userId: req.userId,
+          contentId: post.id,
+          contentType: 'CommunityPost',
+        },
+      },
+    });
+    const authorNames = await displayNamesForRows([post]);
+    res.json({
+      ...formatPublicEntity(post),
+      user_id: post.userId,
+      user_name: authorNames.get(post.userId) || 'Member',
+      likedByMe: Boolean(like),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/posts', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
     const parsed = communityPostSchema.safeParse(req.body || {});
@@ -1300,6 +1361,9 @@ router.delete('/posts/:id/like', authenticateToken, requireCommunity, async (req
       validateTarget: (post) => {
         if (!post || post.type !== 'CommunityPost') {
           throw Object.assign(new Error('Post not found'), { status: 404 });
+        }
+        if (!isForumPubliclyVisible(post.data || {})) {
+          throw Object.assign(new Error('This post cannot be unliked'), { status: 403 });
         }
       },
     });
@@ -1490,7 +1554,7 @@ function finiteMetric(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function compareSharedSermons(field, a, b) {
+function compareRankedCommunityItems(field, a, b) {
   const metricDifference = finiteMetric(b[field]) - finiteMetric(a[field]);
   if (metricDifference !== 0) return metricDifference;
   const dateDifference = new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
@@ -1520,7 +1584,7 @@ async function rankedSharedSermons(sort) {
     ranked.push(...servable.map(formatPublicEntity));
 
     if (field) {
-      ranked.sort((a, b) => compareSharedSermons(field, a, b));
+      ranked.sort((a, b) => compareRankedCommunityItems(field, a, b));
       ranked.splice(SHARED_SERMON_RESULT_LIMIT);
     } else if (ranked.length >= SHARED_SERMON_RESULT_LIMIT) {
       return ranked.slice(0, SHARED_SERMON_RESULT_LIMIT);
@@ -1531,7 +1595,7 @@ async function rankedSharedSermons(sort) {
   }
 
   return field
-    ? ranked.sort((a, b) => compareSharedSermons(field, a, b)).slice(0, SHARED_SERMON_RESULT_LIMIT)
+    ? ranked.sort((a, b) => compareRankedCommunityItems(field, a, b)).slice(0, SHARED_SERMON_RESULT_LIMIT)
     : ranked.slice(0, SHARED_SERMON_RESULT_LIMIT);
 }
 
@@ -1590,7 +1654,7 @@ router.post('/sermons/share', authenticateToken, requireCommunity, async (req, r
       anchor_passage: source.data?.anchor_passage || '',
       big_idea: source.data?.big_idea || '',
       introduction: source.data?.introduction || '',
-      points: Array.isArray(source.data?.points) ? source.data.points : [],
+      points: normalizePublishedSermonPoints(source.data?.points),
       conclusion: source.data?.conclusion || '',
       theological_notes: source.data?.theological_notes || '',
       denomination,
@@ -2427,36 +2491,135 @@ router.get('/study-groups/:id/meetings', authenticateToken, requireCommunity, as
 
 router.post('/study-groups/:id/meetings', authenticateToken, requireCommunity, async (req, res, next) => {
   try {
-    await requireGroupLeader(req.params.id, req.userId);
     const parsed = groupMeetingSchema.safeParse(req.body || {});
     if (!parsed.success) {
       return res.status(400).json({ message: 'Invalid group meeting', issues: parsed.error.issues });
     }
-    const discussionLeader = await prisma.communityGroupMember.findUnique({
-      where: {
-        groupId_userId: {
-          groupId: req.params.id,
-          userId: parsed.data.discussion_leader_id,
+    const row = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      await requireGroupLeader(req.params.id, req.userId, tx);
+      const discussionLeader = await tx.communityGroupMember.findUnique({
+        where: {
+          groupId_userId: {
+            groupId: req.params.id,
+            userId: parsed.data.discussion_leader_id,
+          },
         },
-      },
-    });
-    if (!discussionLeader) {
-      return res.status(400).json({ message: 'Discussion leader must be a current group member' });
-    }
-    const row = await prisma.entity.create({
-      data: {
-        type: 'GroupMeeting',
-        userId: req.userId,
+      });
+      if (!discussionLeader) {
+        throw Object.assign(new Error('Discussion leader must be a current group member'), { status: 400 });
+      }
+      return tx.entity.create({
         data: {
-          ...parsed.data,
-          scheduled_date: new Date(parsed.data.scheduled_date).toISOString(),
-          group_id: req.params.id,
-          status: 'scheduled',
-          created_date: new Date().toISOString(),
+          type: 'GroupMeeting',
+          userId: req.userId,
+          data: {
+            ...parsed.data,
+            discussion_leader_name: safeCommunityDisplayName(discussionLeader.userName),
+            scheduled_date: new Date(parsed.data.scheduled_date).toISOString(),
+            group_id: req.params.id,
+            status: 'scheduled',
+            created_date: new Date().toISOString(),
+          },
         },
-      },
+      });
+    });
+    await recordCommunityAudit('community.group_meeting_create', req.userId, 'GroupMeeting', row.id, {
+      groupId: req.params.id,
     });
     res.status(201).json(formatEntity(row));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/study-groups/:id/meetings/:meetingId', authenticateToken, requireCommunity, async (req, res, next) => {
+  try {
+    const parsed = groupMeetingUpdateSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid group meeting update', issues: parsed.error.issues });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // Group mutations always lock group first, then the child entity. Keeping
+      // this order consistent avoids deadlocks with cancellation and teardown.
+      await lockCommunityEntity(tx, req.params.id);
+      await lockCommunityEntity(tx, req.params.meetingId);
+      await requireGroupLeader(req.params.id, req.userId, tx);
+
+      const meeting = await tx.entity.findUnique({ where: { id: req.params.meetingId } });
+      if (!meeting || meeting.type !== 'GroupMeeting' || meeting.data?.group_id !== req.params.id) {
+        throw Object.assign(new Error('Group meeting not found'), { status: 404 });
+      }
+
+      const patch = { ...parsed.data };
+      if (patch.scheduled_date) {
+        patch.scheduled_date = new Date(patch.scheduled_date).toISOString();
+      }
+      if (patch.discussion_leader_id) {
+        const discussionLeader = await tx.communityGroupMember.findUnique({
+          where: {
+            groupId_userId: {
+              groupId: req.params.id,
+              userId: patch.discussion_leader_id,
+            },
+          },
+        });
+        if (!discussionLeader) {
+          throw Object.assign(new Error('Discussion leader must be a current group member'), { status: 400 });
+        }
+        patch.discussion_leader_name = safeCommunityDisplayName(discussionLeader.userName);
+      }
+
+      return tx.entity.update({
+        where: { id: meeting.id },
+        data: {
+          data: {
+            ...(meeting.data || {}),
+            ...patch,
+            group_id: req.params.id,
+            updated_date: new Date().toISOString(),
+          },
+        },
+      });
+    });
+
+    await recordCommunityAudit('community.group_meeting_update', req.userId, 'GroupMeeting', updated.id, {
+      groupId: req.params.id,
+    });
+    res.json(formatEntity(updated));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Cancellation is a lifecycle action: an authenticated leader must still be
+// able to remove an obsolete meeting and its RSVPs after paid access expires.
+router.delete('/study-groups/:id/meetings/:meetingId', authenticateToken, async (req, res, next) => {
+  try {
+    const removed = await prisma.$transaction(async (tx) => {
+      await lockCommunityEntity(tx, req.params.id);
+      await lockCommunityEntity(tx, req.params.meetingId);
+      await requireGroupLeader(req.params.id, req.userId, tx);
+
+      const meeting = await tx.entity.findUnique({ where: { id: req.params.meetingId } });
+      if (!meeting || meeting.type !== 'GroupMeeting' || meeting.data?.group_id !== req.params.id) {
+        throw Object.assign(new Error('Group meeting not found'), { status: 404 });
+      }
+      await tx.entity.deleteMany({
+        where: {
+          type: 'MeetingAttendance',
+          data: { path: ['meeting_id'], equals: meeting.id },
+        },
+      });
+      await tx.entity.delete({ where: { id: meeting.id } });
+      return meeting;
+    });
+
+    await recordCommunityAudit('community.group_meeting_delete', req.userId, 'GroupMeeting', removed.id, {
+      groupId: req.params.id,
+    });
+    res.status(204).end();
   } catch (err) {
     next(err);
   }
@@ -2736,32 +2899,64 @@ router.delete('/reading-plans/:id/publication', authenticateToken, async (req, r
   }
 });
 
-router.get('/reading-plans', authenticateToken, requireCommunity, async (req, res, next) => {
-  try {
+const READING_PLAN_RESULT_LIMIT = 50;
+const READING_PLAN_SCAN_PAGE_SIZE = 250;
+
+function readingPlanSortField(sort) {
+  if (sort === 'rating') return 'average_rating';
+  if (sort === 'popular') return 'followers_count';
+  return null;
+}
+
+async function rankedPublicReadingPlans(sort) {
+  const field = readingPlanSortField(sort);
+  const ranked = [];
+  let offset = 0;
+
+  // Rating/follower counters live in JSON and cannot be ordered reliably by
+  // Prisma before `take`. Scan bounded pages, validate every public candidate,
+  // and retain only the best 50 so an older high-ranked plan cannot disappear
+  // behind 50 newer low-ranked rows.
+  while (true) {
     const rows = await prisma.entity.findMany({
       where: { type: 'ReadingPlan', data: { path: ['is_public'], equals: true } },
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take: READING_PLAN_SCAN_PAGE_SIZE,
+      skip: offset,
       select: { id: true, userId: true, data: true, createdAt: true, updatedAt: true },
     });
-    // Fail closed: omit any public plan whose CURRENT references no longer verify.
+    if (!rows.length) break;
+
     const servable = await serveExposableRows('ReadingPlan', rows);
-    const owners = new Map();
-    await Promise.all(servable.map(async (row) => {
-      if (!owners.has(row.userId)) owners.set(row.userId, await displayNameForUser(row.userId));
-    }));
-    const formatted = servable.map((row) => ({
+    ranked.push(...servable.map((row) => ({
       ...formatPublicEntity(row),
       creator_id: row.userId,
-      creator_name: owners.get(row.userId) || 'Member',
-    }));
-    const sort = String(req.query.sort || 'newest');
-    if (sort === 'rating') {
-      formatted.sort((a, b) => Number(b.average_rating || 0) - Number(a.average_rating || 0));
-    } else if (sort === 'popular') {
-      formatted.sort((a, b) => Number(b.followers_count || 0) - Number(a.followers_count || 0));
+    })));
+
+    if (field) {
+      ranked.sort((a, b) => compareRankedCommunityItems(field, a, b));
+      ranked.splice(READING_PLAN_RESULT_LIMIT);
+    } else if (ranked.length >= READING_PLAN_RESULT_LIMIT) {
+      break;
     }
-    res.json(formatted);
+
+    offset += rows.length;
+    if (rows.length < READING_PLAN_SCAN_PAGE_SIZE) break;
+  }
+
+  const finalists = field
+    ? ranked.sort((a, b) => compareRankedCommunityItems(field, a, b)).slice(0, READING_PLAN_RESULT_LIMIT)
+    : ranked.slice(0, READING_PLAN_RESULT_LIMIT);
+  const owners = await displayNamesForRows(finalists.map((plan) => ({ userId: plan.creator_id })));
+  return finalists.map((plan) => ({
+    ...plan,
+    creator_name: owners.get(plan.creator_id) || 'Member',
+  }));
+}
+
+router.get('/reading-plans', authenticateToken, requireCommunity, async (req, res, next) => {
+  try {
+    res.json(await rankedPublicReadingPlans(String(req.query.sort || 'newest')));
   } catch (err) {
     next(err);
   }

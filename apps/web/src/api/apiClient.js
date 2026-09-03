@@ -8,6 +8,7 @@
  */
 
 import { coerceToSchema } from '@/lib/aiStructured';
+import { outputContractFor } from '@sermonsmith/shared/aiContracts';
 
 // ---------------------------------------------------------------------------
 // API base URL resolution.
@@ -463,9 +464,15 @@ function serverWorkflowRequest(p, { streaming = false } = {}) {
   // sites. The API still receives an explicit workflow URL and never trusts a
   // body label; source text cannot alter the selected workflow.
   const workflow = String(p?.feature || 'sermon').trim().toLowerCase();
+  const outputContract = p?.response_json_schema
+    ? outputContractFor(workflow, p.response_json_schema)
+    : null;
+  if (p?.response_json_schema && !outputContract) {
+    throw new Error(`No trusted structured-output contract is registered for the ${workflow} workflow.`);
+  }
   const body = {
     input: p?.prompt,
-    structured: Boolean(p?.response_json_schema),
+    ...(outputContract ? { output_contract: outputContract } : {}),
     ...(p?.model !== undefined ? { model: p.model } : {}),
     ...(p?.max_tokens !== undefined ? { max_tokens: p.max_tokens } : {}),
     ...(p?.temperature !== undefined ? { temperature: p.temperature } : {}),
@@ -673,7 +680,26 @@ const functions = {
       retry: RETRYABLE_FUNCTIONS.has(name),
       body: JSON.stringify(params || {}),
     }),
-  shareLinks: (resourceId) => apiFetch(`/api/functions/share-links?resourceId=${encodeURIComponent(resourceId)}`),
+  shareLinkPage: (resourceId, { offset = 0, limit = 100 } = {}) => {
+    const query = new URLSearchParams({ resourceId, offset: String(offset), limit: String(limit) });
+    return apiFetch(`/api/functions/share-links?${query}`);
+  },
+  shareLinks: async (resourceId) => {
+    const links = [];
+    let offset = 0;
+    while (offset !== null) {
+      const page = await functions.shareLinkPage(resourceId, { offset, limit: 100 });
+      // Rolling compatibility with an older API that returned a bare array.
+      if (Array.isArray(page)) return { links: [...links, ...page], next_offset: null };
+      links.push(...(Array.isArray(page?.links) ? page.links : []));
+      const next = Number.isSafeInteger(page?.next_offset) ? page.next_offset : null;
+      if (next !== null && next <= offset) {
+        throw new Error('Share-link pagination returned an invalid cursor.');
+      }
+      offset = next;
+    }
+    return { links, next_offset: null };
+  },
   revokeShareableLink: (id) => apiFetch(`/api/functions/share-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
@@ -786,6 +812,7 @@ const community = {
   deleteComment: (id) => apiFetch(`/api/community/comments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   likePost: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/like`, { method: 'POST' }),
   unlikePost: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/like`, { method: 'DELETE' }),
+  post: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}`),
   postReplies: (postId) => apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/replies`),
   replyToPost: (postId, payload) =>
     apiFetch(`/api/community/posts/${encodeURIComponent(postId)}/reply`, {
@@ -838,6 +865,14 @@ const community = {
     method: 'POST',
     body: JSON.stringify(payload || {}),
   }),
+  updateGroupMeeting: (groupId, meetingId, payload) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/meetings/${encodeURIComponent(meetingId)}`,
+    { method: 'PATCH', body: JSON.stringify(payload || {}) },
+  ),
+  deleteGroupMeeting: (groupId, meetingId) => apiFetch(
+    `/api/community/study-groups/${encodeURIComponent(groupId)}/meetings/${encodeURIComponent(meetingId)}`,
+    { method: 'DELETE' },
+  ),
   rsvpGroupMeeting: (groupId, meetingId, status) => apiFetch(
     `/api/community/study-groups/${encodeURIComponent(groupId)}/meetings/${encodeURIComponent(meetingId)}/rsvp`,
     { method: 'POST', body: JSON.stringify({ status }) },

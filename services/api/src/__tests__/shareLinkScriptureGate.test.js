@@ -122,6 +122,35 @@ describe('share-link Scripture gate (createShareableLink + /share/:slug)', () =>
     expect(prisma._store.auditLog.some((row) => row.action === 'sharing.link_revoke')).toBe(true);
   });
 
+  it('paginates every owned share link instead of truncating after 100', async () => {
+    seedResource('res-many-links', 'Sermon', 'u-owner', { title: 'Many links', anchor_passage: 'John 3:16' });
+    for (let index = 0; index < 105; index += 1) {
+      const createdAt = new Date(Date.UTC(2026, 8, 2, 12, index));
+      prisma._store.entity.push({
+        id: `share-link-${index}`,
+        type: 'SharedLink',
+        userId: 'u-owner',
+        data: { resourceId: 'res-many-links', slug: `slug-${index}`, title: `Link ${index}` },
+        createdAt,
+        updatedAt: createdAt,
+      });
+    }
+
+    const first = await request(app)
+      .get('/api/functions/share-links?resourceId=res-many-links&offset=0&limit=100')
+      .set('Cookie', asUser('u-owner'));
+    const second = await request(app)
+      .get('/api/functions/share-links?resourceId=res-many-links&offset=100&limit=100')
+      .set('Cookie', asUser('u-owner'));
+
+    expect(first.status).toBe(200);
+    expect(first.body.links).toHaveLength(100);
+    expect(first.body.next_offset).toBe(100);
+    expect(second.body.links).toHaveLength(5);
+    expect(second.body.next_offset).toBeNull();
+    expect(new Set([...first.body.links, ...second.body.links].map((link) => link.id)).size).toBe(105);
+  });
+
   it('rejects a resourceType that does not match the stored resource type', async () => {
     seedResource('res-mix', 'BibleStudy', 'u-owner', { title: 'Study', key_verses: ['John 3:16'] });
     const res = await request(app)

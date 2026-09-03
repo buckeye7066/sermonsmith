@@ -7,6 +7,10 @@ import {
   AI_FEATURES,
   isRegisteredAiFeature,
 } from '@sermonsmith/shared/aiFeatures';
+import {
+  defaultOutputContractForFeature,
+  outputSchemaForContract,
+} from '@sermonsmith/shared/aiContracts';
 import { composePeerNotesForAgent, deriveLessonsFromAudit } from '../services/agentMesh.js';
 import { extractScriptureRefsDeep, extractScriptureRefsJoined, validateScriptureRefs, CANONS } from '@sermonsmith/shared/scripture';
 import {
@@ -267,6 +271,10 @@ const imageRequestSchema = z.object({
 // fail closed so the generic contract cannot silently creep back in.
 const workflowRequestSchema = z.object({
   input: z.string().trim().min(1).max(MAX_PROMPT_CHARS),
+  output_contract: z.string().trim().min(1).max(100).optional(),
+  // Compatibility for the immediately preceding web bundle. It resolves only
+  // when a workflow has one unambiguous trusted contract; the server never
+  // falls back to a caller-owned or generic schema.
   structured: z.boolean().optional().default(false),
   model: z.string().max(100).optional(),
   max_tokens: z.union([z.number(), z.string()]).optional(),
@@ -274,7 +282,21 @@ const workflowRequestSchema = z.object({
   stream_result: z.boolean().optional(),
 }).strict();
 
-const SERVER_JSON_OBJECT_SCHEMA = Object.freeze({ type: 'object' });
+function trustedOutputSchema(feature, request) {
+  const contractId = request.output_contract
+    || (request.structured ? defaultOutputContractForFeature(feature) : null);
+  if (!contractId) {
+    if (request.structured) {
+      throw Object.assign(new Error('This workflow requires an explicit structured-output contract. Refresh the app and retry.'), { status: 409 });
+    }
+    return undefined;
+  }
+  const schema = outputSchemaForContract(feature, contractId);
+  if (!schema) {
+    throw Object.assign(new Error('Unknown structured-output contract for this workflow.'), { status: 400 });
+  }
+  return schema;
+}
 
 export function workflowInputMessage(feature, input) {
   const definition = AI_FEATURES[feature];
@@ -748,7 +770,7 @@ async function handleInvoke(req, res, next) {
       });
     }
     const { input: prompt, model, max_tokens, temperature } = parsed.data;
-    const response_json_schema = parsed.data.structured ? SERVER_JSON_OBJECT_SCHEMA : undefined;
+    const response_json_schema = trustedOutputSchema(feature, parsed.data);
     const response_validation_schema = req.legacyResponseSchema || response_json_schema;
 
     if (rejectUnentitledAiFeature(req, res, feature)) return;
@@ -1025,7 +1047,7 @@ async function handleStream(req, res, next) {
       temperature,
       stream_result,
     } = parsed.data;
-    const response_json_schema = parsed.data.structured ? SERVER_JSON_OBJECT_SCHEMA : undefined;
+    const response_json_schema = trustedOutputSchema(feature, parsed.data);
     const response_validation_schema = req.legacyResponseSchema || response_json_schema;
     responseSchema = response_json_schema;
 
@@ -1393,6 +1415,7 @@ export const __test = {
   imageSrcFromResponse,
   screenStreamedScripture,
   violatesStringSchema,
+  trustedOutputSchema,
 };
 
 export default router;

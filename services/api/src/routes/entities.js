@@ -586,11 +586,12 @@ router.post('/:type/filter', authenticateToken, async (req, res, next) => {
       // Listing users is admin-only.
       if (!isAdmin(req)) return res.status(403).json({ message: 'Admin access required' });
       const users = await prisma.user.findMany({
+        where: { deletedAt: null },
         select: {
           id: true, email: true, name: true, full_name: true, avatar: true,
           role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, profile: true, onboarding_completed: true,
           special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
-          is_banned: true, banned_at: true,
+          is_banned: true, banned_at: true, deletedAt: true,
         },
         orderBy,
         take,
@@ -746,11 +747,12 @@ router.get('/:type', authenticateToken, async (req, res, next) => {
     if (req.params.type === 'User') {
       if (!isAdmin(req)) return res.status(403).json({ message: 'Admin access required' });
       const users = await prisma.user.findMany({
+        where: { deletedAt: null },
         select: {
           id: true, email: true, name: true, full_name: true, avatar: true,
           role: true, premium: true, premium_until: true, promotionalEmail: true, promotionalPhone: true, profile: true, onboarding_completed: true,
           special_message: true, last_seen_version: true, createdAt: true, updatedAt: true,
-          is_banned: true, banned_at: true,
+          is_banned: true, banned_at: true, deletedAt: true,
         },
         orderBy: { createdAt: 'desc' },
         take,
