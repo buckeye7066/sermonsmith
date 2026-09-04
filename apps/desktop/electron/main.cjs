@@ -175,7 +175,7 @@ ipcMain.handle('save-pdf', async (event, payload) => {
     const filename = typeof payload?.filename === 'string' ? payload.filename.trim() : '';
     const data = typeof payload?.data === 'string' ? payload.data : '';
     if (!filename || filename.length > 120 || path.basename(filename) !== filename
-        || !/^[\\w .()-]+\\.pdf$/i.test(filename)) {
+        || !/^[\w .()-]+\.pdf$/i.test(filename)) {
       return { success: false, error: 'Invalid PDF filename.' };
     }
     if (!data || data.length > Math.ceil(MAX_PDF_BYTES * 4 / 3) + 4
