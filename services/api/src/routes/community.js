@@ -1371,7 +1371,11 @@ router.delete('/posts/:id/like', authenticateToken, requireCommunity, async (req
     });
     // Unlike responses contain only the interaction state needed by the UI.
     // Never re-serialize a forum body from this lifecycle endpoint.
-    res.json({ likes_count: result.target.data?.likes_count || 0, likedByMe: false });
+    res.json({
+      id: result.target.id,
+      likes_count: result.target.data?.likes_count || 0,
+      likedByMe: false,
+    });
   } catch (err) {
     next(err);
   }
