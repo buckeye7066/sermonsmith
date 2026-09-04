@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { env } from 'node:process';
-import viteConfig, {
+import {
   DEFAULT_DEV_API_URL,
   developmentServerConfig,
+  resolveDevelopmentApiUrl,
 } from '../vite.config.js';
 
 describe('development server contract', () => {
@@ -20,14 +20,13 @@ describe('development server contract', () => {
     });
   });
 
-  it('accepts a development API override without mutating the test process environment', () => {
-    const before = env.SERMONSMITH_DEV_API_URL;
+  it('uses the Vite-loaded local override without mutating process environment', () => {
     const target = 'http://127.0.0.1:9999';
 
-    expect(developmentServerConfig(target).proxy['/api'].target).toBe(target);
-    expect(env.SERMONSMITH_DEV_API_URL).toBe(before);
-    expect(viteConfig.server.proxy['/api'].target).toBe(
-      before || DEFAULT_DEV_API_URL,
-    );
+    expect(resolveDevelopmentApiUrl({ SERMONSMITH_DEV_API_URL: target })).toBe(target);
+    expect(resolveDevelopmentApiUrl({})).toBe(DEFAULT_DEV_API_URL);
+    expect(developmentServerConfig(resolveDevelopmentApiUrl({
+      SERMONSMITH_DEV_API_URL: target,
+    })).proxy['/api'].target).toBe(target);
   });
 });
