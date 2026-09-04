@@ -32,3 +32,13 @@ test('recognizes only the old first-run URL as needing a review', () => {
     assert.equal(requiresLocalApiUrlReview({ apiUrl }), false);
   }
 });
+
+
+test('first-run UI delegates legacy detection to the canonical main-process predicate', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const firstRun = fs.readFileSync(path.join(__dirname, 'first-run.html'), 'utf8');
+
+  assert.match(firstRun, /needsLocalApiUrlReview\(\)/);
+  assert.doesNotMatch(firstRun, /config\?\.apiUrl === 'http:\/\/localhost:3001'/);
+});
