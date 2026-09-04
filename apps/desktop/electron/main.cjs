@@ -142,6 +142,10 @@ ipcMain.handle('get-config', async () => {
   return getStoredConfig();
 });
 
+ipcMain.handle('needs-local-api-url-review', async () => (
+  requiresLocalApiUrlReview(getStoredConfig())
+));
+
 ipcMain.handle('update-config', async (_event, config) => {
   try {
     if (!isValidConfig(config)) {
