@@ -485,7 +485,7 @@ describe('entities — allowlist (regression for broken creates)', () => {
       .set('Cookie', [`ss_token=${tokenFor('u-admin')}`])
       .send({ is_banned: true, banned_at: new Date().toISOString() });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
     expect(prisma._store.user.find((row) => row.id === 'u-alice').is_banned).not.toBe(true);
   });
 });
