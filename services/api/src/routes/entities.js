@@ -823,6 +823,12 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
       return res.status(403).json({ message: `'${req.params.type}' must be updated through its dedicated API.` });
     }
     if (req.params.type === 'User') {
+      // Suspension revokes active access and must go through the dedicated
+      // lifecycle endpoint, which also invalidates existing sessions. Returning
+      // success after stripping these fields hid a failed admin action.
+      if (Object.hasOwn(req.body || {}, 'is_banned') || Object.hasOwn(req.body || {}, 'banned_at')) {
+        return res.status(409).json({ message: 'User suspension must use /api/auth/users/:id/ban.' });
+      }
       return requireAdmin(req, res, async () => {
         try {
           // Block client-supplied role/premium/email/password from a
@@ -1022,11 +1028,10 @@ router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
       return res.status(403).json({ message: `'${req.params.type}' must be deleted through its dedicated API.` });
     }
     if (req.params.type === 'User') {
-      return requireAdmin(req, res, async () => {
-        try {
-          await prisma.user.delete({ where: { id: req.params.id } });
-          res.status(204).send();
-        } catch (err) { next(err); }
+      // Account deletion has ownership-transfer and billing-cleanup semantics.
+      // The generic entity endpoint cannot safely perform that lifecycle work.
+      return res.status(409).json({
+        message: 'User deletion must use /api/auth/users/:id so lifecycle cleanup runs.',
       });
     }
 
