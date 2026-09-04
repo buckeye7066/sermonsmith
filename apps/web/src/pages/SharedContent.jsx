@@ -11,9 +11,17 @@ import { Heart, Bookmark, TrendingUp, BookOpen, Loader2, Share2, Crown } from "l
 import { toast } from "sonner";
 
 export function shareLinkSlugFromLocation({ hash = '', search = '' } = {}) {
-  const queryIndex = hash.indexOf('?');
-  const query = queryIndex >= 0 ? hash.slice(queryIndex + 1) : search;
-  return new URLSearchParams(query).get('link');
+  // Desktop navigation keeps route parameters after a '#/' hash. A regular
+  // browser fragment is not route state, so only let it override page params
+  // when it actually carries a share link.
+  if (hash.startsWith('#/')) {
+    const queryIndex = hash.indexOf('?');
+    if (queryIndex >= 0) {
+      const hashSlug = new URLSearchParams(hash.slice(queryIndex + 1)).get('link');
+      if (hashSlug) return hashSlug;
+    }
+  }
+  return new URLSearchParams(search).get('link');
 }
 
 export function pointPreviewText(point) {
