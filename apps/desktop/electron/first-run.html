@@ -39,6 +39,7 @@
     button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
     .error { color: #e74c3c; font-size: 13px; margin-top: 10px; text-align: center; }
     .success { color: #27ae60; font-size: 13px; margin-top: 10px; text-align: center; }
+    .info { color: #73510d; background: #fff7d6; border: 1px solid #f0d98a; border-radius: 6px; font-size: 12px; line-height: 1.45; margin: 0 0 16px; padding: 10px; }
   </style>
 </head>
 <body>
@@ -60,6 +61,7 @@
     <p class="subtitle">Connect to your SermonSmith API server</p>
 
     <form id="setupForm">
+      <div class="info" id="existingConfigNotice" hidden></div>
       <div class="form-group">
         <label for="apiUrl">API Server URL</label>
         <input
@@ -67,7 +69,7 @@
           id="apiUrl"
           name="apiUrl"
           placeholder="https://your-api.up.railway.app"
-          value="http://localhost:3001"
+          value="http://localhost:3101"
           required
         />
         <div class="help-text">The URL of your SermonSmith backend (Railway or local)</div>
@@ -82,6 +84,25 @@
     const form = document.getElementById('setupForm');
     const submitBtn = document.getElementById('submitBtn');
     const message = document.getElementById('message');
+    const apiUrlInput = document.getElementById('apiUrl');
+    const existingConfigNotice = document.getElementById('existingConfigNotice');
+
+    // A persisted localhost:3001 value may have been an explicit backend
+    // choice. Let its owner keep or change it instead of silently rewriting
+    // the configuration during the local-default upgrade.
+    Promise.all([
+      window.electron.getConfig(),
+      window.electron.needsLocalApiUrlReview(),
+    ]).then(([config, needsLocalApiUrlReview]) => {
+      if (needsLocalApiUrlReview && config?.apiUrl) {
+        apiUrlInput.value = config.apiUrl;
+        existingConfigNotice.hidden = false;
+        existingConfigNotice.textContent =
+          `This desktop profile currently uses ${config.apiUrl}. The new local default is http://localhost:3101. Keep the current URL only if your backend is configured for it; otherwise change this URL to 3101 before continuing.`;
+      }
+    }).catch(() => {
+      // A missing bridge is handled by the existing submission error path.
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();

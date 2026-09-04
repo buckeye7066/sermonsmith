@@ -9,10 +9,20 @@ import {
 
 // Singleton — avoids spawning multiple connection pools.
 const globalForPrisma = globalThis;
-export const prisma = globalForPrisma.__prisma || (globalForPrisma.__prisma = new PrismaClient({
+const prismaOptions = {
   log: process.env.NODE_ENV === 'production' ? ['warn', 'error'] : ['warn', 'error'],
-  datasources: { db: { url: process.env.DATABASE_URL } },
-}));
+};
+
+// Passing `{ datasources: { db: { url: undefined } } }` makes Prisma throw in
+// its constructor. That prevented even the dependency-free `/healthz` route
+// from starting on a fresh development checkout. Omit the override when no
+// URL was supplied: liveness can then answer, while `/readyz` and every
+// database-backed route still fail closed until PostgreSQL is configured.
+if (process.env.DATABASE_URL) {
+  prismaOptions.datasources = { db: { url: process.env.DATABASE_URL } };
+}
+
+export const prisma = globalForPrisma.__prisma || (globalForPrisma.__prisma = new PrismaClient(prismaOptions));
 
 const JWT_OPTS = { algorithms: ['HS256'] };
 

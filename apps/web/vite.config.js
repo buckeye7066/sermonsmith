@@ -1,14 +1,41 @@
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
+export const DEFAULT_DEV_API_URL = 'http://127.0.0.1:3101'
+
+// Keeping the target as an argument makes the default/override contract testable
+// without mutating process.env. Vite receives the environment-derived value only
+// when this module builds its real development-server configuration.
+export function resolveDevelopmentApiUrl(env = {}) {
+  return env.SERMONSMITH_DEV_API_URL || DEFAULT_DEV_API_URL
+}
+
+export function developmentServerConfig(apiTarget = DEFAULT_DEV_API_URL) {
+  return {
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
-  },
+    proxy: {
+      '/api': {
+        target: apiTarget,
+        changeOrigin: false,
+      },
+    },
+  }
+}
+
+export default defineConfig(({ mode }) => {
+  // Vite loads .env files after this module is imported. Read the mode-aware
+  // environment here so SERMONSMITH_DEV_API_URL in apps/web/.env controls the
+  // proxy as the local setup guide promises.
+  const env = loadEnv(mode, process.cwd(), '');
+
+  return {
+  plugins: [react()],
+  // Keep a zero-config checkout usable without baking a development API URL
+  // into the renderer. Production builds ignore this dev-server proxy.
+  server: developmentServerConfig(resolveDevelopmentApiUrl(env)),
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -62,4 +89,5 @@ export default defineConfig({
       },
     },
   },
+}
 })
