@@ -95,6 +95,36 @@ describe('share-link Scripture gate (createShareableLink + /share/:slug)', () =>
     expect(res.body.slug).toMatch(/^sermon-[A-Za-z0-9_-]{24}$/);
   });
 
+  it('requires the stored resource entitlement to mint a new share link', async () => {
+    seedResource('ethics-free', 'EthicsAnalysis', 'u-owner', { title: 'Private analysis' });
+
+    const denied = await request(app)
+      .post('/api/functions/createShareableLink')
+      .set('Cookie', asUser('u-owner'))
+      .send({ resourceType: 'EthicsAnalysis', resourceId: 'ethics-free' });
+
+    expect(denied.status).toBe(402);
+    expect(denied.body.requiredEntitlement).toBe('ethics');
+    expect(prisma._store.entity.some((entity) => entity.type === 'SharedLink')).toBe(false);
+
+    prisma._store.user.find((user) => user.id === 'u-owner').premium = true;
+    const allowed = await request(app)
+      .post('/api/functions/createShareableLink')
+      .set('Cookie', asUser('u-owner'))
+      .send({ resourceType: 'EthicsAnalysis', resourceId: 'ethics-free' });
+    expect(allowed.status).toBe(200);
+  });
+
+  it('lets an expired owner revoke an existing gated-resource link', async () => {
+    seedResource('ethics-revoke', 'EthicsAnalysis', 'u-owner', { title: 'Private analysis' });
+    seedLink('ethics-link', 'u-owner', { slug: 'ethics-slug', resourceId: 'ethics-revoke' });
+
+    const revoked = await request(app)
+      .delete('/api/functions/share-links/ethics-link')
+      .set('Cookie', asUser('u-owner'));
+    expect(revoked.status).toBe(204);
+  });
+
   it('lets only the owner list and revoke a share link', async () => {
     seedResource('res-revoke', 'Sermon', 'u-owner', { title: 'Revoke', anchor_passage: 'John 3:16' });
     const created = await request(app)
