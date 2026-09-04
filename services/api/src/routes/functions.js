@@ -21,7 +21,12 @@ import {
 } from '../services/premiumTranslations.js';
 import { buildVerseWordingResult } from '../services/verseWording.js';
 import { chaptersInBook, versesInChapter } from '@sermonsmith/shared/scripture';
-import { ACCOUNT_TIERS, accountTierFor } from '../lib/entitlements.js';
+import {
+  ACCOUNT_TIERS,
+  accountTierFor,
+  entitlementForEntityType,
+  requestHasEntitlement,
+} from '../lib/entitlements.js';
 
 const router = Router();
 
@@ -1283,6 +1288,18 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
     // disagrees with it must not decide how (or whether) the resource is gated.
     if (resourceType !== resource.type) {
       return res.status(400).json({ message: 'resourceType does not match the resource.' });
+    }
+
+    // Listing and revoking an existing link remain lifecycle controls for an
+    // expired account, but minting a new anonymous exposure is a fresh use of
+    // the underlying feature. Always derive that decision from the stored
+    // entity type rather than the caller-supplied label.
+    const requiredEntitlement = entitlementForEntityType(resource.type);
+    if (requiredEntitlement && !requestHasEntitlement(req, requiredEntitlement)) {
+      return res.status(402).json({
+        message: 'Premium subscription required',
+        requiredEntitlement,
+      });
     }
 
     // Scripture gate for the exposure surface: a share link makes the resource
