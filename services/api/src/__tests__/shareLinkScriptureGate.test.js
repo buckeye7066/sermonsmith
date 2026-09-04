@@ -257,6 +257,8 @@ describe('share-link Scripture gate (createShareableLink + /share/:slug)', () =>
 
   it('refuses to mint / serve a share link for an invalid SharedSermon copy', async () => {
     // A legacy/forged SharedSermon carrying a fabricated reference.
+    // Sharing this stored Premium type must first satisfy its entitlement gate.
+    prisma._store.user.find((user) => user.id === 'u-owner').premium = true;
     seedResource('ss-bad', 'SharedSermon', 'u-owner', { title: 'Copy', anchor_passage: 'Hezekiah 4:5' });
     const create = await request(app)
       .post('/api/functions/createShareableLink')
