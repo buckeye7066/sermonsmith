@@ -343,6 +343,37 @@ describe('community routes', () => {
     ]));
   });
 
+  it('does not report a reply through a mismatched parent post', async () => {
+    prisma._store.entity.push(
+      {
+        id: 'actual-parent', type: 'CommunityPost', userId: 'u-owner',
+        data: { title: 'Actual parent', status: 'active' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'different-parent', type: 'CommunityPost', userId: 'u-owner',
+        data: { title: 'Different parent', status: 'active' },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'parent-bound-reply', type: 'CommunityReply', userId: 'u-owner',
+        data: { post_id: 'actual-parent', content: 'Reply', status: 'active', reported_count: 0 },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const response = await request(app)
+      .post('/api/community/posts/different-parent/replies/parent-bound-reply/report')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`])
+      .send({ category: 'abuse' });
+
+    expect(response.status).toBe(404);
+    expect(prisma._store.entity.find((row) => row.id === 'parent-bound-reply').data).toMatchObject({
+      reported_count: 0,
+    });
+    expect(prisma._store.entity.find((row) => row.id === 'parent-bound-reply').data).not.toHaveProperty('reported_by');
+  });
+
   it('lets an expired/free author retract replies and posts with relation cleanup', async () => {
     prisma._store.entity.push(
       {
