@@ -1045,7 +1045,7 @@ describe('community routes', () => {
       .delete('/api/community/posts/p-like/like')
       .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
     expect(unlike.status).toBe(200);
-    expect(Object.keys(unlike.body).sort()).toEqual(['likedByMe', 'likes_count']);
+    expect(unlike.body).toEqual({ id: 'p-like', likes_count: 0, likedByMe: false });
     expect(unlike.body.likes_count).toBe(0);
     expect(unlike.body.likedByMe).toBe(false);
   });
