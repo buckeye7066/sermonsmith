@@ -8,6 +8,14 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
+    // Keep a zero-config checkout usable without baking a development API URL
+    // into the renderer. Production builds ignore this dev-server proxy.
+    proxy: {
+      '/api': {
+        target: process.env.SERMONSMITH_DEV_API_URL || 'http://127.0.0.1:3101',
+        changeOrigin: false,
+      },
+    },
   },
   resolve: {
     alias: {

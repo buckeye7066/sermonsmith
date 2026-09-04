@@ -46,7 +46,7 @@ async function getApiBaseUrl() {
 
   if (!resolved) resolved = BUNDLED_API_URL;
   if (!resolved && typeof window !== 'undefined') resolved = window.location.origin;
-  if (!resolved) resolved = 'http://localhost:3001';
+  if (!resolved) resolved = 'http://localhost:3101';
 
   _cachedApiBase = resolved.replace(/\/+$/, '');
   return _cachedApiBase;

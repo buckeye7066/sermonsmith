@@ -73,7 +73,7 @@ npm run dev
 ```bash
 cd apps/web
 cp .env.example .env
-# Edit .env: VITE_API_URL=http://localhost:3001
+# Edit .env: VITE_API_URL=http://localhost:3101
 npm run dev
 ```
 

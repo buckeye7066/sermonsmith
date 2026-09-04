@@ -16,7 +16,9 @@ const MIN_SECRET_LENGTH = 32;
 
 const baseSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+  // 3101 is the repository's declared local API port. Railway and other
+  // production hosts continue to override this through PORT.
+  PORT: z.coerce.number().int().min(1).max(65535).default(3101),
   HOST: z.string().min(1).default('0.0.0.0'),
   LOG_LEVEL: z.string().optional(),
 
