@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { env } from 'node:process';
 import viteConfig, {
   DEFAULT_DEV_API_URL,
   developmentServerConfig,
@@ -20,11 +21,11 @@ describe('development server contract', () => {
   });
 
   it('accepts a development API override without mutating the test process environment', () => {
-    const before = process.env.SERMONSMITH_DEV_API_URL;
+    const before = env.SERMONSMITH_DEV_API_URL;
     const target = 'http://127.0.0.1:9999';
 
     expect(developmentServerConfig(target).proxy['/api'].target).toBe(target);
-    expect(process.env.SERMONSMITH_DEV_API_URL).toBe(before);
+    expect(env.SERMONSMITH_DEV_API_URL).toBe(before);
     expect(viteConfig.server.proxy['/api'].target).toBe(
       before || DEFAULT_DEV_API_URL,
     );
