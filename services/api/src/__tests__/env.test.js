@@ -135,4 +135,9 @@ describe('loadEnv', () => {
     expect(env.NODE_ENV).toBe('development');
     expect(warnings.length).toBeGreaterThan(0);
   });
+
+  it('uses the declared local API port unless the host overrides PORT', () => {
+    expect(loadEnv({ source: { NODE_ENV: 'development' }, warn: () => {} }).PORT).toBe(3101);
+    expect(loadEnv({ source: { NODE_ENV: 'development', PORT: '4123' }, warn: () => {} }).PORT).toBe(4123);
+  });
 });

@@ -73,7 +73,8 @@ npm run dev
 ```bash
 cd apps/web
 cp .env.example .env
-# Edit .env: VITE_API_URL=http://localhost:3001
+# Leave VITE_API_URL empty for the local /api proxy. Set SERMONSMITH_DEV_API_URL
+# only when the API runs on a non-default local URL.
 npm run dev
 ```
 
