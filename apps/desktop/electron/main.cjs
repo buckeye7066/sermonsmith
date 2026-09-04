@@ -10,6 +10,7 @@ const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const Store = require('electron-store');
+const { migrateLegacyLocalApiUrl } = require('./config.cjs');
 
 const store = new Store();
 
@@ -19,6 +20,15 @@ let firstRunWindow;
 function isFirstRun() {
   store.get('sermonsmithConfig'); // Ensure the store is initialized
   return !store.has('sermonsmithConfig');
+}
+
+function getStoredConfig() {
+  const savedConfig = store.get('sermonsmithConfig');
+  const migratedConfig = migrateLegacyLocalApiUrl(savedConfig);
+  if (migratedConfig !== savedConfig) {
+    store.set('sermonsmithConfig', migratedConfig);
+  }
+  return migratedConfig;
 }
 
 // Mirror of the renderer-side check so we never persist a config the
@@ -127,7 +137,7 @@ ipcMain.handle('save-config', async (_event, config) => {
 });
 
 ipcMain.handle('get-config', async () => {
-  return store.get('sermonsmithConfig');
+  return getStoredConfig();
 });
 
 ipcMain.handle('update-config', async (_event, config) => {
@@ -193,7 +203,7 @@ ipcMain.handle('save-pdf', async (event, payload) => {
 
 app.whenReady().then(() => {
   if (!isFirstRun()) {
-    const config = store.get('sermonsmithConfig');
+    const config = getStoredConfig();
     process.env.VITE_API_URL = config.apiUrl;
     createMainWindow();
   } else {
