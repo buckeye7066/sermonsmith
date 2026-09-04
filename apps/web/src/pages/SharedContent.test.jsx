@@ -72,6 +72,13 @@ describe('SharedContent share-link route contract', () => {
     })).toBe('desktop-hash-slug');
   });
 
+  it('falls back to the page query when a regular browser fragment has its own query', () => {
+    expect(shareLinkSlugFromLocation({
+      search: '?link=page-slug',
+      hash: '#details?tab=notes',
+    })).toBe('page-slug');
+  });
+
   it('renders canonical sermon point fields without treating structured values as text', () => {
     expect(pointPreviewText({ exegesis: 'Explain the passage', illustration: { unsafe: true } })).toBe('Explain the passage');
     expect(pointPreviewText({ illustration: { unsafe: true }, application: 'Apply it this week.' })).toBe('Apply it this week.');
