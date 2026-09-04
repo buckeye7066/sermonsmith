@@ -10,6 +10,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Heart, Bookmark, TrendingUp, BookOpen, Loader2, Share2, Crown } from "lucide-react";
 import { toast } from "sonner";
 
+export function shareLinkSlugFromLocation({ hash = '', search = '' } = {}) {
+  const queryIndex = hash.indexOf('?');
+  const query = queryIndex >= 0 ? hash.slice(queryIndex + 1) : search;
+  return new URLSearchParams(query).get('link');
+}
+
+export function pointPreviewText(point) {
+  for (const field of ['explanation', 'content', 'exegesis', 'illustration', 'application']) {
+    if (typeof point?.[field] === 'string' && point[field].trim()) return point[field];
+  }
+  return '';
+}
+
 export default function SharedContent({ publicShareOnly = false }) {
   const { user, isLoadingAuth } = useAuth();
   const { hasEntitlement, loading: accessLoading } = usePremiumAccess();
@@ -26,8 +39,7 @@ export default function SharedContent({ publicShareOnly = false }) {
     // When the URL carries ?link=<slug> we resolve it through the dedicated
     // share route — the generic entity API would tenant-scope the lookup
     // away and return 404 even for legitimate share links.
-    const params = new URLSearchParams(window.location.search);
-    const linkSlug = params.get('link');
+    const linkSlug = shareLinkSlugFromLocation(window.location);
     if (linkSlug) {
       setShareLoading(true);
       api.community.share(linkSlug)
@@ -156,9 +168,9 @@ export default function SharedContent({ publicShareOnly = false }) {
                     {resource.points.map((point, index) => (
                       <section key={`${point?.title || 'point'}-${index}`} className="rounded-lg border p-4">
                         <h2 className="font-semibold">{point?.title || `Point ${index + 1}`}</h2>
-                        {(point?.explanation || point?.content) && (
+                        {pointPreviewText(point) && (
                           <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-                            {point.explanation || point.content}
+                            {pointPreviewText(point)}
                           </p>
                         )}
                       </section>
