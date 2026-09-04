@@ -54,6 +54,16 @@ describe('study guide PDF export', () => {
     })).resolves.toBeNull();
   });
 
+  it('does not fall back to a browser download inside Electron', async () => {
+    const doc = { output: vi.fn(() => 'data:application/pdf;base64,JVBERi0=') };
+    const browserDownload = vi.fn();
+
+    await expect(persistStudyPdf(doc, 'study.pdf', {
+      electron: { isElectron: true }, native: false, browserDownload,
+    })).rejects.toThrow(/save bridge is unavailable/i);
+    expect(browserDownload).not.toHaveBeenCalled();
+  });
+
   it('writes a durable Capacitor document and offers its cache copy to the native share sheet', async () => {
     const doc = { output: vi.fn(() => 'data:application/pdf;base64,JVBERi0=') };
     const Filesystem = {

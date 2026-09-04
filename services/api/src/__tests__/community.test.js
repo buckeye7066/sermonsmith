@@ -1045,6 +1045,7 @@ describe('community routes', () => {
       .delete('/api/community/posts/p-like/like')
       .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
     expect(unlike.status).toBe(200);
+    expect(Object.keys(unlike.body).sort()).toEqual(['likedByMe', 'likes_count']);
     expect(unlike.body.likes_count).toBe(0);
     expect(unlike.body.likedByMe).toBe(false);
   });
@@ -1063,7 +1064,7 @@ describe('community routes', () => {
       .delete('/api/community/posts/hidden-liked-post/like')
       .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
 
-    expect(unlike.status).toBe(403);
+    expect(unlike.status).toBe(404);
     expect(unlike.body).not.toHaveProperty('content');
     expect(prisma._store.communityLike).toContainEqual(expect.objectContaining({ id: 'hidden-like' }));
     expect(prisma._store.entity.find((row) => row.id === 'hidden-liked-post').data.likes_count).toBe(1);
@@ -1500,9 +1501,18 @@ describe('community routes', () => {
       discussion_leader_name: 'Reader',
     });
 
+    // Correcting an existing meeting is a lifecycle control even after the
+    // subscription that allowed its creation has expired.
+    prisma._store.user.find((user) => user.id === 'u-owner').premium = false;
+    const expirySafeEdit = await request(app)
+      .patch('/api/community/study-groups/managed-group/meetings/managed-meeting')
+      .set('Cookie', [`ss_token=${tokenFor('u-owner')}`])
+      .send({ location: 'https://example.test/corrected' });
+    expect(expirySafeEdit.status).toBe(200);
+    expect(expirySafeEdit.body.location).toBe('https://example.test/corrected');
+
     // Cancellation is deliberately retained as a lifecycle control after a
     // leader's paid or promotional Community access expires.
-    prisma._store.user.find((user) => user.id === 'u-owner').premium = false;
     const removed = await request(app)
       .delete('/api/community/study-groups/managed-group/meetings/managed-meeting')
       .set('Cookie', [`ss_token=${tokenFor('u-owner')}`]);

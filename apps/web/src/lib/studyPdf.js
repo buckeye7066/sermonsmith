@@ -130,7 +130,11 @@ export async function persistStudyPdf(doc, filename, {
 } = {}) {
   const data = pdfBase64(doc);
 
-  if (electron?.isElectron && typeof electron.savePdf === 'function') {
+  if (electron?.isElectron && typeof electron.savePdf !== 'function') {
+    throw new Error('Desktop PDF save bridge is unavailable');
+  }
+
+  if (electron?.isElectron) {
     const result = await electron.savePdf({ filename, data });
     if (result?.canceled) return null;
     if (!result?.success) throw new Error(result?.error || 'Desktop PDF save failed');

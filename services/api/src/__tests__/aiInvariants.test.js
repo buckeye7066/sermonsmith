@@ -145,6 +145,22 @@ describe('server-owned AI invariants', () => {
     expect(createCalls).toHaveLength(0);
   });
 
+  it('sends the exact registered study-plan contract to generation', async () => {
+    const studyPlanContract = AI_OUTPUT_CONTRACTS.find((contract) => (
+      contract.feature === 'study_plan' && contract.schema.properties?.plan_title
+    ));
+    const res = await request(app)
+      .post('/api/ai/workflows/study_plan/invoke')
+      .set('Cookie', [`ss_token=${tokenFor('u-i')}`])
+      .send({ input: 'Build a plan', output_contract: studyPlanContract.id });
+
+    expect(res.status).toBe(200);
+    const schemaMessage = createCalls[0].messages.find((message) => message.content.includes('daily_lessons'));
+    expect(schemaMessage.content).toContain('"plan_title"');
+    expect(schemaMessage.content).toContain('"scripture_reading"');
+    expect(schemaMessage.content).toContain('"discussion_questions"');
+  });
+
   it('/invoke without structured output still leads with the policy', async () => {
     await request(app)
       .post('/api/ai/workflows/sermon/invoke')
