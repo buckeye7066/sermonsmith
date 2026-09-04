@@ -1363,11 +1363,19 @@ router.delete('/posts/:id/like', authenticateToken, requireCommunity, async (req
           throw Object.assign(new Error('Post not found'), { status: 404 });
         }
         if (!isForumPubliclyVisible(post.data || {})) {
-          throw Object.assign(new Error('This post cannot be unliked'), { status: 403 });
+          // Match the public read routes: callers must not be able to use an
+          // interaction endpoint as an existence oracle for moderated posts.
+          throw Object.assign(new Error('Post not found'), { status: 404 });
         }
       },
     });
-    res.json({ ...formatPublicEntity(result.target), likedByMe: false });
+    // Unlike responses contain only the interaction state needed by the UI.
+    // Never re-serialize a forum body from this lifecycle endpoint.
+    res.json({
+      id: result.target.id,
+      likes_count: result.target.data?.likes_count || 0,
+      likedByMe: false,
+    });
   } catch (err) {
     next(err);
   }
@@ -2533,7 +2541,10 @@ router.post('/study-groups/:id/meetings', authenticateToken, requireCommunity, a
   }
 });
 
-router.patch('/study-groups/:id/meetings/:meetingId', authenticateToken, requireCommunity, async (req, res, next) => {
+// Editing an already-published meeting is a leader lifecycle control, just
+// like cancellation below. It remains available when paid access expires so
+// stale times, links, or locations never become permanently uncorrectable.
+router.patch('/study-groups/:id/meetings/:meetingId', authenticateToken, async (req, res, next) => {
   try {
     const parsed = groupMeetingUpdateSchema.safeParse(req.body || {});
     if (!parsed.success) {
