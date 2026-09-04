@@ -241,6 +241,25 @@ describe('entities — tenant isolation', () => {
     expect(res.body.map((user) => user.id)).not.toContain('u-deactivated');
   });
 
+  it('does not let the generic entity route silently ignore a suspension request', async () => {
+    const res = await request(app)
+      .put('/api/entities/User/u-alice')
+      .send({ is_banned: true })
+      .set('Cookie', ['ss_token=' + tokenFor('u-admin')]);
+
+    expect(res.status).toBe(409);
+    expect(prisma._store.user.find((user) => user.id === 'u-alice').is_banned).toBeUndefined();
+  });
+
+  it('does not bypass account lifecycle cleanup through generic user deletion', async () => {
+    const res = await request(app)
+      .delete('/api/entities/User/u-alice')
+      .set('Cookie', ['ss_token=' + tokenFor('u-admin')]);
+
+    expect(res.status).toBe(409);
+    expect(prisma._store.user.some((user) => user.id === 'u-alice')).toBe(true);
+  });
+
   it('admin can list all sermons', async () => {
     const res = await request(app)
       .get('/api/entities/Sermon')
