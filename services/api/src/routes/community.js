@@ -780,7 +780,7 @@ router.get('/shared-content/mine', authenticateToken, async (req, res, next) => 
       skip: offset,
     });
     res.json({
-      shared_content: rows.map(formatEntity),
+      shared_content: rows.map(formatPublicEntity),
       next_offset: rows.length === limit ? offset + rows.length : null,
     });
   } catch (err) {
@@ -805,7 +805,7 @@ router.delete('/shared-content/:id', authenticateToken, async (req, res, next) =
       });
     });
     await recordCommunityAudit('community.shared_content_withdraw', req.userId, 'SharedContent', updated.id);
-    res.json(formatEntity(updated));
+    res.json(formatPublicEntity(updated));
   } catch (err) {
     next(err);
   }

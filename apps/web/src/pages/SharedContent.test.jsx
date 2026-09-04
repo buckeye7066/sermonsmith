@@ -35,7 +35,7 @@ vi.mock('sonner', () => ({
 }));
 
 import { api } from '@/api/apiClient';
-import SharedContent from './SharedContent';
+import SharedContent, { pointPreviewText, shareLinkSlugFromLocation } from './SharedContent';
 
 describe('SharedContent personal library access', () => {
   beforeEach(() => {
@@ -61,5 +61,26 @@ describe('SharedContent personal library access', () => {
     expect(api.entities.SharedContent.filter).toHaveBeenCalledWith({}, '-created_date', 50);
     await waitFor(() => expect(api.community.sharedContent).not.toHaveBeenCalled());
     expect(screen.queryByRole('tab', { name: 'Popular' })).not.toBeInTheDocument();
+  });
+});
+
+describe('SharedContent share-link route contract', () => {
+  it('reads share links from the desktop hash-router query before the page query', () => {
+    expect(shareLinkSlugFromLocation({
+      search: '?link=stale-page-slug',
+      hash: '#/SharedContent?link=desktop-hash-slug',
+    })).toBe('desktop-hash-slug');
+  });
+
+  it('falls back to the page query when a regular browser fragment has its own query', () => {
+    expect(shareLinkSlugFromLocation({
+      search: '?link=page-slug',
+      hash: '#details?tab=notes',
+    })).toBe('page-slug');
+  });
+
+  it('renders canonical sermon point fields without treating structured values as text', () => {
+    expect(pointPreviewText({ exegesis: 'Explain the passage', illustration: { unsafe: true } })).toBe('Explain the passage');
+    expect(pointPreviewText({ illustration: { unsafe: true }, application: 'Apply it this week.' })).toBe('Apply it this week.');
   });
 });

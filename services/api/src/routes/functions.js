@@ -21,7 +21,12 @@ import {
 } from '../services/premiumTranslations.js';
 import { buildVerseWordingResult } from '../services/verseWording.js';
 import { chaptersInBook, versesInChapter } from '@sermonsmith/shared/scripture';
-import { ACCOUNT_TIERS, accountTierFor } from '../lib/entitlements.js';
+import {
+  ACCOUNT_TIERS,
+  accountTierFor,
+  entitlementForEntityType,
+  requestHasEntitlement,
+} from '../lib/entitlements.js';
 
 const router = Router();
 
@@ -1283,6 +1288,17 @@ router.post('/createShareableLink', authenticateToken, async (req, res, next) =>
     // disagrees with it must not decide how (or whether) the resource is gated.
     if (resourceType !== resource.type) {
       return res.status(400).json({ message: 'resourceType does not match the resource.' });
+    }
+
+    // Existing links remain revocable after access expires, but minting new
+    // anonymous access is a new use of the stored resource's entitlement.
+    // Derive it from the stored type, never the client-supplied label.
+    const requiredEntitlement = entitlementForEntityType(resource.type);
+    if (requiredEntitlement && !requestHasEntitlement(req, requiredEntitlement)) {
+      return res.status(402).json({
+        message: 'Premium subscription required',
+        requiredEntitlement,
+      });
     }
 
     // Scripture gate for the exposure surface: a share link makes the resource

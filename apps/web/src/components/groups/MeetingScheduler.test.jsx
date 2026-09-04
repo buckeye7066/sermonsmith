@@ -79,6 +79,14 @@ describe('MeetingScheduler leader controls', () => {
       );
     });
 
+    // The mutation closes the edit dialog and then reloads the meeting list.
+    // Wait for that UI transition before querying controls outside the modal;
+    // otherwise the still-open dialog can make the test race deterministic CI.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cancel Romans 8' })).toBeEnabled();
+    });
+
     fireEvent.click(screen.getByRole('button', { name: 'Cancel Romans 8' }));
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Existing RSVPs'));
     await waitFor(() => {
