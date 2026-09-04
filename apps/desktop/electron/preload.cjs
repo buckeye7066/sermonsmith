@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('save-config', config);
   },
   getConfig: () => ipcRenderer.invoke('get-config'),
+  needsLocalApiUrlReview: () => ipcRenderer.invoke('needs-local-api-url-review'),
   updateConfig: async (config) => {
     if (!isValidConfig(config)) {
       throw new Error('Invalid configuration: apiUrl must be HTTPS (or HTTP for localhost).');
