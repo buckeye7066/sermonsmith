@@ -10,25 +10,26 @@ const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const Store = require('electron-store');
-const { migrateLegacyLocalApiUrl } = require('./config.cjs');
+const { requiresLocalApiUrlReview } = require('./config.cjs');
 
 const store = new Store();
 
 let mainWindow;
 let firstRunWindow;
 
-function isFirstRun() {
-  store.get('sermonsmithConfig'); // Ensure the store is initialized
-  return !store.has('sermonsmithConfig');
+function getStoredConfig() {
+  return store.get('sermonsmithConfig');
 }
 
-function getStoredConfig() {
-  const savedConfig = store.get('sermonsmithConfig');
-  const migratedConfig = migrateLegacyLocalApiUrl(savedConfig);
-  if (migratedConfig !== savedConfig) {
-    store.set('sermonsmithConfig', migratedConfig);
-  }
-  return migratedConfig;
+function isFirstRun() {
+  const config = getStoredConfig(); // Ensure the store is initialized.
+  return !store.has('sermonsmithConfig') || requiresLocalApiUrlReview(config);
+}
+
+function markLocalApiUrlReviewed(config) {
+  return requiresLocalApiUrlReview(config)
+    ? { ...config, localApiUrlReviewed: true }
+    : config;
 }
 
 // Mirror of the renderer-side check so we never persist a config the
@@ -118,12 +119,13 @@ ipcMain.handle('save-config', async (_event, config) => {
     if (!isValidConfig(config)) {
       return { success: false, error: 'Invalid configuration: apiUrl must be HTTPS (or HTTP for localhost).' };
     }
-    store.set('sermonsmithConfig', config);
+    const savedConfig = markLocalApiUrlReviewed(config);
+    store.set('sermonsmithConfig', savedConfig);
     // Setting process.env.VITE_API_URL here is intentionally a no-op for
     // the *built* renderer — Vite inlines import.meta.env.VITE_API_URL at
     // build time. The renderer reads the live value via the preload's
     // `getApiUrl()` bridge instead.
-    process.env.VITE_API_URL = config.apiUrl;
+    process.env.VITE_API_URL = savedConfig.apiUrl;
 
     if (firstRunWindow) {
       firstRunWindow.close();
@@ -145,8 +147,9 @@ ipcMain.handle('update-config', async (_event, config) => {
     if (!isValidConfig(config)) {
       return { success: false, error: 'Invalid configuration: apiUrl must be HTTPS (or HTTP for localhost).' };
     }
-    store.set('sermonsmithConfig', config);
-    process.env.VITE_API_URL = config.apiUrl;
+    const savedConfig = markLocalApiUrlReviewed(config);
+    store.set('sermonsmithConfig', savedConfig);
+    process.env.VITE_API_URL = savedConfig.apiUrl;
     return { success: true };
   } catch (error) {
     console.error('Error updating config:', error);
