@@ -2192,4 +2192,48 @@ describe('community routes', () => {
     expect(prisma._store.entity.some((row) => row.id === 'abusive-comment')).toBe(false);
     expect(prisma._store.auditLog.some((row) => row.action === 'community.comment_remove')).toBe(true);
   });
+
+  it('keeps internal report details private in an owner publication inventory', async () => {
+    prisma._store.entity.push({
+      id: 'owner-reported-content', type: 'SharedContent', userId: 'u-free',
+      data: {
+        title: 'My public resource', content: 'Review this carefully.', content_type: 'note',
+        visibility: 'public', status: 'reported', reported_by: ['u-reader'],
+        last_report: { reporterId: 'u-reader', reason: 'Internal report' }, moderatorNotes: 'Internal only',
+      }, createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const inventory = await request(app)
+      .get('/api/community/shared-content/mine')
+      .set('Cookie', ['ss_token=' + tokenFor('u-free')]);
+    const withdrawn = await request(app)
+      .delete('/api/community/shared-content/owner-reported-content')
+      .set('Cookie', ['ss_token=' + tokenFor('u-free')]);
+
+    expect(inventory.status).toBe(200);
+    expect(inventory.body.shared_content[0]).not.toHaveProperty('reported_by');
+    expect(inventory.body.shared_content[0]).not.toHaveProperty('last_report');
+    expect(inventory.body.shared_content[0]).not.toHaveProperty('moderatorNotes');
+    expect(withdrawn.status).toBe(200);
+    expect(withdrawn.body.visibility).toBe('private');
+    expect(withdrawn.body).not.toHaveProperty('reported_by');
+    expect(withdrawn.body).not.toHaveProperty('last_report');
+  });
+
+  it('does not report a reply through a mismatched parent post', async () => {
+    prisma._store.entity.push(
+      { id: 'actual-parent', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Actual parent', status: 'active' }, createdAt: new Date(), updatedAt: new Date() },
+      { id: 'different-parent', type: 'CommunityPost', userId: 'u-owner', data: { title: 'Different parent', status: 'active' }, createdAt: new Date(), updatedAt: new Date() },
+      { id: 'parent-bound-reply', type: 'CommunityReply', userId: 'u-owner', data: { post_id: 'actual-parent', content: 'Reply', status: 'active', reported_count: 0 }, createdAt: new Date(), updatedAt: new Date() },
+    );
+
+    const response = await request(app)
+      .post('/api/community/posts/different-parent/replies/parent-bound-reply/report')
+      .set('Cookie', ['ss_token=' + tokenFor('u-reader')])
+      .send({ category: 'abuse' });
+
+    expect(response.status).toBe(404);
+    expect(prisma._store.entity.find((row) => row.id === 'parent-bound-reply').data).toMatchObject({ reported_count: 0 });
+    expect(prisma._store.entity.find((row) => row.id === 'parent-bound-reply').data).not.toHaveProperty('reported_by');
+  });
 });
