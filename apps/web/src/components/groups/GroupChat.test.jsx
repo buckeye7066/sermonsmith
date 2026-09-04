@@ -53,4 +53,23 @@ describe('GroupChat message retraction', () => {
       expect(screen.queryByText('Sensitive prayer request')).not.toBeInTheDocument();
     });
   });
+
+  it('prevents duplicate retraction requests while deletion is pending', async () => {
+    let finishDelete;
+    api.community.deleteGroupMessage.mockImplementation(() => new Promise((resolve) => {
+      finishDelete = resolve;
+    }));
+    render(<GroupChat group={{ id: 'group-1' }} user={{ id: 'user-1' }} />);
+
+    const deleteButton = await screen.findByRole('button', { name: 'Delete message' });
+    fireEvent.click(deleteButton);
+
+    const pendingButton = await screen.findByRole('button', { name: 'Deleting message' });
+    expect(pendingButton).toBeDisabled();
+    fireEvent.click(pendingButton);
+    expect(api.community.deleteGroupMessage).toHaveBeenCalledTimes(1);
+
+    finishDelete();
+    await waitFor(() => expect(screen.queryByText('Sensitive prayer request')).not.toBeInTheDocument());
+  });
 });
