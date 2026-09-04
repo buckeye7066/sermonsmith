@@ -168,17 +168,26 @@ describe('auth routes', () => {
     delete process.env.SIGNUP_TRIAL_ENABLED;
   });
 
-  it('does not turn a self-asserted allowlisted registration email into a permanent grant', async () => {
+  it('does not turn any self-asserted allowlisted registration email into a permanent grant', async () => {
     process.env.SIGNUP_TRIAL_ENABLED = 'false';
-    const res = await request(app).post('/api/auth/register').send({
-      email: 'buckeye7066@gmail.com',
-      password: 'longenough123',
-    });
-    const stored = prisma._store.user.find((u) => u.email === 'buckeye7066@gmail.com');
-    expect(res.status).toBe(200);
-    expect(stored.promotionalEmail ?? null).toBeNull();
-    expect(res.body.user.subscription_tier).toBe('free');
-    expect(res.body.user.entitlements).not.toContain('community');
+    const allowlistedEmails = [
+      'buckeye7066@gmail.com',
+      'anyawhite@rocketmail.com',
+      'whiterobert1201@icloud.com',
+      'tishka1201@icloud.com',
+    ];
+
+    for (const email of allowlistedEmails) {
+      const res = await request(app).post('/api/auth/register').send({
+        email,
+        password: 'longenough123',
+      });
+      const stored = prisma._store.user.find((user) => user.email === email);
+      expect(res.status).toBe(200);
+      expect(stored.promotionalEmail ?? null).toBeNull();
+      expect(res.body.user.subscription_tier).toBe('free');
+      expect(res.body.user.entitlements).not.toContain('community');
+    }
     delete process.env.SIGNUP_TRIAL_ENABLED;
   });
 
