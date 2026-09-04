@@ -1367,7 +1367,14 @@ router.delete('/posts/:id/like', authenticateToken, requireCommunity, async (req
         }
       },
     });
-    res.json({ ...formatPublicEntity(result.target), likedByMe: false });
+    // An unlike response only needs enough state for the caller to update its
+    // counter. Keeping the post body out of this mutation response provides a
+    // second privacy boundary if visibility rules evolve independently later.
+    res.json({
+      id: result.target.id,
+      likes_count: result.target.data?.likes_count || 0,
+      likedByMe: false,
+    });
   } catch (err) {
     next(err);
   }

@@ -1047,6 +1047,7 @@ describe('community routes', () => {
     expect(unlike.status).toBe(200);
     expect(unlike.body.likes_count).toBe(0);
     expect(unlike.body.likedByMe).toBe(false);
+    expect(unlike.body).toEqual({ id: 'p-like', likes_count: 0, likedByMe: false });
   });
 
   it('does not expose or mutate a hidden post through the unlike route', async () => {
