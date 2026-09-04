@@ -13,6 +13,7 @@ export default function GroupChat({ group, user, isLeader = false }) {
   const [newMessage, setNewMessage] = useState("");
   const [messageType, setMessageType] = useState("text");
   const [isLoading, setIsLoading] = useState(true);
+  const [deletingMessageId, setDeletingMessageId] = useState(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -58,7 +59,9 @@ export default function GroupChat({ group, user, isLeader = false }) {
   };
 
   const handleDeleteMessage = async (message) => {
+    if (deletingMessageId) return;
     if (!window.confirm('Delete this message? This cannot be undone.')) return;
+    setDeletingMessageId(message.id);
     try {
       await api.community.deleteGroupMessage(group.id, message.id);
       setMessages((current) => current.filter((item) => item.id !== message.id));
@@ -66,6 +69,8 @@ export default function GroupChat({ group, user, isLeader = false }) {
     } catch (error) {
       console.error('Error deleting message:', error);
       toast.error('Failed to delete message');
+    } finally {
+      setDeletingMessageId(null);
     }
   };
 
@@ -122,7 +127,8 @@ export default function GroupChat({ group, user, isLeader = false }) {
                       size="icon"
                       variant="ghost"
                       className="ml-auto h-7 w-7 text-gray-500 hover:text-red-600"
-                      aria-label="Delete message"
+                      aria-label={deletingMessageId === msg.id ? 'Deleting message' : 'Delete message'}
+                      disabled={Boolean(deletingMessageId)}
                       onClick={() => handleDeleteMessage(msg)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
