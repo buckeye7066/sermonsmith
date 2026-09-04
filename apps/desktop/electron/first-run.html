@@ -90,12 +90,15 @@
     // A persisted localhost:3001 value may have been an explicit backend
     // choice. Let its owner keep or change it instead of silently rewriting
     // the configuration during the local-default upgrade.
-    window.electron.getConfig().then((config) => {
-      if (config?.apiUrl === 'http://localhost:3001' && config.localApiUrlReviewed !== true) {
+    Promise.all([
+      window.electron.getConfig(),
+      window.electron.needsLocalApiUrlReview(),
+    ]).then(([config, needsLocalApiUrlReview]) => {
+      if (needsLocalApiUrlReview && config?.apiUrl) {
         apiUrlInput.value = config.apiUrl;
         existingConfigNotice.hidden = false;
         existingConfigNotice.textContent =
-          'This desktop profile currently uses http://localhost:3001. The new local default is http://localhost:3101. Keep 3001 only if your backend is configured for it; otherwise change this URL to 3101 before continuing.';
+          `This desktop profile currently uses ${config.apiUrl}. The new local default is http://localhost:3101. Keep the current URL only if your backend is configured for it; otherwise change this URL to 3101 before continuing.`;
       }
     }).catch(() => {
       // A missing bridge is handled by the existing submission error path.
