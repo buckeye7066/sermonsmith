@@ -2008,6 +2008,32 @@ describe('community routes', () => {
     expect(JSON.stringify(ratings.body)).not.toContain('legacy-rating@example.com');
   });
 
+  it('neutralizes legacy email display names in shared-plan ratings', async () => {
+    prisma._store.user.push({
+      id: 'u-legacy-plan-rating', email: 'legacy-plan-rating@example.com', role: 'user', premium: true,
+      full_name: null, name: null, deletedAt: null, is_banned: false,
+    });
+    prisma._store.entity.push(
+      {
+        id: 'legacy-rated-plan', type: 'ReadingPlan', userId: 'u-owner',
+        data: { name: 'Rated plan', is_public: true, status: 'active' }, createdAt: new Date(), updatedAt: new Date(),
+      },
+      {
+        id: 'legacy-email-plan-rating', type: 'SharedPlanRating', userId: 'u-legacy-plan-rating',
+        data: { plan_id: 'legacy-rated-plan', user_id: 'u-legacy-plan-rating', user_name: 'legacy-plan-rating@example.com', rating: 4 },
+        createdAt: new Date(), updatedAt: new Date(),
+      },
+    );
+
+    const ratings = await request(app)
+      .get('/api/community/reading-plans/legacy-rated-plan/ratings')
+      .set('Cookie', [`ss_token=${tokenFor('u-reader')}`]);
+
+    expect(ratings.status).toBe(200);
+    expect(ratings.body.ratings[0].user_name).toBe('Member');
+    expect(JSON.stringify(ratings.body)).not.toContain('legacy-plan-rating@example.com');
+  });
+
   it('lets owners withdraw shares after Premium expires and blocks other members', async () => {
     prisma._store.entity.push({
       id: 'withdraw-me', type: 'SharedSermon', userId: 'u-owner',
