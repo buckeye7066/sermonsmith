@@ -266,7 +266,11 @@ describe('function routes - Bible source registry', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(chaptersPerTranslation * translations.length);
     expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('bible-api.com'))).toBe(true);
-  });
+    // 237 chapters x 3 translations = 711 requests through supertest. On a slow
+    // or busy machine this lands just over vitest's 15s default and fails the
+    // whole suite on timing alone, not on behaviour. The assertions above are
+    // what this test is for; give it room to finish making them.
+  }, 120_000);
 
   it('still serves a chapter when the durable chapter-cache table is unavailable', async () => {
     prisma.bibleChapterCache.findUnique.mockRejectedValueOnce(new Error('table missing'));

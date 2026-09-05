@@ -1,0 +1,27 @@
+# On-demand source export for an external production audit (the 2026-09-04
+# ChatGPT audit was the first use). Folded in from audit/chatgpt-20260904.
+#
+# The original fired on pushes to that branch. The branch is gone, so that
+# trigger could never fire again and is dropped - this is workflow_dispatch
+# only, which is what the capability is actually for.
+name: Export source for production audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package repository source
+        run: tar --exclude=.git -czf "$RUNNER_TEMP/repo-source.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sermonsmith-source
+          path: ${{ runner.temp }}/repo-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
