@@ -525,10 +525,7 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
       existingData?.denomination,
     );
     const merged = { ...(existingData || {}), ...incoming };
-    const refs = assertAiReplyExposable({
-      content: [merged.content, merged.scripture_reference].filter(Boolean).join('\n'),
-      denomination,
-    });
+    const refs = assertAiReplyExposable({ record: merged, denomination });
     return { ...incoming, scripture_validation: refs };
   }
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;

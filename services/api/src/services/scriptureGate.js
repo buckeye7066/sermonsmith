@@ -179,8 +179,9 @@ export function gateEntityWrite({ type, incoming, existingData = null, denominat
 // user-authored replies are NOT gated.
 function evaluateExposure(type, resourceData, denomination) {
   const data = resourceData || {};
-  const isAiReply = type === 'CommunityReply' && data.is_ai_response === true;
-  if (!SCRIPTURE_GATED_TYPES.has(type) && !isAiReply) {
+  const isAiCommunityContent =
+    (type === 'CommunityReply' || type === 'CommunityPost') && data.is_ai_response === true;
+  if (!SCRIPTURE_GATED_TYPES.has(type) && !isAiCommunityContent) {
     return { gated: false, validation: null };
   }
   const record = { ...data };
@@ -188,7 +189,7 @@ function evaluateExposure(type, resourceData, denomination) {
   const canon = canonForDenomination(denomination || record.denomination);
   // Entity gated types keep their type-specific validator; AI replies (free
   // text) use the shape-agnostic deep validator.
-  const validation = isAiReply
+  const validation = isAiCommunityContent
     ? validateAiContent(record, { canon })
     : recomputeScriptureValidation(type, record, canon);
   return { gated: true, validation };
@@ -232,10 +233,13 @@ export function isPublicContentServable({ type, data, denomination }) {
  * CommunityReply). Recomputes canon-aware validation over the content and throws
  * 422 if any reference does not verify; returns the validated refs to store.
  */
-export function assertAiReplyExposable({ content, denomination }) {
-  const record = { content };
+export function assertAiReplyExposable({ content, record, denomination }) {
+  // Accept either a single-string content (replies) or a full record object
+  // (e.g., posts with title/tags/scripture_reference). The deep validator
+  // scans EVERY string value, so passing the record avoids field list drift.
+  const target = record && typeof record === 'object' ? { ...record } : { content };
   const canon = canonForDenomination(denomination);
-  const validation = validateAiContent(record, { canon });
+  const validation = validateAiContent(target, { canon });
   if (!validation.allValid) {
     throw Object.assign(
       new Error(

@@ -1259,10 +1259,7 @@ router.post('/posts', authenticateToken, requireCommunity, async (req, res, next
       const denomination = (await prisma.user
         .findUnique({ where: { id: req.userId }, select: { profile: true } })
         .catch(() => null))?.profile?.denomination || '';
-      scriptureValidation = assertAiReplyExposable({
-        content: [parsed.data.content, parsed.data.scripture_reference].filter(Boolean).join(' '),
-        denomination,
-      });
+      scriptureValidation = assertAiReplyExposable({ record: parsed.data, denomination });
     }
     const row = await prisma.entity.create({
       data: {
