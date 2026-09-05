@@ -502,14 +502,30 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
   // persist one straight from client content — so re-run the same reply gate
   // here (fabricated Scripture rejected, validated refs stored). User-authored
   // replies pass through untouched.
-  if (type === 'CommunityReply' && (incoming?.is_ai_response === true || existingData?.is_ai_response === true)) {
+  // CommunityPost rides the same rule as CommunityReply. A top-level post is
+  // MORE exposed than a reply — it starts the thread — and the dedicated
+  // /community/posts route persisted one with no Scripture revalidation at all,
+  // so AI-drafted content posted as a new thread was the one AI surface that
+  // reached the community unchecked. A post also carries an explicit
+  // `scripture_reference` field, which is validated alongside the body: the
+  // author has declared that field to BE a reference, so a fabricated one there
+  // is unambiguous.
+  //
+  // Neither type joins SCRIPTURE_GATED_TYPES on purpose. That set carries
+  // draft/published lifecycle semantics and would gate HUMAN posts as well —
+  // and a person paraphrasing a verse loosely in their own words is not the
+  // defect this guards against.
+  if (
+    (type === 'CommunityReply' || type === 'CommunityPost') &&
+    (incoming?.is_ai_response === true || existingData?.is_ai_response === true)
+  ) {
     const denomination = await denominationForRequest(
       req,
       incoming?.denomination,
       existingData?.denomination,
     );
     const merged = { ...(existingData || {}), ...incoming };
-    const refs = assertAiReplyExposable({ content: merged.content, denomination });
+    const refs = assertAiReplyExposable({ record: merged, denomination });
     return { ...incoming, scripture_validation: refs };
   }
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;

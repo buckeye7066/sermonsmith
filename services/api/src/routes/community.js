@@ -384,6 +384,9 @@ const communityPostSchema = z.object({
   post_type: z.enum(['question', 'discussion', 'testimony', 'prayer_request']).default('discussion'),
   scripture_reference: z.string().trim().max(200).optional().default(''),
   tags: z.array(z.string().trim().min(1).max(60)).max(20).optional().default([]),
+  // Mirrors the reply schema. A post that declares itself AI-generated is held
+  // to the same Scripture bar as an AI reply; a human-authored post is not.
+  is_ai_response: z.boolean().optional().default(false),
 });
 
 const groupMeetingSchema = z.object({
@@ -1245,12 +1248,26 @@ router.post('/posts', authenticateToken, requireCommunity, async (req, res, next
     if (!parsed.success) {
       return res.status(400).json({ message: 'Invalid community post', issues: parsed.error.issues });
     }
+    // AI-drafted content posted as a NEW THREAD was the one AI surface that
+    // reached the community with no persistence-time Scripture revalidation:
+    // the reply route gates is_ai_response replies and the generic entity API
+    // gates the same, but this route created the row directly. A top-level post
+    // is more exposed than a reply, not less. Human-authored posts pass through
+    // untouched, exactly as human replies do.
+    let scriptureValidation;
+    if (parsed.data.is_ai_response === true) {
+      const denomination = (await prisma.user
+        .findUnique({ where: { id: req.userId }, select: { profile: true } })
+        .catch(() => null))?.profile?.denomination || '';
+      scriptureValidation = assertAiReplyExposable({ record: parsed.data, denomination });
+    }
     const row = await prisma.entity.create({
       data: {
         type: 'CommunityPost',
         userId: req.userId,
         data: {
           ...parsed.data,
+          ...(scriptureValidation ? { scripture_validation: scriptureValidation } : {}),
           user_id: req.userId,
           user_name: await displayNameForUser(req.userId),
           status: 'active',
