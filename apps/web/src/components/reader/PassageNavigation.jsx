@@ -42,8 +42,21 @@ export default function PassageNavigation({
     setError('');
   };
 
+  const handleKeyDown = (event) => {
+    if (event.key !== 'Enter' || event.target.tagName !== 'INPUT') return;
+    // WebKit's native datalist can consume implicit form submission. Use the
+    // same submit handler explicitly, without submitting an unfinished IME
+    // composition or allowing the browser to submit the form a second time.
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.repeat) {
+      event.preventDefault();
+      return;
+    }
+    submit(event);
+  };
+
   return (
-    <form onSubmit={submit} className="space-y-3 mb-4" aria-label="Passage navigation" noValidate>
+    <form onSubmit={submit} onKeyDown={handleKeyDown} className="space-y-3 mb-4" aria-label="Passage navigation" noValidate>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
         <div className="col-span-2">
           <Label htmlFor={`${id}-book`}>Book</Label>

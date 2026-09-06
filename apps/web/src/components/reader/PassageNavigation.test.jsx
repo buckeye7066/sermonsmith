@@ -52,4 +52,27 @@ describe('typed passage navigation', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('not available');
     expect(onJump).not.toHaveBeenCalled();
   });
+  it.each(['Book', 'Chapter', 'Verse (Optional)'])('submits Enter in %s exactly once, including datalist inputs', (label) => {
+    const onJump = vi.fn();
+    render(<PassageNavigation {...props} onJump={onJump} />);
+    fill('Book', 'John 3:16');
+    const allowedDefault = fireEvent.keyDown(screen.getByLabelText(label), { key: 'Enter' });
+    expect(allowedDefault).toBe(false);
+    expect(onJump).toHaveBeenCalledExactlyOnceWith('John', 3, 16);
+  });
+  it.each([{ isComposing: true }, { keyCode: 229 }])('does not submit unfinished text composition: %j', (composition) => {
+    const onJump = vi.fn();
+    render(<PassageNavigation {...props} onJump={onJump} />);
+    fill('Book', 'John 3:16');
+    fireEvent.keyDown(screen.getByLabelText('Book'), { key: 'Enter', ...composition });
+    expect(onJump).not.toHaveBeenCalled();
+  });
+  it('does not submit repeated Enter keydown or non-submit keys', () => {
+    const onJump = vi.fn();
+    render(<PassageNavigation {...props} onJump={onJump} />);
+    expect(fireEvent.keyDown(screen.getByLabelText('Book'), { key: 'Enter', repeat: true })).toBe(false);
+    fireEvent.keyDown(screen.getByLabelText('Book'), { key: 'ArrowDown' });
+    expect(onJump).not.toHaveBeenCalled();
+  });
+
 });

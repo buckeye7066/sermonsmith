@@ -15,6 +15,7 @@ import OnboardingWizard from './components/profile/OnboardingWizard';
 import EmbeddedBrowserDetector from './components/EmbeddedBrowserDetector';
 import WhatsNewDialog, { CURRENT_VERSION } from './components/WhatsNewDialog';
 import { isNativeApp } from './lib/platform';
+import { shouldUpgradeInsecureRequests } from './lib/browserSecurityPolicy';
 
 // The app logo is served as an SVG from /public so it works without an
 // external image host. We also keep a remote-friendly PNG fallback path in
@@ -74,7 +75,9 @@ export default function Layout({ children, currentPageName }) {
       }
       meta.content = content;
     };
-    addHttpEquivMeta('Content-Security-Policy', 'upgrade-insecure-requests');
+    if (shouldUpgradeInsecureRequests(window.location)) {
+      addHttpEquivMeta('Content-Security-Policy', 'upgrade-insecure-requests');
+    }
 
     // Cross-browser localStorage availability check for iOS in-app browsers
     try {
