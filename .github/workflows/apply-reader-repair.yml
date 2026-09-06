@@ -1,0 +1,50 @@
+name: Apply isolated reader repair
+on:
+  push:
+    branches: [fix/reader-free-text-auth-20260906]
+    paths: [.github/workflows/apply-reader-repair.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.repository == 'buckeye7066/sermonsmith' && github.ref == 'refs/heads/fix/reader-free-text-auth-20260906'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Apply exact source changes without overwriting concurrent work
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json
+          from pathlib import Path
+          raw = gzip.decompress(base64.b64decode(Path('.github/reader-repair.json.gz.b64').read_text()))
+          assert hashlib.sha256(raw).hexdigest() == 'aca62ad4ce47223cdccd89938198c1acd7a54052cd376672f94d844eca716c2b', 'Payload mismatch'
+          changes = json.loads(raw)
+          for name, change in changes.items():
+              path = Path(name)
+              assert '..' not in path.parts and not path.is_absolute(), name
+              assert name.startswith(('apps/web/', 'services/api/')) or name == '.github/workflows/export-chatgpt-audit.yml', name
+              previous = path.read_text() if path.exists() else ''
+              assert hashlib.sha256(previous.encode()).hexdigest() == change['sha256'], 'Source changed: ' + name
+              lines = previous.splitlines(keepends=True)
+              for start, end, replacement in reversed(change['edits']):
+                  lines[start:end] = [replacement]
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(''.join(lines))
+              print('Applied:', name)
+          PY
+          git diff --check
+          node --check services/api/src/middleware/auth.js
+          node --check services/api/src/routes/auth.js
+          node --check apps/web/e2e/readerNavigation.spec.js
+          git config user.name 'OpenAI'
+          git config user.email 'noreply@openai.com'
+          # Only application changes are pushed here. Temporary workflow cleanup
+          # is performed with the owner-authorized GitHub connector afterwards.
+          git add apps/web services/api
+          git commit -m 'fix: typed Bible navigation and authoritative global session handling'
+          git push origin HEAD:refs/heads/fix/reader-free-text-auth-20260906
+          git rev-parse HEAD
