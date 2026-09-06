@@ -73,13 +73,27 @@ const SERVER_MANAGED_TYPES = new Set([
   'GroupMeeting',
   'MeetingAttendance',
   'GroupProgress',
+  // EntityRevision snapshots are immutable server-minted history. Allowing a
+  // client to create, edit, or delete one would let a caller forge or erase
+  // the record of what a document used to say. MediaJob rows carry provider
+  // transcription state and quota accounting and are owned by /api/media.
+  'EntityRevision',
+  'MediaJob',
 ]);
+
+// Types whose revisions are snapshotted on every update and removed with the
+// source. Deliberately narrow: these are the long-lived documents a user
+// actually reworks, not counters, memberships, or reference data.
+const REVISIONED_TYPES = new Set(['Sermon', 'Series', 'SermonSeries', 'BibleStudy']);
+const MAX_REVISION_PAGE_SIZE = 100;
 
 // GroupProgress may contain an intentionally shared snapshot of a leader's
 // private ReadingPlan. Top-level Entity ownership is not authorization for
 // that snapshot after leadership changes, so it is readable only through the
 // group-membership endpoint, never through generic list/filter/get routes.
-const DEDICATED_READ_TYPES = new Set(['GroupProgress']);
+// EntityRevision and MediaJob join it: both are read through their own
+// dedicated routes, which scope by source ownership rather than row ownership.
+const DEDICATED_READ_TYPES = new Set(['GroupProgress', 'EntityRevision', 'MediaJob']);
 
 // These legacy entity types are edited through the generic API while also
 // receiving counters/status updates through Community routes. Their generic
@@ -261,6 +275,29 @@ function isAdmin(req) {
 //
 // Unknown types are rejected outright with HTTP 400.
 // ---------------------------------------------------------------------------
+// A calendar planner writes real dates, so the schema rejects both a free-text
+// value ("next Sunday") and a well-formed but impossible one (2026-02-31).
+function isRealCalendarDate(value) {
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/u);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1];
+}
+
+const ScheduledDateSchema = z.union([
+  z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/u, 'Expected YYYY-MM-DD')
+    .refine(isRealCalendarDate, 'Expected a real calendar date'),
+  z.string()
+    .datetime({ offset: true })
+    .refine(isRealCalendarDate, 'Expected a real calendar date'),
+]);
+
 const SermonSchema = z.object({
   title: z.string().min(1).max(200),
   topic: z.string().max(200).optional(),
@@ -269,8 +306,39 @@ const SermonSchema = z.object({
   points: z.array(z.any()).max(20).optional(),
   conclusion: z.string().max(20000).optional(),
   theological_notes: z.string().max(20000).optional(),
+  scheduled_date: ScheduledDateSchema.nullable().optional(),
   status: z.enum(['draft', 'published', 'archived', 'needs_review']).optional(),
 }).passthrough();
+
+// Template content is `.strict()` on purpose. A template is copied verbatim
+// into a new draft, so an identity or lifecycle field smuggled into it
+// (user_id, status: 'published', pastor_reviewed) would be copied too. Only
+// authoring fields are accepted; anything else is a 400.
+const SermonTemplateContentSchema = z.object({
+  title: z.string().max(200).optional(),
+  topic: z.string().max(200).optional(),
+  anchor_passage: z.string().max(200).optional(),
+  big_idea: z.string().max(2000).optional(),
+  introduction: z.string().max(20000).optional(),
+  points: z.array(z.any()).max(20).optional(),
+  conclusion: z.string().max(20000).optional(),
+  theological_notes: z.string().max(20000).optional(),
+  tone: z.string().max(100).optional(),
+  audience: z.string().max(200).optional(),
+  denomination: z.string().max(120).optional(),
+}).strict();
+
+const SeriesTemplateContentSchema = z.object({
+  title: z.string().max(200).optional(),
+  description: z.string().max(2000).optional(),
+  denomination: z.string().max(120).optional(),
+  length: z.coerce.number().int().min(1).max(52).optional(),
+  sermon_blueprints: z.array(SermonTemplateContentSchema).max(52).optional(),
+}).strict();
+
+const InstantiateSeriesTemplateSchema = z.object({
+  request_id: z.string().uuid(),
+}).strict();
 
 // Reader writes Highlight/Note/Bookmark records keyed off a Bible verse.
 // Pulling the shared identifier shape out keeps the three schemas in sync
@@ -430,6 +498,16 @@ const ENTITY_SCHEMAS = {
   MeetingAttendance: z.object({}).passthrough(),
   GroupMembership: z.object({}).passthrough(),
   ResourceLink: z.object({}).passthrough(),
+  SermonTemplate: z.object({
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    content: SermonTemplateContentSchema,
+  }).passthrough(),
+  SeriesTemplate: z.object({
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    content: SeriesTemplateContentSchema,
+  }).passthrough(),
 };
 
 // ---------------------------------------------------------------------------
@@ -475,12 +553,16 @@ const ENTITY_SCHEMAS = {
 // routes, and the community routes all share ONE implementation and cannot
 // drift. See that module.
 
-async function denominationForRequest(req, ...candidates) {
+// `ownerUserId` is the account whose canon governs the record. It is the
+// caller for an ordinary write, but the SOURCE OWNER when an administrator
+// restores somebody else's revision - otherwise an admin's own denomination
+// would decide whether the owner's deuterocanonical reference is valid.
+async function denominationForRequest(req, ownerUserId, ...candidates) {
   for (const c of candidates) {
     if (typeof c === 'string' && c.trim()) return c;
   }
   const user = await prisma.user.findUnique({
-    where: { id: req.userId },
+    where: { id: ownerUserId || req.userId },
     select: { profile: true },
   });
   const fromProfile = user?.profile?.denomination;
@@ -495,7 +577,7 @@ async function denominationForRequest(req, ...candidates) {
  * call. Throws 422 on an attempt to publish OR publicly share a record whose
  * references do not all verify.
  */
-async function applyScriptureGate(req, type, incoming, existingData = null) {
+async function applyScriptureGate(req, type, incoming, existingData = null, ownerUserId = req.userId) {
   // AI-generated community replies are gated even though CommunityReply is not a
   // first-class gated entity type. The dedicated /community/posts/:id/reply route
   // gates is_ai_response replies, but the generic entity API would otherwise
@@ -521,6 +603,7 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
   ) {
     const denomination = await denominationForRequest(
       req,
+      ownerUserId,
       incoming?.denomination,
       existingData?.denomination,
     );
@@ -531,6 +614,7 @@ async function applyScriptureGate(req, type, incoming, existingData = null) {
   if (!SCRIPTURE_GATED_TYPES.has(type)) return incoming;
   const denomination = await denominationForRequest(
     req,
+    ownerUserId,
     incoming?.denomination,
     existingData?.denomination,
   );
@@ -585,6 +669,252 @@ function validateEntityPayload(type, body) {
   }
   return parsed.data;
 }
+
+// ---------------------------------------------------------------------------
+// Revision history + series-template instantiation.
+//
+// Revision snapshots are minted by the server on every REVISIONED_TYPES
+// update and read back only through the dedicated routes below, which scope
+// by the SOURCE row's ownership. EntityRevision is in SERVER_MANAGED_TYPES and
+// DEDICATED_READ_TYPES so generic CRUD can neither forge nor erase history.
+// ---------------------------------------------------------------------------
+
+function revisionPayload(entity, reason = 'update') {
+  return {
+    source_type: entity.type,
+    source_id: entity.id,
+    reason,
+    snapshot: structuredClone(entity.data || {}),
+    source_updated_date: entity.updatedAt instanceof Date
+      ? entity.updatedAt.toISOString()
+      : entity.updatedAt,
+  };
+}
+
+function ownerScopedSourceWhere(req) {
+  return isAdmin(req)
+    ? { id: req.params.id, type: req.params.type }
+    : { id: req.params.id, type: req.params.type, userId: req.userId };
+}
+
+async function instantiatedSeriesResult({ requestId, templateId, userId }) {
+  const series = await prisma.entity.findFirst({
+    where: {
+      id: requestId,
+      type: 'SermonSeries',
+      userId,
+      AND: [
+        { data: { path: ['template_instantiation_id'], equals: requestId } },
+        { data: { path: ['template_id'], equals: templateId } },
+      ],
+    },
+  });
+  if (!series) return null;
+  const sermons = await prisma.entity.findMany({
+    where: {
+      type: 'Sermon',
+      userId,
+      AND: [
+        { data: { path: ['template_instantiation_id'], equals: requestId } },
+        { data: { path: ['template_id'], equals: templateId } },
+      ],
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  return { series: formatEntity(series), sermons: sermons.map(formatEntity) };
+}
+
+// One idempotent server transaction owns the series plus every sermon draft.
+// The caller-generated request UUID is also the series primary key, so a lost
+// response can be retried safely and concurrent duplicates converge on the
+// same complete result instead of creating orphaned or duplicate drafts.
+router.post('/SeriesTemplate/:id/instantiate', authenticateToken, async (req, res, next) => {
+  try {
+    const parsedRequest = InstantiateSeriesTemplateSchema.safeParse(req.body || {});
+    if (!parsedRequest.success) {
+      return res.status(400).json({ message: 'A valid request_id UUID is required.' });
+    }
+    const requestId = parsedRequest.data.request_id;
+    const template = await prisma.entity.findFirst({
+      where: { id: req.params.id, type: 'SeriesTemplate', userId: req.userId },
+    });
+    if (!template) return res.status(404).json({ message: 'Series template not found' });
+
+    const replay = await instantiatedSeriesResult({
+      requestId,
+      templateId: template.id,
+      userId: req.userId,
+    });
+    if (replay) return res.json(replay);
+
+    const content = structuredClone(template.data?.content || {});
+    const blueprints = Array.isArray(content.sermon_blueprints) ? content.sermon_blueprints : [];
+    delete content.sermon_blueprints;
+    const seriesData = validateEntityPayload('SermonSeries', {
+      ...content,
+      title: content.title || template.data?.name || 'Untitled series',
+      description: content.description ?? template.data?.description ?? '',
+      length: content.length || blueprints.length || 1,
+      status: 'in_progress',
+      template_id: template.id,
+      template_instantiation_id: requestId,
+    });
+    const sermonData = await Promise.all(blueprints.map(async (blueprint, index) => {
+      const draft = validateEntityPayload('Sermon', {
+        ...structuredClone(blueprint),
+        title: blueprint?.title || `Sermon ${index + 1}`,
+        status: 'draft',
+        scheduled_date: null,
+        series_id: requestId,
+        series_order: index + 1,
+        template_id: template.id,
+        template_instantiation_id: requestId,
+      });
+      return applyScriptureGate(req, 'Sermon', draft);
+    }));
+    const createdAt = new Date().toISOString();
+
+    try {
+      const created = await prisma.$transaction(async (tx) => {
+        const series = await tx.entity.create({
+          data: {
+            id: requestId,
+            type: 'SermonSeries',
+            userId: req.userId,
+            data: { ...seriesData, user_id: req.userId, created_date: createdAt },
+          },
+        });
+        const sermons = [];
+        for (const sermon of sermonData) {
+          sermons.push(await tx.entity.create({
+            data: {
+              type: 'Sermon',
+              userId: req.userId,
+              data: { ...sermon, user_id: req.userId, created_date: createdAt },
+            },
+          }));
+        }
+        return { series: formatEntity(series), sermons: sermons.map(formatEntity) };
+      });
+      return res.json(created);
+    } catch (error) {
+      if (error?.code === 'P2002') {
+        const concurrentReplay = await instantiatedSeriesResult({
+          requestId,
+          templateId: template.id,
+          userId: req.userId,
+        });
+        if (concurrentReplay) return res.json(concurrentReplay);
+        throw Object.assign(new Error('That request identifier is already in use.'), { status: 409 });
+      }
+      throw error;
+    }
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/:type/:id/revisions', authenticateToken, async (req, res, next) => {
+  try {
+    if (!REVISIONED_TYPES.has(req.params.type)) {
+      return res.status(400).json({ message: `Revision history is not supported for '${req.params.type}'.` });
+    }
+    assertEntityEntitlement(req, req.params.type);
+    const source = await prisma.entity.findFirst({ where: ownerScopedSourceWhere(req) });
+    if (!source) return res.status(404).json({ message: 'Not found' });
+
+    const requestedLimit = Number(req.query.limit);
+    const requestedOffset = Number(req.query.offset);
+    const take = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.floor(requestedLimit), 1), MAX_REVISION_PAGE_SIZE)
+      : MAX_REVISION_PAGE_SIZE;
+    const skip = Number.isFinite(requestedOffset)
+      ? Math.max(Math.floor(requestedOffset), 0)
+      : 0;
+
+    const revisions = await prisma.entity.findMany({
+      where: {
+        type: 'EntityRevision',
+        userId: source.userId,
+        AND: [
+          { data: { path: ['source_type'], equals: source.type } },
+          { data: { path: ['source_id'], equals: source.id } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+      skip,
+    });
+    return res.json(revisions.map(formatEntity));
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/:type/:id/revisions/:revisionId/restore', authenticateToken, async (req, res, next) => {
+  try {
+    if (!REVISIONED_TYPES.has(req.params.type)) {
+      return res.status(400).json({ message: `Revision history is not supported for '${req.params.type}'.` });
+    }
+    assertEntityEntitlement(req, req.params.type);
+    const source = await prisma.entity.findFirst({ where: ownerScopedSourceWhere(req) });
+    if (!source) return res.status(404).json({ message: 'Not found' });
+
+    const revision = await prisma.entity.findFirst({
+      where: {
+        id: req.params.revisionId,
+        type: 'EntityRevision',
+        userId: source.userId,
+        AND: [
+          { data: { path: ['source_type'], equals: source.type } },
+          { data: { path: ['source_id'], equals: source.id } },
+        ],
+      },
+    });
+    if (!revision) return res.status(404).json({ message: 'Revision not found' });
+
+    const snapshot = revision.data?.snapshot;
+    const validated = validateEntityPayload(source.type, snapshot);
+    // A restore is a complete replacement, not a patch. Supplying the current
+    // record here would merge fields added after the snapshot back into it.
+    // The Scripture gate runs against the SOURCE OWNER's canon, and a snapshot
+    // that would now publish an unverifiable reference is refused with 422.
+    const gated = await applyScriptureGate(req, source.type, validated, null, source.userId);
+    const now = new Date().toISOString();
+    const restoredData = {
+      ...gated,
+      user_id: source.userId,
+      created_date: source.data?.created_date || source.createdAt?.toISOString?.() || now,
+      updated_date: now,
+    };
+    const restored = await prisma.$transaction(async (tx) => {
+      // Guard the snapshot we are about to replace. If another save lands
+      // after the source/history reads above, updateMany affects zero rows and
+      // the transaction leaves both the newer content and history untouched.
+      const updated = await tx.entity.updateMany({
+        where: { id: source.id, updatedAt: source.updatedAt },
+        data: { data: restoredData },
+      });
+      if (updated.count !== 1) {
+        throw Object.assign(
+          new Error('This item changed while the revision was being restored. Reload and try again.'),
+          { status: 409 },
+        );
+      }
+      await tx.entity.create({
+        data: {
+          type: 'EntityRevision',
+          userId: source.userId,
+          data: { ...revisionPayload(source, 'before_restore'), created_by: req.userId },
+        },
+      });
+      return tx.entity.findUnique({ where: { id: source.id } });
+    });
+    return res.json(formatEntityForRequest(req, restored));
+  } catch (err) {
+    return next(err);
+  }
+});
 
 // --- Filter (must be registered before /:type/:id to avoid route collision) ---
 router.post('/:type/filter', authenticateToken, async (req, res, next) => {
@@ -926,14 +1256,37 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
 
       assertCommunityPublicationEntitlement(req, storedType, patch, current.data);
       let safePatch = bindCommunityManagedFields(req, storedType, patch);
-      safePatch = await applyScriptureGate(req, storedType, safePatch, current.data);
+      safePatch = await applyScriptureGate(req, storedType, safePatch, current.data, current.userId);
 
-      return client.entity.update({
-        where: { id: current.id },
+      const nextData = { ...current.data, ...safePatch, updated_date: new Date().toISOString() };
+
+      if (!REVISIONED_TYPES.has(storedType)) {
+        return client.entity.update({ where: { id: current.id }, data: { data: nextData } });
+      }
+
+      // The snapshot we are about to file as history and the row we are about
+      // to overwrite must describe the same version. A save that lands after
+      // our read changes updatedAt, so this guarded write becomes a 409
+      // instead of silently replacing newer work with a stale merge - and no
+      // revision is recorded for a write that did not happen.
+      const written = await client.entity.updateMany({
+        where: { id: current.id, updatedAt: current.updatedAt },
+        data: { data: nextData },
+      });
+      if (written.count !== 1) {
+        throw Object.assign(
+          new Error('This item changed while it was being saved. Reload and try again.'),
+          { status: 409 },
+        );
+      }
+      await client.entity.create({
         data: {
-          data: { ...current.data, ...safePatch, updated_date: new Date().toISOString() },
+          type: 'EntityRevision',
+          userId: current.userId,
+          data: { ...revisionPayload(current), created_by: req.userId },
         },
       });
+      return client.entity.findUnique({ where: { id: current.id } });
     };
 
     // Re-read after the shared lock is acquired. Reusing `existing` here would
@@ -945,7 +1298,11 @@ router.put('/:type/:id', authenticateToken, async (req, res, next) => {
           const current = await tx.entity.findUnique({ where: { id: existing.id } });
           return updateCurrent(tx, current);
         })
-      : await updateCurrent(prisma, existing);
+      // A revisioned save writes the row AND its history snapshot; both land
+      // together or neither does.
+      : REVISIONED_TYPES.has(storedType)
+        ? await prisma.$transaction(async (tx) => updateCurrent(tx, existing))
+        : await updateCurrent(prisma, existing);
     res.json(formatEntityForRequest(req, entity));
   } catch (err) {
     next(err);
@@ -989,7 +1346,7 @@ router.post('/:type/:id/review', authenticateToken, async (req, res, next) => {
       });
     }
 
-    const denomination = await denominationForRequest(req, existing.data?.denomination);
+    const denomination = await denominationForRequest(req, existing.userId, existing.data?.denomination);
     const validation = validateAiSermon(existing.data, { canon: canonForDenomination(denomination) });
 
     const reviewFields = acknowledged
@@ -1112,6 +1469,21 @@ router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
           where: { type: 'SharedLink', data: { path: ['resourceId'], equals: current.id } },
         });
       }
+      if (REVISIONED_TYPES.has(current.type)) {
+        // History belongs to the source. Leaving snapshots behind would keep a
+        // full copy of a deleted document readable by anything that later
+        // reuses the id, so they go in the same transaction as the source.
+        await client.entity.deleteMany({
+          where: {
+            type: 'EntityRevision',
+            userId: current.userId,
+            AND: [
+              { data: { path: ['source_type'], equals: current.type } },
+              { data: { path: ['source_id'], equals: current.id } },
+            ],
+          },
+        });
+      }
       await client.entity.delete({ where: { id: current.id } });
     };
 
@@ -1121,6 +1493,8 @@ router.delete('/:type/:id', authenticateToken, async (req, res, next) => {
         const current = await tx.entity.findUnique({ where: { id: existing.id } });
         await deleteCurrent(tx, current);
       });
+    } else if (REVISIONED_TYPES.has(existing.type)) {
+      await prisma.$transaction(async (tx) => deleteCurrent(tx, existing));
     } else {
       await deleteCurrent(prisma, existing);
     }

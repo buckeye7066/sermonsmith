@@ -429,8 +429,9 @@ model StripeEvent {
 // Map-based counter so that limits survive process restarts and apply
 // across multiple API replicas.
 //
-// `bucket` is a UTC date in YYYY-MM-DD; the (userId, bucket) compound
-// uniqueness lets us upsert atomically on each call.
+// `bucket` is a UTC date in YYYY-MM-DD for text generation and a namespaced
+// value such as media:YYYY-MM-DD for other metered providers. The
+// (userId, bucket) compound uniqueness lets each counter upsert atomically.
 model AiUsage {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")

@@ -4,6 +4,10 @@ import { vi } from 'vitest';
 // Each model exposes the subset of methods the route handlers use.
 export function createPrismaMock() {
   const store = {};
+  // Interactive $transaction callbacks are serialized against this tail so a
+  // concurrency test exercises the same uniqueness boundary the database
+  // enforces, instead of interleaving two snapshots of the in-memory store.
+  let transactionTail = Promise.resolve();
   const getStore = (model) => (store[model] = store[model] || []);
 
   function applyOrder(arr, orderBy) {
@@ -95,6 +99,14 @@ export function createPrismaMock() {
       create: vi.fn(async ({ data }) => {
         const arr = getStore(name);
         const id = data.id || `${name}-${arr.length + 1}-${Math.random().toString(36).slice(2, 8)}`;
+        // Real Prisma rejects a duplicate primary key with P2002. Route code
+        // that relies on a caller-supplied id for idempotency needs that same
+        // failure here, or a "retry" silently creates a second row.
+        if (arr.some((item) => item.id === id)) {
+          const error = new Error(`${name}.create: unique constraint failed`);
+          error.code = 'P2002';
+          throw error;
+        }
         const item = { id, createdAt: new Date(), updatedAt: new Date(), ...data };
         arr.push(item);
         return item;
@@ -207,15 +219,32 @@ export function createPrismaMock() {
     communityGroupMember: makeModel('communityGroupMember'),
     agentMessage: makeModel('agentMessage'),
     agentLesson: makeModel('agentLesson'),
-    $transaction: vi.fn(async (ops) => (
-      typeof ops === 'function' ? ops(prisma) : Promise.all(ops)
-    )),
+    $transaction: vi.fn(async (ops) => {
+      if (typeof ops !== 'function') return Promise.all(ops);
+      const previous = transactionTail;
+      let release;
+      transactionTail = new Promise((resolve) => { release = resolve; });
+      await previous;
+      const snapshot = structuredClone(store);
+      try {
+        return await ops(prisma);
+      } catch (error) {
+        // Roll the store back so a partially applied interactive transaction
+        // cannot leave orphaned rows the real database would never keep.
+        for (const key of Object.keys(store)) delete store[key];
+        Object.assign(store, snapshot);
+        throw error;
+      } finally {
+        release();
+      }
+    }),
     $queryRaw: vi.fn(async () => [{ ok: 1 }]),
     _store: store,
     _reset() {
       for (const key of Object.keys(store)) {
         store[key] = [];
       }
+      transactionTail = Promise.resolve();
     },
   };
 

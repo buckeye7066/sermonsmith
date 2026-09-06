@@ -401,6 +401,141 @@ describe('entities — allowlist (regression for broken creates)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('accepts canonical schedule dates and rejects ambiguous values', async () => {
+    const scheduled = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Christmas Eve', scheduled_date: '2026-12-24T12:00:00.000Z', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const legacyDate = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Date only', scheduled_date: '2026-12-25', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const invalid = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Ambiguous', scheduled_date: 'next Sunday', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const leapDay = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Leap day', scheduled_date: '2024-02-29', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const impossibleDay = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Impossible day', scheduled_date: '2026-02-31', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const nonLeapDay = await request(app)
+      .post('/api/entities/Sermon')
+      .send({ title: 'Non-leap day', scheduled_date: '2026-02-29', status: 'draft' })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(scheduled.status).toBe(200);
+    expect(legacyDate.status).toBe(200);
+    expect(leapDay.status).toBe(200);
+    expect(invalid.status).toBe(400);
+    expect(impossibleDay.status).toBe(400);
+    expect(nonLeapDay.status).toBe(400);
+  });
+
+  it('stores reusable sermon and series templates with bounded content', async () => {
+    const sermonTemplate = await request(app)
+      .post('/api/entities/SermonTemplate')
+      .send({
+        name: 'Three-point outline',
+        content: {
+          title: 'Reusable outline',
+          introduction: 'A reusable opening movement.',
+          points: [{ title: 'First point' }],
+        },
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const seriesTemplate = await request(app)
+      .post('/api/entities/SeriesTemplate')
+      .send({
+        name: 'Four-week series',
+        content: {
+          title: 'Reusable series',
+          length: 4,
+          sermon_blueprints: [{ title: 'Week one', anchor_passage: 'John 1:1' }],
+        },
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(sermonTemplate.status).toBe(200);
+    expect(sermonTemplate.body.content.introduction).toBe('A reusable opening movement.');
+    expect(seriesTemplate.status).toBe(200);
+  });
+
+  it('instantiates one complete series exactly once across concurrent retries', async () => {
+    const template = await request(app)
+      .post('/api/entities/SeriesTemplate')
+      .send({
+        name: 'Advent',
+        content: {
+          title: 'Advent series',
+          sermon_blueprints: [{
+            title: 'Hope',
+            introduction: 'Waiting begins in hope.',
+          }],
+        },
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const requestId = '11111111-1111-4111-8111-111111111111';
+    const instantiate = () => request(app)
+      .post(`/api/entities/SeriesTemplate/${template.body.id}/instantiate`)
+      .send({ request_id: requestId })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+
+    const [first, retry] = await Promise.all([instantiate(), instantiate()]);
+
+    expect(first.status).toBe(200);
+    expect(retry.status).toBe(200);
+    expect(first.body).toEqual(retry.body);
+    expect(first.body.series.id).toBe(requestId);
+    expect(first.body.sermons[0]).toMatchObject({
+      title: 'Hope',
+      introduction: 'Waiting begins in hope.',
+      series_id: requestId,
+      status: 'draft',
+      scheduled_date: null,
+    });
+    expect(prisma._store.entity.filter((item) => item.type === 'SermonSeries')).toHaveLength(1);
+    expect(prisma._store.entity.filter((item) => (
+      item.type === 'Sermon' && item.data?.template_instantiation_id === requestId
+    ))).toHaveLength(1);
+  });
+
+  it('rolls back the series when a dependent sermon cannot be stored', async () => {
+    const template = await request(app)
+      .post('/api/entities/SeriesTemplate')
+      .send({
+        name: 'Atomic series',
+        content: { sermon_blueprints: [{ title: 'Dependent draft' }] },
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    const requestId = '22222222-2222-4222-8222-222222222222';
+    const createEntity = prisma.entity.create.getMockImplementation();
+    prisma.entity.create
+      .mockImplementationOnce(createEntity)
+      .mockRejectedValueOnce(new Error('dependent sermon write failed'));
+
+    const result = await request(app)
+      .post(`/api/entities/SeriesTemplate/${template.body.id}/instantiate`)
+      .send({ request_id: requestId })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+
+    expect(result.status).toBe(500);
+    expect(prisma._store.entity.some((item) => item.id === requestId)).toBe(false);
+    expect(prisma._store.entity.some((item) => item.data?.template_instantiation_id === requestId)).toBe(false);
+  });
+
+  it('rejects identity and lifecycle fields inside template content', async () => {
+    const res = await request(app)
+      .post('/api/entities/SermonTemplate')
+      .send({
+        name: 'Unsafe copy',
+        content: { title: 'Copy', user_id: 'another-user', status: 'published' },
+      })
+      .set('Cookie', [`ss_token=${tokenFor('u-alice')}`]);
+    expect(res.status).toBe(400);
+  });
+
   it('preserves owner CRUD for legacy SharedSeries rows', async () => {
     prisma._store.user.find((user) => user.id === 'u-alice').premium = true;
     const created = await request(app)
