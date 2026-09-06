@@ -78,7 +78,17 @@ export const AuthProvider = ({ children }) => {
     const version = ++authVersion.current;
     setIsLoadingAuth(true);
     try {
-      const currentUser = await api.auth.me({ optional: true });
+      let currentUser;
+      try {
+        currentUser = await api.auth.me({ optional: true });
+      } catch (error) {
+        // Web and API deployments are independent. An older API may not yet
+        // expose the optional probe; only a missing endpoint may fall back to
+        // the original protected probe. Never bypass a 403 or a server error.
+        if (error.status !== 404) throw error;
+        if (version !== authVersion.current) return;
+        currentUser = await api.auth.me();
+      }
       // A late startup/recheck response must not restore a session after
       // logout, a newer login, or the app-wide expiry handler invalidated it.
       if (version !== authVersion.current) return;

@@ -163,6 +163,47 @@ describe('AuthContext', () => {
     expect(screen.getByTestId('user')).toHaveTextContent('none');
   });
 
+  it('verifies through the protected legacy endpoint during a rolling API deployment', async () => {
+    me.mockRejectedValueOnce(Object.assign(new Error('Not found'), { status: 404 }));
+    me.mockResolvedValueOnce({ id: 'legacy-user' });
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('user')).toHaveTextContent('legacy-user');
+    expect(me).toHaveBeenNthCalledWith(1, { optional: true });
+    expect(me).toHaveBeenNthCalledWith(2);
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('keeps an anonymous legacy API response signed out', async () => {
+    me.mockRejectedValueOnce(Object.assign(new Error('Not found'), { status: 404 }));
+    me.mockRejectedValueOnce(Object.assign(new Error('Unauthorized'), { status: 401 }));
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(me).toHaveBeenCalledTimes(2);
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 500, 503])('does not use the legacy probe to bypass status %s', async (status) => {
+    me.mockRejectedValueOnce(Object.assign(new Error('Verification failed'), { status }));
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(me).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalled();
+  });
+
+  it('does not start a legacy verification after logout invalidates the optional probe', async () => {
+    let reject;
+    me.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
+    renderProvider();
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
+    await waitFor(() => expect(logoutRequest).toHaveBeenCalledTimes(1));
+    await act(async () => { reject(Object.assign(new Error('Not found'), { status: 404 })); });
+    expect(me).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('user')).toHaveTextContent('none');
+  });
+
   it('builds BrowserRouter login targets with a return path', () => {
     window.history.pushState({}, '', '/SermonBuilder?draft=1');
 
