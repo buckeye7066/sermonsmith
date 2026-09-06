@@ -25,7 +25,7 @@ import {
   CloudOff
 } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { createPageUrl } from "../utils";
 import { BOOK_NAME_TO_OSIS } from "../components/bible/bibleSources";
 import { logError } from "@/lib/logError";
@@ -40,6 +40,8 @@ import TranslationPanel from "../components/reader/TranslationPanel";
 import VersionComparison from "../components/reader/VersionComparison";
 import ReaderSettings from "../components/reader/ReaderSettings";
 import JumpToVerse from "../components/reader/JumpToVerse";
+import PassageNavigation from "../components/reader/PassageNavigation";
+import { READER_BOOKS as BIBLE_BOOKS, parseReaderReference, validateReaderLocation } from '@/lib/readerReference';
 import AudioPlayer from "../components/reader/AudioPlayer";
 import ShareMenu from "../components/reader/ShareMenu";
 import VerseOfTheDay from "../components/reader/VerseOfTheDay";
@@ -69,76 +71,12 @@ const THEME_CLASSES = {
   blue: { bg: 'bg-blue-50', text: 'text-blue-900', card: 'bg-blue-100' }
 };
 
-const BIBLE_BOOKS = [
-  { name: "Genesis", chapters: 50 },
-  { name: "Exodus", chapters: 40 },
-  { name: "Leviticus", chapters: 27 },
-  { name: "Numbers", chapters: 36 },
-  { name: "Deuteronomy", chapters: 34 },
-  { name: "Joshua", chapters: 24 },
-  { name: "Judges", chapters: 21 },
-  { name: "Ruth", chapters: 4 },
-  { name: "1 Samuel", chapters: 31 },
-  { name: "2 Samuel", chapters: 24 },
-  { name: "1 Kings", chapters: 22 },
-  { name: "2 Kings", chapters: 25 },
-  { name: "1 Chronicles", chapters: 29 },
-  { name: "2 Chronicles", chapters: 36 },
-  { name: "Ezra", chapters: 10 },
-  { name: "Nehemiah", chapters: 13 },
-  { name: "Esther", chapters: 10 },
-  { name: "Job", chapters: 42 },
-  { name: "Psalms", chapters: 150 },
-  { name: "Proverbs", chapters: 31 },
-  { name: "Ecclesiastes", chapters: 12 },
-  { name: "Song of Solomon", chapters: 8 },
-  { name: "Isaiah", chapters: 66 },
-  { name: "Jeremiah", chapters: 52 },
-  { name: "Lamentations", chapters: 5 },
-  { name: "Ezekiel", chapters: 48 },
-  { name: "Daniel", chapters: 12 },
-  { name: "Hosea", chapters: 14 },
-  { name: "Joel", chapters: 3 },
-  { name: "Amos", chapters: 9 },
-  { name: "Obadiah", chapters: 1 },
-  { name: "Jonah", chapters: 4 },
-  { name: "Micah", chapters: 7 },
-  { name: "Nahum", chapters: 3 },
-  { name: "Habakkuk", chapters: 3 },
-  { name: "Zephaniah", chapters: 3 },
-  { name: "Haggai", chapters: 2 },
-  { name: "Zechariah", chapters: 14 },
-  { name: "Malachi", chapters: 4 },
-  { name: "Matthew", chapters: 28 },
-  { name: "Mark", chapters: 16 },
-  { name: "Luke", chapters: 24 },
-  { name: "John", chapters: 21 },
-  { name: "Acts", chapters: 28 },
-  { name: "Romans", chapters: 16 },
-  { name: "1 Corinthians", chapters: 16 },
-  { name: "2 Corinthians", chapters: 13 },
-  { name: "Galatians", chapters: 6 },
-  { name: "Ephesians", chapters: 6 },
-  { name: "Philippians", chapters: 4 },
-  { name: "Colossians", chapters: 4 },
-  { name: "1 Thessalonians", chapters: 5 },
-  { name: "2 Thessalonians", chapters: 3 },
-  { name: "1 Timothy", chapters: 6 },
-  { name: "2 Timothy", chapters: 4 },
-  { name: "Titus", chapters: 3 },
-  { name: "Philemon", chapters: 1 },
-  { name: "Hebrews", chapters: 13 },
-  { name: "James", chapters: 5 },
-  { name: "1 Peter", chapters: 5 },
-  { name: "2 Peter", chapters: 3 },
-  { name: "1 John", chapters: 5 },
-  { name: "2 John", chapters: 1 },
-  { name: "3 John", chapters: 1 },
-  { name: "Jude", chapters: 1 },
-  { name: "Revelation", chapters: 22 }
-];
-
 export default function Reader() {
+  const location = useLocation();
+  const [currentVerse, setCurrentVerse] = useState(null);
+  const [pendingVerse, setPendingVerse] = useState(null);
+  const chapterRequestId = useRef(0);
+  const loadedChapter = useRef(null);
   const [verses, setVerses] = useState([]);
   const [currentBook, setCurrentBook] = useState(() => {
     // Validate and load from localStorage
@@ -228,29 +166,20 @@ export default function Reader() {
     }
   }, [user]);
 
-  useEffect(() => {
-    // Save to both user profile and localStorage
-    const saveSettings = async () => {
-      localStorage.setItem('readerSettings', JSON.stringify(readerSettings));
-
-      if (user) {
-        try {
-          await api.auth.updateMe({
-            reading_preferences: {
-              ...(user.reading_preferences || {}), // Spread existing preferences or an empty object
-              fontSize: readerSettings.fontSize,
-              lineHeight: readerSettings.lineHeight,
-              theme: readerSettings.theme
-            }
-          });
-        } catch (error) {
-          console.log('Failed to save to user profile:', error);
-        }
-      }
-    };
-
-    saveSettings();
-  }, [readerSettings, user]);
+  const handleSettingsChange = async (settings) => {
+    setReaderSettings(settings);
+    localStorage.setItem('readerSettings', JSON.stringify(settings));
+    if (!user) return;
+    try {
+      await api.auth.updateMe({
+        reading_preferences: { ...(user.reading_preferences || {}), ...settings }
+      });
+    } catch (saveError) {
+      // The central auth handler deals with expired sessions. Preserve the
+      // local settings and report real server/network failures to the reader.
+      if (saveError.status !== 401) toast.error('Settings saved on this device; account sync failed.');
+    }
+  };
 
   useEffect(() => {
     const handleOnline = () => {
@@ -273,6 +202,11 @@ export default function Reader() {
   }, []);
 
   const loadCurrentChapter = useCallback(async () => {
+    const requestId = ++chapterRequestId.current;
+    const isCurrentRequest = () => requestId === chapterRequestId.current;
+    loadedChapter.current = null;
+    setVerses([]);
+    setIsCached(false);
     setIsLoading(true);
     setError(null);
     setIsOfflineMode(false);
@@ -307,8 +241,10 @@ export default function Reader() {
       // Try offline first if we're offline
       if (!navigator.onLine) {
         const offlineData = await getChapterOffline(normalizedTranslation, bookCode, currentChapter);
+        if (!isCurrentRequest()) return;
         const formattedVerses = normalizeReaderChapter(offlineData, { book: currentBook, chapter: currentChapter });
         if (formattedVerses.length > 0) {
+          loadedChapter.current = { book: currentBook, chapter: currentChapter, translation: currentTranslation };
           setVerses(formattedVerses);
           setIsCached(true);
           setIsOfflineMode(true);
@@ -323,11 +259,13 @@ export default function Reader() {
         chapter: currentChapter
       });
 
+      if (!isCurrentRequest()) return;
       const responseData = result.data || result;
       const formattedVerses = normalizeReaderChapter(responseData, { book: currentBook, chapter: currentChapter });
 
       if (formattedVerses.length > 0) {
 
+        loadedChapter.current = { book: currentBook, chapter: currentChapter, translation: currentTranslation };
         setVerses(formattedVerses);
         // A fresh network response is not a local cache hit — only the
         // offline path below should set isCached=true. The previous code
@@ -355,7 +293,7 @@ export default function Reader() {
             chapter: currentChapter, 
             translation: responseData?.fallbackUsed ? "kjv" : normalizedTranslation,
             verse_count: formattedVerses.length,
-            is_cached: true
+            is_cached: false
           }
         });
       } else {
@@ -368,6 +306,7 @@ export default function Reader() {
         setVerses([]);
       }
     } catch (error) {
+      if (!isCurrentRequest()) return;
       // Surface FULL error context — message, name, HTTP status, server
       // payload, and stack. The old console.error('Error loading verses:',
       // error) line printed "Error loading verses: tr" in production
@@ -385,8 +324,10 @@ export default function Reader() {
       if (bookCode) {
         try {
           const offlineData = await getChapterOffline(normalizedTranslation, bookCode, currentChapter);
+          if (!isCurrentRequest()) return;
           const formattedVerses = normalizeReaderChapter(offlineData, { book: currentBook, chapter: currentChapter });
           if (formattedVerses.length > 0) {
+            loadedChapter.current = { book: currentBook, chapter: currentChapter, translation: currentTranslation };
             setVerses(formattedVerses);
             setIsCached(true);
             setIsOfflineMode(true);
@@ -394,10 +335,12 @@ export default function Reader() {
             return;
           }
         } catch (offlineError) {
+          if (!isCurrentRequest()) return;
           console.error("Offline fallback failed:", offlineError);
         }
       }
       
+      if (!isCurrentRequest()) return;
       // Extract user-friendly error message from the API response
       const errorMessage = errMsg || 'Failed to load verses. Please try again.';
 
@@ -410,7 +353,7 @@ export default function Reader() {
       // a static empty state to realise something went wrong.
       toast.error(errorMessage);
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) setIsLoading(false);
     }
   }, [currentBook, currentChapter, currentTranslation]);
 
@@ -437,13 +380,21 @@ export default function Reader() {
     logActivity('page_view', { page_name: 'Reader' });
     
     // Handle deep link parameters
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     const bookParam = params.get('book');
     const chapterParam = params.get('chapter');
     const verseParam = params.get('verse');
     
-    if (bookParam && chapterParam) {
-      handleJumpToVerse(bookParam, parseInt(chapterParam), verseParam ? parseInt(verseParam) : null);
+    const referenceParam = params.get('reference') || params.get('ref');
+    if (referenceParam) {
+      try {
+        const target = parseReaderReference(referenceParam, { translation: currentTranslation });
+        handleJumpToVerse(target.book, target.chapter, target.verse);
+      } catch (referenceError) {
+        toast.error(referenceError.message);
+      }
+    } else if (bookParam && chapterParam) {
+      handleJumpToVerse(bookParam, chapterParam, verseParam);
     }
     
     // Handle shared content
@@ -467,7 +418,31 @@ export default function Reader() {
 
   useEffect(() => {
     loadCurrentChapter();
+    return () => { chapterRequestId.current += 1; };
   }, [loadCurrentChapter]);
+
+  // A verse jump waits for the matching chapter to render. A fixed 500ms
+  // delay could scroll the old chapter or lose the jump on slower connections.
+  useEffect(() => {
+    if (!pendingVerse || isLoading) return;
+    const loaded = loadedChapter.current;
+    if (!loaded || loaded.book !== pendingVerse.book || loaded.chapter !== pendingVerse.chapter
+      || loaded.translation !== currentTranslation) return;
+    const element = verseRefs.current[pendingVerse.verse];
+    if (!element) {
+      toast.error(`${pendingVerse.book} ${pendingVerse.chapter}:${pendingVerse.verse} is not available in this translation.`);
+      setPendingVerse(null);
+      return;
+    }
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    element.focus({ preventScroll: true });
+    element.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2');
+    const timer = setTimeout(() => setPendingVerse(null), 2000);
+    return () => {
+      clearTimeout(timer);
+      element.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
+    };
+  }, [pendingVerse, isLoading, verses, currentTranslation]);
 
   useEffect(() => {
     loadUserData();
@@ -485,8 +460,11 @@ export default function Reader() {
   }, [currentBook, currentChapter]);
 
   const navigateChapter = (direction) => {
-    const idx = BIBLE_BOOKS.findIndex(b => b.name === currentBook);
-    const info = BIBLE_BOOKS[idx];
+    setPendingVerse(null);
+    setCurrentVerse(null);
+    const books = BIBLE_BOOKS.filter(b => isBookInTranslation(b.name, translationBookInfo));
+    const idx = books.findIndex(b => b.name === currentBook);
+    const info = books[idx];
     if (!info) return;
 
     const goTo = (book, chapter) => {
@@ -503,20 +481,22 @@ export default function Reader() {
         goTo(currentBook, currentChapter - 1);
       } else if (idx > 0) {
         // Roll over to the previous book's last chapter instead of dead-ending.
-        const prev = BIBLE_BOOKS[idx - 1];
+        const prev = books[idx - 1];
         goTo(prev.name, prev.chapters);
       }
     } else if (direction === 'next') {
       if (currentChapter < info.chapters) {
         goTo(currentBook, currentChapter + 1);
-      } else if (idx < BIBLE_BOOKS.length - 1) {
+      } else if (idx < books.length - 1) {
         // Roll over to the next book's first chapter.
-        goTo(BIBLE_BOOKS[idx + 1].name, 1);
+        goTo(books[idx + 1].name, 1);
       }
     }
   };
 
   const navigateBook = (direction) => {
+    setPendingVerse(null);
+    setCurrentVerse(null);
         // Filter books based on translation availability
         const availableBooks = translationBookInfo?.isNTOnly 
           ? BIBLE_BOOKS.filter(b => !OLD_TESTAMENT_BOOKS.includes(b.name))
@@ -542,52 +522,22 @@ export default function Reader() {
       };
 
   const handleJumpToVerse = (book, chapter, verse) => {
-    // Reject an unrecognized book name outright with a clear message, rather
-    // than silently navigating within the current book (confusing) or — as the
-    // old build did — handing the bad name to the API and hanging on a passage
-    // that can never resolve. This is the loader-independent guard for every
-    // path into the reader (dialog, deep link, search).
-    if (book && !BIBLE_BOOKS.find(b => b.name === book)) {
-      toast.error(`"${book}" isn't a recognized book of the Bible. Please check the spelling.`);
-      return;
+    let target;
+    try {
+      target = validateReaderLocation({ book: book || currentBook, chapter, verse }, {
+        translation: currentTranslation, translationBookInfo,
+      });
+    } catch (referenceError) {
+      toast.error(referenceError.message);
+      return false;
     }
-
-    // Validate book name. Track the resolved target so the chapter clamp below
-    // uses the book we're actually switching to, not the previous one.
-    let targetBook = currentBook;
-    if (book && BIBLE_BOOKS.find(b => b.name === book)) {
-      targetBook = book;
-      setCurrentBook(book);
-      localStorage.setItem('lastReadBook', book);
-    }
-
-    if (chapter && chapter > 0) {
-      // Clamp to the target book's real chapter count. JumpToVerse already
-      // validates, but deep links (?book=&chapter=) reach here directly — an
-      // out-of-range chapter previously sailed through to the API and could
-      // leave the reader stuck fetching a passage that doesn't exist.
-      const bookInfo = BIBLE_BOOKS.find(b => b.name === targetBook);
-      const maxChapter = bookInfo?.chapters || Infinity;
-      const safeChapter = Math.min(chapter, maxChapter);
-      if (safeChapter !== chapter) {
-        toast.error(`${targetBook} only has ${maxChapter} chapter${maxChapter === 1 ? '' : 's'} — showing chapter ${safeChapter}.`);
-      }
-      setCurrentChapter(safeChapter);
-      localStorage.setItem('lastReadChapter', safeChapter.toString());
-    }
-
-    if (verse) {
-      setTimeout(() => {
-        const verseElement = verseRefs.current[verse];
-        if (verseElement) {
-          verseElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          verseElement.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2');
-          setTimeout(() => {
-            verseElement.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
-          }, 2000);
-        }
-      }, 500);
-    }
+    setCurrentBook(target.book);
+    setCurrentChapter(target.chapter);
+    setCurrentVerse(target.verse);
+    setPendingVerse(target.verse ? target : null);
+    localStorage.setItem('lastReadBook', target.book);
+    localStorage.setItem('lastReadChapter', String(target.chapter));
+    return true;
   };
 
   const handleHighlight = (verse) => {
@@ -819,6 +769,8 @@ export default function Reader() {
   };
 
   const handleTranslationChange = async (newTranslation) => {
+    setPendingVerse(null);
+    setCurrentVerse(null);
         setCurrentTranslation(newTranslation);
 
         // Check what books this translation has
@@ -896,8 +848,9 @@ export default function Reader() {
       }, [currentTranslation, currentBook]);
 
   const themeClasses = THEME_CLASSES[readerSettings.theme];
-  const currentBookIndex = BIBLE_BOOKS.findIndex(b => b.name === currentBook);
-  const currentBookInfo = BIBLE_BOOKS[currentBookIndex];
+  const navigationBooks = BIBLE_BOOKS.filter(b => isBookInTranslation(b.name, translationBookInfo));
+  const currentBookIndex = navigationBooks.findIndex(b => b.name === currentBook);
+  const currentBookInfo = navigationBooks[currentBookIndex];
 
   return (
     <div className={`min-h-screen ${themeClasses.bg} ${themeClasses.text}`}>
@@ -949,57 +902,28 @@ export default function Reader() {
           </div>
         </div>
 
-        {/* Book Navigation */}
-        <div className="flex items-center gap-3 mb-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigateBook('prev')}
-            disabled={currentBookIndex <= 0 || isLoading}
-            className="flex items-center gap-1"
-          >
-            <ChevronsLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Previous Book</span>
+        <PassageNavigation
+          currentBook={currentBook} currentChapter={currentChapter} currentVerse={currentVerse}
+          currentTranslation={currentTranslation} translationBookInfo={translationBookInfo}
+          onJump={handleJumpToVerse}
+        />
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+          <Button variant="outline" size="sm" onClick={() => navigateBook('prev')}
+            disabled={currentBookIndex <= 0 || isLoading} aria-label="Previous book">
+            <ChevronsLeft className="w-4 h-4" /><span className="hidden sm:inline">Previous Book</span>
           </Button>
-          <Badge variant="secondary" className="px-4 py-2 flex-1 text-center">
-            {currentBook}
-          </Badge>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigateBook('next')}
-            disabled={currentBookIndex >= BIBLE_BOOKS.length - 1 || isLoading}
-            className="flex items-center gap-1"
-          >
-            <span className="hidden sm:inline">Next Book</span>
-            <ChevronsRight className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Chapter Navigation */}
-        <div className="flex items-center gap-3 mb-6">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => navigateChapter('prev')}
-            disabled={(currentBookIndex <= 0 && currentChapter <= 1) || isLoading}
-            aria-label="Previous chapter"
-            title="Previous chapter"
-          >
+          <Button variant="outline" size="icon" onClick={() => navigateChapter('prev')}
+            disabled={(currentBookIndex <= 0 && currentChapter <= 1) || isLoading} aria-label="Previous chapter">
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <Badge variant="secondary" className="px-4 py-2">
-            Chapter {currentChapter}
-          </Badge>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => navigateChapter('next')}
-            disabled={(currentBookIndex >= BIBLE_BOOKS.length - 1 && currentChapter >= (currentBookInfo?.chapters || 1)) || isLoading}
-            aria-label="Next chapter"
-            title="Next chapter"
-          >
-            <ChevronRight className="w-4 h-4" />
+          <span className="text-sm" aria-live="polite">{currentBook} {currentChapter}</span>
+          <Button variant="outline" size="icon" onClick={() => navigateChapter('next')}
+            disabled={(currentBookIndex >= navigationBooks.length - 1 && currentChapter >= (currentBookInfo?.chapters || 1)) || isLoading}
+            aria-label="Next chapter"><ChevronRight className="w-4 h-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => navigateBook('next')}
+            disabled={currentBookIndex >= navigationBooks.length - 1 || isLoading} aria-label="Next book">
+            <span className="hidden sm:inline">Next Book</span><ChevronsRight className="w-4 h-4" />
           </Button>
         </div>
 
@@ -1145,7 +1069,10 @@ export default function Reader() {
                 {verses.map((verse, index) => (
                   <div
                     key={verse.id || index}
-                    ref={(el) => verseRefs.current[verse.verse] = el}
+                    ref={(el) => { verseRefs.current[verse.verse] = el; }}
+                    tabIndex={-1}
+                    data-verse={verse.verse}
+                    aria-label={`${currentBook} ${currentChapter}:${verse.verse}`}
                     style={{
                       fontSize: `${readerSettings.fontSize}px`,
                       lineHeight: readerSettings.lineHeight
@@ -1206,7 +1133,7 @@ export default function Reader() {
           open={showSettings}
           onClose={() => setShowSettings(false)}
           settings={readerSettings}
-          onSettingsChange={setReaderSettings}
+          onSettingsChange={handleSettingsChange}
         />
 
         <JumpToVerse
@@ -1215,6 +1142,7 @@ export default function Reader() {
                         onJump={handleJumpToVerse}
                         currentBook={currentBook}
                         currentChapter={currentChapter}
+                        currentVerse={currentVerse}
                         currentTranslation={currentTranslation}
                         translationBookInfo={translationBookInfo}
                       />

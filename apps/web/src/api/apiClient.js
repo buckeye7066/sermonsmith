@@ -83,8 +83,14 @@ export function setUnauthorizedHandler(fn) {
 // startup /me probe, an already-expired cookie on /logout. Firing the global
 // session-expired flow for these would, e.g., redirect the login page to
 // itself after a bad-password attempt.
-function isAuthHandshakePath(path) {
-  return path.startsWith('/api/auth/');
+function isAuthHandshakePath(path, method = 'GET') {
+  const pathname = path.split('?')[0].replace(/\/$/, '');
+  const verb = String(method).toUpperCase();
+  return (verb === 'GET' && ['/api/auth/me', '/api/auth/session'].includes(pathname))
+    || (verb === 'POST' && [
+      '/api/auth/login', '/api/auth/register', '/api/auth/logout',
+      '/api/auth/forgot-password', '/api/auth/reset-password',
+    ].includes(pathname));
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +167,7 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
       headers,
       signal,
       credentials: creds,
+      ...(!isAbsolute && path.startsWith('/api/auth/') ? { cache: 'no-store' } : {}),
     });
   } catch (err) {
     if (timeout) clearTimeout(timeout);
@@ -204,14 +211,18 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
     const error = new Error(body?.message || `API error ${res.status}`);
     error.status = res.status;
     error.data = body;
-    console.error('API fetch error:', error.message, 'Status:', res.status, 'Path:', path);
+    const expectedAuthFailure = !isAbsolute && res.status === 401
+      && isAuthHandshakePath(path, fetchOptions.method);
+    if (!expectedAuthFailure) {
+      console.error('API fetch error:', error.message, 'Status:', res.status, 'Path:', path);
+    }
 
     // Surface a real, mid-session 401 to the app-level handler so the UI can
     // tell the user their session expired and route them to login — instead
     // of each page swallowing it into a vague "couldn't do X" message. We skip
     // the auth-handshake endpoints (their 401s are expected and handled by the
     // caller). The handler itself decides whether we were actually logged in.
-    if (res.status === 401 && !isAbsolute && !isAuthHandshakePath(path)) {
+    if (res.status === 401 && !isAbsolute && !isAuthHandshakePath(path, fetchOptions.method)) {
       try { _onUnauthorized?.(path); } catch { /* a broken handler must never mask the API error */ }
     }
 
@@ -322,7 +333,9 @@ const entitiesProxy = new Proxy({}, {
 // ---------------------------------------------------------------------------
 
 const auth = {
-  me:       ()            => apiFetch('/api/auth/me'),
+  // Startup uses the optional read-only probe; explicit identity checks keep
+  // the protected /me contract for existing callers.
+  me: ({ optional = false } = {}) => apiFetch(optional ? '/api/auth/session' : '/api/auth/me'),
   // Public login-maintenance status probe (no auth required).
   maintenance: ()         => apiFetch('/api/auth/maintenance'),
   updateMe: (data)        => apiFetch('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),

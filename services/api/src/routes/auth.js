@@ -440,7 +440,10 @@ router.post('/logout', (_req, res) => {
   res.json({ message: 'Logged out' });
 });
 
-router.get('/me', authenticateToken, async (req, res, next) => {
+async function sendCurrentUser(req, res, next) {
+  res.set('Cache-Control', 'no-store');
+  if (!req.userId) return res.json(null);
+
   try {
     let user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -456,7 +459,17 @@ router.get('/me', authenticateToken, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+}
+
+router.get('/me', authenticateToken, sendCurrentUser);
+
+// Anonymous/expired sessions are an expected startup state, not an HTTP error.
+// Share the real token, revocation and account checks with every protected
+// route; this endpoint neither mints a session nor grants anonymous privileges.
+router.get('/session', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  return authenticateToken(req, res, next, { optional: true });
+}, sendCurrentUser);
 
 // PATCH /me — self-service profile edits.
 //

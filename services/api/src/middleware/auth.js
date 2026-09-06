@@ -150,15 +150,31 @@ function attachAuthenticatedUser(req, userId, user) {
     : 'Member';
 }
 
-export async function authenticateToken(req, res, next) {
+export async function authenticateToken(req, res, next, { optional = false } = {}) {
   const token = extractToken(req);
+  // Only the read-only session probe opts in. Protected routes retain 401s
+  // and never receive an identity from an absent, expired or revoked token.
+  const rejectAuthentication = (message) => optional
+    ? next()
+    : res.status(401).json({ message });
 
   if (!token) {
-    return res.status(401).json({ message: 'Authentication required' });
+    return rejectAuthentication('Authentication required');
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, jwtSecret(), JWT_OPTS);
+    decoded = jwt.verify(token, jwtSecret(), JWT_OPTS);
+  } catch (err) {
+    if (['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(err.name)) {
+      return rejectAuthentication('Invalid or expired token');
+    }
+    return next(err);
+  }
+  if (typeof decoded?.userId !== 'string' || !decoded.userId) {
+    return rejectAuthentication('Invalid token');
+  }
+  try {
     // Cache the user role once so route handlers never need a second DB lookup.
     // Also acts as a revocation check — deleted users are rejected immediately.
     const user = await prisma.user.findUnique({
@@ -168,7 +184,7 @@ export async function authenticateToken(req, res, next) {
     if (!user || user.deletedAt) {
       // Treat soft-deleted accounts as gone — their tokenVersion was also bumped
       // on deletion, but this is the loader-independent net.
-      return res.status(401).json({ message: 'User account not found' });
+      return rejectAuthentication('User account not found');
     }
 
     // Kill an active session the moment the account is banned — a ban must take
@@ -184,7 +200,7 @@ export async function authenticateToken(req, res, next) {
     // sessions keep working — they will be re-issued with `tv` on the
     // next login/password event.
     if (!tokenVersionIsCurrent(decoded, user)) {
-      return res.status(401).json({ message: 'Session expired — please sign in again' });
+      return rejectAuthentication('Session expired; please sign in again');
     }
 
     // One server-authoritative access decision is attached to every protected
@@ -192,8 +208,10 @@ export async function authenticateToken(req, res, next) {
     // accepting a client/profile-supplied tier flag.
     attachAuthenticatedUser(req, decoded.userId, user);
     next();
-  } catch {
-    return res.status(401).json({ message: 'Invalid or expired token' });
+  } catch (err) {
+    // Database/configuration failures are server errors, not expired sessions.
+    // Do not disguise an outage as invalid credentials and force a login loop.
+    next(err);
   }
 }
 
