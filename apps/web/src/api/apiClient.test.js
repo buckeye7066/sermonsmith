@@ -25,6 +25,7 @@ function setElectronApiUrl(url) {
 
 describe('apiClient base URL resolution', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     Reflect.deleteProperty(window, 'electron');
@@ -254,6 +255,59 @@ describe('apiClient base URL resolution', () => {
       response_json_schema: { type: 'object', properties: { injected: { type: 'string' } } },
     })).rejects.toThrow(/trusted structured-output contract/i);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('exposes revision restore and binary media job contracts', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['transcript'], 'Sunday notes.txt', { type: 'text/plain' });
+
+    const { api } = await loadClient();
+    await api.entities.Sermon.revisions('sermon/1');
+    await api.entities.Sermon.restoreRevision('sermon/1', 'revision/1');
+    await api.media.upload(file);
+    await api.media.jobs();
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example/api/entities/Sermon/sermon%2F1/revisions?limit=100&offset=0');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.example/api/entities/Sermon/sermon%2F1/revisions/revision%2F1/restore');
+    expect(fetchMock.mock.calls[1][1].method).toBe('POST');
+    expect(fetchMock.mock.calls[2]).toEqual([
+      'https://api.example/api/media/jobs',
+      expect.objectContaining({
+        method: 'POST',
+        body: file,
+        headers: expect.objectContaining({
+          'Content-Type': 'text/plain',
+          'X-File-Name': 'Sunday%20notes.txt',
+        }),
+      }),
+    ]);
+    expect(fetchMock.mock.calls[3][0]).toBe('https://api.example/api/media/jobs?limit=100&offset=0');
+  });
+
+  it('retries series-template instantiation with the same idempotency key after a lost response', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('response lost'))
+      .mockResolvedValueOnce(jsonResponse({ series: { id: 'series-1' }, sermons: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const requestId = '11111111-1111-4111-8111-111111111111';
+
+    const { api } = await loadClient();
+    const pending = api.entities.SeriesTemplate.instantiate('template/1', requestId);
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toMatchObject({ series: { id: 'series-1' } });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url, options] of fetchMock.mock.calls) {
+      expect(url).toBe('https://api.example/api/entities/SeriesTemplate/template%2F1/instantiate');
+      expect(options).toMatchObject({
+        method: 'POST',
+        body: JSON.stringify({ request_id: requestId }),
+      });
+    }
   });
 });
 

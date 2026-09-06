@@ -1,13 +1,23 @@
 /**
  * Client-side sermon PDF export.
  *
- * Generated locally so export works offline and never depends on a response
- * that might not contain a document.
+ * The backend `exportToPDF`/`exportToPPTX` endpoints are stubs that return a
+ * JSON message, not a document; the previous export path wrapped that JSON in a
+ * Blob, so a paying user downloaded an unopenable file while the UI reported
+ * success. Generating the document here (the same approach QuizViewer already
+ * uses) keeps the export honest and works offline.
  *
  * Layout targets the pulpit, not the screen: generous leading, points that stay
  * with their first block of text, and scripture references kept on one line so
  * they are findable at a glance while preaching.
  */
+
+import { saveExportFile } from './downloadBlob.js';
+import {
+  installUnicodePdfFont,
+  PDF_UNICODE_TEXT_OPTIONS,
+  selectPdfFont,
+} from './pdfUnicodeFont.js';
 
 const MARGIN = 20;
 const LINE = 5;
@@ -15,7 +25,7 @@ const FOOT = 18;
 
 function sanitizeFilename(text, fallback) {
   const cleaned = String(text || '')
-    .replace(/[^\w\s-]/g, '')
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
     .trim()
     .replace(/\s+/g, '-')
     .slice(0, 60);
@@ -44,9 +54,9 @@ export async function renderSermonPdf(sermon) {
   if (!sermon || typeof sermon !== 'object') {
     throw new Error('No sermon to export');
   }
-
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF();
+  installUnicodePdfFont(doc);
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const maxWidth = pageWidth - MARGIN * 2;
@@ -65,13 +75,13 @@ export async function renderSermonPdf(sermon) {
     const value = String(text ?? '').trim();
     if (!value) return;
     doc.setFontSize(size);
-    doc.setFont(undefined, style);
+    selectPdfFont(doc, value, style);
     const lines = doc.splitTextToSize(value, maxWidth - indent);
     // Keep at least the first two lines of a block with its heading.
     checkPage(Math.min(lines.length, 2) * LINE + gap);
     for (const line of lines) {
       checkPage(LINE);
-      doc.text(line, MARGIN + indent, y);
+      doc.text(line, MARGIN + indent, y, PDF_UNICODE_TEXT_OPTIONS);
       y += LINE;
     }
     y += gap;
@@ -153,7 +163,7 @@ export async function renderSermonPdf(sermon) {
 
   // Prefer wording_verification; fall back to legacy quotation_verification alias.
   const qv = sermon.wording_verification || sermon.quotation_verification;
-  if (typeof qv === 'object' && qv !== null) {
+  if (qv && typeof qv === 'object') {
     checkPage(28);
     rule();
     write('SCRIPTURE QUOTATION PROVENANCE', { size: 9, style: 'bold', gap: 1 });
@@ -194,12 +204,13 @@ export async function renderSermonPdf(sermon) {
   for (let page = 1; page <= pageCount; page += 1) {
     doc.setPage(page);
     doc.setFontSize(8);
-    doc.setFont(undefined, 'normal');
+    selectPdfFont(doc, `Page ${page} of ${pageCount}`, 'normal');
     doc.setTextColor(130);
     doc.text(`Page ${page} of ${pageCount}`, pageWidth - MARGIN, pageHeight - 10, {
+      ...PDF_UNICODE_TEXT_OPTIONS,
       align: 'right',
     });
-    doc.text('SermonSmith', MARGIN, pageHeight - 10);
+    doc.text('SermonSmith', MARGIN, pageHeight - 10, PDF_UNICODE_TEXT_OPTIONS);
     doc.setTextColor(0);
   }
 
@@ -210,6 +221,6 @@ export async function renderSermonPdf(sermon) {
 export async function exportSermonToPdf(sermon) {
   const doc = await renderSermonPdf(sermon);
   const filename = buildSermonFilename(sermon);
-  doc.save(filename);
+  await saveExportFile(doc.output('blob'), filename);
   return filename;
 }

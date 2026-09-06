@@ -77,6 +77,18 @@ describe('renderSermonPdf', () => {
     expect(doc.internal.getNumberOfPages()).toBe(1);
   });
 
+  it('preserves Greek and Hebrew source-language notes', async () => {
+    const doc = await renderSermonPdf({
+      title: 'χάρις וֶאֱמֶת',
+      theological_notes: 'λόγος · בְּרֵאשִׁית',
+      points: [],
+    });
+    const bytes = new Uint8Array(doc.output('arraybuffer'));
+    const raw = new TextDecoder('latin1').decode(bytes);
+    expect(raw).toContain('/ToUnicode');
+    expect(bytes.byteLength).toBeGreaterThan(10_000);
+  });
+
   it('refuses to export nothing', async () => {
     await expect(renderSermonPdf(null)).rejects.toThrow(/no sermon/i);
   });

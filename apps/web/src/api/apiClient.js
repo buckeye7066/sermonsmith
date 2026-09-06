@@ -262,6 +262,23 @@ function createEntityMethods(entityName) {
     delete: (id) =>
       apiFetch(`${base}/${safeId(id)}`, { method: 'DELETE' }),
 
+    revisions: (id, limit = 100, offset = 0) =>
+      apiFetch(`${base}/${safeId(id)}/revisions?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`),
+
+    restoreRevision: (id, revisionId) =>
+      apiFetch(`${base}/${safeId(id)}/revisions/${safeId(revisionId)}/restore`, {
+        method: 'POST',
+      }),
+
+    instantiate: (id, requestId) =>
+      apiFetch(`${base}/${safeId(id)}/instantiate`, {
+        method: 'POST',
+        body: JSON.stringify({ request_id: requestId }),
+        // This endpoint is server-idempotent on request_id, so retrying a
+        // dropped response cannot duplicate a series or any sermon drafts.
+        retry: true,
+      }),
+
     filter: (query = {}, orderBy = '-created_date', limit = 200, offset = 0) =>
       apiFetch(`${base}/filter`, {
         method: 'POST',
@@ -924,7 +941,38 @@ const admin = {
 };
 
 // ---------------------------------------------------------------------------
+// Media transcription jobs.
+//
+// Uploads stream the raw file body (not JSON) so a long recording never has to
+// be base64-inflated in memory. The declared Content-Type is what the server
+// uses to decide how to decode it, and X-File-Name carries the original name.
+// ---------------------------------------------------------------------------
+
+const media = {
+  jobs: (limit = 100, offset = 0) => apiFetch(`/api/media/jobs?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`),
+  job: (id) => apiFetch(`/api/media/jobs/${encodeURIComponent(String(id))}`),
+  upload: (file) => apiFetch('/api/media/jobs', {
+    method: 'POST',
+    body: file,
+    timeoutMs: 180_000,
+    headers: {
+      'Content-Type': file.type || ({
+        txt: 'text/plain',
+        md: 'text/markdown',
+        mp3: 'audio/mpeg',
+        m4a: 'audio/mp4',
+        mp4: 'video/mp4',
+        wav: 'audio/wav',
+        webm: 'audio/webm',
+      })[String(file.name || '').split('.').pop().toLowerCase()] || 'application/octet-stream',
+      'X-File-Name': encodeURIComponent(file.name || 'upload'),
+    },
+  }),
+  deleteJob: (id) => apiFetch(`/api/media/jobs/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
+};
+
+// ---------------------------------------------------------------------------
 // Public exports
 // ---------------------------------------------------------------------------
 
-export const api = { auth, entities: entitiesProxy, integrations, functions, community, admin };
+export const api = { auth, entities: entitiesProxy, integrations, functions, community, admin, media };
