@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BookOpen, Save, AlertCircle, FileText, Crown, MessageCircle, Sparkles, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
@@ -25,26 +26,28 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
     ['9319981779', '+19319981779', '931-998-1779', '(931) 998-1779'].some(p => user.promotionalPhone?.replace(/[\s\-()]/g, '').includes(p.replace(/[\s\-()+]/g, '')))
   );
 
-  const handleExport = async () => {
+  const handleExport = async (format) => {
     if (!isPremium) {
       toast.error("Export is a Premium feature", {
-        description: "Upgrade to export your studies to PDF"
+        description: "Upgrade to export your studies to PDF and PPTX"
       });
       return;
     }
 
+    const label = format === 'pptx' ? 'PPTX' : 'PDF';
     setIsExporting(true);
     try {
-      const { exportStudyToPdf } = await import('@/lib/studyPdf');
-      const filename = await exportStudyToPdf({
-        ...studyData,
-        title: editedTitle || studyData.title || 'Bible Study',
-      });
-      if (filename) toast.success('Study exported to PDF', { description: filename });
-      else toast.info('PDF export canceled');
+      const current = { ...studyData, title: editedTitle || studyData.title || 'Bible Study' };
+      const { exportStudyToPdf, exportStudyToPptx } = await import('@/lib/studyExport');
+      const filename = format === 'pptx'
+        ? await exportStudyToPptx(current)
+        : await exportStudyToPdf(current);
+      // persistStudyPdf returns null when the desktop save dialog is cancelled.
+      if (filename) toast.success(`Study exported to ${label}`, { description: filename });
+      else toast.info(`${label} export canceled`);
     } catch (error) {
-      console.error('Error exporting study to PDF:', error);
-      toast.error('Failed to export to PDF', {
+      console.error(`Error exporting study to ${label}:`, error);
+      toast.error(`Failed to export to ${label}`, {
         description: error.message
       });
     } finally {
@@ -270,20 +273,38 @@ export default function StudyGuideViewer({ studyData, onSave, user, onEnhanceQue
           </Button>
         )}
         {isPremium ? (
-          <Button
-            variant="outline"
-            disabled={isExporting}
-            className="flex-1"
-            size="lg"
-            onClick={handleExport}
-          >
-            {isExporting ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4 mr-2" />
-            )}
-            {isExporting ? 'Exporting PDF...' : 'Export PDF'}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={isExporting}
+                className="flex-1"
+                size="lg"
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export
+                  </>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => handleExport('pdf')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export to PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('pptx')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export to PPTX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : (
           <Button
             variant="outline"

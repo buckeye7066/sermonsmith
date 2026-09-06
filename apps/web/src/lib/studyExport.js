@@ -4,7 +4,7 @@ import {
   paginateSlideParagraphs,
   splitSlideText,
 } from './sermonPptx.js';
-import { saveExportFile } from './downloadBlob.js';
+import { persistStudyPdf } from './studyPdf.js';
 import {
   installUnicodePdfFont,
   PDF_UNICODE_TEXT_OPTIONS,
@@ -163,11 +163,17 @@ export function buildStudyPdfFilename(study) {
   return `${sanitizeFilename(study?.title, 'bible-study')}.pdf`;
 }
 
+/**
+ * Render with the Unicode-capable renderer above, then persist through the
+ * platform-aware writer in studyPdf.js. That writer already handles the
+ * Electron save dialog (and its cancel result), the Android/iOS durable
+ * Documents copy plus share sheet, and the plain browser download - so the
+ * Unicode upgrade must not bypass it. A null return means the user cancelled.
+ */
 export async function exportStudyToPdf(study) {
   const doc = await renderStudyPdf(study);
   const filename = buildStudyPdfFilename(study);
-  await saveExportFile(doc.output('blob'), filename);
-  return filename;
+  return persistStudyPdf(doc, filename);
 }
 
 export async function exportStudyToPptx(study) {

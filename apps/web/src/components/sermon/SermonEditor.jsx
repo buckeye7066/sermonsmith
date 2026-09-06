@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download, ShieldCheck } from "lucide-react";
+import { FileText, Save, AlertCircle, Crown, BookOpen, Lightbulb, Sparkles, Loader2, Wand2, Presentation, GraduationCap, Search, Download, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/api/apiClient";
 import { Link } from "react-router";
@@ -57,27 +58,36 @@ export default function SermonEditor({
     user.role === 'admin'
   );
 
-  const handleExport = async () => {
+  const handleExport = async (format) => {
     if (!isPremium) {
       toast.error("Export is a Premium feature", {
-        description: "Upgrade to export your sermons to PDF"
+        description: "Upgrade to export your sermons to PDF and PPTX"
       });
       return;
     }
+
+    const label = format === 'pptx' ? 'PPTX' : 'PDF';
 
     setIsExporting(true);
     try {
       // Built in the browser from the sermon currently on screen, so the export
       // reflects unsaved edits and works without a round trip.
-      const { exportSermonToPdf } = await import('@/lib/sermonPdf');
-      const filename = await exportSermonToPdf({
+      const current = {
         ...currentSermon,
         title: editedTitle || currentSermon?.title || 'Untitled Sermon',
-      });
-      toast.success("Sermon exported to PDF", { description: filename });
+      };
+      let filename;
+      if (format === 'pptx') {
+        const { exportSermonToPptx } = await import('@/lib/sermonPptx');
+        filename = await exportSermonToPptx(current);
+      } else {
+        const { exportSermonToPdf } = await import('@/lib/sermonPdf');
+        filename = await exportSermonToPdf(current);
+      }
+      toast.success(`Sermon exported to ${label}`, { description: filename });
     } catch (error) {
-      console.error('Error exporting sermon to PDF:', error);
-      toast.error("Failed to export to PDF", {
+      console.error(`Error exporting sermon to ${label}:`, error);
+      toast.error(`Failed to export to ${label}`, {
         description: error.message
       });
     } finally {
@@ -511,20 +521,38 @@ export default function SermonEditor({
           Save Sermon
         </Button>
         {isPremium ? (
-          <Button
-            variant="outline"
-            disabled={isExporting}
-            className="flex-1"
-            size="lg"
-            onClick={handleExport}
-          >
-            {isExporting ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4 mr-2" />
-            )}
-            {isExporting ? 'Exporting PDF...' : 'Export PDF'}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={isExporting}
+                className="flex-1"
+                size="lg"
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export
+                  </>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => handleExport('pdf')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export to PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('pptx')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export to PPTX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : (
           <Button
             variant="outline"
