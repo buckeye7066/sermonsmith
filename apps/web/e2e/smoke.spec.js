@@ -2,10 +2,11 @@ import { test, expect } from '@playwright/test';
 
 async function mockLoggedOutApi(page) {
   await page.route('**/api/**', async (route) => {
+    const sessionProbe = new URL(route.request().url()).pathname === '/api/auth/session';
     await route.fulfill({
-      status: 401,
+      status: sessionProbe ? 200 : 401,
       contentType: 'application/json',
-      body: JSON.stringify({ error: 'Authentication required' }),
+      body: JSON.stringify(sessionProbe ? null : { error: 'Authentication required' }),
     });
   });
 }
@@ -150,7 +151,7 @@ test('Bible Reader sidebar link opens the reader and renders scripture', async (
   const pageErrors = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
 
-  await page.route('**/api/auth/me', async (route) => {
+  await page.route('**/api/auth/{me,session}', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -214,7 +215,7 @@ test('Bible Reader sidebar link opens the reader and renders scripture', async (
 test('authenticated desktop shell fills the viewport without sidebar clipping', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  await page.route('**/api/auth/me', async (route) => {
+  await page.route('**/api/auth/{me,session}', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -284,7 +285,7 @@ test('authenticated desktop shell fills the viewport without sidebar clipping', 
 test('mobile Safari and Android profiles keep navigation reachable without page overflow', async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith('mobile-'), 'mobile viewport contract');
 
-  await page.route('**/api/auth/me', async (route) => {
+  await page.route('**/api/auth/{me,session}', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

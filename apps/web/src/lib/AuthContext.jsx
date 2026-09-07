@@ -59,75 +59,71 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  const authVersion = useRef(0);
+  const isAuthenticatedRef = useRef(false);
+  const sessionExpiredHandledRef = useRef(false);
+
+  const applyUser = useCallback((nextUser) => {
+    const verifiedUser = nextUser?.id ? nextUser : null;
+    const authenticated = Boolean(verifiedUser);
+    isAuthenticatedRef.current = authenticated;
+    if (authenticated) sessionExpiredHandledRef.current = false;
+    setUser(verifiedUser);
+    setIsAuthenticated(authenticated);
+    setAuthSessionHint(authenticated);
+    primeCachedUser(verifiedUser);
+  }, []);
+
   const checkAuth = useCallback(async () => {
+    const version = ++authVersion.current;
+    setIsLoadingAuth(true);
     try {
-      const currentUser = await api.auth.me();
-      setUser(currentUser);
-      setIsAuthenticated(true);
-      setAuthSessionHint(true);
+      let currentUser;
+      try {
+        currentUser = await api.auth.me({ optional: true });
+      } catch (error) {
+        // Web and API deployments are independent. An older API may not yet
+        // expose the optional probe; only a missing endpoint may fall back to
+        // the original protected probe. Never bypass a 403 or a server error.
+        if (error.status !== 404) throw error;
+        if (version !== authVersion.current) return;
+        currentUser = await api.auth.me();
+      }
+      // A late startup/recheck response must not restore a session after
+      // logout, a newer login, or the app-wide expiry handler invalidated it.
+      if (version !== authVersion.current) return;
+      applyUser(currentUser);
       setAuthError(null);
-      // Share the just-fetched user with the activity logger so it doesn't
-      // issue its own duplicate /api/auth/me call.
-      primeCachedUser(currentUser);
     } catch (error) {
-      // 401 means no valid cookie — user is simply not logged in
+      if (version !== authVersion.current) return;
+      applyUser(null);
       if (error.status === 401) {
-        setUser(null);
-        setIsAuthenticated(false);
-        setAuthSessionHint(false);
-        primeCachedUser(null);
+        setAuthError(null);
       } else {
-        // If the current session cannot be verified, clear the returning-user
-        // hint as well. Otherwise every public reload would repeat a neutral
-        // loader even though this render has fallen back to signed-out state.
-        setAuthSessionHint(false);
         logError('Auth check failed', error);
         const errType = error.data?.type;
         setAuthError(errType ? { type: errType } : null);
       }
     } finally {
-      setIsLoadingAuth(false);
+      if (version === authVersion.current) setIsLoadingAuth(false);
     }
-  }, []);
+  }, [applyUser]);
 
   useEffect(() => {
     checkAuth();
+    return () => { authVersion.current += 1; };
   }, [checkAuth]);
 
-  // De-dupe ref for the burst of parallel 401s a single expiry produces, so we
-  // don't stack toasts or fire multiple redirects. Declared up here so the
-  // auth-mirror effect below can re-arm it on every (re)authentication.
-  const sessionExpiredHandledRef = useRef(false);
-
-  // Mirror isAuthenticated into a ref so the (non-React) unauthorized handler
-  // can read the *current* value without being re-registered on every change.
-  const isAuthenticatedRef = useRef(false);
-  useEffect(() => {
-    isAuthenticatedRef.current = isAuthenticated;
-    // Re-arm the session-expiry guard whenever we become authenticated again
-    // (fresh login or post-login re-sync). Without this, once a session expired
-    // the guard stayed latched true for the page's lifetime, so a *later*
-    // expiry after re-login would be silently swallowed.
-    if (isAuthenticated) sessionExpiredHandledRef.current = false;
-  }, [isAuthenticated]);
-
-  // Register the app-wide 401 handler. When a feature request 401s mid-session
-  // (cookie expired, tokenVersion bumped), clear auth state, tell the user
-  // honestly, and bounce to login preserving where they were.
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      // A 401 while we already believe we're logged out is just a protected
-      // call made from a public page — the page's own "Sign In Required" UI
-      // covers that. Only a 401 while we thought we were authenticated is a
-      // genuine session expiry worth interrupting the user for.
-      if (!isAuthenticatedRef.current) return;
-      if (sessionExpiredHandledRef.current) return;
+      if (!isAuthenticatedRef.current || sessionExpiredHandledRef.current) return;
       sessionExpiredHandledRef.current = true;
-
-      setUser(null);
-      setIsAuthenticated(false);
-      setAuthSessionHint(false);
-      primeCachedUser(null);
+      // Invalidate pending checks before clearing identity so a late successful
+      // response cannot restore the session that this 401 just invalidated.
+      authVersion.current += 1;
+      applyUser(null);
+      setIsLoadingAuth(false);
+      setAuthError(null);
 
       const returnTo = getCurrentAppReturnPath();
       const onLoginPage = returnTo.replace(/^[#/]+/, '').toLowerCase().startsWith('login');
@@ -137,26 +133,23 @@ export const AuthProvider = ({ children }) => {
       }
     });
     return () => setUnauthorizedHandler(null);
-  }, []);
+  }, [applyUser]);
 
   const logout = useCallback(async (shouldRedirect = true) => {
+    authVersion.current += 1;
+    applyUser(null);
+    setIsLoadingAuth(false);
+    setAuthError(null);
     try {
       await api.auth.logout();
     } catch (error) {
-      // Best-effort: the cookie may already be expired, and the local session
-      // is cleared below regardless. Log it; do not tell the user a normal
-      // logout failed.
       logError('Logout request failed (session cleared locally anyway)', error);
     }
-    setUser(null);
-    setIsAuthenticated(false);
-    setAuthSessionHint(false);
-    setAuthError(null);
-    primeCachedUser(null);
-    if (shouldRedirect) {
-      window.location.href = getLoginPath();
-    }
-  }, []);
+    authVersion.current += 1;
+    applyUser(null);
+    setIsLoadingAuth(false);
+    if (shouldRedirect) window.location.href = getLoginPath();
+  }, [applyUser]);
 
   const navigateToLogin = useCallback(() => {
     window.location.href = getLoginPath(getCurrentAppReturnPath());

@@ -39,7 +39,7 @@ function sermonPayload({ badRef = false } = {}) {
 }
 
 async function mockCommonRoutes(page, { aiSermon }) {
-  await page.route('**/api/auth/me', (route) =>
+  await page.route('**/api/auth/{me,session}', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(USER) }));
 
   // Generic entity traffic (activity logs, collections, tags…) succeeds

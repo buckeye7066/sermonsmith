@@ -2,7 +2,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 
 const me = vi.fn();
 const logoutRequest = vi.fn();
@@ -40,6 +40,7 @@ function AuthProbe() {
       <div data-testid="authenticated">{String(auth.isAuthenticated)}</div>
       <div data-testid="user">{auth.user?.id || 'none'}</div>
       <button type="button" onClick={() => auth.logout(false)}>Logout</button>
+      <button type="button" onClick={() => auth.checkAppState()}>Recheck</button>
     </div>
   );
 }
@@ -111,6 +112,96 @@ describe('AuthContext', () => {
     await waitFor(() => expect(screen.getByTestId('authenticated')).toHaveTextContent('false'));
     expect(screen.getByTestId('user')).toHaveTextContent('none');
     expect(hasAuthSessionHint()).toBe(false);
+  });
+
+  it('treats an anonymous 200 probe as signed out, never as a verified user', async () => {
+    me.mockResolvedValueOnce(null);
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(me).toHaveBeenCalledWith({ optional: true });
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(screen.getByTestId('user')).toHaveTextContent('none');
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('ignores a late successful startup response after logout', async () => {
+    let resolve;
+    me.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    renderProvider();
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
+    await waitFor(() => expect(logoutRequest).toHaveBeenCalledTimes(1));
+    await act(async () => { resolve({ id: 'stale-user' }); });
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(screen.getByTestId('user')).toHaveTextContent('none');
+    expect(hasAuthSessionHint()).toBe(false);
+  });
+
+  it('clears stale identity and logger cache when a later verification fails', async () => {
+    me.mockResolvedValueOnce({ id: 'u1' });
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('u1'));
+    me.mockRejectedValueOnce(Object.assign(new Error('Service unavailable'), { status: 503 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Recheck' }));
+    await waitFor(() => expect(screen.getByTestId('authenticated')).toHaveTextContent('false'));
+    expect(screen.getByTestId('user')).toHaveTextContent('none');
+    expect(primeCachedUser).toHaveBeenLastCalledWith(null);
+    expect(hasAuthSessionHint()).toBe(false);
+  });
+
+  it('invalidates a pending verification when a protected request expires', async () => {
+    window.history.pushState({}, '', '/Login');
+    me.mockResolvedValueOnce({ id: 'u1' });
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('u1'));
+    let resolve;
+    me.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    fireEvent.click(screen.getByRole('button', { name: 'Recheck' }));
+    const handler = setUnauthorizedHandler.mock.calls.find(([fn]) => typeof fn === 'function')[0];
+    act(() => { handler(); handler(); });
+    await act(async () => { resolve({ id: 'stale-user' }); });
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(screen.getByTestId('user')).toHaveTextContent('none');
+  });
+
+  it('verifies through the protected legacy endpoint during a rolling API deployment', async () => {
+    me.mockRejectedValueOnce(Object.assign(new Error('Not found'), { status: 404 }));
+    me.mockResolvedValueOnce({ id: 'legacy-user' });
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('user')).toHaveTextContent('legacy-user');
+    expect(me).toHaveBeenNthCalledWith(1, { optional: true });
+    expect(me).toHaveBeenNthCalledWith(2);
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('keeps an anonymous legacy API response signed out', async () => {
+    me.mockRejectedValueOnce(Object.assign(new Error('Not found'), { status: 404 }));
+    me.mockRejectedValueOnce(Object.assign(new Error('Unauthorized'), { status: 401 }));
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(me).toHaveBeenCalledTimes(2);
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 500, 503])('does not use the legacy probe to bypass status %s', async (status) => {
+    me.mockRejectedValueOnce(Object.assign(new Error('Verification failed'), { status }));
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(me).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalled();
+  });
+
+  it('does not start a legacy verification after logout invalidates the optional probe', async () => {
+    let reject;
+    me.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
+    renderProvider();
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
+    await waitFor(() => expect(logoutRequest).toHaveBeenCalledTimes(1));
+    await act(async () => { reject(Object.assign(new Error('Not found'), { status: 404 })); });
+    expect(me).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('user')).toHaveTextContent('none');
   });
 
   it('builds BrowserRouter login targets with a return path', () => {

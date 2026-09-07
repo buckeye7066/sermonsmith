@@ -440,23 +440,32 @@ router.post('/logout', (_req, res) => {
   res.json({ message: 'Logged out' });
 });
 
-router.get('/me', authenticateToken, async (req, res, next) => {
+async function sendCurrentUser(req, res, next) {
+  res.set('Cache-Control', 'no-store');
+  if (!req.userId) return res.json(null);
+
   try {
-    let user = await prisma.user.findUnique({ where: { id: req.userId } });
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (isAdminEmail(user.email) && (user.role !== 'admin' || !user.premium)) {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { role: 'admin', premium: true },
-      });
-    }
-
+    // GET probes only serialize authoritative stored identity. Allowlist role
+    // reconciliation belongs to explicit register/login flows above, never a
+    // startup read that may be repeated or prefetched by a browser.
     res.json(sanitizeUser(user));
   } catch (err) {
     next(err);
   }
-});
+}
+
+router.get('/me', authenticateToken, sendCurrentUser);
+
+// Anonymous/expired sessions are an expected startup state, not an HTTP error.
+// Share the real token, revocation and account checks with every protected
+// route; this endpoint neither mints a session nor grants anonymous privileges.
+router.get('/session', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  return authenticateToken(req, res, next, { optional: true });
+}, sendCurrentUser);
 
 // PATCH /me — self-service profile edits.
 //
