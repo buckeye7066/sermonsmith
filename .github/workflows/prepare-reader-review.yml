@@ -1,0 +1,51 @@
+name: Prepare isolated reader review closure
+on:
+  push:
+    branches: [maintenance/reader-review-prep-20260907]
+    paths: [.github/workflows/prepare-reader-review.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.repository == 'buckeye7066/sermonsmith' && github.ref == 'refs/heads/maintenance/reader-review-prep-20260907'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Prepare checked application tree only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json, subprocess
+          from pathlib import Path
+          raw = gzip.decompress(base64.b64decode(Path('.github/reader-review-patch.json.gz.b64').read_text()))
+          assert hashlib.sha256(raw).hexdigest() == '6a13039b415955cee49c37c6964080704c4065abadcc850db095b9b2a76e3191', 'Payload mismatch'
+          changes = json.loads(raw)
+          allowed = {'apps/web/src/pages/Reader.jsx', 'services/api/src/routes/auth.js', 'services/api/src/__tests__/sessionProbe.test.js', 'apps/web/src/api/apiClient.js', 'apps/web/src/lib/AuthContext.jsx', 'apps/web/e2e/readerNavigation.spec.js'}
+          assert set(changes) == allowed, 'Unexpected target files'
+          entries = []
+          for name, change in changes.items():
+              path = Path(name)
+              previous = path.read_text()
+              assert hashlib.sha256(previous.encode()).hexdigest() == change['sha256'], 'Source changed: ' + name
+              lines = previous.splitlines(keepends=True)
+              for start, end, replacement in reversed(change['edits']):
+                  lines[start:end] = [replacement]
+              text = ''.join(lines)
+              path.write_text(text)
+              entries.append({'path': name, 'type': 'blob', 'mode': '100644', 'content': text})
+              print('Prepared:', name)
+          subprocess.run(['git', 'diff', '--check'], check=True)
+          for name in ['services/api/src/routes/auth.js', 'services/api/src/__tests__/sessionProbe.test.js', 'apps/web/e2e/readerNavigation.spec.js']:
+              subprocess.run(['node', '--check', name], check=True)
+          # Start from the application tree, not this helper branch: preparation
+          # payload and workflow can never enter the resulting application diff.
+          payload = json.dumps({'base_tree': '8eae5465a499bdcd410c6cc4f44146deee2b801e', 'tree': entries})
+          result = subprocess.check_output(['gh', 'api', '--method', 'POST', 'repos/buckeye7066/sermonsmith/git/trees', '--input', '-'], input=payload, text=True)
+          print('READY_TREE=' + json.loads(result)['sha'])
+          PY
