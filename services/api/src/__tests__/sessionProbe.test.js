@@ -58,6 +58,31 @@ describe('optional startup session probe', () => {
     expect(response.body).toBeNull();
     expect((await request(app).get('/api/auth/me').set('Cookie', cookie(token))).status).toBe(401);
   });
+  it.each(['/session', '/me'])('does not reconcile an allowlisted role during GET %s', async (path) => {
+    process.env.ADMIN_EMAILS = user.email;
+    prisma.user.update.mockClear();
+    const response = await request(app).get(`/api/auth${path}`).set('Cookie', cookie(signToken(user)));
+    expect(response.status).toBe(200);
+    expect(response.body.role).toBe('user');
+    expect(response.body.premium).toBe(false);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(user.role).toBe('user');
+  });
+  it('retains explicit allowlisted login reconciliation before a read-only probe', async () => {
+    process.env.ADMIN_EMAILS = user.email;
+    const bcrypt = (await import('bcryptjs')).default;
+    user.password = await bcrypt.hash('reader-regression-passphrase', 4);
+    const login = await request(app).post('/api/auth/login')
+      .send({ email: user.email, password: 'reader-regression-passphrase' });
+    expect(login.status).toBe(200);
+    expect(login.body.user.role).toBe('admin');
+    expect(login.body.user.premium).toBe(true);
+    prisma.user.update.mockClear();
+    const response = await request(app).get('/api/auth/session').set('Cookie', login.headers['set-cookie']);
+    expect(response.status).toBe(200);
+    expect(response.body.role).toBe('admin');
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
   it('retains the suspension response rather than returning a privileged identity', async () => {
     user.is_banned = true;
     const response = await request(app).get('/api/auth/session').set('Cookie', cookie(signToken(user)));

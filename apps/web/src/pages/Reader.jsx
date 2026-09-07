@@ -73,6 +73,9 @@ const THEME_CLASSES = {
 
 export default function Reader() {
   const location = useLocation();
+  const { user, isLoadingAuth } = useAuth();
+  const [hydratedUser, setHydratedUser] = useState(undefined);
+  const appliedDeepLink = useRef(null);
   const [currentVerse, setCurrentVerse] = useState(null);
   const [pendingVerse, setPendingVerse] = useState(null);
   const chapterRequestId = useRef(0);
@@ -97,11 +100,11 @@ export default function Reader() {
     const saved = parseInt(localStorage.getItem('lastReadChapter'), 10);
     return saved > 0 && saved <= maxChapter ? saved : 1;
   });
-  const [currentTranslation, setCurrentTranslation] = useState("kjv");
+  const [currentTranslation, setCurrentTranslation] = useState(
+    () => user?.reading_preferences?.defaultTranslation || 'kjv'
+  );
   const [highlights, setHighlights] = useState([]);
   const [notes, setNotes] = useState([]);
-  // Read user from shared AuthContext (no extra fetch).
-  const { user } = useAuth();
   // Use the shared premium hook so users with `user.premium === true` (set
   // by the Stripe webhook on subscription) are correctly recognised. The
   // previous local effect only checked subscription_tier / premium_until /
@@ -149,6 +152,10 @@ export default function Reader() {
   // Pull reader-settings from the shared user object (or fall back to
   // localStorage if signed out / preferences missing).
   useEffect(() => {
+    if (isLoadingAuth) return;
+    // Deep links wait for this same user snapshot and its effective translation.
+    // Marking hydration and applying preferences are batched into one render.
+    setHydratedUser(user);
     if (user?.reading_preferences) {
       setReaderSettings({
         fontSize: user.reading_preferences.fontSize || 18,
@@ -156,6 +163,7 @@ export default function Reader() {
         theme: user.reading_preferences.theme || 'light'
       });
       if (user.reading_preferences.defaultTranslation) {
+        setTranslationBookInfo(null);
         setCurrentTranslation(user.reading_preferences.defaultTranslation);
       }
       return;
@@ -164,7 +172,7 @@ export default function Reader() {
     if (savedSettings) {
       try { setReaderSettings(JSON.parse(savedSettings)); } catch { /* ignore */ }
     }
-  }, [user]);
+  }, [user, isLoadingAuth]);
 
   const handleSettingsChange = async (settings) => {
     setReaderSettings(settings);
@@ -375,28 +383,52 @@ export default function Reader() {
     }
   }, [user]);
 
-  useEffect(() => {
-    // Log page view
-    logActivity('page_view', { page_name: 'Reader' });
-    
-    // Handle deep link parameters
-    const params = new URLSearchParams(location.search);
-    const bookParam = params.get('book');
-    const chapterParam = params.get('chapter');
-    const verseParam = params.get('verse');
-    
-    const referenceParam = params.get('reference') || params.get('ref');
-    if (referenceParam) {
-      try {
-        const target = parseReaderReference(referenceParam, { translation: currentTranslation });
-        handleJumpToVerse(target.book, target.chapter, target.verse);
-      } catch (referenceError) {
-        toast.error(referenceError.message);
-      }
-    } else if (bookParam && chapterParam) {
-      handleJumpToVerse(bookParam, chapterParam, verseParam);
+  const handleJumpToVerse = useCallback((book, chapter, verse) => {
+    let target;
+    try {
+      target = validateReaderLocation({ book: book || currentBook, chapter, verse }, {
+        translation: currentTranslation, translationBookInfo,
+      });
+    } catch (referenceError) {
+      toast.error(referenceError.message);
+      return false;
     }
-    
+    setCurrentBook(target.book);
+    setCurrentChapter(target.chapter);
+    setCurrentVerse(target.verse);
+    setPendingVerse(target.verse ? target : null);
+    localStorage.setItem('lastReadBook', target.book);
+    localStorage.setItem('lastReadChapter', String(target.chapter));
+    return true;
+  }, [currentBook, currentTranslation, translationBookInfo]);
+
+  useEffect(() => {
+    if (isLoadingAuth || hydratedUser !== user) return;
+    const key = JSON.stringify([location.search, currentTranslation, user?.id]);
+    if (appliedDeepLink.current === key) return;
+    appliedDeepLink.current = key;
+
+    const params = new URLSearchParams(location.search);
+    const reference = params.get('reference') || params.get('ref');
+    try {
+      if (reference) {
+        const target = parseReaderReference(reference, {
+          translation: currentTranslation, translationBookInfo,
+        });
+        handleJumpToVerse(target.book, target.chapter, target.verse);
+      } else if (params.get('book') && params.get('chapter')) {
+        handleJumpToVerse(params.get('book'), params.get('chapter'), params.get('verse'));
+      }
+    } catch (referenceError) {
+      toast.error(referenceError.message);
+    }
+    // Re-check actual URL/translation changes, but never replay a link simply
+    // because ordinary navigation changed the callback or metadata arrived.
+  }, [location.search, currentTranslation, translationBookInfo, handleJumpToVerse,
+    isLoadingAuth, hydratedUser, user]);
+
+  useEffect(() => {
+    logActivity('page_view', { page_name: 'Reader' });
     // Handle shared content
     const sharedContent = sessionStorage.getItem('sharedContent');
     if (sharedContent) {
@@ -410,10 +442,6 @@ export default function Reader() {
         console.error('Failed to parse shared content');
       }
     }
-    // Intentional mount-only effect: deep-link params and shared content are
-    // one-time entry actions. handleJumpToVerse is not memoized, so listing it
-    // would re-run this on every render and re-fire the jump/toast.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -521,24 +549,7 @@ export default function Reader() {
         }
       };
 
-  const handleJumpToVerse = (book, chapter, verse) => {
-    let target;
-    try {
-      target = validateReaderLocation({ book: book || currentBook, chapter, verse }, {
-        translation: currentTranslation, translationBookInfo,
-      });
-    } catch (referenceError) {
-      toast.error(referenceError.message);
-      return false;
-    }
-    setCurrentBook(target.book);
-    setCurrentChapter(target.chapter);
-    setCurrentVerse(target.verse);
-    setPendingVerse(target.verse ? target : null);
-    localStorage.setItem('lastReadBook', target.book);
-    localStorage.setItem('lastReadChapter', String(target.chapter));
-    return true;
-  };
+
 
   const handleHighlight = (verse) => {
     if (!user) {
@@ -769,6 +780,7 @@ export default function Reader() {
   };
 
   const handleTranslationChange = async (newTranslation) => {
+    setTranslationBookInfo(null);
     setPendingVerse(null);
     setCurrentVerse(null);
         setCurrentTranslation(newTranslation);

@@ -8,7 +8,8 @@ const USER = {
 
 // Intercept every backend call; these navigation checks must never make paid
 // provider calls, use real accounts, or depend on public Bible API uptime.
-async function readerApi(page, { delayJohn = 0, anonymous = false } = {}) {
+async function readerApi(page, { delayJohn = 0, anonymous = false, defaultTranslation = 'kjv', authDelay = 0 } = {}) {
+  const readerUser = { ...USER, reading_preferences: { defaultTranslation } };
   const calls = [];
   let expired = anonymous;
   let failSettings = false;
@@ -20,13 +21,16 @@ async function readerApi(page, { delayJohn = 0, anonymous = false } = {}) {
     const reply = (data, status = 200) => route.fulfill({
       status, contentType: 'application/json', body: JSON.stringify(data),
     });
-    if (path === '/api/auth/session') return reply(expired ? null : USER);
+    if (path === '/api/auth/session') {
+      if (authDelay) await new Promise((resolve) => setTimeout(resolve, authDelay));
+      return reply(expired ? null : readerUser);
+    }
     if (path === '/api/auth/maintenance') return reply({ active: false });
     if (path === '/api/auth/me' && req.method() === 'PATCH' && failSettings) {
       expired = true;
       return reply({ message: 'Authentication required' }, 401);
     }
-    if (path === '/api/auth/me') return reply(USER);
+    if (path === '/api/auth/me') return reply(readerUser);
     if (path.includes('/biblePassage')) {
       if (body.bookCode === 'JHN' && body.chapter === 3 && delayJohn) {
         await new Promise((resolve) => setTimeout(resolve, delayJohn));
@@ -37,7 +41,7 @@ async function readerApi(page, { delayJohn = 0, anonymous = false } = {}) {
       })) });
     }
     if (path.includes('/listAvailableTranslations')) {
-      return reply({ translations: [{ id: 'kjv', name: 'King James Version' }] });
+      return reply({ translations: [{ id: 'kjv', name: 'King James Version' }, { id: 'web', name: 'World English Bible' }] });
     }
     if (path.startsWith('/api/ai/')) return reply({
       reference: 'Isaiah 40:31', text: 'But those who hope in the Lord will renew their strength.',
@@ -154,4 +158,25 @@ test('anonymous startup does not generate an authentication error response', asy
   await expect.poll(() => calls.some((call) => call.path === '/api/auth/session')).toBe(true);
   expect(calls.some((call) => call.path === '/api/auth/me')).toBe(false);
   expect(failures).toEqual([]);
+});
+
+
+test('deep links wait for the preferred WEB translation before validating verse counts', async ({ page }) => {
+  const { calls } = await readerApi(page, { defaultTranslation: 'web', authDelay: 250 });
+  for (const query of ['reference=Romans%2014%3A26', 'book=Romans&chapter=14&verse=26']) {
+    await page.goto(`/Reader?${query}`);
+    const target = page.locator('[data-verse="26"]');
+    await expect(target).toHaveAttribute('aria-label', 'Romans 14:26');
+    await expect(target).toBeFocused();
+    await expect(target).toContainText('ROM 14:26');
+    await expect(page.getByText(/Romans 14 only has 23 verses/)).toHaveCount(0);
+  }
+  expect(calls.some((call) => call.body?.bookCode === 'ROM' && call.body.chapter === 14 && call.body.translationId === 'web')).toBe(true);
+});
+
+test('deep links reject verse numbers absent from the hydrated preferred translation', async ({ page }) => {
+  const { calls } = await readerApi(page, { defaultTranslation: 'web', authDelay: 250 });
+  await page.goto('/Reader?reference=Romans%2016%3A26');
+  await expect(page.getByText('Romans 16 only has 25 verses.')).toBeVisible();
+  expect(calls.some((call) => call.body?.bookCode === 'ROM' && call.body.chapter === 16)).toBe(false);
 });

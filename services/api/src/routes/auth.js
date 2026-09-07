@@ -445,16 +445,12 @@ async function sendCurrentUser(req, res, next) {
   if (!req.userId) return res.json(null);
 
   try {
-    let user = await prisma.user.findUnique({ where: { id: req.userId } });
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (isAdminEmail(user.email) && (user.role !== 'admin' || !user.premium)) {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { role: 'admin', premium: true },
-      });
-    }
-
+    // GET probes only serialize authoritative stored identity. Allowlist role
+    // reconciliation belongs to explicit register/login flows above, never a
+    // startup read that may be repeated or prefetched by a browser.
     res.json(sanitizeUser(user));
   } catch (err) {
     next(err);

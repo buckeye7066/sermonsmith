@@ -118,6 +118,8 @@ export const AuthProvider = ({ children }) => {
     setUnauthorizedHandler(() => {
       if (!isAuthenticatedRef.current || sessionExpiredHandledRef.current) return;
       sessionExpiredHandledRef.current = true;
+      // Invalidate pending checks before clearing identity so a late successful
+      // response cannot restore the session that this 401 just invalidated.
       authVersion.current += 1;
       applyUser(null);
       setIsLoadingAuth(false);

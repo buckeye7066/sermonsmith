@@ -167,6 +167,8 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
       headers,
       signal,
       credentials: creds,
+      // Auth responses are session-specific; never replay a previous identity
+      // or expired-session result from the browser's HTTP cache.
       ...(!isAbsolute && path.startsWith('/api/auth/') ? { cache: 'no-store' } : {}),
     });
   } catch (err) {
