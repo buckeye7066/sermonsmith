@@ -5,8 +5,8 @@
   "type": "module",
   "description": "SermonSmith API Server (Express + Prisma + PostgreSQL)",
   "scripts": {
-    "dev": "node --watch src/index.js",
-    "start": "node src/index.js",
+    "dev": "npm run db:generate && node --watch src/index.js",
+    "start": "npm run db:generate && node src/index.js",
     "lint": "eslint \"src/**/*.js\"",
     "typecheck": "node scripts/typecheck.mjs",
     "test": "vitest run",
