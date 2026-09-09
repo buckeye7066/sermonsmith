@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { mockEmptyAdvertisements } from './emptyAdvertisements.js';
+
+test.beforeEach(async ({ page }) => mockEmptyAdvertisements(page));
 
 // Browser proof for the core sermon flow (spec: generate → validate → save →
 // reopen) and for the invalid-Scripture warning flow (visible finding, draft
