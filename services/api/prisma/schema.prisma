@@ -576,6 +576,7 @@ model Advertisement {
   startsAt   String @map("starts_at")
   endsAt     String @map("ends_at")
   image      Bytes
+  revision   Int @default(1)
   removed    Boolean @default(false)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   events     AdvertisementEvent[]

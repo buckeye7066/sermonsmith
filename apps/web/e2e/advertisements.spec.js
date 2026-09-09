@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j6tQAAAAASUVORK5CYII=','base64');
 async function fixture(page,owner=false){
- const events=[],saved=[];
+ const events=[],saved=[],imageRequests=[],state={revision:1};
  const user={id:owner?'owner':'reader',email:'fixture@example.invalid',full_name:'Fixture User',role:'user',onboarding_completed:true,last_seen_version:'2025-11-19'};
  await page.route('**/api/**',async route=>{
   const req=route.request(),path=new URL(req.url()).pathname;
@@ -10,14 +10,14 @@ async function fixture(page,owner=false){
   if(path==='/api/advertisements/capabilities')return reply({canManage:owner});
   if(path==='/api/advertisements/owner/list')return reply(saved.map((r,i)=>({...r,id:String(i),stats:{impressions:0,clicks:0,viewers:0},daily:[]})));
   if(path==='/api/advertisements/owner'&&req.method()==='POST'){saved.push(req.postDataJSON());return reply({id:String(saved.length)});}
-  if(path==='/api/advertisements')return reply([{id:'first',advertiser:'Example sponsor',headline:'First creative',body:'First copy',creative:'One',seconds:3,ticket:'test-ticket-1'},{id:'second',advertiser:'Example sponsor',headline:'Second creative',body:'Second copy',creative:'Two',seconds:3,ticket:'test-ticket-2'}]);
-  if(path.endsWith('/image'))return route.fulfill({status:200,contentType:'image/png',body:png});
+  if(path==='/api/advertisements')return reply([{id:'first',advertiser:'Example sponsor',headline:'First creative',body:'First copy',creative:'One',seconds:3,revision:state.revision,ticket:'test-ticket-1'},{id:'second',advertiser:'Example sponsor',headline:'Second creative',body:'Second copy',creative:'Two',seconds:3,revision:state.revision,ticket:'test-ticket-2'}]);
+  if(path.endsWith('/image')){imageRequests.push(path);return route.fulfill({status:200,contentType:'image/png',body:png});}
   if(path.endsWith('/events')){events.push(req.postDataJSON());return reply({counted:true});}
   if(path==='/api/auth/maintenance')return reply({active:false});
   if(path.includes('/api/ai/'))return reply({reference:'John 3:16',text:'Scripture fixture',reflection:'Reflection'});
   return reply([]);
  });
- return {events,saved};
+ return {events,saved,imageRequests,state};
 }
 test('mobile Safari and Android profiles: reader sees rotating advertisements without owner controls',async({page})=>{
  const {events}=await fixture(page);
@@ -65,4 +65,14 @@ test('failed image never creates a billable impression',async({page})=>{
  await slot.scrollIntoViewIfNeeded();await expect(slot).toBeVisible();
  await expect(slot.getByText('Second creative')).toBeVisible({timeout:6000});
  expect(events).toHaveLength(0);
+});
+
+test('an edited picture refreshes in an open reader when the app resumes',async({page})=>{
+ const {imageRequests,state}=await fixture(page);
+ await page.goto('/Home');
+ await page.getByRole('complementary',{name:'Advertisement',exact:true}).scrollIntoViewIfNeeded();
+ await expect.poll(()=>imageRequests.filter(p=>p.includes('/first/')).length).toBe(1);
+ state.revision=2;
+ await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+ await expect.poll(()=>imageRequests.filter(p=>p.includes('/first/')).length).toBe(2);
 });

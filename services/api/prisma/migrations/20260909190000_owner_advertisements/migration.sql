@@ -4,6 +4,7 @@ CREATE TABLE advertisements (
  body TEXT NOT NULL DEFAULT '', creative TEXT NOT NULL DEFAULT '', url TEXT NOT NULL,
  seconds INTEGER NOT NULL CHECK(seconds BETWEEN 3 AND 120), active BOOLEAN NOT NULL DEFAULT FALSE,
  starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, image BYTEA NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 1,
  removed BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 -- Keyed pseudonyms only: no account IDs, emails, profiles, IPs or sermons.

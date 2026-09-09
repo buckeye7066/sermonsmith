@@ -40,7 +40,9 @@ describe.skipIf(!run)('real PostgreSQL advertisement persistence and visibility'
     const rotation=await request(app).get('/ads').set('Cookie',viewerCookie);
     expect(rotation.body.map(a=>a.creative)).toEqual(['first','second']);
     expect(rotation.body[0]).not.toHaveProperty('image');
-    expect((await request(app).get(`/ads/${first.body.id}/image`).set('Cookie',viewerCookie)).headers['content-type']).toContain('image/webp');
+    const originalImage=await request(app).get(`/ads/${first.body.id}/image`).set('Cookie',viewerCookie);
+    expect(originalImage.headers['content-type']).toContain('image/webp');
+    expect(rotation.body[0].revision).toBe(1);
     const ticket=rotation.body[0].ticket;
     await new Promise(resolve=>setTimeout(resolve,1100));
     const event=kind=>request(app).post(`/ads/${first.body.id}/events`).set('Cookie',viewerCookie).send({kind,ticket});
@@ -59,6 +61,13 @@ describe.skipIf(!run)('real PostgreSQL advertisement persistence and visibility'
     expect(listed.body.find(r=>r.id===first.body.id).stats).toMatchObject({impressions:1,clicks:1,viewers:1});
     expect(listed.body.find(r=>r.id===first.body.id).daily).toHaveLength(2);
     expect(JSON.stringify(listed.body)).not.toContain(viewer.email);
+    const replacement=await sharp({create:{width:12,height:8,channels:3,background:'green'}}).png().toBuffer();
+    const changed=await request(app).put(`/ads/owner/${first.body.id}`).set('Cookie',ownerCookie).send({...ad,image:'data:image/png;base64,'+replacement.toString('base64')});
+    expect(changed.status).toBe(200);
+    const editedImage=await request(app).get(`/ads/${first.body.id}/image`).set('Cookie',viewerCookie);
+    expect(Buffer.from(editedImage.body).equals(Buffer.from(originalImage.body))).toBe(false);
+    const changedRotation=await request(app).get('/ads').set('Cookie',viewerCookie);
+    expect(changedRotation.body.find(r=>r.id===first.body.id).revision).toBe(2);
     await request(app).put(`/ads/owner/${second.body.id}`).set('Cookie',ownerCookie).send({...ad,active:false});
     await request(app).delete(`/ads/owner/${first.body.id}`).set('Cookie',ownerCookie);
     expect((await request(app).get('/ads').set('Cookie',viewerCookie)).body).toEqual([]);
