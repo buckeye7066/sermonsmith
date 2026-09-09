@@ -41,8 +41,10 @@ export default function MobileUpdateCard() {
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(0);
   const busyRef = useRef(false);
+  const active = useRef(true);
 
   useEffect(() => {
+    active.current = true;
     if (!isNative) return undefined;
     let cancelled = false;
     (async () => {
@@ -53,6 +55,7 @@ export default function MobileUpdateCard() {
     })();
     return () => {
       cancelled = true;
+      active.current = false;
     };
   }, [isNative]);
 
@@ -88,19 +91,22 @@ export default function MobileUpdateCard() {
 
   const installUpdate = useCallback(async () => {
     if (!manifest || busyRef.current) return;
-    if (!window.confirm('Save your changes before updating. Install the update and reload SermonSmith now?')) return;
+    const pageAtStart = window.location.href;
     busyRef.current = true;
     setPhase('downloading');
     setError('');
     setProgress(0);
     try {
-      await downloadAndApplyUpdate(manifest, {
-        onProgress: (percent) => setProgress(percent),
+      const result = await downloadAndApplyUpdate(manifest, {
+        onProgress: (percent) => { if (active.current) setProgress(percent); },
+        beforeApply: () => active.current && window.location.href === pageAtStart
+          && window.confirm('The update is ready. Save your changes before updating. Reload SermonSmith now?'),
       });
       // set() reloads the webview onto the new bundle; if we are still here,
       // say so honestly rather than claiming success.
-      setPhase('applying');
+      if (active.current) setPhase(result.applied ? 'applying' : 'available');
     } catch (err) {
+      if (!active.current) return;
       setError(err?.message || 'Update failed.');
       setPhase('error');
     } finally {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { BAKED_BUNDLE_VERSION } from '@/lib/mobileUpdater';
 import { fetchBrowserBuild, verifyBrowserBuildReady } from '@/lib/browserUpdater';
@@ -9,7 +9,9 @@ export default function WebUpdatePrompt() {
   const [dismissed, setDismissed] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const active = useRef(true);
   useEffect(() => {
+    active.current = true;
     if (isNativeApp() || window.electron?.isElectron || !import.meta.env.PROD) return undefined;
     let stopped = false;
     let checking = false;
@@ -30,6 +32,7 @@ export default function WebUpdatePrompt() {
     window.addEventListener('online', resume);
     void check();
     return () => {
+      active.current = false;
       stopped = true;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', resume);
@@ -38,13 +41,18 @@ export default function WebUpdatePrompt() {
   }, []);
   if (!build || build.version === dismissed) return null;
   const update = async () => {
-    if (busy || !window.confirm('Save your changes before updating. Reload SermonSmith now?')) return;
+    if (busy) return;
+    const pageAtStart = window.location.href;
     setBusy(true);
     setError('');
     try {
       await verifyBrowserBuildReady(build);
-      window.location.reload();
+      if (!active.current) return;
+      setBusy(false);
+      if (window.location.href === pageAtStart
+          && window.confirm('The update is ready. Save your changes before updating. Reload SermonSmith now?')) window.location.reload();
     } catch {
+      if (!active.current) return;
       setError('The update is not fully available yet. Your current page is unchanged; try again shortly.');
       setBusy(false);
     }

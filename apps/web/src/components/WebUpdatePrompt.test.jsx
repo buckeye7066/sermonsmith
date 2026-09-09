@@ -27,7 +27,7 @@ describe('browser update notification', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<WebUpdatePrompt />);
     fireEvent.click(await screen.findByRole('button', { name: 'Update' }));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Save your changes'));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Save your changes')));
     expect(screen.getByRole('button', { name: 'Update' })).toBeTruthy();
   });
   it('does not announce equal versions or a failed network check', async () => {
@@ -45,5 +45,15 @@ describe('browser update notification', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Update' }));
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('current page is unchanged'));
     expect(verifyBuild).toHaveBeenCalledWith({ version: '1.0.1.99' });
+  });
+  it('does not reload a different page after the user navigates during asset checks', async () => {
+    let finish;
+    verifyBuild.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const view = render(<WebUpdatePrompt />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Update' }));
+    view.unmount();
+    await act(async () => finish());
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

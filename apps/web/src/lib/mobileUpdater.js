@@ -262,10 +262,10 @@ export function requiresNativeUpdate(manifest, nativeVersion) {
  * caller never gets a code path that applies unverified bytes.
  *
  * @param {{ version: string, url: string, sha256: string }} manifest
- * @param {{ updater?: any, onProgress?: (percent: number) => void, apply?: boolean }} [opts]
- * @returns {Promise<{ id?: string, version?: string, checksum?: string }>}
+ * @param {{ updater?: any, onProgress?: (percent: number) => void, apply?: boolean, beforeApply?: () => boolean }} [opts]
+ * @returns {Promise<{ id?: string, version?: string, checksum?: string, applied?: boolean }>}
  */
-export async function downloadAndApplyUpdate(manifest, { updater, onProgress, apply = true } = {}) {
+export async function downloadAndApplyUpdate(manifest, { updater, onProgress, apply = true, beforeApply = () => true } = {}) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new Error('Invalid manifest: The provided manifest is null or malformed.');
   }
@@ -317,11 +317,12 @@ export async function downloadAndApplyUpdate(manifest, { updater, onProgress, ap
     );
   }
 
-  if (apply) {
+  const approved = apply && beforeApply() === true;
+  if (approved) {
     // set() swaps to the verified bundle and reloads the webview.
     await plugin.set({ id: bundle.id });
   }
-  return bundle;
+  return { ...bundle, applied: approved };
 }
 
 /**

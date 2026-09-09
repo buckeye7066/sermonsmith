@@ -131,6 +131,19 @@ describe('MobileUpdateCard', () => {
     expect(plugin.delete).not.toHaveBeenCalled();
   });
 
+  it('keeps the current bundle when the final restart confirmation is declined', async () => {
+    setNative(true);
+    stubFeed(feed());
+    window.confirm.mockReturnValue(false);
+    render(<MobileUpdateCard />);
+    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /install v1\.0\.2/i }));
+    await waitFor(() => expect(window.confirm).toHaveBeenCalledOnce());
+    expect(plugin.download).toHaveBeenCalledOnce();
+    expect(plugin.set).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: /install v1\.0\.2/i })).toBeEnabled();
+  });
+
   it('REFUSES a bundle whose checksum does not match, and never applies it', async () => {
     setNative(true);
     stubFeed(feed());
