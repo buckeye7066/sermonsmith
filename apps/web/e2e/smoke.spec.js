@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { mockEmptyAdvertisements } from './emptyAdvertisements.js';
+
+test.beforeEach(async ({ page }) => mockEmptyAdvertisements(page));
 
 async function mockLoggedOutApi(page) {
   await page.route('**/api/**', async (route) => {
@@ -200,7 +203,10 @@ test('Bible Reader sidebar link opens the reader and renders scripture', async (
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
 
+  const advertisementsResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === '/api/advertisements');
   await page.goto('/Home');
+  expect(await (await advertisementsResponse).json()).toEqual([]);
   const readerLink = page.locator('a[href="/Reader"]', { hasText: 'Bible Reader' }).first();
   await expect(readerLink).toBeVisible();
   await readerLink.click();
