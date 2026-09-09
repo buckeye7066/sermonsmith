@@ -218,6 +218,19 @@ describe('downloadAndApplyUpdate', () => {
     expect(updater.delete).not.toHaveBeenCalled();
   });
 
+  it('asks immediately before applying and respects a declined restart', async () => {
+    const updater = fakeUpdater({ checksum: SHA_A });
+    const beforeApply = vi.fn(() => {
+      expect(updater.download).toHaveBeenCalled();
+      expect(updater.set).not.toHaveBeenCalled();
+      return false;
+    });
+    const result = await downloadAndApplyUpdate(validManifest(), { updater, beforeApply });
+    expect(beforeApply).toHaveBeenCalledOnce();
+    expect(result.applied).toBe(false);
+    expect(updater.set).not.toHaveBeenCalled();
+  });
+
   it('REFUSES and deletes the bundle when the checksum does not match', async () => {
     const updater = fakeUpdater({ checksum: SHA_B });
     await expect(downloadAndApplyUpdate(validManifest(), { updater })).rejects.toThrow(

@@ -5,17 +5,24 @@ productName: Sermon Smith
 # "Cannot compute electron version". Pin it explicitly (keep in sync with the
 # electron devDependency).
 electronVersion: 41.10.4
-# No auto-update/publish provider is configured; without this, the build
-# crashes AFTER producing the installers while generating update-info
-# metadata ("Cannot read properties of null (reading 'provider')").
-publish: null
+publish:
+  provider: generic
+  url: https://github.com/buckeye7066/sermonsmith/releases/download/desktop-updates/
+
 directories:
   output: ../../dist-electron
 files:
-  - ../web/dist/**/*
   - electron/**/*
-  - ../web/src/assets/icons/**/*
   - package.json
+extraResources:
+  - from: ../web/dist
+    to: web
+    filter:
+      - '**/*'
+  - from: ../web/src/assets/icons
+    to: icons
+    filter:
+      - '**/*'
 win:
   target: 
     - target: nsis

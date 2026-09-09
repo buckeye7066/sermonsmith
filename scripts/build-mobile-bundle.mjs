@@ -28,14 +28,13 @@
 //
 // Run standalone (after a web build) with:  npm run build:mobile-bundle
 
-import { createRequire } from 'node:module';
+import { zipSync } from 'fflate';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const require = createRequire(import.meta.url);
-const AdmZip = require('adm-zip');
+
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const DEFAULT_BASE_URL = 'https://sermonsmith.axiombiolabs.org';
@@ -79,23 +78,29 @@ export function publishMobileBundle({
   // increasing numeric component or an installed bundle can incorrectly call
   // a newer deployment "up to date". Epoch seconds remain parseable by the
   // native updater's dotted-numeric version comparator.
-  const resolvedVersion = version ?? `${packageVersion}.${Math.floor(Date.now() / 1000)}`;
+  const identityPath = path.join(distDir, 'build-info.json');
+  const bakedVersion = fs.existsSync(identityPath) ? JSON.parse(fs.readFileSync(identityPath, 'utf8')).version : null;
+  const resolvedVersion = version ?? bakedVersion ?? `${packageVersion}.${Date.now()}`;
 
   const mobileDir = path.join(distDir, 'mobile');
   fs.rmSync(mobileDir, { recursive: true, force: true });
   fs.mkdirSync(mobileDir, { recursive: true });
 
-  const zip = new AdmZip();
-  for (const entry of fs.readdirSync(distDir, { withFileTypes: true })) {
-    if (entry.name === 'mobile') continue;
-    const full = path.join(distDir, entry.name);
-    if (entry.isDirectory()) zip.addLocalFolder(full, entry.name);
-    else zip.addLocalFile(full);
+  const entries = Object.create(null);
+  function collect(directory, prefix = '') {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (!prefix && entry.name === 'mobile') continue;
+      const full = path.join(directory, entry.name);
+      const relative = prefix + entry.name;
+      if (entry.isDirectory()) collect(full, relative + '/');
+      else if (entry.isFile()) entries[relative] = fs.readFileSync(full);
+    }
   }
+  collect(distDir);
 
   const zipName = `bundle-${resolvedVersion}.zip`;
   const zipPath = path.join(mobileDir, zipName);
-  zip.writeZip(zipPath);
+  fs.writeFileSync(zipPath, zipSync(entries));
 
   const sha256 = crypto.createHash('sha256').update(fs.readFileSync(zipPath)).digest('hex');
 

@@ -1,0 +1,63 @@
+name: Desktop release
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+jobs:
+  windows:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Stamp a unique installer version
+        env:
+          RELEASE_VERSION: 1.${{ github.run_number }}.${{ github.run_attempt }}
+        run: node scripts/stamp-desktop-version.mjs
+      - name: Test updater decisions
+        run: node --test apps/desktop/electron/updates.test.cjs
+      - name: Build Windows installer
+        env:
+          ELECTRON_BUILD: 'true'
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: |
+          npm run build:web
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm exec --workspace @sermonsmith/desktop -- electron-builder --win --publish never
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-desktop-resources.mjs dist-electron/win-unpacked/resources
+      - name: Publish payloads before replacing the update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $currentMain = gh api repos/${{ github.repository }}/git/ref/heads/main --jq .object.sha
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($currentMain -ne '${{ github.event.workflow_run.head_sha }}') { Write-Output 'Superseded by a newer main commit; no release published.'; exit 0 }
+          gh release view desktop-updates *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create desktop-updates --target ${{ github.event.workflow_run.head_sha }} --title 'SermonSmith desktop updates' --notes 'Windows desktop installers. Save your work before installing. Apple desktop releases require signing and notarization credentials.' --latest=false
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          $payloads = @(Get-ChildItem dist-electron -File | Where-Object { $_.Extension -in '.exe', '.blockmap' } | ForEach-Object { $_.FullName })
+          if ($payloads.Count -eq 0) { throw 'No Windows release payloads were produced.' }
+          gh release upload desktop-updates @payloads --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release upload desktop-updates dist-electron/latest.yml --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

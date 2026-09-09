@@ -4,12 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createRequire } from 'node:module';
+import { unzipSync } from 'fflate';
 
 import { publishMobileBundle } from './build-mobile-bundle.mjs';
 
-const require = createRequire(import.meta.url);
-const AdmZip = require('adm-zip');
+
 
 function fakeDist() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sermonsmith-mobile-bundle-'));
@@ -47,9 +46,7 @@ test('the zip carries the built app and never nests the feed inside itself', () 
   const distDir = fakeDist();
   try {
     const { zipPath, manifestPath } = publishMobileBundle({ distDir, version: '1.2.3' });
-    const names = new AdmZip(zipPath)
-      .getEntries()
-      .map((entry) => entry.entryName.replace(/\\/g, '/'));
+    const names = Object.keys(unzipSync(fs.readFileSync(zipPath)));
 
     assert.ok(names.includes('index.html'), 'bundle must contain the app entrypoint');
     assert.ok(names.some((n) => n.startsWith('assets/')), 'bundle must contain hashed assets');

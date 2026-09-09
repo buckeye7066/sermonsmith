@@ -1,4 +1,4 @@
-import AdmZip from 'adm-zip';
+import { unzipSync } from 'fflate';
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 
@@ -36,7 +36,7 @@ describe('study export', () => {
 
   it('builds a valid PPTX package containing the study content', async () => {
     const blob = buildStudyPptx(STUDY, { createdAt: '2026-08-25T12:00:00.000Z' });
-    const zip = new AdmZip(Buffer.from(await blob.arrayBuffer()));
+    const zip = readZip(Buffer.from(await blob.arrayBuffer()));
     const slideXml = zip.getEntries()
       .filter(({ entryName }) => /^ppt\/slides\/slide\d+\.xml$/u.test(entryName))
       .map((entry) => entry.getData().toString('utf8'))
@@ -86,3 +86,8 @@ describe('study export', () => {
     await expect(renderStudyPdf(null)).rejects.toThrow(/no study/i);
   });
 });
+
+function readZip(bytes) {
+  const entries = Object.entries(unzipSync(bytes)).map(([entryName, data]) => ({ entryName, getData: () => Buffer.from(data) }));
+  return { getEntries: () => entries, getEntry: (name) => entries.find((entry) => entry.entryName === name) };
+}

@@ -1,3 +1,7 @@
+import { apiFetch } from '@/api/apiClient';
+
+const publicFetch = (url, options) => apiFetch('', { ...options, absoluteUrl: url, rawResponse: true, retry: false });
+
 // Mobile OTA update helpers for the native (Capacitor) Android/iOS app.
 //
 // The native app ships a web bundle baked in at build time. Newer web bundles
@@ -34,7 +38,7 @@ import { loadCapacitorUpdater } from '@/lib/capacitorUpdaterPlugin.js';
  * the built-in bundle as the placeholder "builtin", which carries no version,
  * so this is what we compare the feed against until an OTA bundle is active.
  */
-export const BAKED_BUNDLE_VERSION = pkg.version;
+export const BAKED_BUNDLE_VERSION = import.meta.env.VITE_BUILD_VERSION || pkg.version;
 
 /** Production origin that hosts /mobile/latest.json + the bundle zips. */
 export const UPDATE_BASE_URL = 'https://sermonsmith.axiombiolabs.org';
@@ -197,7 +201,7 @@ export async function fetchUpdateManifest({
   feedUrl,
   timeoutMs = UPDATE_MANIFEST_TIMEOUT_MS,
 } = {}) {
-  const doFetch = fetchImpl ?? fetch;
+  const doFetch = fetchImpl ?? publicFetch;
   const url = feedUrl ?? resolveFeedUrl();
   const sep = url.includes('?') ? '&' : '?';
   const controller = typeof AbortController === 'undefined' ? null : new AbortController();
@@ -262,10 +266,10 @@ export function requiresNativeUpdate(manifest, nativeVersion) {
  * caller never gets a code path that applies unverified bytes.
  *
  * @param {{ version: string, url: string, sha256: string }} manifest
- * @param {{ updater?: any, onProgress?: (percent: number) => void, apply?: boolean }} [opts]
- * @returns {Promise<{ id?: string, version?: string, checksum?: string }>}
+ * @param {{ updater?: any, onProgress?: (percent: number) => void, apply?: boolean, beforeApply?: () => boolean }} [opts]
+ * @returns {Promise<{ id?: string, version?: string, checksum?: string, applied?: boolean }>}
  */
-export async function downloadAndApplyUpdate(manifest, { updater, onProgress, apply = true } = {}) {
+export async function downloadAndApplyUpdate(manifest, { updater, onProgress, apply = true, beforeApply = () => true } = {}) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new Error('Invalid manifest: The provided manifest is null or malformed.');
   }
@@ -317,11 +321,12 @@ export async function downloadAndApplyUpdate(manifest, { updater, onProgress, ap
     );
   }
 
-  if (apply) {
+  const approved = apply && beforeApply() === true;
+  if (approved) {
     // set() swaps to the verified bundle and reloads the webview.
     await plugin.set({ id: bundle.id });
   }
-  return bundle;
+  return { ...bundle, applied: approved };
 }
 
 /**

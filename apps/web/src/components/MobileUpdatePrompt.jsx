@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, ExternalLink, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { downloadAndApplyUpdate } from '@/lib/mobileUpdater.js';
@@ -19,24 +19,32 @@ export default function MobileUpdatePrompt() {
   const [detail, setDetail] = useState(/** @type {any} */ (null));
   const [state, setState] = useState('idle'); // idle | installing | error
   const [error, setError] = useState('');
+  const active = useRef(true);
 
   useEffect(() => {
+    active.current = true;
     if (typeof window === 'undefined') return undefined;
     const onAvailable = (event) => {
       const next = /** @type {any} */ (event)?.detail;
       if (next?.manifest?.version) setDetail(next);
     };
     window.addEventListener(UPDATE_AVAILABLE_EVENT, onAvailable);
-    return () => window.removeEventListener(UPDATE_AVAILABLE_EVENT, onAvailable);
+    return () => { active.current = false; window.removeEventListener(UPDATE_AVAILABLE_EVENT, onAvailable); };
   }, []);
 
   const install = useCallback(async () => {
     if (!detail?.manifest || state === 'installing') return;
+    const pageAtStart = window.location.href;
     setState('installing');
     setError('');
     try {
-      await downloadAndApplyUpdate(detail.manifest);
+      await downloadAndApplyUpdate(detail.manifest, {
+        beforeApply: () => active.current && window.location.href === pageAtStart
+          && window.confirm('The update is ready. Save your changes before updating. Reload SermonSmith now?'),
+      });
+      if (active.current) setState('idle');
     } catch (err) {
+      if (!active.current) return;
       setError(err?.message || 'Update failed.');
       setState('error');
     }
@@ -71,6 +79,7 @@ export default function MobileUpdatePrompt() {
         <button
           type="button"
           aria-label="Dismiss update notice"
+          disabled={state === 'installing'}
           onClick={() => setDetail(null)}
           className="shrink-0 rounded p-1 opacity-60 hover:opacity-100"
         >
