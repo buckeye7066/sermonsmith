@@ -1,3 +1,7 @@
+import { apiFetch } from '@/api/apiClient';
+
+const publicFetch = (url, options) => apiFetch('', { ...options, absoluteUrl: url, rawResponse: true, retry: false });
+
 // Mobile OTA update helpers for the native (Capacitor) Android/iOS app.
 //
 // The native app ships a web bundle baked in at build time. Newer web bundles
@@ -197,7 +201,7 @@ export async function fetchUpdateManifest({
   feedUrl,
   timeoutMs = UPDATE_MANIFEST_TIMEOUT_MS,
 } = {}) {
-  const doFetch = fetchImpl ?? fetch;
+  const doFetch = fetchImpl ?? publicFetch;
   const url = feedUrl ?? resolveFeedUrl();
   const sep = url.includes('?') ? '&' : '?';
   const controller = typeof AbortController === 'undefined' ? null : new AbortController();

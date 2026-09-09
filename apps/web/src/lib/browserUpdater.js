@@ -1,3 +1,7 @@
+import { apiFetch } from '@/api/apiClient';
+
+const publicFetch = (url, options) => apiFetch('', { ...options, absoluteUrl: url, rawResponse: true, retry: false });
+
 // Static deployment metadata is separate from authenticated application APIs.
 const TIMEOUT_MS = 12000;
 
@@ -31,14 +35,14 @@ async function readResponse(url, fetchImpl) {
   } finally { clearTimeout(timer); }
 }
 
-export async function fetchBrowserBuild({ fetchImpl = fetch, baseUrl = window.location.origin } = {}) {
+export async function fetchBrowserBuild({ fetchImpl = publicFetch, baseUrl = window.location.origin } = {}) {
   const url = new URL('/build-info.json', baseUrl);
   url.searchParams.set('_update', `${Date.now()}-${Math.random()}`);
   return parseBrowserBuild(JSON.parse(new TextDecoder().decode(await readResponse(url.href, fetchImpl))));
 }
 
 export async function verifyBrowserBuildReady(manifest, {
-  fetchImpl = fetch,
+  fetchImpl = publicFetch,
   baseUrl = window.location.origin,
   cryptoImpl = window.crypto,
 } = {}) {

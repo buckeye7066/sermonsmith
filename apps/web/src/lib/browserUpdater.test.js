@@ -36,6 +36,15 @@ describe('browser deployment readiness', () => {
     expect((await fetchBrowserBuild(options(fetchImpl))).version).toBe('1.0.1.99');
     expect(fetchImpl.mock.calls[0][0]).toContain('_update=');
   });
+  it('uses the shared public transport without sending application credentials', async () => {
+    const request = feed();
+    vi.stubGlobal('fetch', request);
+    try {
+      expect((await fetchBrowserBuild({ baseUrl: 'https://example.com' })).version).toBe(manifest.version);
+      expect(request.mock.calls[0][1]).toMatchObject({ credentials: 'omit', cache: 'no-store' });
+      expect(request.mock.calls[0][0]).toMatch(/^https:\/\/example\.com\/build-info\.json\?/);
+    } finally { vi.unstubAllGlobals(); }
+  });
   it('refuses incomplete and external/traversing asset inventories', () => {
     expect(() => parseBrowserBuild({ version: '1.0.1.100', assets: [] })).toThrow();
     for (const path of ['https://example.net/main.js', 'assets/../main.js']) {
