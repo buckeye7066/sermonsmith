@@ -32,6 +32,7 @@ export default function MobileUpdatePrompt() {
 
   const install = useCallback(async () => {
     if (!detail?.manifest || state === 'installing') return;
+    if (!window.confirm('Save your changes before updating. Install the update and reload SermonSmith now?')) return;
     setState('installing');
     setError('');
     try {

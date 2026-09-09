@@ -25,7 +25,7 @@
     "lint:web": "npm run lint -w @sermonsmith/web",
     "lint:api": "npm run lint -w @sermonsmith/api",
     "typecheck": "npm run typecheck -w @sermonsmith/web && npm run typecheck -w @sermonsmith/api",
-    "test": "npm test -w @sermonsmith/api && npm test -w @sermonsmith/web && node --test packages/shared/api/index.test.js scripts/android-release.test.mjs scripts/monitor-railway-deployment.test.mjs scripts/agent-sweep-coverage.test.mjs scripts/build-mobile-bundle.test.mjs scripts/local-runtime-port-contract.test.mjs apps/desktop/electron/config.test.cjs",
+    "test": "npm test -w @sermonsmith/api && npm test -w @sermonsmith/web && node --test packages/shared/api/index.test.js scripts/android-release.test.mjs scripts/monitor-railway-deployment.test.mjs scripts/agent-sweep-coverage.test.mjs scripts/build-mobile-bundle.test.mjs scripts/build-identity.test.mjs scripts/local-runtime-port-contract.test.mjs apps/desktop/electron/config.test.cjs apps/desktop/electron/updates.test.cjs",
     "test:api": "npm test -w @sermonsmith/api",
     "test:web": "npm test -w @sermonsmith/web",
     "test:e2e": "npm run e2e -w @sermonsmith/web",
@@ -78,14 +78,15 @@
     },
     "nanoid": "3.3.18",
     "fast-uri": "3.1.7",
-    "js-yaml": "4.3.1",
-    "qs": "6.16.0"
+    "js-yaml": "4.3.2",
+    "qs": "6.16.0",
+    "joi": "17.13.7"
   },
   "devDependencies": {
-    "adm-zip": "^0.6.0",
     "fast-uri": "3.1.7",
-    "js-yaml": "4.3.1",
+    "js-yaml": "4.3.2",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "fflate": "^0.8.3"
   }
 }

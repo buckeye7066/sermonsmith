@@ -1,4 +1,6 @@
 import react from '@vitejs/plugin-react'
+import fs from 'node:fs'
+const packageVersion = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, loadEnv } from 'vite'
 
@@ -31,8 +33,15 @@ export default defineConfig(({ mode }) => {
   // proxy as the local setup guide promises.
   const env = loadEnv(mode, process.cwd(), '');
 
+  const buildVersion = `${packageVersion}.${Date.now()}`;
   return {
-  plugins: [react()],
+  define: { 'import.meta.env.VITE_BUILD_VERSION': JSON.stringify(buildVersion) },
+  plugins: [react(), {
+    name: 'sermonsmith-build-identity',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'build-info.json', source: JSON.stringify({ version: buildVersion }) });
+    },
+  }],
   // Keep a zero-config checkout usable without baking a development API URL
   // into the renderer. Production builds ignore this dev-server proxy.
   server: developmentServerConfig(resolveDevelopmentApiUrl(env)),

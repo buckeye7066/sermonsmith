@@ -239,10 +239,12 @@ export function startMobileUpdateNotifier({
   };
 
   doc.addEventListener('visibilitychange', onVisibility);
+  const timer = setInterval(() => { if (doc.visibilityState !== 'hidden') void tick(); }, minIntervalMs);
   void tick(); // launch check
 
   return () => {
     stopped = true;
+    clearInterval(timer);
     doc.removeEventListener('visibilitychange', onVisibility);
   };
 }

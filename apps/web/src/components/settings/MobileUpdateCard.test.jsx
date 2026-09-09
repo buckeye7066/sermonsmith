@@ -69,6 +69,7 @@ function stubFeed(body) {
 }
 
 beforeEach(() => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
   plugin.current.mockResolvedValue({ bundle: { version: '1.0.1' }, native: '1.0' });
   plugin.download.mockResolvedValue({ id: 'b1', version: '1.0.2', checksum: SHA_GOOD });
   plugin.set.mockResolvedValue(undefined);
@@ -81,6 +82,7 @@ afterEach(() => {
   delete window.Capacitor;
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe('MobileUpdateCard', () => {

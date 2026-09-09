@@ -6,7 +6,9 @@
 // loaded as ESM and threw at startup. Renaming to `.cjs` opts those two
 // files back into CommonJS while leaving the rest of the package free to
 // stay ESM-first.
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
+const { autoUpdater } = require('electron-updater');
+const { createDesktopUpdater } = require('./updates.cjs');
 const path = require('path');
 const fs = require('fs/promises');
 const Store = require('electron-store');
@@ -16,6 +18,7 @@ const store = new Store();
 
 let mainWindow;
 let firstRunWindow;
+const desktopUpdates = createDesktopUpdater({ app, autoUpdater, dialog, getWindow: () => mainWindow || firstRunWindow });
 
 function getStoredConfig() {
   return store.get('sermonsmithConfig');
@@ -49,7 +52,7 @@ function isValidConfig(config) {
 }
 
 function createMainWindow() {
-  const iconPath = path.join(app.getAppPath(), '..', 'web', 'src', 'assets', 'icons', 'icon.png');
+  const iconPath = app.isPackaged ? path.join(process.resourcesPath, 'icons', 'icon.png') : path.join(app.getAppPath(), '..', 'web', 'src', 'assets', 'icons', 'icon.png');
   mainWindow = new BrowserWindow({
     width: store.get('windowWidth', 1200),
     height: store.get('windowHeight', 800),
@@ -70,7 +73,7 @@ function createMainWindow() {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', '..', 'web', 'dist', 'index.html'));
+    mainWindow.loadFile(path.join(process.resourcesPath, 'web', 'app.html'));
   }
 
   mainWindow.once('ready-to-show', () => {
@@ -91,7 +94,7 @@ function createMainWindow() {
 }
 
 function createFirstRunWindow() {
-  const iconPath = path.join(app.getAppPath(), '..', 'web', 'src', 'assets', 'icons', 'icon.png');
+  const iconPath = app.isPackaged ? path.join(process.resourcesPath, 'icons', 'icon.png') : path.join(app.getAppPath(), '..', 'web', 'src', 'assets', 'icons', 'icon.png');
   firstRunWindow = new BrowserWindow({
     width: 600,
     height: 400,
@@ -209,6 +212,11 @@ ipcMain.handle('save-pdf', async (event, payload) => {
 });
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'SermonSmith', submenu: [{ label: 'Check for updates...', click: () => void desktopUpdates.check(true) }, { role: 'quit' }] },
+    { role: 'editMenu' }, { role: 'viewMenu' },
+  ]));
+  desktopUpdates.start();
   if (!isFirstRun()) {
     const config = getStoredConfig();
     process.env.VITE_API_URL = config.apiUrl;
@@ -237,4 +245,3 @@ app.on('window-all-closed', () => {
 process.on('uncaughtException', (error) => {
   console.error('Uncaught exception:', error);
 });
-

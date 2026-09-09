@@ -158,6 +158,8 @@ jobs:
             throw "Expected NSIS and portable Windows packages, found $($packages.Count)"
           }
           $packages | ForEach-Object { Write-Host "Built $($_.FullName) ($($_.Length) bytes)" }
+          node scripts/verify-desktop-resources.mjs dist-electron/win-unpacked/resources
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   desktop-build-macos-smoke:
     # Build a real unpacked macOS Electron bundle at the exact PR head. This
@@ -198,6 +200,7 @@ jobs:
           APP_COUNT=$(find "$OUTPUT" -type d -name 'Sermon Smith.app' | wc -l | tr -d '[:space:]')
           test "$APP_COUNT" = '1'
           APP=$(find "$OUTPUT" -type d -name 'Sermon Smith.app' -print -quit)
+          node scripts/verify-desktop-resources.mjs "$APP/Contents/Resources"
           PLIST="$APP/Contents/Info.plist"
           test -f "$PLIST"
           BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")

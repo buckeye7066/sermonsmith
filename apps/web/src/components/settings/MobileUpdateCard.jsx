@@ -88,6 +88,7 @@ export default function MobileUpdateCard() {
 
   const installUpdate = useCallback(async () => {
     if (!manifest || busyRef.current) return;
+    if (!window.confirm('Save your changes before updating. Install the update and reload SermonSmith now?')) return;
     busyRef.current = true;
     setPhase('downloading');
     setError('');

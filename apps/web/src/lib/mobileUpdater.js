@@ -34,7 +34,7 @@ import { loadCapacitorUpdater } from '@/lib/capacitorUpdaterPlugin.js';
  * the built-in bundle as the placeholder "builtin", which carries no version,
  * so this is what we compare the feed against until an OTA bundle is active.
  */
-export const BAKED_BUNDLE_VERSION = pkg.version;
+export const BAKED_BUNDLE_VERSION = import.meta.env.VITE_BUILD_VERSION || pkg.version;
 
 /** Production origin that hosts /mobile/latest.json + the bundle zips. */
 export const UPDATE_BASE_URL = 'https://sermonsmith.axiombiolabs.org';

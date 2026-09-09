@@ -1,4 +1,4 @@
-import AdmZip from 'adm-zip';
+import { unzipSync } from 'fflate';
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 
@@ -28,7 +28,7 @@ const SERMON = {
 
 async function openDeck(sermon = SERMON) {
   const blob = buildSermonPptx(sermon, { createdAt: '2026-08-25T12:00:00.000Z' });
-  return { blob, zip: new AdmZip(Buffer.from(await blob.arrayBuffer())) };
+  return { blob, zip: readZip(Buffer.from(await blob.arrayBuffer())) };
 }
 
 describe('buildSermonPptx', () => {
@@ -120,3 +120,8 @@ describe('buildSermonPptx', () => {
     expect(buildSermonPptxFilename({})).toBe('sermon.pptx');
   });
 });
+
+function readZip(bytes) {
+  const entries = Object.entries(unzipSync(bytes)).map(([entryName, data]) => ({ entryName, getData: () => Buffer.from(data) }));
+  return { getEntries: () => entries, getEntry: (name) => entries.find((entry) => entry.entryName === name) };
+}
