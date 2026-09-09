@@ -68,19 +68,19 @@ describe('optional startup session probe', () => {
     expect(prisma.user.update).not.toHaveBeenCalled();
     expect(user.role).toBe('user');
   });
-  it('retains explicit allowlisted login reconciliation before a read-only probe', async () => {
+  it('never elevates an allowlisted login before a read-only probe', async () => {
     process.env.ADMIN_EMAILS = user.email;
     const bcrypt = (await import('bcryptjs')).default;
     user.password = await bcrypt.hash('reader-regression-passphrase', 4);
     const login = await request(app).post('/api/auth/login')
       .send({ email: user.email, password: 'reader-regression-passphrase' });
     expect(login.status).toBe(200);
-    expect(login.body.user.role).toBe('admin');
-    expect(login.body.user.premium).toBe(true);
+    expect(login.body.user.role).toBe('user');
+    expect(login.body.user.premium).toBe(false);
     prisma.user.update.mockClear();
     const response = await request(app).get('/api/auth/session').set('Cookie', login.headers['set-cookie']);
     expect(response.status).toBe(200);
-    expect(response.body.role).toBe('admin');
+    expect(response.body.role).toBe('user');
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
   it('retains the suspension response rather than returning a privileged identity', async () => {

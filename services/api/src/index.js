@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { loadEnv } from './config/env.js';
 import authRoutes from './routes/auth.js';
+import advertisementRoutes from './routes/advertisements.js';
 import entityRoutes from './routes/entities.js';
 import aiRoutes from './routes/ai.js';
 import functionRoutes from './routes/functions.js';
@@ -152,6 +153,7 @@ export function buildApp(opts = {}) {
   });
 
   app.use('/api/auth', authRoutes);
+  app.use('/api/advertisements', advertisementRoutes);
   app.use('/api/entities', entityRoutes);
   app.use('/api/ai', aiRoutes);
   app.use('/api/media', aiLimiter, buildMediaRouter({ provider: opts.mediaProvider }));

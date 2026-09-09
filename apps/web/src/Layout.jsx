@@ -1,3 +1,5 @@
+import AdvertisementSlot from './components/ads/AdvertisementSlot';
+import AdvertisementManager from './components/ads/AdvertisementManager';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { createPageUrl } from './utils';
@@ -334,6 +336,8 @@ export default function Layout({ children, currentPageName }) {
             <MobileUpdatePrompt />
             <WebUpdatePrompt />
             {children}
+            {user && currentPageName === 'Home' && <AdvertisementSlot key={user.id} />}
+            {user && currentPageName === 'Settings' && <AdvertisementManager key={user.id} />}
           </div>
         </main>
 
