@@ -9,7 +9,7 @@ async function fixture(page,owner=false){
   if(path==='/api/auth/session'||path==='/api/auth/me')return reply(user);
   if(path==='/api/advertisements/capabilities')return reply({canManage:owner});
   if(path==='/api/advertisements/owner/list')return reply(saved.map((r,i)=>({...r,id:String(i),stats:{impressions:0,clicks:0,viewers:0},daily:[]})));
-  if(path==='/api/advertisements/owner'&&req.method()==='POST'){saved.push(req.postDataJSON());return reply({id:String(saved.length)});}
+  if(path==='/api/advertisements/owner'&&req.method()==='POST'){if(state.failSecond && saved.length===1)return route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'Invalid second image'})});saved.push(req.postDataJSON());return reply({id:String(saved.length)});}
   if(path==='/api/advertisements')return reply([{id:'first',advertiser:'Example sponsor',headline:'First creative',body:'First copy',creative:'One',seconds:3,revision:state.revision,ticket:'test-ticket-1'},{id:'second',advertiser:'Example sponsor',headline:'Second creative',body:'Second copy',creative:'Two',seconds:3,revision:state.revision,ticket:'test-ticket-2'}]);
   if(path.endsWith('/image')){imageRequests.push(path);return route.fulfill({status:200,contentType:'image/png',body:png});}
   if(path.endsWith('/events')){events.push(req.postDataJSON());return reply({counted:true});}
@@ -75,4 +75,21 @@ test('an edited picture refreshes in an open reader when the app resumes',async(
  state.revision=2;
  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
  await expect.poll(()=>imageRequests.filter(p=>p.includes('/first/')).length).toBe(2);
+});
+
+test('partial picture upload reconciles saved creatives and clears retry selection',async({page})=>{
+ const {saved,state}=await fixture(page,true);state.failSecond=true;
+ await page.goto('/Settings');
+ const manager=page.getByRole('region',{name:'Advertisement management'});
+ await manager.getByLabel('advertiser',{exact:true}).fill('Example sponsor');
+ await manager.getByLabel('headline',{exact:true}).fill('Sponsor message');
+ await manager.getByLabel('Advertiser web address').fill('https://example.com');
+ await manager.locator('input[type=file]').setInputFiles([{name:'one.png',mimeType:'image/png',buffer:png},{name:'two.png',mimeType:'image/png',buffer:png}]);
+ await manager.getByRole('button',{name:'Add creatives'}).click();
+ await expect(manager.getByRole('alert')).toContainText('1 creative(s) confirmed saved');
+ await expect(manager.getByRole('heading',{name:'Example sponsor — one.png'})).toBeVisible();
+ expect(await manager.locator('input[type=file]').evaluate(el=>el.files.length)).toBe(0);
+ await manager.getByRole('button',{name:'Add creatives'}).click();
+ await expect(manager.getByRole('alert')).toContainText('Choose at least one picture');
+ expect(saved).toHaveLength(1);
 });

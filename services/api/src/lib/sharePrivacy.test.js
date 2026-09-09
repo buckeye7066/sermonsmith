@@ -8,3 +8,7 @@ it('preserves authored sermon text, citations and scripture references',()=>{
   const sermon={title:'A sermon',points:[{text:'Teaching',citations:[{author_name:'Cited author',reference:'Book p. 1'}],supporting_scriptures:['John 3:16']}]};
   expect(publicShareResource(sermon)).toEqual(sermon);
 });
+
+it('removes reading-plan creator account fields while preserving plan content',()=>{
+  expect(publicShareResource({title:'Reading plan',creator_id:'account-id',creator_name:'owner@example.com',days:[{reading:'John 3'}]})).toEqual({title:'Reading plan',days:[{reading:'John 3'}]});
+});

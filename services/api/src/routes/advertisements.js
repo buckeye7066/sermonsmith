@@ -17,7 +17,7 @@ router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); 
 router.get('/capabilities', (req, res) => res.json({ canManage: isAdOwner(req) }));
 router.get('/', wrap(async (req, res) => {
   const day = today();
-  const rows = await prisma.$queryRaw`SELECT id,advertiser,headline,body,creative,seconds,revision FROM advertisements WHERE active AND NOT removed AND starts_at <= ${day} AND ends_at >= ${day} ORDER BY created_at,id LIMIT 100`;
+  const rows = await prisma.$queryRaw`SELECT id,advertiser,headline,body,creative,seconds,revision FROM advertisements WHERE active AND NOT removed AND starts_at <= ${day} AND ends_at >= ${day} ORDER BY created_at,id`;
   res.json(rows.map(r=>({...publicAd(r),ticket:createDisplayTicket(r.id,req.userId)})));
 }));
 router.get('/:id/image', wrap(async (req, res) => {
@@ -42,7 +42,7 @@ router.post('/:id/events', wrap(async (req, res) => {
   res.json({ counted: n > 0, ...(kind === 'click' ? { url: rows[0].url } : {}) });
 }));
 router.get('/owner/list', owner, wrap(async (_req, res) => {
-  const rows = await prisma.$queryRaw`SELECT id,advertiser,headline,body,creative,url,seconds,active,starts_at,ends_at,removed FROM advertisements ORDER BY created_at DESC LIMIT 500`;
+  const rows = await prisma.$queryRaw`SELECT id,advertiser,headline,body,creative,url,seconds,active,starts_at,ends_at,removed FROM advertisements ORDER BY created_at DESC`;
   const counts = await prisma.$queryRaw`SELECT ad_id,day,kind,COUNT(*)::integer AS n,COUNT(DISTINCT viewer)::integer AS viewers FROM advertisement_events GROUP BY ad_id,day,kind ORDER BY day DESC`;
   const totals = await prisma.$queryRaw`SELECT ad_id,COUNT(*) FILTER (WHERE kind='impression')::integer AS impressions,COUNT(*) FILTER (WHERE kind='click')::integer AS clicks,COUNT(DISTINCT viewer) FILTER (WHERE kind='impression')::integer AS viewers FROM advertisement_events GROUP BY ad_id`;
   res.json(rows.map(r => ({...r, startsAt:r.starts_at, endsAt:r.ends_at, stats:totals.find(t=>t.ad_id===r.id) || {impressions:0,clicks:0,viewers:0}, daily:counts.filter(t=>t.ad_id===r.id).map(({day,kind,n,viewers})=>({day,kind,n,viewers}))})));

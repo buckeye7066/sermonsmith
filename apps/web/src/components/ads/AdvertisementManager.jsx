@@ -7,6 +7,7 @@ export default function AdvertisementManager() {
   const [rows,setRows] = useState([]);
   const [draft,setDraft] = useState(fresh);
   const [files,setFiles] = useState([]);
+  const [fileVersion,setFileVersion] = useState(0);
   const [id,setId] = useState(null);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
@@ -14,22 +15,32 @@ export default function AdvertisementManager() {
   useEffect(() => { let alive=true; advertisements.capabilities().then(r=>{if(alive){setAllowed(r.canManage);if(r.canManage) refresh().catch(()=>{});}}).catch(()=>{}); return()=>{alive=false;}; },[]);
   if (!allowed) return null;
   const change = (key,value) => setDraft(d=>({...d,[key]:value}));
-  const reset = () => {setDraft(fresh());setId(null);setFiles([]);};
+  const reset = () => {setDraft(fresh());setId(null);setFiles([]);setFileVersion(v=>v+1);};
   async function save(e) {
     e.preventDefault();setBusy(true);setError('');
+    let saved = 0;
+    let submitted = false;
     try {
       if (!id && !files.length) throw new Error('Choose at least one picture. Each picture is a separate creative.');
       if (files.length > 10) throw new Error('Choose up to 10 pictures per upload.');
+      if (files.some(file=>file.size > 1048576 || !['image/png','image/jpeg','image/webp'].includes(file.type))) throw new Error('Use PNG, JPEG or WebP files under 1 MB each.');
       for (const file of files.length ? files : [null]) {
         let image;
         if (file) {
-          if (file.size > 1048576 || !['image/png','image/jpeg','image/webp'].includes(file.type)) throw new Error('Use PNG, JPEG or WebP files under 1 MB each.');
           image = await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file);});
         }
+        submitted = true;
         await advertisements.save(id,{...draft,...(image?{image,creative:file.name}: {})});
+        saved += 1;
       }
       reset();await refresh();
-    } catch(e) {setError(e.message || 'Could not save advertisement.');} finally {setBusy(false);}
+    } catch(e) {
+      if (submitted) {
+        setFiles([]);setFileVersion(v=>v+1);
+        const refreshed = await refresh().then(()=>true).catch(()=>false);
+        setError(`${saved} creative(s) confirmed saved. ${e.message || 'Save failed.'} ${refreshed ? 'Review the refreshed list before selecting only missing pictures again.' : 'Reload the page and review saved creatives before retrying; the last request may have completed.'}`);
+      } else setError(e.message || 'Could not save advertisement.');
+    } finally {setBusy(false);}
   }
   async function action(fn) {setBusy(true);setError('');try{await fn();await refresh();}catch(e){setError(e.message);}finally{setBusy(false);}}
   return <section className="print:hidden my-6 border rounded-xl p-4 space-y-4" aria-label="Advertisement management">
@@ -37,7 +48,7 @@ export default function AdvertisementManager() {
     <p className="text-sm">Upload pictures, set their purchased run dates, and review actual views and clicks. Each picture rotates as a separate creative.</p>
     <form onSubmit={save} className="grid sm:grid-cols-2 gap-3">
       {['advertiser','headline','body','url'].map(key=><label key={key} className="text-sm capitalize">{key === 'url' ? 'Advertiser web address' : key}<input className={field} value={draft[key]} required={key!=='body'} maxLength={key==='url'?2000:key==='body'?220:key==='advertiser'?80:90} onChange={e=>change(key,e.target.value)} type={key==='url'?'url':'text'} /></label>)}
-      <label className="text-sm">Pictures (PNG, JPEG, WebP; 1 MB each)<input className={field} type="file" accept="image/png,image/jpeg,image/webp" multiple={!id} onChange={e=>setFiles(Array.from(e.target.files || []))} /></label>
+      <label className="text-sm">Pictures (PNG, JPEG, WebP; 1 MB each)<input key={fileVersion} className={field} type="file" accept="image/png,image/jpeg,image/webp" multiple={!id} onChange={e=>setFiles(Array.from(e.target.files || []))} /></label>
       <label className="text-sm">Slide duration<select className={field} value={[15,30].includes(draft.seconds)?draft.seconds:'custom'} onChange={e=>change('seconds',e.target.value==='custom'?20:Number(e.target.value))}><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="custom">Custom</option></select><input aria-label="Custom slide seconds" className={field} type="number" min="3" max="120" value={draft.seconds} onChange={e=>change('seconds',Number(e.target.value))}/></label>
       <label className="text-sm">Purchased run<select className={field} value={draft.duration} onChange={e=>change('duration',e.target.value)}><option value="1w">One week</option><option value="2w">Two weeks</option><option value="1m">One month</option><option value="custom">Custom dates</option></select></label>
       <label className="text-sm">Start date (UTC)<input className={field} type="date" required value={draft.startsAt} onChange={e=>change('startsAt',e.target.value)}/></label>
