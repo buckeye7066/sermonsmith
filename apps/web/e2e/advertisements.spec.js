@@ -63,6 +63,6 @@ test('failed image never creates a billable impression',async({page})=>{
  await page.goto('/Home');
  const slot=page.getByRole('complementary',{name:'Advertisement',exact:true});
  await slot.scrollIntoViewIfNeeded();await expect(slot).toBeVisible();
- await page.waitForTimeout(2000);
+ await expect(slot.getByText('Second creative')).toBeVisible({timeout:6000});
  expect(events).toHaveLength(0);
 });

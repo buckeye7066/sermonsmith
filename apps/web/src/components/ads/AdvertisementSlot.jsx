@@ -40,9 +40,14 @@ export default function AdvertisementSlot() {
     // Count only after a foreground slide has been at least half visible for
     // one second. Hidden tabs and offscreen slots do not rotate or count.
     const impression = setTimeout(() => { advertisements.event(adId, 'impression', ticket.current).catch(() => {}); }, 1000);
+    return () => clearTimeout(impression);
+  }, [adId, visible, image, index, loadedId]);
+  useEffect(() => {
+    if (!adId || !visible) return;
+    // A failed image must not stop the remaining purchased creatives rotating.
     const rotate = setTimeout(() => setIndex(i => i + 1), seconds * 1000);
-    return () => { clearTimeout(impression); clearTimeout(rotate); };
-  }, [adId, seconds, visible, image, index, loadedId]);
+    return () => clearTimeout(rotate);
+  }, [adId, seconds, visible, index]);
   if (!ad) return null;
   async function click() {
     const target = window.open('about:blank', '_blank');
