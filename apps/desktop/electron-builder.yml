@@ -44,7 +44,10 @@ linux:
     - deb
   icon: ../web/src/assets/icons
   category: Education
+portable:
+  artifactName: SermonSmith-Portable-${version}-${arch}.${ext}
 nsis:
+  artifactName: SermonSmith-Setup-${version}-${arch}.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
