@@ -1,3 +1,4 @@
+import { publicShareResource } from '../lib/sharePrivacy.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import {
@@ -880,7 +881,10 @@ router.get('/share/:slug', optionalAuth, async (req, res, next) => {
       data: { data: { ...data, views: Number(data.views || 0) + 1 } },
     }).catch(() => null);
 
-    res.json({ link: data, resource: formatPublicEntity(resource) });
+    res.json({
+      link: { title: data.title || '', description: data.description || '', accessLevel: 'view', expiresAt: data.expiresAt || null, resourceType: resource.type },
+      resource: publicShareResource(formatPublicEntity(resource)),
+    });
   } catch (err) {
     next(err);
   }

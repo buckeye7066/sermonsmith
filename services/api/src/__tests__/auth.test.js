@@ -105,13 +105,13 @@ describe('auth routes', () => {
     expect(stored.premium).not.toBe(true);
   });
 
-  it('register auto-promotes only env-allowlisted addresses', async () => {
+  it('register never promotes a self-asserted env-allowlisted address', async () => {
     process.env.ADMIN_EMAILS = 'ops@example.com';
     const res = await request(app).post('/api/auth/register').send({ email: 'ops@example.com', password: 'longenough123' });
     expect(res.status).toBe(200);
     const stored = prisma._store.user.find((u) => u.email === 'ops@example.com');
-    expect(stored.role).toBe('admin');
-    expect(stored.premium).toBe(true);
+    expect(stored.role).not.toBe('admin');
+    expect(stored.premium).not.toBe(true);
     delete process.env.ADMIN_EMAILS;
   });
 
@@ -191,12 +191,24 @@ describe('auth routes', () => {
     delete process.env.SIGNUP_TRIAL_ENABLED;
   });
 
-  it('an auto-promoted admin signup is not additionally stamped with a trial window', async () => {
+  it('an allowlisted email gets the ordinary signup trial without admin access', async () => {
     process.env.ADMIN_EMAILS = 'ops2@example.com';
     const res = await request(app).post('/api/auth/register').send({ email: 'ops2@example.com', password: 'longenough123' });
     expect(res.status).toBe(200);
     const stored = prisma._store.user.find((u) => u.email === 'ops2@example.com');
-    expect(stored.premium_until == null).toBe(true);
+    expect(stored.role).not.toBe('admin');
+    expect(stored.premium_until).toBeTruthy();
+    delete process.env.ADMIN_EMAILS;
+  });
+
+  it('login does not elevate an existing user from an email allowlist', async () => {
+    process.env.ADMIN_EMAILS = 'claimed@example.com';
+    const password = await bcrypt.hash('longenough123', 4);
+    prisma._store.user.push({ id:'claimant', email:'claimed@example.com', password, role:'user', premium:false });
+    const res = await request(app).post('/api/auth/login').send({email:'claimed@example.com',password:'longenough123'});
+    expect(res.status).toBe(200);
+    expect(res.body.user.role).toBe('user');
+    expect(prisma._store.user.find(u=>u.id==='claimant').role).toBe('user');
     delete process.env.ADMIN_EMAILS;
   });
 

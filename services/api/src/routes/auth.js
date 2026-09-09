@@ -344,7 +344,6 @@ router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
     const displayName = typeof name === 'string' && name.trim()
       ? name.trim().slice(0, 100)
       : 'Member';
-    const admin = isAdminEmail(normalizedEmail);
 
     let user = await prisma.user.create({
       data: {
@@ -352,7 +351,8 @@ router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
         password: hashed,
         name: displayName,
         full_name: displayName,
-        ...(admin ? { role: 'admin', premium: true } : {}),
+        // Signup never trusts a mailbox claim or caller-supplied role.
+        role: 'user',
       },
     });
 
@@ -363,12 +363,10 @@ router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
     // (see lib/premiumGrant.js), so this can never double-stack if a grant
     // already touched this user. This is independent of — and does not
     // enable — the separate, dormant global "Free Week" promo toggle.
-    if (!admin) {
-      const trialPeriod = signupTrialPeriod(process.env);
-      if (trialPeriod) {
-        const granted = await grantFreePeriodToUser(prisma, user.id, trialPeriod);
-        if (granted) user = granted;
-      }
+    const trialPeriod = signupTrialPeriod(process.env);
+    if (trialPeriod) {
+      const granted = await grantFreePeriodToUser(prisma, user.id, trialPeriod);
+      if (granted) user = granted;
     }
 
     const token = signToken(user);
@@ -413,16 +411,8 @@ router.post('/login', loginMaintenanceGuard, async (req, res, next) => {
       return res.status(403).json({ message: 'This account has been suspended. Contact support if you believe this is an error.' });
     }
 
-    // Promote env-allowlisted admin emails on every login so access is
-    // never lost even after a manual demotion. Note: admin status comes
-    // from the deployment's ADMIN_EMAILS env, never from a hardcoded list.
-    let currentUser = user;
-    if (isAdminEmail(user.email) && (user.role !== 'admin' || !user.premium)) {
-      currentUser = await prisma.user.update({
-        where: { id: user.id },
-        data: { role: 'admin', premium: true },
-      });
-    }
+    // Existing database roles are authoritative; login never promotes an email claim.
+    const currentUser = user;
 
     const token = signToken(currentUser);
     res.cookie(AUTH_COOKIE, token, cookieOptions());

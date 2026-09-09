@@ -991,3 +991,14 @@ const media = {
 // ---------------------------------------------------------------------------
 
 export const api = { auth, entities: entitiesProxy, integrations, functions, community, admin, media };
+
+// Advertisement requests retain the same cookie, CSRF, retry and error policy.
+export const advertisements = {
+  capabilities: () => apiFetch('/api/advertisements/capabilities'),
+  rotation: () => apiFetch('/api/advertisements'),
+  list: () => apiFetch('/api/advertisements/owner/list'),
+  image: async (id) => (await apiFetch(`/api/advertisements/${encodeURIComponent(id)}/image`, { rawResponse: true })).blob(),
+  event: (id, kind, ticket) => apiFetch(`/api/advertisements/${encodeURIComponent(id)}/events`, { method:'POST', body:JSON.stringify({kind,ticket}) }),
+  save: (id, data) => apiFetch(`/api/advertisements/owner${id ? '/' + encodeURIComponent(id) : ''}`, { method:id ? 'PUT':'POST', body:JSON.stringify(data) }),
+  remove: (id) => apiFetch(`/api/advertisements/owner/${encodeURIComponent(id)}`, {method:'DELETE'}),
+};

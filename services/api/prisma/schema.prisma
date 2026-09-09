@@ -560,3 +560,39 @@ model BibleChapterCache {
   @@index([translation, book])
   @@map("bible_chapter_cache")
 }
+
+
+// Advertisements live outside generic Entity CRUD. Only configured owner API
+// routes can mutate them; metrics contain keyed pseudonyms, never user rows.
+model Advertisement {
+  id         String @id
+  advertiser String
+  headline   String
+  body       String @default("")
+  creative   String @default("")
+  url        String
+  seconds    Int
+  active     Boolean @default(false)
+  startsAt   String @map("starts_at")
+  endsAt     String @map("ends_at")
+  image      Bytes
+  removed    Boolean @default(false)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  events     AdvertisementEvent[]
+  @@map("advertisements")
+}
+
+model AdvertisementEvent {
+  adId      String @map("ad_id")
+  ad        Advertisement @relation(fields: [adId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  viewer    String
+  kind      String
+  bucket    BigInt
+  ticket    String
+  day       String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@id([adId, viewer, kind, bucket])
+  @@unique([adId, viewer, kind, ticket])
+  @@index([adId, day], map: "advertisement_events_day")
+  @@map("advertisement_events")
+}
