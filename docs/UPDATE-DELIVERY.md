@@ -1,6 +1,6 @@
 # Update delivery
 
-Browser tabs, including Safari and installed PWAs, check the existing production mobile feed on startup, focus and every 15 minutes while visible. Update reloads only after the user's confirmation; Later leaves the current session running. Build identity is generated once by Vite, embedded in the renderer, and reused in the OTA manifest. Every build is discoverable even when the package version is unchanged.
+Browser tabs, including Safari and installed PWAs, check their own origin's uncached build-info.json on startup, focus and every 15 minutes while visible. An intentional rollback is offered when its build identity differs. Before reloading, Update verifies the exact HTML and every declared JS/CSS asset against hashes computed from the written build files, then rechecks that the deployed manifest has not changed. An incomplete or changing deployment leaves the current page running. Update reloads only after the user's confirmation; Later leaves the current session running. Build identity is generated once by Vite, embedded in the renderer, and reused in the OTA manifest. Every build is discoverable even when the package version is unchanged.
 
 Android/iOS keep the existing checksum-verified Capacitor OTA path. Checks also run while the app remains open. Native shell changes still require a signed package from the platform distribution channel; OTA cannot install native plugins or permissions. This release does not provision APNs/FCM: a closed app receives no remote push.
 
