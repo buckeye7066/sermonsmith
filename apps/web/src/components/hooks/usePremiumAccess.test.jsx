@@ -57,5 +57,34 @@ describe('usePremiumAccess', () => {
     expect(result.current.devOverride).toBe(true);
     expect(result.current.isPremium).toBe(true);
     expect(result.current.hasEntitlement('community')).toBe(true);
+    expect(result.current.hasPaidPremium).toBe(true);
+  });
+
+  it('keeps a signup-trial user able to buy: premium now, but not paid premium', () => {
+    authState.user = {
+      id: 'new-signup',
+      premium: false,
+      subscription_tier: 'premium',
+      premium_until: '2026-09-09T12:00:00.000Z',
+      entitlements: ['bible_reader', 'core_ai', 'personal_library', 'community'],
+    };
+    const { result } = renderHook(() => usePremiumAccess());
+
+    expect(result.current.isPremium).toBe(true);
+    expect(result.current.hasPaidPremium).toBe(false);
+  });
+
+  it('treats a Stripe-confirmed subscription as paid premium', () => {
+    authState.user = { id: 'subscriber', premium: true, subscription_tier: 'premium', entitlements: [] };
+    const { result } = renderHook(() => usePremiumAccess());
+
+    expect(result.current.isPremium).toBe(true);
+    expect(result.current.hasPaidPremium).toBe(true);
+  });
+
+  it('reports no paid premium while signed out or loading', () => {
+    expect(renderHook(() => usePremiumAccess()).result.current.hasPaidPremium).toBe(false);
+    authState = { isLoadingAuth: true, authError: null, user: null };
+    expect(renderHook(() => usePremiumAccess()).result.current.hasPaidPremium).toBe(false);
   });
 });

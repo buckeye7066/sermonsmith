@@ -24,6 +24,19 @@ describe('callWithRetry', () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
+  it('does NOT retry a 429 that means the provider account has no credits', async () => {
+    const noCredits = Object.assign(new Error('429 You have no credits remaining.'), {
+      status: 429,
+      headers: {},
+      request_id: 'req_test',
+      error: { code: 'insufficient_quota' },
+      code: 'insufficient_quota',
+    });
+    const fn = vi.fn().mockRejectedValue(noCredits);
+    await expect(callWithRetry(fn, { baseMs: 1 })).rejects.toBe(noCredits);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
   it('does NOT retry deterministic 4xx (400)', async () => {
     const fn = vi.fn().mockRejectedValue(Object.assign(new Error('bad request'), { status: 400 }));
     await expect(callWithRetry(fn, { baseMs: 1 })).rejects.toThrow('bad request');

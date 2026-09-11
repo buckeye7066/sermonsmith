@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { prisma, authenticateToken, optionalAuth, requireAdmin } from '../middleware/auth.js';
+import { getStripe } from '../lib/stripeBilling.js';
 import { FREE_PERIOD_DAYS, grantFreePeriodToUser } from '../lib/premiumGrant.js';
 import { assertGatedResourceExposable } from '../services/scriptureGate.js';
 import {
@@ -562,20 +563,6 @@ export async function getCachedBiblePassage({ ref, translationId }) {
   return { ...data, cacheHit: false };
 }
 
-// Stripe SDK is lazy-loaded — see getStripe() below. The previous
-// top-level await meant the API would crash at import time if the SDK was
-// missing or the key was unset; now booting works in test/dev without
-// Stripe credentials.
-let _stripe = null;
-async function getStripe() {
-  if (!process.env.STRIPE_SECRET_KEY || process.env.DISABLE_BILLING === '1') return null;
-  if (!_stripe) {
-    const { default: Stripe } = await import('stripe');
-    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-  }
-  return _stripe;
-}
-
 function serviceUnavailable(message) {
   const err = new Error(message);
   err.status = 503;
@@ -955,6 +942,12 @@ router.post('/createCheckoutSession', authenticateToken, async (req, res, next) 
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ message: 'User not found' });
+    // `premium` is only set by a completed checkout (or an admin). Trial users
+    // (premium_until) may subscribe; an already-paying account must not be able
+    // to open a second live subscription.
+    if (user.premium === true) {
+      return res.status(409).json({ message: 'You already have an active Premium subscription. Manage it from Settings.' });
+    }
     const frontendUrl = frontendBaseUrl();
 
     const session = await stripe.checkout.sessions.create({

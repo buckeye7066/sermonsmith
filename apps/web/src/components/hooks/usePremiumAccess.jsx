@@ -43,6 +43,7 @@ export function usePremiumAccess() {
       tier: 'free',
       entitlements: [],
       hasEntitlement: () => false,
+      hasPaidPremium: false,
       loading: true,
       error: null,
     };
@@ -55,6 +56,7 @@ export function usePremiumAccess() {
       tier: 'free',
       entitlements: [],
       hasEntitlement: () => false,
+      hasPaidPremium: false,
       loading: false,
       error: authError?.message || null,
     };
@@ -104,6 +106,11 @@ export function usePremiumAccess() {
     tier: isPremium ? 'premium' : 'free',
     entitlements,
     hasEntitlement,
+    // Premium that does not end on a timer: a paid subscription (the Stripe
+    // webhook sets `premium`) or a staff/promotional override. The automatic
+    // signup trial only sets `premium_until`, so a trial user is premium but
+    // must still be able to buy before the trial runs out.
+    hasPaidPremium: devOverride || user.premium === true,
     loading: false,
     error: null,
   };

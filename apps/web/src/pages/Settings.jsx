@@ -146,6 +146,16 @@ export default function Settings() {
     user.premium_override === true ||
     (user.premium_until && new Date(user.premium_until) > new Date())
   );
+  // The signup trial only sets premium_until: a trial user is premium but has
+  // no subscription yet, so they still need Upgrade and have no billing
+  // portal to manage (createBillingPortal answers 404 without a customer).
+  const hasPaidPremium = user && (
+    user.role === 'admin' ||
+    user.role === 'dev' ||
+    user.premium === true ||
+    user.premium_override === true
+  );
+  const hasBillingAccount = Boolean(user?.stripeCustomerId) || user?.premium === true;
 
   if (isLoading) {
     return (
@@ -289,7 +299,7 @@ export default function Settings() {
                       )}
                     </p>
                   </div>
-                  {isPremium ? (
+                  {hasPaidPremium ? (
                     <Crown className="w-12 h-12 text-purple-600" />
                   ) : isNativeApp() ? (
                     // Store policy: no purchase flow or upgrade steering in
@@ -316,7 +326,7 @@ export default function Settings() {
                       </AlertDescription>
                     </Alert>
 
-                    {isNativeApp() ? (
+                    {!hasBillingAccount ? null : isNativeApp() ? (
                       // The Stripe billing portal is an external payment
                       // surface — store policy keeps it out of native builds.
                       <div className="p-4 border rounded-lg">

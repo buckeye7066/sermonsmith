@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma, authenticateToken, signToken, requireAdmin, AUTH_COOKIE, cookieOptions } from '../middleware/auth.js';
 import { sendPasswordResetEmail } from '../services/email.js';
+import { getStripe, cancelStripeSubscriptionsForUser } from '../lib/stripeBilling.js';
 import { recordSuccessfulLogin } from '../services/firstLoginNotifier.js';
 import { signupTrialPeriod } from '../lib/signupTrial.js';
 import { grantFreePeriodToUser } from '../lib/premiumGrant.js';
@@ -319,6 +320,24 @@ async function cleanupCommunityRelationsForAccessRevocation(tx, userId) {
   };
 }
 
+// Stop billing before an account is soft-deleted. A deleted login can never
+// reach the billing portal again, so a subscription left running would keep
+// charging someone with no way to cancel it. Fails closed: when Stripe cannot
+// confirm the cancellation the caller must not delete the account.
+async function cancelBillingBeforeDeletion(user) {
+  const stripe = await getStripe();
+  if (!stripe) return { ok: true, canceled: [] };
+  try {
+    const { canceled } = await cancelStripeSubscriptionsForUser(stripe, user);
+    return { ok: true, canceled };
+  } catch (err) {
+    console.error('[account-delete] subscription cancellation failed:', err.message);
+    return { ok: false, canceled: [] };
+  }
+}
+
+const BILLING_CANCEL_FAILED = 'Your subscription could not be cancelled, so the account was not deleted. Please try again.';
+
 router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
   try {
     const { email, password, name } = req.body;
@@ -572,6 +591,9 @@ router.delete('/me', authenticateToken, async (req, res, next) => {
     const target = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!target) return res.status(404).json({ message: 'User not found' });
 
+    const billing = await cancelBillingBeforeDeletion(target);
+    if (!billing.ok) return res.status(502).json({ message: BILLING_CANCEL_FAILED });
+
     const cleanup = await prisma.$transaction(async (tx) => {
       const result = await cleanupCommunityRelationsForAccessRevocation(tx, req.userId);
       await tx.user.update({
@@ -580,7 +602,11 @@ router.delete('/me', authenticateToken, async (req, res, next) => {
       });
       return result;
     });
-    await recordAudit('privacy.account_delete_requested', req.userId, { selfService: true, ...cleanup });
+    await recordAudit('privacy.account_delete_requested', req.userId, {
+      selfService: true,
+      canceledSubscriptions: billing.canceled,
+      ...cleanup,
+    });
     res.clearCookie(AUTH_COOKIE, cookieOptions());
     res.status(204).send();
   } catch (err) {
@@ -662,8 +688,10 @@ router.post('/forgot-password', async (req, res, next) => {
 
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
-    // Always return success to prevent email enumeration.
-    if (!user) {
+    // Always return success to prevent email enumeration. Soft-deleted
+    // accounts get the same answer and no token: they cannot sign in, so a
+    // reset link would only mail a credential for a closed account.
+    if (!user || user.deletedAt) {
       return res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
     }
 
@@ -730,6 +758,11 @@ router.post('/reset-password', async (req, res, next) => {
       } catch {
         return res.status(400).json({ message: 'Reset link is invalid or has expired' });
       }
+    }
+
+    const resetTarget = await prisma.user.findUnique({ where: { id: userId } });
+    if (!resetTarget || resetTarget.deletedAt) {
+      return res.status(400).json({ message: 'Reset link is invalid or has expired' });
     }
 
     const hashed = await bcrypt.hash(newPassword, 12);
@@ -889,6 +922,8 @@ router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res, ne
   try {
     const target = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!target) return res.status(404).json({ message: 'User not found' });
+    const billing = await cancelBillingBeforeDeletion(target);
+    if (!billing.ok) return res.status(502).json({ message: BILLING_CANCEL_FAILED });
     const cleanup = await prisma.$transaction(async (tx) => {
       const result = await cleanupCommunityRelationsForAccessRevocation(tx, target.id);
       await tx.user.update({
@@ -899,6 +934,7 @@ router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res, ne
     });
     await recordAudit('admin.user_soft_delete', req.userId, {
       targetUserId: target.id,
+      canceledSubscriptions: billing.canceled,
       ...cleanup,
     }, target.id);
     if (target.id === req.userId) res.clearCookie(AUTH_COOKIE, cookieOptions());

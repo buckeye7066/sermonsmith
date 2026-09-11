@@ -44,9 +44,31 @@ vi.mock('../services/email.js', () => ({
   sendEmail: vi.fn(async () => ({ id: 'mock-email-id' })),
 }));
 
+// Keep the real cancellation helper; only the client factory is a seam so a
+// test can hand the route a fake Stripe.
+vi.mock('../lib/stripeBilling.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStripe: vi.fn(async () => null),
+}));
+
 process.env.JWT_SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 
 const { default: authRoutes } = await import('../routes/auth.js');
+const stripeBilling = await import('../lib/stripeBilling.js');
+const emailService = await import('../services/email.js');
+
+function fakeStripe({ customers = [], subscriptions = {}, cancelError = null } = {}) {
+  return {
+    customers: { list: vi.fn(async ({ email }) => ({ data: customers.filter((c) => c.email === email) })) },
+    subscriptions: {
+      list: vi.fn(async ({ customer }) => ({ data: subscriptions[customer] || [] })),
+      cancel: vi.fn(async (id) => {
+        if (cancelError) throw cancelError;
+        return { id, status: 'canceled' };
+      }),
+    },
+  };
+}
 const SECRET = 'test-jwt-secret-that-is-at-least-32-chars-long';
 
 function tokenFor(id) {
@@ -338,6 +360,85 @@ describe('auth routes', () => {
   it('reset-password rejects unknown / tampered tokens', async () => {
     const res = await request(app).post('/api/auth/reset-password').send({ token: 'not-a-real-token', newPassword: 'newlongpass1' });
     expect(res.status).toBe(400);
+  });
+
+  it('forgot-password mints no token and sends no email for a soft-deleted account', async () => {
+    emailService.sendPasswordResetEmail.mockClear();
+    prisma._store.user.push({ id: 'u-gone', email: 'gone@example.com', password: 'x', role: 'user', deletedAt: new Date() });
+    const res = await request(app).post('/api/auth/forgot-password').send({ email: 'gone@example.com' });
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/If an account/i);
+    expect(prisma._store.passwordReset.some((r) => r.userId === 'u-gone')).toBe(false);
+    expect(emailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+  });
+
+  it('reset-password refuses a still-valid token once the account is soft-deleted', async () => {
+    const rawToken = 'token-issued-before-deletion';
+    const tokenHash = (await import('crypto')).createHash('sha256').update(rawToken).digest('hex');
+    prisma._store.user.push({ id: 'u-deleted-reset', email: 'dr@example.com', password: 'old', role: 'user', tokenVersion: 3, deletedAt: new Date() });
+    prisma._store.passwordReset.push({ id: 'pr-deleted', userId: 'u-deleted-reset', tokenHash, expiresAt: new Date(Date.now() + 60_000) });
+    const res = await request(app).post('/api/auth/reset-password').send({ token: rawToken, newPassword: 'brandnewpass1' });
+    expect(res.status).toBe(400);
+    const stored = prisma._store.user.find((u) => u.id === 'u-deleted-reset');
+    expect(stored.password).toBe('old');
+    expect(stored.tokenVersion).toBe(3);
+  });
+
+  it('self-service delete cancels every live subscription before soft-deleting', async () => {
+    const stripe = fakeStripe({
+      subscriptions: {
+        cus_live: [
+          { id: 'sub_active', status: 'active' },
+          { id: 'sub_old', status: 'canceled' },
+          { id: 'sub_dunning', status: 'past_due' },
+        ],
+      },
+    });
+    stripeBilling.getStripe.mockResolvedValueOnce(stripe);
+    prisma._store.user.push({ id: 'u-paying', email: 'pay@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, stripeCustomerId: 'cus_live' });
+
+    const res = await request(app).delete('/api/auth/me').set('Cookie', [`ss_token=${tokenFor('u-paying')}`]);
+
+    expect(res.status).toBe(204);
+    expect(stripe.subscriptions.cancel.mock.calls.map(([id]) => id)).toEqual(['sub_active', 'sub_dunning']);
+    expect(stripe.customers.list).not.toHaveBeenCalled();
+    expect(prisma._store.user.find((u) => u.id === 'u-paying').deletedAt).toBeInstanceOf(Date);
+    expect(prisma._store.auditLog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'privacy.account_delete_requested' }),
+    ]));
+  });
+
+  it('self-service delete fails closed and keeps the account when Stripe cannot cancel', async () => {
+    const stripe = fakeStripe({ subscriptions: { cus_fail: [{ id: 'sub_stuck', status: 'active' }] }, cancelError: new Error('stripe down') });
+    stripeBilling.getStripe.mockResolvedValueOnce(stripe);
+    prisma._store.user.push({ id: 'u-stuck', email: 'stuck@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, stripeCustomerId: 'cus_fail' });
+
+    const res = await request(app).delete('/api/auth/me').set('Cookie', [`ss_token=${tokenFor('u-stuck')}`]);
+
+    expect(res.status).toBe(502);
+    expect(res.body.message).toMatch(/not deleted/i);
+    const stored = prisma._store.user.find((u) => u.id === 'u-stuck');
+    expect(stored.deletedAt).toBeNull();
+    expect(stored.tokenVersion).toBe(0);
+  });
+
+  it('admin delete finds a pre-capture customer by email and cancels its subscription', async () => {
+    const stripe = fakeStripe({
+      customers: [{ id: 'cus_by_email', email: 'legacy@example.com' }],
+      subscriptions: { cus_by_email: [{ id: 'sub_legacy', status: 'active' }] },
+    });
+    stripeBilling.getStripe.mockResolvedValueOnce(stripe);
+    prisma._store.user.push(
+      { id: 'u-admin-billing', email: 'admin@example.com', role: 'admin', tokenVersion: 0, deletedAt: null },
+      { id: 'u-legacy', email: 'legacy@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null },
+    );
+
+    const res = await request(app).delete('/api/auth/users/u-legacy').set('Cookie', [`ss_token=${tokenFor('u-admin-billing')}`]);
+
+    expect(res.status).toBe(204);
+    expect(stripe.customers.list).toHaveBeenCalledWith({ email: 'legacy@example.com', limit: 10 });
+    expect(stripe.subscriptions.cancel).toHaveBeenCalledWith('sub_legacy');
+    expect(prisma._store.user.find((u) => u.id === 'u-legacy').deletedAt).toBeInstanceOf(Date);
   });
 
   it('exports user data without password fields and includes typed migration rows', async () => {
