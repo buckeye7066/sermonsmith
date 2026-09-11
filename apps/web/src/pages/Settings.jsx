@@ -19,9 +19,13 @@ import PreferencesManager from "@/components/profile/PreferencesManager";
 import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import ProfileEditor from "@/components/profile/ProfileEditor";
 import MobileUpdateCard from "@/components/settings/MobileUpdateCard";
+import { usePremiumAccess } from "@/components/hooks/usePremiumAccess";
 
 export default function Settings() {
   const { user, isLoadingAuth, authError, checkAppState } = useAuth();
+  // Same paid-versus-trial rule Pricing uses (promotional grants included), so
+  // the two pages never disagree about whether Upgrade is available.
+  const { hasPaidPremium } = usePremiumAccess();
   const isLoading = isLoadingAuth;
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
@@ -146,15 +150,8 @@ export default function Settings() {
     user.premium_override === true ||
     (user.premium_until && new Date(user.premium_until) > new Date())
   );
-  // The signup trial only sets premium_until: a trial user is premium but has
-  // no subscription yet, so they still need Upgrade and have no billing
-  // portal to manage (createBillingPortal answers 404 without a customer).
-  const hasPaidPremium = user && (
-    user.role === 'admin' ||
-    user.role === 'dev' ||
-    user.premium === true ||
-    user.premium_override === true
-  );
+  // A signup-trial user (premium_until only) has no Stripe customer yet, so
+  // there is no billing portal to open (createBillingPortal answers 404).
   const hasBillingAccount = Boolean(user?.stripeCustomerId) || user?.premium === true;
 
   if (isLoading) {

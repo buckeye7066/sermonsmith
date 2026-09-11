@@ -326,7 +326,17 @@ async function cleanupCommunityRelationsForAccessRevocation(tx, userId) {
 // confirm the cancellation the caller must not delete the account.
 async function cancelBillingBeforeDeletion(user) {
   const stripe = await getStripe();
-  if (!stripe) return { ok: true, canceled: [] };
+  if (!stripe) {
+    // Billing is disabled or unconfigured in this deployment, so nothing can
+    // confirm a cancellation. An account with any sign of a Stripe relationship
+    // stays undeleted until billing is reachable again.
+    const hasBillingEvidence = Boolean(user.stripeCustomerId) || user.premium === true;
+    if (hasBillingEvidence) {
+      console.error('[account-delete] billing unavailable; refusing to delete an account with billing history');
+      return { ok: false, canceled: [] };
+    }
+    return { ok: true, canceled: [] };
+  }
   try {
     const { canceled } = await cancelStripeSubscriptionsForUser(stripe, user);
     return { ok: true, canceled };

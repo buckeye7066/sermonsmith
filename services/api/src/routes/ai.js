@@ -587,6 +587,12 @@ export function buildJsonSchemaInstruction(responseJsonSchema) {
 // other than 429 (those are deterministic — a retry just wastes the user's
 // quota and our money). The whole retry loop runs INSIDE withTimeout so total
 // latency stays bounded by AI_TIMEOUT_MS instead of multiplying per attempt.
+// Per-request SDK options for calls wrapped in callWithRetry. openai@4 retries
+// 429 and 5xx twice on its own before rejecting, so without this an
+// exhausted-credits 429 was retried inside the SDK before the wrapper below
+// could classify it. The wrapper is the single retry policy for these calls.
+const SDK_NO_RETRY = { maxRetries: 0 };
+
 const AI_MAX_RETRIES = Number(process.env.AI_MAX_RETRIES || 2);
 export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500 } = {}) {
   for (let attempt = 0; ; attempt++) {
@@ -595,8 +601,11 @@ export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500
     } catch (err) {
       const status = err?.status ?? err?.response?.status;
       // An account with no credits also answers 429, but it is not transient:
-      // retrying only delays the failure the user is about to see.
-      const retryable = (status === 429 && !isProviderQuotaExhausted(err))
+      // retrying only delays the failure the user is about to see. Connection
+      // failures carry no status; the SDK used to retry those, so this does now.
+      const connectionFailure = status === undefined && /^APIConnection/.test(err?.constructor?.name || '');
+      const retryable = connectionFailure
+        || (status === 429 && !isProviderQuotaExhausted(err))
         || (status >= 500 && status < 600 && status !== 504);
       if (!retryable || attempt >= retries) throw err;
       const delay = baseMs * 2 ** attempt + Math.floor(Math.random() * 150);
@@ -831,7 +840,7 @@ async function handleInvoke(req, res, next) {
     }
 
     const completion = await withTimeout(
-      callWithRetry(() => openai.chat.completions.create(params)),
+      callWithRetry(() => openai.chat.completions.create(params, SDK_NO_RETRY)),
       AI_TIMEOUT_MS,
       '/ai/invoke',
     );
@@ -860,7 +869,7 @@ async function handleInvoke(req, res, next) {
             // This is the deterministic root-cause fix for the intermittent
             // "AI returned invalid JSON" 502 — the retry now strongly favors
             // valid JSON instead of re-rolling at the original temperature.
-            callWithRetry(() => openai.chat.completions.create({ ...params, messages: repairMessages, temperature: 0 })),
+            callWithRetry(() => openai.chat.completions.create({ ...params, messages: repairMessages, temperature: 0 }, SDK_NO_RETRY)),
             AI_TIMEOUT_MS,
             '/ai/invoke(repair)',
           );
@@ -1118,7 +1127,7 @@ async function handleStream(req, res, next) {
 
     // Open the upstream stream. A failure here (before any byte is sent) is a
     // normal error path — refund the quota and return JSON.
-    const completion = await callWithRetry(() => openai.chat.completions.create(params));
+    const completion = await callWithRetry(() => openai.chat.completions.create(params, SDK_NO_RETRY));
 
     res.status(200);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');

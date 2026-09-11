@@ -57,11 +57,19 @@ const { default: authRoutes } = await import('../routes/auth.js');
 const stripeBilling = await import('../lib/stripeBilling.js');
 const emailService = await import('../services/email.js');
 
-function fakeStripe({ customers = [], subscriptions = {}, cancelError = null } = {}) {
+// Serves list calls the way Stripe does: `pageSize` items per call, `has_more`,
+// and `starting_after` as the cursor.
+function paged(items, { starting_after: startingAfter }, pageSize) {
+  const start = startingAfter ? items.findIndex((item) => item.id === startingAfter) + 1 : 0;
+  const data = items.slice(start, start + pageSize);
+  return { data, has_more: start + pageSize < items.length };
+}
+
+function fakeStripe({ customers = [], subscriptions = {}, cancelError = null, pageSize = 100 } = {}) {
   return {
-    customers: { list: vi.fn(async ({ email }) => ({ data: customers.filter((c) => c.email === email) })) },
+    customers: { list: vi.fn(async (params) => paged(customers.filter((c) => c.email === params.email), params, pageSize)) },
     subscriptions: {
-      list: vi.fn(async ({ customer }) => ({ data: subscriptions[customer] || [] })),
+      list: vi.fn(async (params) => paged(subscriptions[params.customer] || [], params, pageSize)),
       cancel: vi.fn(async (id) => {
         if (cancelError) throw cancelError;
         return { id, status: 'canceled' };
@@ -436,9 +444,51 @@ describe('auth routes', () => {
     const res = await request(app).delete('/api/auth/users/u-legacy').set('Cookie', [`ss_token=${tokenFor('u-admin-billing')}`]);
 
     expect(res.status).toBe(204);
-    expect(stripe.customers.list).toHaveBeenCalledWith({ email: 'legacy@example.com', limit: 10 });
+    expect(stripe.customers.list).toHaveBeenCalledWith({ email: 'legacy@example.com', limit: 100 });
     expect(stripe.subscriptions.cancel).toHaveBeenCalledWith('sub_legacy');
     expect(prisma._store.user.find((u) => u.id === 'u-legacy').deletedAt).toBeInstanceOf(Date);
+  });
+
+  it('reads every page of subscriptions before deleting', async () => {
+    const stripe = fakeStripe({
+      pageSize: 2,
+      subscriptions: {
+        cus_many: [
+          { id: 'sub_1', status: 'canceled' },
+          { id: 'sub_2', status: 'active' },
+          { id: 'sub_3', status: 'incomplete_expired' },
+          { id: 'sub_4', status: 'canceled' },
+          { id: 'sub_5', status: 'trialing' },
+        ],
+      },
+    });
+    stripeBilling.getStripe.mockResolvedValueOnce(stripe);
+    prisma._store.user.push({ id: 'u-many', email: 'many@example.com', role: 'user', premium: true, tokenVersion: 0, deletedAt: null, stripeCustomerId: 'cus_many' });
+
+    const res = await request(app).delete('/api/auth/me').set('Cookie', [`ss_token=${tokenFor('u-many')}`]);
+
+    expect(res.status).toBe(204);
+    expect(stripe.subscriptions.list).toHaveBeenCalledTimes(3);
+    expect(stripe.subscriptions.cancel.mock.calls.map(([id]) => id)).toEqual(['sub_2', 'sub_5']);
+  });
+
+  it('keeps an account with billing history when billing is unavailable', async () => {
+    // getStripe() is null here: no key, or DISABLE_BILLING=1 in the deployment.
+    prisma._store.user.push({ id: 'u-no-billing', email: 'nb@example.com', role: 'user', premium: false, tokenVersion: 0, deletedAt: null, stripeCustomerId: 'cus_unreachable' });
+
+    const res = await request(app).delete('/api/auth/me').set('Cookie', [`ss_token=${tokenFor('u-no-billing')}`]);
+
+    expect(res.status).toBe(502);
+    expect(prisma._store.user.find((u) => u.id === 'u-no-billing').deletedAt).toBeNull();
+  });
+
+  it('still deletes a never-billed account when billing is unavailable', async () => {
+    prisma._store.user.push({ id: 'u-free', email: 'free@example.com', role: 'user', premium: false, tokenVersion: 0, deletedAt: null });
+
+    const res = await request(app).delete('/api/auth/me').set('Cookie', [`ss_token=${tokenFor('u-free')}`]);
+
+    expect(res.status).toBe(204);
+    expect(prisma._store.user.find((u) => u.id === 'u-free').deletedAt).toBeInstanceOf(Date);
   });
 
   it('exports user data without password fields and includes typed migration rows', async () => {
@@ -591,6 +641,8 @@ describe('auth routes', () => {
       id: 'admin-target-follow', followerId: 'u-next-leader', followingId: 'u-target-delete', createdAt: new Date(),
     });
 
+    // The target is premium, so deletion needs a reachable (empty) billing account.
+    stripeBilling.getStripe.mockResolvedValueOnce(fakeStripe());
     const res = await request(app)
       .delete('/api/auth/users/u-target-delete')
       .set('Cookie', [`ss_token=${tokenFor('u-admin-delete')}`]);
@@ -677,6 +729,7 @@ describe('auth routes', () => {
       { id: 'banned-successor-membership', groupId: 'group-banned-successor', userId: 'u-banned-successor', role: 'member', userName: 'Banned', joinedAt: new Date('2026-01-02') },
     );
 
+    stripeBilling.getStripe.mockResolvedValueOnce(fakeStripe());
     const res = await request(app)
       .delete('/api/auth/me')
       .set('Cookie', [`ss_token=${tokenFor('u-delete-banned-owner')}`]);

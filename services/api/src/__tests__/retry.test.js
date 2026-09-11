@@ -37,6 +37,22 @@ describe('callWithRetry', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
+  it('retries a connection failure, which the SDK no longer retries for wrapped calls', async () => {
+    class APIConnectionError extends Error {}
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new APIConnectionError('Connection error.'))
+      .mockResolvedValueOnce('ok');
+
+    await expect(callWithRetry(fn, { baseMs: 1 })).resolves.toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('does NOT retry a status-less error that is not a connection failure', async () => {
+    const fn = vi.fn().mockRejectedValue(new TypeError('params.messages is not iterable'));
+    await expect(callWithRetry(fn, { baseMs: 1 })).rejects.toThrow('not iterable');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
   it('does NOT retry deterministic 4xx (400)', async () => {
     const fn = vi.fn().mockRejectedValue(Object.assign(new Error('bad request'), { status: 400 }));
     await expect(callWithRetry(fn, { baseMs: 1 })).rejects.toThrow('bad request');
