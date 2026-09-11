@@ -18,7 +18,7 @@ import {
   entitlementForAiFeature,
   requestHasEntitlement,
 } from '../lib/entitlements.js';
-import { isProviderQuotaExhausted } from '../lib/providerErrors.js';
+import { isProviderQuotaExhausted, providerRetryDelayMs } from '../lib/providerErrors.js';
 
 // Canon-agnostic Scripture screen for AI output (both the streamed trailer and
 // the /invoke response). A completion is shown to the user BEFORE any entity
@@ -608,7 +608,9 @@ export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500
         || (status === 429 && !isProviderQuotaExhausted(err))
         || (status >= 500 && status < 600 && status !== 504);
       if (!retryable || attempt >= retries) throw err;
-      const delay = baseMs * 2 ** attempt + Math.floor(Math.random() * 150);
+      // A provider-requested wait (Retry-After on a rate limit) wins over the
+      // local backoff; the SDK no longer applies it for these calls.
+      const delay = providerRetryDelayMs(err) ?? baseMs * 2 ** attempt + Math.floor(Math.random() * 150);
       await new Promise((r) => setTimeout(r, delay));
     }
   }

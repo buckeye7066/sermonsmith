@@ -53,6 +53,29 @@ describe('callWithRetry', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
+  it('waits as long as the provider Retry-After asks before retrying a rate limit', async () => {
+    vi.useFakeTimers();
+    try {
+      const limited = Object.assign(new Error('429 Rate limit reached for gpt-4o-mini'), {
+        status: 429,
+        headers: { 'retry-after': '2' },
+        request_id: 'req_test',
+        error: { code: 'rate_limit_exceeded' },
+        code: 'rate_limit_exceeded',
+      });
+      const fn = vi.fn().mockRejectedValueOnce(limited).mockResolvedValueOnce('ok');
+
+      const result = callWithRetry(fn, { baseMs: 1 });
+      await vi.advanceTimersByTimeAsync(1_900);
+      expect(fn).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(200);
+      await expect(result).resolves.toBe('ok');
+      expect(fn).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does NOT retry deterministic 4xx (400)', async () => {
     const fn = vi.fn().mockRejectedValue(Object.assign(new Error('bad request'), { status: 400 }));
     await expect(callWithRetry(fn, { baseMs: 1 })).rejects.toThrow('bad request');
