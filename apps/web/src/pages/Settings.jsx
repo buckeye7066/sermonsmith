@@ -19,9 +19,13 @@ import PreferencesManager from "@/components/profile/PreferencesManager";
 import OnboardingWizard from "@/components/profile/OnboardingWizard";
 import ProfileEditor from "@/components/profile/ProfileEditor";
 import MobileUpdateCard from "@/components/settings/MobileUpdateCard";
+import { usePremiumAccess } from "@/components/hooks/usePremiumAccess";
 
 export default function Settings() {
   const { user, isLoadingAuth, authError, checkAppState } = useAuth();
+  // Same paid-versus-trial rule Pricing uses (promotional grants included), so
+  // the two pages never disagree about whether Upgrade is available.
+  const { hasPaidPremium } = usePremiumAccess();
   const isLoading = isLoadingAuth;
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
@@ -146,6 +150,9 @@ export default function Settings() {
     user.premium_override === true ||
     (user.premium_until && new Date(user.premium_until) > new Date())
   );
+  // A signup-trial user (premium_until only) has no Stripe customer yet, so
+  // there is no billing portal to open (createBillingPortal answers 404).
+  const hasBillingAccount = Boolean(user?.stripeCustomerId) || user?.premium === true;
 
   if (isLoading) {
     return (
@@ -289,7 +296,7 @@ export default function Settings() {
                       )}
                     </p>
                   </div>
-                  {isPremium ? (
+                  {hasPaidPremium ? (
                     <Crown className="w-12 h-12 text-purple-600" />
                   ) : isNativeApp() ? (
                     // Store policy: no purchase flow or upgrade steering in
@@ -316,7 +323,7 @@ export default function Settings() {
                       </AlertDescription>
                     </Alert>
 
-                    {isNativeApp() ? (
+                    {!hasBillingAccount ? null : isNativeApp() ? (
                       // The Stripe billing portal is an external payment
                       // surface — store policy keeps it out of native builds.
                       <div className="p-4 border rounded-lg">

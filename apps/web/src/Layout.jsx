@@ -169,8 +169,11 @@ export default function Layout({ children, currentPageName }) {
     }
   }, [isLoadingAuth, user, hasShownOnboarding, hasShownSpecial]);
 
-  const handleLogout = () => {
-    api.auth.logout();
+  const handleLogout = async () => {
+    // The session cookie is httpOnly, so only the logout response can clear
+    // it. Navigating before that response lands aborts the request and leaves
+    // the browser signed in (observed on production 2026-09-11).
+    await api.auth.logout();
     toast.success("Logged out successfully");
     window.location.href = '/Login';
   };

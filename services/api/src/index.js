@@ -18,6 +18,7 @@ import { buildMediaRouter } from './routes/media.js';
 import { handleStripeWebhook } from './routes/functions.js';
 import { prisma } from './middleware/auth.js';
 import { reportErrorToOwner } from './services/errorReporter.js';
+import { clientSafeProviderError } from './lib/providerErrors.js';
 import { makeRateLimitStore } from './middleware/rateLimitStore.js';
 
 // Validate the runtime environment FIRST so a misconfigured production
@@ -168,7 +169,11 @@ export function buildApp(opts = {}) {
   app.use((err, req, res, _next) => {
     // Log without payload — err.message only.
     console.error(`[${new Date().toISOString()}] Error ${req.id || 'unknown-request'}:`, err.message);
-    const status = err.status || err.statusCode || 500;
+    // AI provider errors carry the provider's billing/org/key text; users get a
+    // safe status and message instead, while the owner report below keeps the
+    // raw error (see lib/providerErrors.js).
+    const providerSafe = clientSafeProviderError(err);
+    const status = providerSafe?.status || err.status || err.statusCode || 500;
     // Notify the owner of genuine server faults (5xx) hit by non-admin users.
     // Fire-and-forget — never awaited, never throws into the response path.
     if (status >= 500) {
@@ -183,7 +188,8 @@ export function buildApp(opts = {}) {
       });
     }
     res.status(status).json({
-      message: status === 500 ? 'Internal server error' : err.message,
+      message: providerSafe?.message ?? (status === 500 ? 'Internal server error' : err.message),
+      ...(providerSafe ? { code: providerSafe.code } : {}),
       requestId: req.id,
     });
   });

@@ -35,7 +35,7 @@ const premiumFeatures = [
 export default function Pricing() {
     const { user, isLoadingAuth: isLoading } = useAuth();
     const [isProcessing, setIsProcessing] = useState(false);
-    const { isPremium, devOverride, loading: accessLoading } = usePremiumAccess();
+    const { isPremium, hasPaidPremium, devOverride, loading: accessLoading } = usePremiumAccess();
     
     const handleUpgrade = async () => {
         if (!user) {
@@ -43,7 +43,7 @@ export default function Pricing() {
             return;
         }
         
-        if (isPremium) {
+        if (hasPaidPremium) {
             toast.info("You're already on Premium!", {
                 description: "Manage your subscription in Settings"
             });
@@ -109,14 +109,14 @@ export default function Pricing() {
                         Current Plan
                     </Button>
                 ) : isPremiumPlan ? (
-                    <Button onClick={handleUpgrade} disabled={isProcessing || isPremium} className="w-full bg-purple-600 hover:bg-purple-700">
+                    <Button onClick={handleUpgrade} disabled={isProcessing || hasPaidPremium} className="w-full bg-purple-600 hover:bg-purple-700">
                         {isProcessing ? (
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         ) : (
                             <Zap className="w-4 h-4 mr-2" />
                         )}
-                        {isProcessing ? "Redirecting..." : isPremium ? "Already Premium" : "Upgrade Now"}
-                        {!isPremium && <ExternalLink className="w-4 h-4 ml-2" />}
+                        {isProcessing ? "Redirecting..." : hasPaidPremium ? "Already Premium" : isPremium ? "Subscribe to Keep Premium" : "Upgrade Now"}
+                        {!hasPaidPremium && <ExternalLink className="w-4 h-4 ml-2" />}
                     </Button>
                 ) : null}
             </div>
@@ -192,7 +192,7 @@ export default function Pricing() {
                         description="The complete toolkit for pastors, teachers, and serious students."
                         features={premiumFeatures}
                         isPremiumPlan
-                        isCurrentPlan={isPremium}
+                        isCurrentPlan={hasPaidPremium}
                     />
                 </div>
             

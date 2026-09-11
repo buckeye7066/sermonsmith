@@ -203,6 +203,34 @@ describe('Stripe checkout and billing portal routes', () => {
     app = buildFunctionApp();
   });
 
+  it('refuses a second checkout for an account that already pays', async () => {
+    prisma._store.user.push({ id: 'u1', email: 'a@x', premium: true, role: 'user', stripeCustomerId: 'cus_paying' });
+
+    const res = await request(app).post('/api/functions/createCheckoutSession').send({});
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/already have an active Premium subscription/i);
+    expect(mockCheckoutCreate).not.toHaveBeenCalled();
+  });
+
+  it('lets a signup-trial account (premium_until only) start checkout', async () => {
+    prisma._store.user.push({
+      id: 'u1',
+      email: 'trial@x',
+      premium: false,
+      premium_until: new Date(Date.now() + 6 * 86_400_000),
+      role: 'user',
+    });
+
+    const res = await request(app).post('/api/functions/createCheckoutSession').send({});
+
+    expect(res.status).toBe(200);
+    expect(mockCheckoutCreate).toHaveBeenCalledWith(expect.objectContaining({
+      customer_email: 'trial@x',
+      metadata: { userId: 'u1' },
+    }));
+  });
+
   it('creates checkout with the stored Stripe customer id and public redirect URLs', async () => {
     prisma._store.user.push({
       id: 'u1',
