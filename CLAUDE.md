@@ -120,6 +120,39 @@ GrantFlow-style self-testing, right-sized for this repo (added 2026-08-02):
 - **Stale-chunk self-heal**: every lazy route goes through `apps/web/src/lib/lazyWithReload.js`. A deploy that rotates asset hashes used to leave open tabs/PWAs on an ErrorBoundary ("Bible reader is a broken link"); now a chunk-load failure triggers exactly one guarded reload. Don't switch pages.config.js back to bare `lazy()`.
 - EVA (GrantFlow's portfolio QA runner) can now reach this app: user-scope `EVA_APP_ENV` carries a `sermonsmith` DATABASE_URL pointing at the throwaway local DB `sermonsmith_eva` (migrated). If Prisma migrations change shape, re-run `npm run db:migrate:deploy` against that DB or EVA's journeys will hit drift.
 
+## Live billing and production acceptance (2026-09-11)
+
+The route-mocked browser specs cannot see these; live acceptance against
+production did (PRs #144, #145).
+
+- **Stripe is LIVE mode.** The webhook endpoint must send
+  `checkout.session.completed`, `customer.subscription.updated` and
+  `customer.subscription.deleted`. `updated` was missing until 2026-09-11, although the handler depends on it.
+  Live mode also needs a default billing-portal configuration
+  (`bpc_1UEbEJQ0yXsJf3DZ5oDnvy1B`), or Manage Subscription cannot open.
+- **Account deletion stops billing first** (`lib/stripeBilling.js`). It reads every page, then cancels
+  every live subscription, and **fails closed (502, account kept)** when Stripe
+  errors. It also fails closed when billing is disabled but the account has a
+  `stripeCustomerId` or `premium`. forgot/reset-password refuse soft-deleted accounts.
+- **Trial ≠ paid.** The signup trial sets only `premium_until`. `hasPaidPremium` from
+  `usePremiumAccess` decides Upgrade vs Current Plan / Manage Subscription on Pricing and Settings.
+  `createCheckoutSession` returns 409 for `premium === true`, so no duplicate live
+  subscription can be opened.
+- **AI provider errors never reach users raw** (`lib/providerErrors.js`, global
+  handler): 503/502 plus `code`, while the owner report keeps the raw error.
+  - Wrapped OpenAI calls pass `maxRetries: 0`, so `callWithRetry` is the only retry layer.
+  - It never retries `insufficient_quota`, and it honours `Retry-After`.
+  - A 429 "You have no credits remaining" in Railway logs means the OpenAI account is out of credits (owner action), not a code bug.
+- **Logout must await** the API before navigating: the cookie is httpOnly, so an
+  aborted request leaves the session alive.
+- **Live-test recipe:**
+  - Register `buckeye7066+<tag>@gmail.com` and read the real Resend mail through the Gmail connector.
+  - Set `PLAYWRIGHT_BROWSERS_PATH=%LOCALAPPDATA%\ms-playwright`; the `.eva-playwright` default lacks headless-shell 1228.
+  - Cookie-auth API calls need an `Origin` header, or the CSRF guard answers 403.
+  - PDF/PPTX Export exists only in SermonBuilder's `SermonEditor`. A reopened sermon opens `CollaborativeSermonEditor`, which has no Export.
+  - Stripe portal cancel is a reason `<select>` modal, then "Continue to cancellation", then `[data-testid=confirm]`.
+  - For a no-charge live subscription, use a single-use 100% coupon plus an API-created subscription. Delete the coupon and customer afterwards.
+
 ## Test-suite traps
 
 - The API suite's `serves every chapter of every multi-token book` test makes 711
