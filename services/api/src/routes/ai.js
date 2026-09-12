@@ -18,7 +18,7 @@ import {
   entitlementForAiFeature,
   requestHasEntitlement,
 } from '../lib/entitlements.js';
-import { isProviderQuotaExhausted } from '../lib/providerErrors.js';
+import { isProviderQuotaExhausted, providerRetryDelayMs } from '../lib/providerErrors.js';
 
 // Canon-agnostic Scripture screen for AI output (both the streamed trailer and
 // the /invoke response). A completion is shown to the user BEFORE any entity
@@ -594,7 +594,7 @@ export function buildJsonSchemaInstruction(responseJsonSchema) {
 const SDK_NO_RETRY = { maxRetries: 0 };
 
 const AI_MAX_RETRIES = Number(process.env.AI_MAX_RETRIES || 2);
-export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500 } = {}) {
+export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500, deadline = null } = {}) {
   for (let attempt = 0; ; attempt++) {
     try {
       return await fn();
@@ -608,7 +608,13 @@ export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500
         || (status === 429 && !isProviderQuotaExhausted(err))
         || (status >= 500 && status < 600 && status !== 504);
       if (!retryable || attempt >= retries) throw err;
-      const delay = baseMs * 2 ** attempt + Math.floor(Math.random() * 150);
+      // A provider-requested wait (Retry-After on a rate limit) wins over the
+      // local backoff; the SDK no longer applies it for these calls.
+      const delay = providerRetryDelayMs(err) ?? baseMs * 2 ** attempt + Math.floor(Math.random() * 150);
+      // withTimeout only rejects the caller; it cannot stop this loop. A retry
+      // that starts after the caller's deadline would bill the provider for a
+      // result nobody receives (the client already has its 504 and refund).
+      if (deadline !== null && Date.now() + delay >= deadline) throw err;
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -840,7 +846,7 @@ async function handleInvoke(req, res, next) {
     }
 
     const completion = await withTimeout(
-      callWithRetry(() => openai.chat.completions.create(params, SDK_NO_RETRY)),
+      callWithRetry(() => openai.chat.completions.create(params, SDK_NO_RETRY), { deadline: Date.now() + AI_TIMEOUT_MS }),
       AI_TIMEOUT_MS,
       '/ai/invoke',
     );
@@ -869,7 +875,7 @@ async function handleInvoke(req, res, next) {
             // This is the deterministic root-cause fix for the intermittent
             // "AI returned invalid JSON" 502 — the retry now strongly favors
             // valid JSON instead of re-rolling at the original temperature.
-            callWithRetry(() => openai.chat.completions.create({ ...params, messages: repairMessages, temperature: 0 }, SDK_NO_RETRY)),
+            callWithRetry(() => openai.chat.completions.create({ ...params, messages: repairMessages, temperature: 0 }, SDK_NO_RETRY), { deadline: Date.now() + AI_TIMEOUT_MS }),
             AI_TIMEOUT_MS,
             '/ai/invoke(repair)',
           );
@@ -1127,7 +1133,12 @@ async function handleStream(req, res, next) {
 
     // Open the upstream stream. A failure here (before any byte is sent) is a
     // normal error path — refund the quota and return JSON.
-    const completion = await callWithRetry(() => openai.chat.completions.create(params, SDK_NO_RETRY));
+    // Same budget as /ai/invoke so a long Retry-After cannot hold the request
+    // open indefinitely before any byte is streamed.
+    const completion = await callWithRetry(
+      () => openai.chat.completions.create(params, SDK_NO_RETRY),
+      { deadline: Date.now() + AI_TIMEOUT_MS },
+    );
 
     res.status(200);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');

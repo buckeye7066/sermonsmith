@@ -3,6 +3,7 @@ import {
   clientSafeProviderError,
   isProviderApiError,
   isProviderQuotaExhausted,
+  providerRetryDelayMs,
 } from '../lib/providerErrors.js';
 
 // Shape of an openai@4 APIError: the constructor always assigns these fields.
@@ -62,5 +63,33 @@ describe('provider error mapping', () => {
 
   it('leaves non-provider errors to the existing handler', () => {
     expect(clientSafeProviderError(Object.assign(new Error('Daily AI limit reached'), { status: 429 }))).toBeNull();
+  });
+});
+
+describe('providerRetryDelayMs', () => {
+  const limited = (headers) => ({ status: 429, headers });
+
+  it('prefers retry-after-ms over retry-after', () => {
+    expect(providerRetryDelayMs(limited({ 'retry-after-ms': '750', 'retry-after': '9' }))).toBe(750);
+  });
+
+  it('reads retry-after as seconds', () => {
+    expect(providerRetryDelayMs(limited({ 'retry-after': '1.5' }))).toBe(1500);
+  });
+
+  it('reads retry-after as an HTTP date', () => {
+    const now = Date.parse('2026-09-11T12:00:00Z');
+    expect(providerRetryDelayMs(limited({ 'retry-after': 'Fri, 11 Sep 2026 12:00:03 GMT' }), now)).toBe(3000);
+  });
+
+  it('reads a fetch Headers instance as well as a plain object', () => {
+    expect(providerRetryDelayMs({ headers: new Headers({ 'retry-after': '2' }) })).toBe(2000);
+  });
+
+  it('ignores missing, non-positive, unparseable, and 60-second-or-longer hints', () => {
+    expect(providerRetryDelayMs(new Error('no headers'))).toBeNull();
+    expect(providerRetryDelayMs(limited({ 'retry-after': '0' }))).toBeNull();
+    expect(providerRetryDelayMs(limited({ 'retry-after': '60' }))).toBeNull();
+    expect(providerRetryDelayMs(limited({ 'retry-after': 'soon' }))).toBeNull();
   });
 });

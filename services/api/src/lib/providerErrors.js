@@ -47,3 +47,28 @@ export function clientSafeProviderError(err) {
   }
   return { status: 502, code: 'ai_upstream_error', message: 'The AI service could not complete this request. Please try again.' };
 }
+
+/**
+ * The wait a provider asked for before a retry, read the way openai@4's own
+ * retry loop reads it: `retry-after-ms`, otherwise `retry-after` as seconds or
+ * an HTTP date, honoured only when it is positive and under 60 seconds. SDK
+ * retries are turned off for calls wrapped in callWithRetry, so the wrapper
+ * has to honour this itself or a rate limit fails instead of recovering.
+ *
+ * @returns {number | null} milliseconds, or null when there is no usable hint
+ */
+export function providerRetryDelayMs(err, now = Date.now()) {
+  const headers = err?.headers;
+  if (!headers || typeof headers !== 'object') return null;
+  const read = (name) => (typeof headers.get === 'function' ? headers.get(name) : headers[name]);
+
+  let delay = parseFloat(read('retry-after-ms'));
+  if (!delay) {
+    const retryAfter = read('retry-after');
+    if (retryAfter != null) {
+      const seconds = parseFloat(retryAfter);
+      delay = Number.isNaN(seconds) ? Date.parse(retryAfter) - now : seconds * 1000;
+    }
+  }
+  return Number.isFinite(delay) && delay > 0 && delay < 60_000 ? delay : null;
+}
