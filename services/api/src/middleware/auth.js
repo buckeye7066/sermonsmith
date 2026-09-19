@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import {ownerSubscription} from '../lib/ownerSubscription.js';
 import { PrismaClient } from '@prisma/client';
 import {
   ACCOUNT_TIERS,
@@ -136,6 +137,7 @@ function tokenVersionIsCurrent(decoded, user) {
 }
 
 function attachAuthenticatedUser(req, userId, user) {
+  ownerSubscription.identify({id:userId,email:user.email,role:user.role});
   req.userId = userId;
   req.userRole = user.role;
   req.accountTier = accountTierFor(user);

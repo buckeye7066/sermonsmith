@@ -1,3 +1,4 @@
+import {ownerSubscription} from '../lib/ownerSubscription.js';
 import OpenAI, { toFile } from 'openai';
 
 const MAX_TRANSCRIPT_CHARACTERS = 500_000;
@@ -169,6 +170,7 @@ export class OpenAiTranscriptionProvider {
   }
 
   async transcribe({ buffer, fileName, mimeType }) {
+    if (ownerSubscription.isOwner()) throw new MediaTranscriptionError('Audio transcription is not supported by the owner text subscription bridge; no metered request was made.',{code:'OWNER_SUBSCRIPTION_UNSUPPORTED',status:503});
     if (!this.client) {
       throw new MediaTranscriptionError('No audio transcription provider is configured.', {
         code: 'MEDIA_PROVIDER_UNAVAILABLE',

@@ -11,6 +11,8 @@ import authRoutes from './routes/auth.js';
 import advertisementRoutes from './routes/advertisements.js';
 import entityRoutes from './routes/entities.js';
 import aiRoutes from './routes/ai.js';
+import ownerSubscriptionRoutes from './routes/ownerSubscription.js';
+import {ownerSubscription} from './lib/ownerSubscription.js';
 import functionRoutes from './routes/functions.js';
 import communityRoutes from './routes/community.js';
 import clientErrorRoutes from './routes/clientErrors.js';
@@ -32,6 +34,7 @@ function isSafeRequestId(value) {
 
 export function buildApp(opts = {}) {
   const app = express();
+  app.use((req,res,next)=>ownerSubscription.scope(res,next));
   const allowedOrigins = env.corsAllowList();
   const readinessProbe = opts.readinessProbe || (() => prisma.$queryRaw`SELECT 1`);
   // Optional shared rate-limit stores (Redis), resolved by the caller when
@@ -153,6 +156,7 @@ export function buildApp(opts = {}) {
     });
   });
 
+  app.use('/api/owner-ai',ownerSubscriptionRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/advertisements', advertisementRoutes);
   app.use('/api/entities', entityRoutes);

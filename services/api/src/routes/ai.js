@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import {ownerSubscription} from '../lib/ownerSubscription.js';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
@@ -139,6 +140,7 @@ const STREAM_TRAILER_NONCE_HEADER = 'X-Stream-Trailer-Nonce';
 // the SDK installed (e.g., in CI or in a deployment that has DISABLE_AI=1).
 let _openai = null;
 async function getOpenAI() {
+  if (process.env.DISABLE_AI !== "1" && ownerSubscription.isOwner()) return ownerSubscription.openAIClient({timeoutMs:AI_TIMEOUT_MS});
   if (!process.env.OPENAI_API_KEY) {
     throw Object.assign(new Error('OpenAI API key not configured'), { status: 503 });
   }
@@ -850,6 +852,7 @@ async function handleInvoke(req, res, next) {
       AI_TIMEOUT_MS,
       '/ai/invoke',
     );
+    if (completion.billing_mode === 'subscription') {auditBase.model=completion.model;res.setHeader('X-AI-Billing-Mode','subscription');}
     let content = completion.choices[0]?.message?.content || '';
     let finishReason = completion.choices[0]?.finish_reason;
 
@@ -1140,6 +1143,7 @@ async function handleStream(req, res, next) {
       { deadline: Date.now() + AI_TIMEOUT_MS },
     );
 
+    if (completion.billing_mode === 'subscription') {auditBase.model=completion.model;res.setHeader('X-AI-Billing-Mode','subscription');}
     res.status(200);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');

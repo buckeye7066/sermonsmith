@@ -1,3 +1,4 @@
+import {ownerSubscription} from '../lib/ownerSubscription.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
@@ -1541,7 +1542,8 @@ router.post('/testAllFunctions', authenticateToken, requireAdmin, async (_req, r
   // it reported "all passed" even while real AI calls were 502-ing and image
   // generation was failing with "model 'dall-e-3' does not exist". These two
   // checks actually hit OpenAI (cheaply) so the suite reflects real health.
-  if (process.env.OPENAI_API_KEY && process.env.DISABLE_AI !== '1') {
+  if (ownerSubscription.isOwner()) checks.push({name:'Owner subscription bridge',status:ownerSubscription.status().online?'pass':'warn',billing_mode:'subscription'});
+  if (!ownerSubscription.isOwner() && process.env.OPENAI_API_KEY && process.env.DISABLE_AI !== '1') {
     // (1) A tiny live completion confirms the key works (catches 401/quota).
     try {
       const controller = new AbortController();
