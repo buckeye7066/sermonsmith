@@ -49,3 +49,46 @@ export function createReadinessClient(options = {}) {
 }
 
 export const READINESS_CLIENT_CONSTANTS = Object.freeze({ DEFAULT_TIMEOUT_MS });
+
+/** Dedicated worker requests share one bounded, non-retrying HTTP boundary. */
+export function createOwnerWorkerClient({baseUrl, token, fetchImpl = globalThis.fetch} = {}) {
+  const base = new URL(baseUrl);
+  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || base.pathname !== '/') {
+    throw new Error('Owner worker requires an HTTPS origin');
+  }
+  if (typeof token !== 'string' || token.length < 32 || typeof fetchImpl !== 'function') {
+    throw new Error('Owner worker configuration is incomplete');
+  }
+  const limit = 1024 * 1024; // Includes JSON escaping of the 128 KiB prompt contract.
+  return Object.freeze({
+    async post(operation, body, signal) {
+      if (!['poll', 'result'].includes(operation)) throw new Error('Unknown owner worker operation');
+      const input = JSON.stringify(body);
+      if (Buffer.byteLength(input) > limit) throw new Error('Owner worker request exceeds the byte limit');
+      const response = await fetchImpl(new URL('/api/owner-ai/worker/' + operation, base).toString(), {
+        method: 'POST', redirect: 'error', credentials: 'omit',
+        signal: AbortSignal.any([AbortSignal.timeout(5000), ...(signal ? [signal] : [])]),
+        headers: {authorization: 'Bearer ' + token, 'content-type': 'application/json'}, body: input,
+      });
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => {});
+        throw Object.assign(new Error('Owner worker HTTP request failed'), {status: response.status});
+      }
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Owner worker returned no response body');
+      const chunks = []; let size = 0;
+      try {
+        for (;;) {
+          const {done, value} = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > limit) { await reader.cancel(); throw new Error('Owner worker response exceeds the byte limit'); }
+          chunks.push(Buffer.from(value));
+        }
+      } finally { reader.releaseLock(); }
+      const result = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Owner worker returned an invalid JSON object');
+      return result;
+    },
+  });
+}

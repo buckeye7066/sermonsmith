@@ -4,7 +4,7 @@ import {EventEmitter} from 'node:events'
 import {PassThrough,Writable} from 'node:stream'
 import {runCodexSession} from './codexAppServer.mjs'
 const base={system:'Trusted scientific-honesty rules.',prompt:'Untrusted task text.',format:'text',maxTokens:10,timeoutMs:1000}
-function protocol({account='chatgpt',model='gpt-6-astra',tool=false,stall=false,reroute=false}={}) {
+function protocol({account='chatgpt',model='gpt-6-astra',tool=false,stall=false,reroute=false,answerText='Complete answer'}={}) {
   const requests=[];let child
   const spawnImpl=(_exe,args,options)=>{
     child=new EventEmitter();child.pid=undefined;child.stdout=new PassThrough();child.stderr=new PassThrough();child.killed=false
@@ -18,7 +18,7 @@ function protocol({account='chatgpt',model='gpt-6-astra',tool=false,stall=false,
         emit({id:r.id,result:{turn:{id:'turn-fixture',status:'inProgress',items:[]}}})
         if(stall)return
         if(reroute)emit({method:'model/rerouted',params:{threadId:'thread-fixture',turnId:'turn-fixture',fromModel:model,toModel:'another-model'}})
-        const item=tool?{id:'tool',type:'commandExecution',command:'not permitted'}:{id:'answer',type:'agentMessage',phase:'final_answer',text:'Complete answer'}
+        const item=tool?{id:'tool',type:'commandExecution',command:'not permitted'}:{id:'answer',type:'agentMessage',phase:'final_answer',text:answerText}
         emit({method:'item/started',params:{threadId:'thread-fixture',turnId:'turn-fixture',item}})
         emit({method:'item/completed',params:{threadId:'thread-fixture',turnId:'turn-fixture',item}})
         emit({method:'thread/tokenUsage/updated',params:{threadId:'thread-fixture',turnId:'turn-fixture',tokenUsage:{last:{inputTokens:20,cachedInputTokens:0,outputTokens:30,reasoningOutputTokens:20}}}})
@@ -55,3 +55,30 @@ test('deadline ends an unresponsive worker and yields no success',async()=>{
  const fixture=protocol({stall:true});assert.equal(await runCodexSession({...base,timeoutMs:20},opts(fixture)),null)
  assert.equal(fixture.child.killed,true)
 })
+
+test('JSON-object requests reject array output from the official session',async()=>{
+ const fixture=protocol({answerText:'[]'});
+ assert.equal(await runCodexSession({...base,format:'json'},opts(fixture)),null);
+});
+test('the app-server receives the requested text budget without unsupported configuration',async()=>{
+ const fixture=protocol();let argv;
+ const spawnImpl=(exe,args,options)=>{argv=args;return fixture.spawnImpl(exe,args,options)};
+ await runCodexSession(base,{...opts(fixture),spawnImpl});
+ assert.equal(argv.includes('tools.update_plan.enabled=false'),false);
+ assert.equal(argv.includes('agents.enabled=false'),false);
+ assert.equal(JSON.parse(fixture.requests.find(x=>x.method==='turn/start').params.input[0].text).requested_max_output_tokens,base.maxTokens);
+});
+for(const failure of ['error','exit']){
+ test('Windows cancellation falls back to the owned child when taskkill '+failure,{timeout:2000},async()=>{
+  let child;let killed=false;
+  const spawnImpl=(exe)=>{
+   if(exe.endsWith('taskkill.exe')){const killer=new EventEmitter();queueMicrotask(()=>killer.emit(failure==='error'?'error':'close',failure==='error'?new Error('fixture'):1));return killer;}
+   child=new EventEmitter();child.pid=4321;child.stdout=new PassThrough();child.stderr=new PassThrough();
+   child.stdin=new Writable({write(_chunk,_encoding,done){done()},final(done){done()}});
+   child.kill=()=>{killed=true;queueMicrotask(()=>child.emit('close',1));return true};return child;
+  };
+  const completion=runCodexSession({...base,timeoutMs:20},{...opts({}),platform:'win32',spawnImpl});
+  const result=await Promise.race([completion,new Promise(resolve=>setTimeout(()=>resolve('not-settled'),800))]);
+  assert.equal(result,null);assert.equal(killed,true);
+ });
+}

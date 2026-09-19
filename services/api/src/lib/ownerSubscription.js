@@ -8,7 +8,7 @@ export function createOwnerSubscription({env=process.env,now=Date.now}={}) {
   const leaseMs=10000;
   const enabled=()=>env.OWNER_AI_BRIDGE_ENABLED==='true'&&(env.NODE_ENV!=='production'||env.OWNER_AI_API_REPLICAS==='1');
   const owner=identity=>Boolean(env.OWNER_AI_USER_ID&&env.OWNER_AI_EMAIL&&identity?.id===env.OWNER_AI_USER_ID&&
-    String(identity?.email||'').toLowerCase()===env.OWNER_AI_EMAIL.toLowerCase()&&['admin','super_admin','owner'].includes(identity?.role));
+    String(identity?.email||'').toLowerCase()===env.OWNER_AI_EMAIL.toLowerCase()&&['admin','dev','super_admin','owner'].includes(identity?.role));
   const online=()=>enabled()&&worker?.ready&&now()-worker.at<15000;
   function scope(response,work) {
     const controller=new AbortController();const close=()=>controller.abort();
@@ -49,7 +49,7 @@ export function createOwnerSubscription({env=process.env,now=Date.now}={}) {
       ['input_tokens','cached_input_tokens','output_tokens'].every(k=>Number.isSafeInteger(answer.usage?.[k])&&answer.usage[k]>=0)&&
       answer.usage.output_tokens>0) {
       valid={ok:true,raw:answer.raw,provider:answer.provider,model:answer.model,billing_mode:'subscription',usage:answer.usage};
-      if(item.input.format==='json'){try{const parsed=JSON.parse(answer.raw);if(!parsed||typeof parsed!=='object')valid=null;}catch{valid=null;}}
+      if(item.input.format==='json'){try{const parsed=JSON.parse(answer.raw);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))valid=null;}catch{valid=null;}}
     }
     item.finish(valid);return true;
   }

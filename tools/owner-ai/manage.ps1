@@ -27,6 +27,10 @@ switch($Action){
       $source=Join-Path $PSScriptRoot $name;$destination=Join-Path $bridgeHome $name
       if((Test-Path $source) -and [IO.Path]::GetFullPath($source)-ne[IO.Path]::GetFullPath($destination)){Copy-Item -LiteralPath $source -Destination $destination -Force}
     }
+    $sharedClient=Join-Path $PSScriptRoot '..\..\packages\shared\api\index.js'
+    $installedClient=Join-Path $bridgeHome 'client.mjs'
+    if(Test-Path -LiteralPath $sharedClient){Copy-Item -LiteralPath $sharedClient -Destination $installedClient -Force}
+    elseif(-not (Test-Path -LiteralPath $installedClient)){throw 'Shared worker client is missing'}
     $arguments='-NoProfile -NonInteractive -WindowStyle Hidden -File "'+(Join-Path $bridgeHome 'manage.ps1')+'" -Action Run'
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
     $trigger=New-ScheduledTaskTrigger -AtLogOn -User $identity

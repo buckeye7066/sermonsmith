@@ -170,5 +170,5 @@ export async function executeJob(job, { signal, env = process.env, run = runChil
   finally { clearTimeout(deadlineTimer); if (cwd) await rm(cwd, { recursive: true, force: true }) }
 }
 function validJsonObject(raw) {
-  try { const value = JSON.parse(raw); return value !== null && typeof value === 'object' } catch { return false }
+  try { const value = JSON.parse(raw); return value !== null && typeof value === 'object' && !Array.isArray(value) } catch { return false }
 }
