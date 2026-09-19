@@ -59,7 +59,7 @@
     "prebuild": "npm run memory:startup",
     "build:target": "node scripts/build-target.cjs",
     "test:build-target": "node --test scripts/build-target.test.cjs",
-    "test:owner-runtime": "node --test tools/owner-ai/codexAppServer.test.mjs tools/owner-ai/bridge.test.mjs tools/owner-ai/ownerRegression.test.mjs"
+    "test:owner-runtime": "node --test tools/owner-ai/codexAppServer.test.mjs tools/owner-ai/bridge.test.mjs tools/owner-ai/ownerRegression.test.mjs tools/owner-ai/ownerSubscriptionReview.test.mjs"
   },
   "engines": {
     "node": ">=20 <25",

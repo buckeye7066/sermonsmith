@@ -69,9 +69,9 @@ export function createOwnerWorkerClient({ baseUrl, token, fetchImpl = globalThis
   const encoder = new TextEncoder();
   return Object.freeze({
     async post(route, body, signal) {
-      if (!['poll', 'result'].includes(route) || !body || typeof body !== 'object' || Array.isArray(body)) throw new Error('invalid_request');
+      if (!['poll', 'result'].includes(route) || !body || typeof body !== 'object' || Array.isArray(body)) throw new Error('invalid_operation_or_request');
       const wire = JSON.stringify(body);
-      if (encoder.encode(wire).byteLength > 2097152) throw new Error('invalid_request');
+      if (encoder.encode(wire).byteLength > 2097152) throw new Error('invalid_operation_or_request');
       signal?.throwIfAborted();
       const combined = AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]);
       const response = await fetchImpl(new URL('/api/owner-ai/worker/' + route, origin).href, {
@@ -88,7 +88,7 @@ export function createOwnerWorkerClient({ baseUrl, token, fetchImpl = globalThis
           combined.throwIfAborted();
           const part = await reader.read(); if (part.done) break;
           bytes += part.value.byteLength;
-          if (bytes > limit) { await reader.cancel(); throw new Error('unavailable'); }
+          if (bytes > limit) { await reader.cancel(); throw new Error('unavailable: response exceeds byte limit'); }
           raw += decoder.decode(part.value, { stream: true });
         }
         raw += decoder.decode();
