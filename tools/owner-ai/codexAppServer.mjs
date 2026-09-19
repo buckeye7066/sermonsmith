@@ -124,14 +124,14 @@ export function runCodexSession(job,{env,cwd,model,features=[],signal,spawnImpl=
         send({method:'initialized',params:{}})
         const account=await request('account/read',{refreshToken:false})
         if(account?.account?.type!=='chatgpt')return stop(null)
-        const started=await request('thread/start',{model,modelProvider:'openai',cwd,approvalPolicy:'never',sandbox:'read-only',ephemeral:true,
+        const started=await request('thread/start',{model,modelProvider:'openai',cwd,approvalPolicy:'never',sandbox:'read-only',ephemeral:true,environments:[],
           developerInstructions:job.system,config:{web_search:'disabled',model_reasoning_effort:'low'}})
         if(started?.model!==model||started.modelProvider!=='openai'||started.approvalPolicy!=='never'||
           started.sandbox?.type!=='readOnly'||started.sandbox.networkAccess===true||started.thread?.ephemeral!==true||
           !Array.isArray(started.instructionSources)||started.instructionSources.length!==0||typeof started.thread?.id!=='string')return stop(null)
         threadId=started.thread.id
         const prompt=JSON.stringify({task:job.prompt,response_format:job.format,requested_max_output_tokens:job.maxTokens})
-        const turn=await request('turn/start',{threadId,model,effort:'low',summary:'none',input:[{type:'text',text:prompt}]})
+        const turn=await request('turn/start',{threadId,model,effort:'low',summary:'none',environments:[],input:[{type:'text',text:prompt}]})
         if(typeof turn?.turn?.id!=='string'||(turnId&&turn.turn.id!==turnId))return stop(null)
         turnId=turn.turn.id
       })().catch(()=>stop(null))

@@ -16,14 +16,14 @@ switch($Action){
     if($target.Scheme -ne 'https' -or $target.UserInfo -or $target.Query -or $target.Fragment -or $target.AbsolutePath -ne '/') {throw 'An HTTPS origin is required'}
     if(-not [IO.Path]::IsPathRooted($CodexHome)) {throw 'An absolute private Codex home is required'}
     if(-not (Get-Command node.exe -ErrorAction SilentlyContinue)) {throw 'Node is required'}
+    $sourceRoot=if(Test-Path (Join-Path $PSScriptRoot 'tools/owner-ai/bridge.mjs')){$PSScriptRoot}else{[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))}
+    $secret=if($null -ne $BridgeToken){$BridgeToken}else{Read-Host 'Dedicated app bridge token' -AsSecureString}
+    Assert-OwnerBridgeToken -Token $secret -SourceRoot $sourceRoot
     Protect-OwnerDirectory -Path $CodexHome
     Protect-OwnerDirectory -Path $bridgeHome
     $identity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $secret=if($null -ne $BridgeToken){$BridgeToken}else{Read-Host 'Dedicated app bridge token' -AsSecureString}
-    if($secret.Length -lt 32){throw 'Bridge token is too short'}
     $secret | ConvertFrom-SecureString | Set-Content -LiteralPath $secretPath
     @{url=$target.AbsoluteUri;codexHome=$CodexHome} | ConvertTo-Json | Set-Content -LiteralPath $configPath
-    $sourceRoot=if(Test-Path (Join-Path $PSScriptRoot 'tools/owner-ai/bridge.mjs')){$PSScriptRoot}else{[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))}
     Copy-OwnerRuntime -SourceRoot $sourceRoot -Destination $bridgeHome
     Protect-OwnerDirectory -Path $bridgeHome
     $arguments='-NoProfile -NonInteractive -WindowStyle Hidden -File "'+(Join-Path $bridgeHome 'manage.ps1')+'" -Action Run'

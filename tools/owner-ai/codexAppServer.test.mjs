@@ -121,3 +121,14 @@ for(const failure of ['error','exit']){
   assert.equal(result,null);assert.equal(killed,true);
  });
 }
+
+test('native thread creation explicitly disables default environments before delivering a prompt',async()=>{
+ const fixture=protocol();
+ assert.ok(await runCodexSession(base,opts(fixture)));
+ assert.deepEqual(fixture.requests.find(r=>r.method==='thread/start').params.environments,[]);
+});
+test('native turns cannot restore default environment access',async()=>{
+ const fixture=protocol();
+ assert.ok(await runCodexSession(base,opts(fixture)));
+ assert.deepEqual(fixture.requests.find(r=>r.method==='turn/start').params.environments,[]);
+});

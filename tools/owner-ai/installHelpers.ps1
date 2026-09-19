@@ -43,3 +43,16 @@ function Copy-OwnerRuntime {
   }
   Set-Content -LiteralPath (Join-Path $Destination 'package.json') -Value '{"type":"module","private":true}' -Encoding UTF8
 }
+
+# Validate length without decrypting the token or touching an installed runtime.
+function Assert-OwnerBridgeToken {
+  param([Security.SecureString]$Token,[Parameter(Mandatory=$true)][string]$SourceRoot)
+  $module=[Uri][IO.Path]::GetFullPath((Join-Path $SourceRoot 'packages/shared/api/index.js'))
+  $raw=& node.exe --input-type=module -e 'const m=await import(process.argv[1]);console.log(JSON.stringify(m.OWNER_WORKER_TOKEN_LIMITS))' $module.AbsoluteUri
+  if($LASTEXITCODE -ne 0){throw 'Bridge token policy unavailable'}
+  $limits=$raw | ConvertFrom-Json
+  if($limits.min -ne 32 -or $limits.max -lt $limits.min -or ($limits.max + 7) -ne $limits.headerMax){throw 'Bridge token policy invalid'}
+  if($null -eq $Token -or $Token.Length -lt $limits.min -or $Token.Length -gt $limits.max){
+    throw ('Bridge token length must be between '+$limits.min+' and '+$limits.max)
+  }
+}

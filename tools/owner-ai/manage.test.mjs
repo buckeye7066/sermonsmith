@@ -28,3 +28,13 @@ test('Windows installer protects pre-existing credential files and installs shar
   const p=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',command],{encoding:'utf8',windowsHide:true,timeout:20000});
   assert.equal(p.status,0,p.stdout+p.stderr);assert.match(p.stdout,/installed-import-ok/);assert.match(p.stdout,/private-acl-ok/);
 });
+
+for(const size of [31,32,1017,1018,1024])test(`installer validates synthetic token length ${size} using the shared public policy`,{skip:process.platform!=='win32'},()=>{
+ const root=fileURLToPath(new URL('../../',import.meta.url));
+ const helper=fileURLToPath(new URL('./installHelpers.ps1',import.meta.url));
+ const quote=value=>"'"+value.replaceAll("'","''")+"'";
+ const command=`$ErrorActionPreference='Stop'; . ${quote(helper)}; $fixture=ConvertTo-SecureString ('x' * ${size}) -AsPlainText -Force; Assert-OwnerBridgeToken -Token $fixture -SourceRoot ${quote(root)}; Write-Output 'token-policy-ok'`;
+ const p=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',command],{encoding:'utf8',windowsHide:true,timeout:10000});
+ if(size>=32&&size<=1017){assert.equal(p.status,0,p.stdout+p.stderr);assert.match(p.stdout,/token-policy-ok/);}
+ else{assert.notEqual(p.status,0);assert.match(p.stdout+p.stderr,/Bridge token length/);}
+});

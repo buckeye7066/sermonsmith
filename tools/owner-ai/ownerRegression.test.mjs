@@ -42,3 +42,37 @@ test('broker refuses results whose verified output usage exceeds the requested l
   await assert.rejects(pending,/did not complete/);
  });
 });
+
+import {childEnvironment} from './officialCli.mjs';
+import {createOwnerWorkerClient} from '../../packages/shared/api/index.js';
+import path from 'node:path';
+for(const key of ['OWNER_AI_USER_ID','OWNER_AI_EMAIL'])for(const value of [undefined,'','   ']){
+ test(`enabled routing refuses incomplete ${key}: ${String(value)}`,()=>{
+  const runtime=createOwnerSubscription({env:{...env,[key]:value}});
+  runtime.scope(new EventEmitter(),()=>{
+   runtime.identify(identity);
+   assert.throws(()=>runtime.isOwner(),{code:'OWNER_SUBSCRIPTION_UNAVAILABLE'});
+  });
+ });
+}
+test('default native credential home belongs to SermonSmith, not another product',()=>{
+ const local=path.resolve('fixture-local-app-data');
+ assert.equal(childEnvironment('codex',{LOCALAPPDATA:local}).CODEX_HOME,path.join(local,'SermonSmith','subscriptions','codex'));
+});
+for(const size of [1018,1024,1025])test(`worker client rejects token beyond the bearer-header boundary: ${size}`,()=>{
+ assert.throws(()=>createOwnerWorkerClient({baseUrl:'https://example.invalid',token:'x'.repeat(size)}),/invalid_configuration/);
+});
+test('the maximum permitted worker token authenticates at both client and server',()=>{
+ const token='x'.repeat(1017);
+ assert.ok(createOwnerWorkerClient({baseUrl:'https://example.invalid',token}));
+ assert.equal(createOwnerSubscription({env:{...env,OWNER_AI_BRIDGE_TOKEN:token}}).authorized('Bearer '+token),true);
+});
+
+for(const overrides of [{OWNER_AI_USER_ID:'mistyped-owner'},{OWNER_AI_EMAIL:'typo@example.test'}])test('one mistyped owner identifier cannot route the known owner to metered usage: '+Object.keys(overrides)[0],()=>{
+ const runtime=createOwnerSubscription({env:{...env,...overrides}});
+ runtime.scope(new EventEmitter(),()=>{runtime.identify(identity);assert.throws(()=>runtime.isOwner(),{code:'OWNER_SUBSCRIPTION_UNAVAILABLE'});});
+});
+test('a distinct customer still retains the separate metered route',()=>{
+ const runtime=createOwnerSubscription({env});
+ runtime.scope(new EventEmitter(),()=>{runtime.identify({id:'customer-id',email:'customer@example.test',role:'user'});assert.equal(runtime.isOwner(),false);});
+});

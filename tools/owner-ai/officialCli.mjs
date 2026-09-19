@@ -17,7 +17,7 @@ export function childEnvironment(provider, env = process.env) {
   for (const key of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LOCALAPPDATA', 'USERPROFILE', 'HOME']) if (env[key]) clean[key] = env[key]
   const explicitHome = provider === 'codex' ? env.OWNER_AI_CODEX_HOME : env.OWNER_AI_CLAUDE_HOME
   if (!explicitHome && !env.LOCALAPPDATA) throw new Error('unavailable')
-  const subscriptionHome = explicitHome || path.join(env.LOCALAPPDATA, 'FactoryDeck', 'subscriptions', provider)
+  const subscriptionHome = explicitHome || path.join(env.LOCALAPPDATA, 'SermonSmith', 'subscriptions', provider)
   if (!path.isAbsolute(subscriptionHome)) throw new Error('unavailable')
   clean[provider === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR'] = subscriptionHome
   clean.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'

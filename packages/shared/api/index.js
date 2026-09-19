@@ -60,11 +60,14 @@ export function readAiResponseMetadata(headers) {
   return { billing_mode: billing, provider, model };
 }
 
+// Leave room for the seven-character Bearer prefix in the server header limit.
+export const OWNER_WORKER_TOKEN_LIMITS = Object.freeze({ min: 32, max: 1017, headerMax: 1024 });
+
 /** Dedicated worker authentication through the shared API transport, never the public client session. */
 export function createOwnerWorkerClient({ baseUrl, token, fetchImpl = globalThis.fetch, timeoutMs = 5000 } = {}) {
   const origin = new URL(baseUrl);
   if (origin.protocol !== 'https:' || origin.username || origin.password || origin.search || origin.hash || origin.pathname !== '/' ||
-      typeof token !== 'string' || token.length < 32 || token.length > 1024 || typeof fetchImpl !== 'function' ||
+      typeof token !== 'string' || token.length < OWNER_WORKER_TOKEN_LIMITS.min || token.length > OWNER_WORKER_TOKEN_LIMITS.max || typeof fetchImpl !== 'function' ||
       !Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30000) throw new Error('invalid_configuration');
   const encoder = new TextEncoder();
   return Object.freeze({

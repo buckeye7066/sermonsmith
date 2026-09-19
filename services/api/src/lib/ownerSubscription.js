@@ -1,3 +1,4 @@
+import {OWNER_WORKER_TOKEN_LIMITS} from '../../../../packages/shared/api/index.js';
 import {isAdministrativeRole} from './administrativeRole.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
@@ -17,10 +18,14 @@ export function createOwnerSubscription({env=process.env,now=Date.now}={}) {
     return contexts.run({identity:null,signal:controller.signal},work);
   }
   function identify(identity) {const current=contexts.getStore();if(current)current.identity=owner(identity)?{...identity}:null;}
-  const isOwner=()=>owner(contexts.getStore()?.identity);
+  const isOwner=()=>{
+    if(env.OWNER_AI_BRIDGE_ENABLED==='true'&&(![env.OWNER_AI_USER_ID,env.OWNER_AI_EMAIL].every(value=>typeof value==='string'&&value.trim()&&value===value.trim())||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.OWNER_AI_EMAIL)))
+      throw failure('Owner identity configuration is incomplete or invalid; no metered fallback was used');
+    return owner(contexts.getStore()?.identity);
+  };
   function authorized(header) {
     const token=env.OWNER_AI_BRIDGE_TOKEN;
-    if(typeof token!=='string'||token.length<32||typeof header!=='string'||header.length>1024)return false;
+    if(typeof token!=='string'||token.length<OWNER_WORKER_TOKEN_LIMITS.min||token.length>OWNER_WORKER_TOKEN_LIMITS.max||typeof header!=='string'||header.length>OWNER_WORKER_TOKEN_LIMITS.headerMax)return false;
     const expected=Buffer.from('Bearer '+token);const received=Buffer.from(header);
     return expected.length===received.length&&timingSafeEqual(expected,received);
   }
