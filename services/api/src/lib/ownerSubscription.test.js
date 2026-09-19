@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {createOwnerSubscription} from './ownerSubscription.js';
 const env={OWNER_AI_USER_ID:'owner-id',OWNER_AI_EMAIL:'owner@example.test',OWNER_AI_BRIDGE_ENABLED:'true',OWNER_AI_BRIDGE_TOKEN:'x'.repeat(48)};
-const result={ok:true,complete:true,provider:'subscription:codex',billing_mode:'subscription',model:'gpt-6-astra',model_source:'explicit_cli_argument',raw:'Fixture answer',usage:{input_tokens:8,cached_input_tokens:0,output_tokens:3}};
+const result={ok:true,complete:true,provider:'subscription:codex',billing_mode:'subscription',model:'gpt-6-astra',model_source:'app_server_configuration',raw:'Fixture answer',usage:{input_tokens:8,cached_input_tokens:0,output_tokens:3}};
 test('only a verified owner identity can queue subscription inference',async()=>{
  const runtime=createOwnerSubscription({env});runtime.poll({providers:{codex:'ready'}});
  await assert.rejects(runtime.complete({prompt:'public',maxTokens:100,timeoutMs:1000}),/owner/i);
@@ -17,7 +17,7 @@ test('only a verified owner identity can queue subscription inference',async()=>
   assert.equal(runtime.result({id:job.id,lease:'wrong',result}),false);
   assert.equal(runtime.result({id:job.id,lease:job.lease,result}),true);
   assert.equal((await answer).billing_mode,'subscription');
-  assert.equal(runtime.result({id:job.id,lease:job.lease,result}),false);
+  assert.equal(runtime.result({id:job.id,lease:job.lease,result}),true);
  });
 });
 test('cancellation revokes pending work without changing owner billing identity',async()=>{
@@ -32,7 +32,7 @@ test('cancellation revokes pending work without changing owner billing identity'
 
 
 test('a worker cannot inject paid or incomplete model output as a subscription',async()=>{
- for(const patch of [{billing_mode:'paid_api'},{complete:false},{usage:{input_tokens:1,cached_input_tokens:0,output_tokens:100}}]){
+ for(const patch of [{billing_mode:'paid_api'},{complete:false},{usage:{input_tokens:1,cached_input_tokens:0,output_tokens:0}}]){
   const runtime=createOwnerSubscription({env});runtime.poll({providers:{codex:'ready'}});
   await runtime.scope(new EventEmitter(),async()=>{
    runtime.identify({id:'owner-id',email:'owner@example.test',role:'admin'});
@@ -61,5 +61,23 @@ test('OpenAI-compatible owner calls preserve validated JSON and buffered stream 
   const pending=runtime.openAIClient().chat.completions.create({messages:[{role:'user',content:'fixture'}],response_format:{type:'json_object'},max_tokens:100,stream:true});
   const {job}=runtime.poll({providers:{codex:'ready'}});runtime.result({id:job.id,lease:job.lease,result:{...result,raw:'{"ok":true}'}});
   const stream=await pending;assert.equal(stream.billing_mode,'subscription');const chunks=[];for await(const part of stream)chunks.push(part);assert.equal(chunks[0].choices[0].delta.content,'{"ok":true}');assert.equal(chunks[1].choices[0].finish_reason,'stop');
+ });
+});
+
+
+test('a restarted worker can claim an expired lease but stale results cannot finish the request',async()=>{
+ let time=100;const runtime=createOwnerSubscription({env,now:()=>time});runtime.poll({providers:{codex:'ready'}});
+ await runtime.scope(new EventEmitter(),async()=>{runtime.identify({id:'owner-id',email:'owner@example.test',role:'admin'});
+ const answer=runtime.complete({prompt:'fixture',maxTokens:100,timeoutMs:30000});const first=runtime.poll({providers:{codex:'ready'}}).job;
+ time+=11000;const next=runtime.poll({providers:{codex:'ready'}}).job;assert.ok(next);assert.equal(next.id,first.id);assert.notEqual(next.lease,first.lease);
+ assert.equal(runtime.result({id:first.id,lease:first.lease,result}),false);assert.equal(runtime.result({id:next.id,lease:next.lease,result}),true);
+ assert.equal((await answer).raw,'Fixture answer');assert.equal(runtime.result({id:next.id,lease:next.lease,result}),true);
+ });
+});
+test('completed output usage is measured rather than mistaken for an enforced output ceiling',async()=>{
+ const runtime=createOwnerSubscription({env});runtime.poll({providers:{codex:'ready'}});
+ await runtime.scope(new EventEmitter(),async()=>{runtime.identify({id:'owner-id',email:'owner@example.test',role:'admin'});
+ const answer=runtime.complete({prompt:'fixture',maxTokens:10,timeoutMs:1000});const {job}=runtime.poll({providers:{codex:'ready'}});
+ runtime.result({id:job.id,lease:job.lease,result:{...result,usage:{input_tokens:8,cached_input_tokens:0,output_tokens:30}}});assert.equal((await answer).usage.output_tokens,30);
  });
 });
