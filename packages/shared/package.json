@@ -13,7 +13,8 @@
     "./agents": "./agents/index.js",
     "./benchmark": "./benchmark/scenarios.js",
     "./prompts": "./prompts/index.js",
-    "./review": "./review/index.js"
+    "./review": "./review/index.js",
+    "./api": "./api/index.js"
   },
   "description": "Shared configuration, types, and utilities for SermonSmith"
 }

@@ -1,3 +1,4 @@
+import { createOwnerWorkerClient } from '../../packages/shared/api/index.js'
 import { setTimeout as delay } from 'node:timers/promises'
 import { pathToFileURL } from 'node:url'
 import { executeJob, probeProvider } from './officialCli.mjs'
@@ -39,21 +40,8 @@ export async function deliverResult(post,body,{deadline,signal,now=Date.now,wait
 export async function runBridge({ env = process.env, signal } = {}) {
   const { url, token } = bridgeConfig(env)
   const providerStatus = createProviderStatusCache()
-  async function post(route, body, requestSignal = signal) {
-    const response = await fetch(new URL('/api/owner-ai/worker/' + route, url), {
-      method: 'POST', redirect: 'error', signal: AbortSignal.any([AbortSignal.timeout(5000), ...(requestSignal ? [requestSignal] : [])]),
-      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify(body),
-    })
-    if (!response.ok) { await response.body?.cancel(); throw Object.assign(new Error('unavailable'),{status:response.status}) }
-    let size = 0
-    const chunks = []
-    for await (const chunk of response.body) {
-      size += chunk.length
-      if (size > 196608) throw new Error('unavailable')
-      chunks.push(chunk)
-    }
-    return JSON.parse(Buffer.concat(chunks).toString())
-  }
+  const client = createOwnerWorkerClient({ baseUrl: url.href, token })
+  const post = (route, body, requestSignal = signal) => client.post(route, body, requestSignal)
   while (!signal?.aborted) {
     try {
       const probeSignal = AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])])

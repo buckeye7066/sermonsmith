@@ -7,6 +7,15 @@
  * are stored in localStorage or sessionStorage (OWASP best practice).
  */
 
+import { readAiResponseMetadata } from '@sermonsmith/shared/api';
+
+function notifyResponseMetadata(headers, callback) {
+  const metadata = readAiResponseMetadata(headers);
+  if (metadata && typeof callback === 'function') {
+    try { callback(metadata); } catch { /* A display callback must not invalidate verified output. */ }
+  }
+}
+
 import { coerceToSchema } from '@/lib/aiStructured';
 import { outputContractFor } from '@sermonsmith/shared/aiContracts';
 
@@ -132,7 +141,7 @@ function shouldRetry(path, options) {
 }
 
 export async function apiFetch(path, options = {}, _retryCount = 0) {
-  const { retry, timeoutMs, absoluteUrl, credentials, ...fetchOptions } = options;
+  const { retry, timeoutMs, absoluteUrl, credentials, onResponseMetadata, ...fetchOptions } = options;
 
   const headers = {
     ...(absoluteUrl ? {} : { 'Content-Type': 'application/json' }),
@@ -236,7 +245,9 @@ export async function apiFetch(path, options = {}, _retryCount = 0) {
   if (options.rawResponse) return res;
   const contentType = res.headers?.get?.('content-type') || '';
   if (contentType.includes('application/json') || !isAbsolute) {
-    return res.json();
+    const result = await res.json();
+    notifyResponseMetadata(res.headers, onResponseMetadata);
+    return result;
   }
   return res;
 }
@@ -529,6 +540,7 @@ const integrations = {
       const result = await apiFetch(`${workflow.path}/invoke`, {
         method: 'POST',
         body: JSON.stringify(workflow.body),
+        onResponseMetadata: p?.onMetadata,
       });
       if (p && p.response_json_schema) {
         try { return coerceToSchema(result, p.response_json_schema); } catch { /* fall back to raw */ }
@@ -684,6 +696,7 @@ const integrations = {
         error.scriptureUnverified = scriptureFailed;
         throw error;
       }
+      notifyResponseMetadata(res.headers, p?.onMetadata);
       return text;
     },
     SendEmail:                  (p) => apiFetch('/api/ai/email',    { method: 'POST', body: JSON.stringify(p) }),

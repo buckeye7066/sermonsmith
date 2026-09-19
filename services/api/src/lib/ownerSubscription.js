@@ -1,3 +1,4 @@
+import {isAdministrativeRole} from './administrativeRole.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 const failure=message=>Object.assign(new Error(message),{status:503,statusCode:503,code:'OWNER_SUBSCRIPTION_UNAVAILABLE'});
@@ -8,7 +9,7 @@ export function createOwnerSubscription({env=process.env,now=Date.now}={}) {
   const leaseMs=10000;
   const enabled=()=>env.OWNER_AI_BRIDGE_ENABLED==='true'&&(env.NODE_ENV!=='production'||env.OWNER_AI_API_REPLICAS==='1');
   const owner=identity=>Boolean(env.OWNER_AI_USER_ID&&env.OWNER_AI_EMAIL&&identity?.id===env.OWNER_AI_USER_ID&&
-    String(identity?.email||'').toLowerCase()===env.OWNER_AI_EMAIL.toLowerCase()&&['admin','super_admin','owner'].includes(identity?.role));
+    String(identity?.email||'').toLowerCase()===env.OWNER_AI_EMAIL.toLowerCase()&&isAdministrativeRole(identity?.role));
   const online=()=>enabled()&&worker?.ready&&now()-worker.at<15000;
   function scope(response,work) {
     const controller=new AbortController();const close=()=>controller.abort();
@@ -23,7 +24,7 @@ export function createOwnerSubscription({env=process.env,now=Date.now}={}) {
     const expected=Buffer.from('Bearer '+token);const received=Buffer.from(header);
     return expected.length===received.length&&timingSafeEqual(expected,received);
   }
-  function status() {return {enabled:enabled(),online:Boolean(online()),pending:pending.size,single_replica_required:true,billing_mode:'subscription',metered_fallback:false};}
+  function status() {return {enabled:enabled(),online:Boolean(online()),pending:pending.size,single_replica_required:true,billing_mode:'subscription',metered_fallback:false,token_budget_enforcement:'verified_output_usage'};}
   function poll(body={}) {
     worker={at:now(),ready:body.providers?.codex==='ready'};
     for(const [id,ack] of acknowledgements)if(now()>=ack.expires)acknowledgements.delete(id);
@@ -47,9 +48,9 @@ export function createOwnerSubscription({env=process.env,now=Date.now}={}) {
       typeof answer.model==='string'&&/^[a-zA-Z0-9._:-]{1,120}$/.test(answer.model)&&
       typeof answer.raw==='string'&&answer.raw.trim()&&Buffer.byteLength(answer.raw)<=262144&&
       ['input_tokens','cached_input_tokens','output_tokens'].every(k=>Number.isSafeInteger(answer.usage?.[k])&&answer.usage[k]>=0)&&
-      answer.usage.output_tokens>0) {
+      answer.usage.output_tokens>0&&answer.usage.output_tokens<=item.input.maxTokens) {
       valid={ok:true,raw:answer.raw,provider:answer.provider,model:answer.model,billing_mode:'subscription',usage:answer.usage};
-      if(item.input.format==='json'){try{const parsed=JSON.parse(answer.raw);if(!parsed||typeof parsed!=='object')valid=null;}catch{valid=null;}}
+      if(item.input.format==='json'){try{const parsed=JSON.parse(answer.raw);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))valid=null;}catch{valid=null;}}
     }
     item.finish(valid);return true;
   }

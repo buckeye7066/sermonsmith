@@ -1,3 +1,5 @@
+import {isAdministrativeRole} from './administrativeRole.js';
+
 export const ACCOUNT_TIERS = Object.freeze({
   FREE: 'free',
   PREMIUM: 'premium',
@@ -89,7 +91,7 @@ export function hasPromotionalAccess(user) {
 
 export function accountTierFor(user, now = new Date()) {
   if (!user) return ACCOUNT_TIERS.FREE;
-  if (user.role === 'admin' || user.role === 'dev') return ACCOUNT_TIERS.PREMIUM;
+  if (isAdministrativeRole(user.role)) return ACCOUNT_TIERS.PREMIUM;
   if (user.premium === true || hasPromotionalAccess(user)) return ACCOUNT_TIERS.PREMIUM;
 
   if (user.premium_until) {
@@ -114,7 +116,7 @@ export function accessSummaryFor(user) {
 }
 
 export function requestHasEntitlement(req, entitlement) {
-  if (req?.userRole === 'admin' || req?.userRole === 'dev') return true;
+  if (isAdministrativeRole(req?.userRole)) return true;
   if (Array.isArray(req?.entitlements)) return req.entitlements.includes(entitlement);
   // Compatibility for route tests and rolling deploys where the authentication
   // middleware has not yet attached the explicit entitlement array.

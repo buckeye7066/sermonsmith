@@ -18,7 +18,7 @@ export function runCodexSession(job,{env,cwd,model,features=[],signal,spawnImpl=
   const executable=platform==='win32'?'codex.exe':'codex'
   const args=['app-server','--strict-config','--listen','stdio://',
     '-c','forced_login_method=chatgpt','-c','web_search="disabled"','-c','mcp_servers={}',
-    '-c','tools.update_plan.enabled=false','-c','agents.enabled=false',...features.flatMap(f=>['--disable',f])]
+    ...features.flatMap(f=>['--disable',f])]
   return new Promise(resolve=>{
     let child;let buffer='';let bytes=0;let stopped=false;let closed=false;let response=null
     let threadId=null;let turnId=null;let usage=null;let finalTurn=null;let nextId=1
@@ -29,7 +29,12 @@ export function runCodexSession(job,{env,cwd,model,features=[],signal,spawnImpl=
     function terminateChild(){
       if(!child)return
       if(platform==='win32'&&Number.isInteger(child.pid)){
-        try{const killer=spawnImpl(path.join(env.SystemRoot||'C:\\Windows','System32','taskkill.exe'),['/PID',String(child.pid),'/T','/F'],{shell:false,windowsHide:true,stdio:'ignore'});killer.on?.('error',()=>{})}catch{}
+        const fallback=()=>{if(!closed){try{child.kill('SIGKILL')}catch{}}}
+        try{
+          const killer=spawnImpl(path.join(env.SystemRoot||'C:\\Windows','System32','taskkill.exe'),['/PID',String(child.pid),'/T','/F'],{shell:false,windowsHide:true,stdio:'ignore'})
+          killer.on('error',fallback)
+          killer.on('close',code=>{if(code!==0)fallback()})
+        }catch{fallback()}
       }else if(platform!=='win32'&&Number.isInteger(child.pid)){
         try{process.kill(-child.pid,'SIGKILL')}catch{try{child.kill('SIGKILL')}catch{}}
       }else{try{child.kill('SIGKILL')}catch{}}
@@ -59,7 +64,7 @@ export function runCodexSession(job,{env,cwd,model,features=[],signal,spawnImpl=
       const candidates=[...messages.values()].filter(item=>!item.phase||item.phase==='final_answer')
       const last=candidates.at(-1);const raw=last?.text
       if(typeof raw!=='string'||!raw.trim()||Buffer.byteLength(raw)>MAX_OUTPUT_BYTES)return stop(null)
-      if(job.format==='json'){try{const parsed=JSON.parse(raw);if(!parsed||typeof parsed!=='object')return stop(null)}catch{return stop(null)}}
+      if(job.format==='json'){try{const parsed=JSON.parse(raw);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return stop(null)}catch{return stop(null)}}
       return stop({ok:true,complete:true,provider:'subscription:codex',billing_mode:'subscription',model,
         model_source:'app_server_configuration',raw,usage})
     }
@@ -81,6 +86,7 @@ export function runCodexSession(job,{env,cwd,model,features=[],signal,spawnImpl=
         const current=p.tokenUsage?.last
         if(!current||!['inputTokens','cachedInputTokens','outputTokens'].every(k=>Number.isSafeInteger(current[k])&&current[k]>=0)||current.outputTokens===0)return stop(null)
         usage={input_tokens:current.inputTokens,cached_input_tokens:current.cachedInputTokens,output_tokens:current.outputTokens}
+        if(current.outputTokens>job.maxTokens)return stop(null)
         finishTurn()
       }
       if(message.method==='turn/completed'){

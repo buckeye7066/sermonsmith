@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import {isAdministrativeRole} from '../lib/administrativeRole.js';
 import {ownerSubscription} from '../lib/ownerSubscription.js';
 import { PrismaClient } from '@prisma/client';
 import {
@@ -247,7 +248,7 @@ export async function optionalAuth(req, _res, next) {
  */
 export function requireAdmin(req, res, next) {
   const role = req.userRole;
-  if (!role || (role !== 'admin' && role !== 'dev')) {
+  if (!isAdministrativeRole(role)) {
     return res.status(403).json({ message: 'Admin access required' });
   }
   next();
@@ -259,8 +260,7 @@ export function requireAdmin(req, res, next) {
 export function requirePremium(req, res, next) {
   if (req.accountTier !== ACCOUNT_TIERS.PREMIUM
       && !req.userPremium
-      && req.userRole !== 'admin'
-      && req.userRole !== 'dev') {
+      && !isAdministrativeRole(req.userRole)) {
     return res.status(402).json({ message: 'Premium subscription required' });
   }
   next();

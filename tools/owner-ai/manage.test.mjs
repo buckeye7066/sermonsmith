@@ -16,5 +16,15 @@ test('Windows installer validates the origin before any task or credential chang
 test('installed task uses a stable runtime copy, not a disposable Git worktree',()=>{
   const source=readFileSync(script,'utf8');
   assert.match(source,/Join-Path \$bridgeHome 'manage\.ps1'/);
-  assert.match(source,/Copy-Item/);
+  assert.match(source,/Copy-OwnerRuntime/);
+});
+
+
+test('Windows installer protects pre-existing credential files and installs shared transport without requiring the Git checkout', {skip:process.platform!=='win32'},()=>{
+  const root=fileURLToPath(new URL('../../',import.meta.url));
+  const helper=fileURLToPath(new URL('./installHelpers.ps1',import.meta.url));
+  const quote=value=>"'"+value.replaceAll("'","''")+"'";
+  const command=`$ErrorActionPreference='Stop'; . ${quote(helper)}; $dir=Join-Path ([IO.Path]::GetTempPath()) ('sermon-installer-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $dir | Out-Null; try { $credentials=Join-Path $dir 'private-codex'; New-Item -ItemType Directory $credentials | Out-Null; Set-Content (Join-Path $credentials 'auth.json') '{"fixture":true}'; & icacls.exe $credentials /grant '*S-1-1-0:(OI)(CI)R' | Out-Null; Protect-OwnerDirectory -Path $credentials; $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; foreach($p in @($credentials,(Join-Path $credentials 'auth.json'))){$acl=Get-Acl $p;if(-not $acl.AreAccessRulesProtected){throw 'Inheritance remains enabled'};foreach($rule in $acl.Access){if($rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -ne $sid){throw 'Foreign principal retains access'}}}; $runtime=Join-Path $dir 'installed'; Copy-OwnerRuntime -SourceRoot ${quote(root)} -Destination $runtime; $bridge=Join-Path $runtime 'tools\\owner-ai\\bridge.mjs'; & node.exe --input-type=module -e 'import(process.argv[1])' ([Uri]$bridge).AbsoluteUri; if($LASTEXITCODE -ne 0){throw 'Installed import failed'}; Write-Output 'installed-import-ok'; Write-Output 'private-acl-ok'; } finally {Remove-Item -LiteralPath $dir -Recurse -Force}`;
+  const p=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',command],{encoding:'utf8',windowsHide:true,timeout:20000});
+  assert.equal(p.status,0,p.stdout+p.stderr);assert.match(p.stdout,/installed-import-ok/);assert.match(p.stdout,/private-acl-ok/);
 });

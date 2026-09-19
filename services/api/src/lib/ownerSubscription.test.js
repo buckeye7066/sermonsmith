@@ -74,10 +74,13 @@ test('a restarted worker can claim an expired lease but stale results cannot fin
  assert.equal((await answer).raw,'Fixture answer');assert.equal(runtime.result({id:next.id,lease:next.lease,result}),true);
  });
 });
-test('completed output usage is measured rather than mistaken for an enforced output ceiling',async()=>{
+test('over-budget measured output is rejected without claiming a provider-side generation ceiling',async()=>{
  const runtime=createOwnerSubscription({env});runtime.poll({providers:{codex:'ready'}});
  await runtime.scope(new EventEmitter(),async()=>{runtime.identify({id:'owner-id',email:'owner@example.test',role:'admin'});
  const answer=runtime.complete({prompt:'fixture',maxTokens:10,timeoutMs:1000});const {job}=runtime.poll({providers:{codex:'ready'}});
- runtime.result({id:job.id,lease:job.lease,result:{...result,usage:{input_tokens:8,cached_input_tokens:0,output_tokens:30}}});assert.equal((await answer).usage.output_tokens,30);
+ runtime.result({id:job.id,lease:job.lease,result:{...result,usage:{input_tokens:8,cached_input_tokens:0,output_tokens:30}}});
+ await assert.rejects(answer,/did not complete/);
+ assert.equal(runtime.status().token_budget_enforcement,'verified_output_usage');
+ assert.equal(runtime.status().pending,0);
  });
 });

@@ -560,3 +560,25 @@ describe('StreamLLM result-trailer contract', () => {
     expect(await api.integrations.Core.StreamLLM({ prompt: 'p' })).toBe('Grace — John 3:16');
   });
 });
+
+
+describe('owner billing provenance without changing response shapes', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+  const metadataHeaders = { 'X-AI-Billing-Mode': 'subscription', 'X-AI-Provider': 'subscription:codex', 'X-AI-Model': 'gpt-6-astra' };
+  it('returns original invocation data and separately delivers explicit subscription metadata', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ title: 'Grace' }), { headers: { 'Content-Type': 'application/json', ...metadataHeaders } })));
+    const { api } = await loadClient(); const onMetadata = vi.fn();
+    expect(await api.integrations.Core.InvokeLLM({ prompt: 'fixture', onMetadata })).toEqual({ title: 'Grace' });
+    expect(onMetadata).toHaveBeenCalledWith({ billing_mode: 'subscription', provider: 'subscription:codex', model: 'gpt-6-astra' });
+  });
+  it('returns validated stream text and delivers billing metadata only after successful validation', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const nonce = 'fixture-nonce'; const text = 'An answer';
+    const payload = text + '\n' + String.fromCharCode(30) + nonce + JSON.stringify({ ok: true, truncated: false, scripture: { ok: true, checked: 0, fabricated: 0 } });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(payload, { headers: { 'Content-Type': 'text/plain', 'X-Stream-Trailer-Nonce': nonce, ...metadataHeaders } })));
+    const { api } = await loadClient(); const onMetadata = vi.fn();
+    expect(await api.integrations.Core.StreamLLM({ prompt: 'fixture', onMetadata })).toBe(text);
+    expect(onMetadata).toHaveBeenCalledWith({ billing_mode: 'subscription', provider: 'subscription:codex', model: 'gpt-6-astra' });
+  });
+});

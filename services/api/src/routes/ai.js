@@ -852,7 +852,12 @@ async function handleInvoke(req, res, next) {
       AI_TIMEOUT_MS,
       '/ai/invoke',
     );
-    if (completion.billing_mode === 'subscription') {auditBase.model=completion.model;res.setHeader('X-AI-Billing-Mode','subscription');}
+    if (completion.billing_mode === 'subscription') {
+      auditBase.model = completion.model;
+      res.setHeader('X-AI-Billing-Mode', 'subscription');
+      res.setHeader('X-AI-Provider', completion.provider);
+      res.setHeader('X-AI-Model', completion.model);
+    }
     let content = completion.choices[0]?.message?.content || '';
     let finishReason = completion.choices[0]?.finish_reason;
 
@@ -1143,7 +1148,12 @@ async function handleStream(req, res, next) {
       { deadline: Date.now() + AI_TIMEOUT_MS },
     );
 
-    if (completion.billing_mode === 'subscription') {auditBase.model=completion.model;res.setHeader('X-AI-Billing-Mode','subscription');}
+    if (completion.billing_mode === 'subscription') {
+      auditBase.model = completion.model;
+      res.setHeader('X-AI-Billing-Mode', 'subscription');
+      res.setHeader('X-AI-Provider', completion.provider);
+      res.setHeader('X-AI-Model', completion.model);
+    }
     res.status(200);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');

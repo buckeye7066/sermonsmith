@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import {EventEmitter} from 'node:events'
 import {PassThrough,Writable} from 'node:stream'
 import {runCodexSession} from './codexAppServer.mjs'
-const base={system:'Trusted scientific-honesty rules.',prompt:'Untrusted task text.',format:'text',maxTokens:10,timeoutMs:1000}
-function protocol({account='chatgpt',model='gpt-6-astra',tool=false,stall=false,reroute=false}={}) {
+const base={system:'Trusted scientific-honesty rules.',prompt:'Untrusted task text.',format:'text',maxTokens:100,timeoutMs:1000}
+function protocol({account='chatgpt',model='gpt-6-astra',tool=false,stall=false,reroute=false,answer='Complete answer'}={}) {
   const requests=[];let child
   const spawnImpl=(_exe,args,options)=>{
     child=new EventEmitter();child.pid=undefined;child.stdout=new PassThrough();child.stderr=new PassThrough();child.killed=false
@@ -18,7 +18,7 @@ function protocol({account='chatgpt',model='gpt-6-astra',tool=false,stall=false,
         emit({id:r.id,result:{turn:{id:'turn-fixture',status:'inProgress',items:[]}}})
         if(stall)return
         if(reroute)emit({method:'model/rerouted',params:{threadId:'thread-fixture',turnId:'turn-fixture',fromModel:model,toModel:'another-model'}})
-        const item=tool?{id:'tool',type:'commandExecution',command:'not permitted'}:{id:'answer',type:'agentMessage',phase:'final_answer',text:'Complete answer'}
+        const item=tool?{id:'tool',type:'commandExecution',command:'not permitted'}:{id:'answer',type:'agentMessage',phase:'final_answer',text:answer}
         emit({method:'item/started',params:{threadId:'thread-fixture',turnId:'turn-fixture',item}})
         emit({method:'item/completed',params:{threadId:'thread-fixture',turnId:'turn-fixture',item}})
         emit({method:'thread/tokenUsage/updated',params:{threadId:'thread-fixture',turnId:'turn-fixture',tokenUsage:{last:{inputTokens:20,cachedInputTokens:0,outputTokens:30,reasoningOutputTokens:20}}}})
@@ -55,3 +55,42 @@ test('deadline ends an unresponsive worker and yields no success',async()=>{
  const fixture=protocol({stall:true});assert.equal(await runCodexSession({...base,timeoutMs:20},opts(fixture)),null)
  assert.equal(fixture.child.killed,true)
 })
+
+for (const raw of ['[]', '[{"ok":true}]', 'null', '"text"', '1']) {
+ test(`structured Codex jobs reject non-object roots: ${raw}`,async()=>{
+  const fixture=protocol({answer:raw});assert.equal(await runCodexSession({...base,format:'json'},opts(fixture)),null)
+ })
+}
+test('structured Codex jobs preserve a valid object',async()=>{
+ const fixture=protocol({answer:'{"ok":true}'});assert.equal((await runCodexSession({...base,format:'json'},opts(fixture)))?.raw,'{"ok":true}')
+})
+for (const failure of ['spawn-error','nonzero-exit','throws']) {
+ test(`Windows cleanup falls back to the owned child after taskkill ${failure}`, {timeout:2000}, async()=>{
+  const child=new EventEmitter();child.pid=54321;child.stdout=new PassThrough();child.stderr=new PassThrough()
+  child.stdin=new Writable({write(_chunk,_encoding,done){done()},final(done){done()}})
+  let directKills=0;child.kill=()=>{directKills++;queueMicrotask(()=>child.emit('close',1));return true}
+  const spawnImpl=(executable)=>{
+    if(!executable.endsWith('taskkill.exe'))return child
+    if(failure==='throws')throw new Error('fixture spawn failure')
+    const killer=new EventEmitter()
+    queueMicrotask(()=>failure==='spawn-error'?killer.emit('error',new Error('fixture')):killer.emit('close',1))
+    return killer
+  }
+  const pending=runCodexSession({...base,timeoutMs:10},{...opts({spawnImpl}),platform:'win32'})
+  let failSafeUsed=false;const failSafe=setTimeout(()=>{failSafeUsed=true;child.kill()},800)
+  try{assert.equal(await pending,null);assert.equal(directKills,1);assert.equal(failSafeUsed,false)}finally{clearTimeout(failSafe)}
+ })
+}
+
+test('uses supported strict configuration while keeping containment controls',async()=>{
+ const fixture=protocol();let args;
+ const spawnImpl=(exe,argv,options)=>{args=argv;return fixture.spawnImpl(exe,argv,options)};
+ assert.ok(await runCodexSession(base,{...opts(fixture),spawnImpl}));
+ assert.equal(args.includes('tools.update_plan.enabled=false'),false);
+ assert.equal(args.includes('agents.enabled=false'),false);
+ assert.ok(args.includes('--strict-config'));assert.ok(args.includes('forced_login_method=chatgpt'));
+ assert.ok(args.includes('web_search="disabled"'));assert.ok(args.includes('shell_tool'));
+});
+test('never reports an output beyond the caller token budget as a completed result',async()=>{
+ const fixture=protocol();assert.equal(await runCodexSession({...base,maxTokens:2},opts(fixture)),null);
+});
