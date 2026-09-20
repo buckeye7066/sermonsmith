@@ -601,6 +601,10 @@ export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500
     try {
       return await fn();
     } catch (err) {
+      // The owner bridge has already enforced its job and response contract.
+      // Repeating its terminal failure can start another native inference on
+      // identical malformed output; it is not a transient provider HTTP 503.
+      if (err?.code === 'OWNER_SUBSCRIPTION_UNAVAILABLE') throw err;
       const status = err?.status ?? err?.response?.status;
       // An account with no credits also answers 429, but it is not transient:
       // retrying only delays the failure the user is about to see. Connection

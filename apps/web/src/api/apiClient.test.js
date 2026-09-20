@@ -582,3 +582,75 @@ describe('owner billing provenance without changing response shapes', () => {
     expect(onMetadata).toHaveBeenCalledWith({ billing_mode: 'subscription', provider: 'subscription:codex', model: 'gpt-6-astra' });
   });
 });
+
+describe('StreamLLM first-response and established-stream deadlines', () => {
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+  const nonce = 'virtual-clock-stream-nonce';
+  const validated = 'Grace\n' + String.fromCharCode(30) + nonce
+    + '{"ok":true,"truncated":false,"scripture":{"ok":true,"checked":1,"fabricated":0}}';
+  function delayedStream(headerDelay, bodyDelay = 0) {
+    return vi.fn((_url, { signal }) => new Promise((resolve, reject) => {
+      let streamController;
+      signal.addEventListener('abort', () => {
+        const error = new DOMException('Aborted', 'AbortError');
+        if (streamController) streamController.error(error); else reject(error);
+      }, { once: true });
+      setTimeout(() => {
+        if (signal.aborted) return;
+        const body = new ReadableStream({ start(controller) {
+          streamController = controller;
+          setTimeout(() => {
+            if (signal.aborted) return;
+            controller.enqueue(new TextEncoder().encode(validated)); controller.close();
+          }, bodyDelay);
+        } });
+        resolve(new Response(body, { headers: { 'X-Stream-Trailer-Nonce': nonce } }));
+      }, headerDelay);
+    }));
+  }
+  it('accepts a validated owner response after seventy seconds without starting another request', async () => {
+    vi.useFakeTimers(); vi.stubEnv('VITE_AI_REQUEST_TIMEOUT_MS', '90000');
+    const fetchMock = delayedStream(70000); vi.stubGlobal('fetch', fetchMock);
+    const { api } = await loadClient();
+    const settled = api.integrations.Core.StreamLLM({ prompt: 'fixture' })
+      .then(value => ({ value }), error => ({ error }));
+    await vi.advanceTimersByTimeAsync(70001);
+    expect(await settled).toEqual({ value: 'Grace' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('gives an established stream sixty seconds from its response headers for the first chunk', async () => {
+    vi.useFakeTimers(); vi.stubEnv('VITE_AI_REQUEST_TIMEOUT_MS', '90000');
+    vi.stubGlobal('fetch', delayedStream(20000, 50000));
+    const { api } = await loadClient();
+    const settled = api.integrations.Core.StreamLLM({ prompt: 'fixture' })
+      .then(value => ({ value }), error => ({ error }));
+    await vi.advanceTimersByTimeAsync(70001);
+    expect(await settled).toEqual({ value: 'Grace' });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('retains the sixty-second idle deadline after headers arrive', async () => {
+    vi.useFakeTimers(); vi.stubEnv('VITE_AI_REQUEST_TIMEOUT_MS', '90000');
+    const fetchMock = delayedStream(10000, 90000); vi.stubGlobal('fetch', fetchMock);
+    const { api } = await loadClient();
+    let outcome;
+    const settled = api.integrations.Core.StreamLLM({ prompt: 'fixture' })
+      .then(value => { outcome = { value }; }, error => { outcome = { error }; });
+    await vi.advanceTimersByTimeAsync(69999);
+    expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(2); await settled;
+    expect(outcome.error.name).toBe('AbortError');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it('bounds a missing initial response by the configured AI timeout', async () => {
+    vi.useFakeTimers(); vi.stubEnv('VITE_AI_REQUEST_TIMEOUT_MS', '90000');
+    vi.stubGlobal('fetch', delayedStream(110000));
+    const { api } = await loadClient();
+    let outcome;
+    const settled = api.integrations.Core.StreamLLM({ prompt: 'fixture' })
+      .then(value => { outcome = { value }; }, error => { outcome = { error }; });
+    await vi.advanceTimersByTimeAsync(89999); expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(2); await settled;
+    expect(outcome.error.name).toBe('AbortError');
+  });
+});

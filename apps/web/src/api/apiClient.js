@@ -565,13 +565,13 @@ const integrations = {
     StreamLLM: async (p, onDelta) => {
       const apiBase = await getApiBaseUrl();
       const workflow = serverWorkflowRequest(p, { streaming: true });
-      // Idle-timeout guard: unlike apiFetch, a stalled stream would otherwise
-      // hang the builder forever. Abort if no chunk arrives within STREAM_IDLE_MS
-      // (reset on every chunk). On abort the fetch/read rejects and the caller
-      // falls back to InvokeLLM.
+      // The owner transport validates its full answer before sending headers.
+      // Allow the normal AI request deadline for that first response, then
+      // enforce the existing idle deadline from headers and each body chunk.
+      // No timeout or validation failure automatically starts another request.
       const STREAM_IDLE_MS = 60_000;
       const controller = new AbortController();
-      let idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_MS);
+      let idleTimer = setTimeout(() => controller.abort(), requestTimeoutFor(`${workflow.path}/stream`));
       const resetIdle = () => {
         clearTimeout(idleTimer);
         idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_MS);
@@ -601,6 +601,8 @@ const integrations = {
         }
         throw error;
       }
+
+      resetIdle();
 
       // Per-stream nonce delivered out of band in the response header — the model
       // never sees it, so it authenticates the trailer as server-produced.

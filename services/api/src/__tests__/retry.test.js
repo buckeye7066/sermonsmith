@@ -108,3 +108,34 @@ describe('callWithRetry', () => {
     expect(fn).toHaveBeenCalledTimes(3); // initial + 2 retries
   });
 });
+
+import { EventEmitter } from 'node:events';
+import { createOwnerSubscription } from '../lib/ownerSubscription.js';
+
+it('does not replay a completed owner job rejected for malformed JSON', async () => {
+  const env = { OWNER_AI_BRIDGE_ENABLED: 'true', OWNER_AI_USER_ID: 'owner-id',
+    OWNER_AI_EMAIL: 'owner@example.test', OWNER_AI_BRIDGE_TOKEN: 'x'.repeat(32) };
+  const bridge = createOwnerSubscription({ env });
+  let attempted = 0;
+  const response = new EventEmitter();
+  await bridge.scope(response, async () => {
+    bridge.identify({ id: 'owner-id', email: 'owner@example.test', role: 'admin' });
+    bridge.poll({ providers: { codex: 'ready' } });
+    const invoke = async () => {
+      attempted++;
+      const pending = bridge.openAIClient().chat.completions.create({
+        messages: [{ role: 'user', content: 'Return fixture JSON' }],
+        response_format: { type: 'json_object' }, max_tokens: 100 });
+      const { job } = bridge.poll({ providers: { codex: 'ready' } });
+      expect(job).toBeTruthy();
+      bridge.result({ id: job.id, lease: job.lease, result: { ok: true, complete: true,
+        raw: '{not json', provider: 'subscription:codex', billing_mode: 'subscription',
+        model: 'fixture-model', model_source: 'app_server_configuration',
+        usage: { input_tokens: 4, cached_input_tokens: 0, output_tokens: 4 } } });
+      return pending;
+    };
+    await expect(callWithRetry(invoke, { baseMs: 1 })).rejects.toMatchObject({ code: 'OWNER_SUBSCRIPTION_UNAVAILABLE' });
+    expect(attempted).toBe(1);
+    expect(bridge.status().pending).toBe(0);
+  });
+});
