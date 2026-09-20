@@ -11,6 +11,17 @@ on:
     #   - "src/**/*.jsx"
 
 jobs:
+  diagnostic-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify safe failure diagnostics
+        run: node --test scripts/review-failure-summary.test.mjs
+
   claude-review:
     # Optional: Filter by PR author
     # if: |
@@ -31,9 +42,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Verify safe failure diagnostics
-        run: node --test scripts/review-failure-summary.test.mjs
-
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
@@ -49,4 +57,16 @@ jobs:
         if: ${{ failure() && steps.claude-review.outcome == 'failure' }}
         env:
           CLAUDE_EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
-        run: node scripts/review-failure-summary.mjs
+          GH_TOKEN: ${{ github.token }}
+          DIAGNOSTIC_REPO: ${{ github.repository }}
+          DIAGNOSTIC_REF: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Fetch only the trusted default-branch helper into a fresh directory.
+          # Never execute the PR's diagnostic or test code in this OIDC job.
+          diagnostic_dir=$(mktemp -d "$RUNNER_TEMP/claude-review-summary.XXXXXX")
+          trap 'rm -rf -- "$diagnostic_dir"' EXIT
+          gh api --method GET "repos/$DIAGNOSTIC_REPO/contents/scripts/review-failure-summary.mjs" \
+            -f ref="$DIAGNOSTIC_REF" --jq .content | base64 --decode > "$diagnostic_dir/summary.mjs"
+          node "$diagnostic_dir/summary.mjs"
