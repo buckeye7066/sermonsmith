@@ -70,3 +70,14 @@ jobs:
           gh api --method GET "repos/$DIAGNOSTIC_REPO/contents/scripts/review-failure-summary.mjs" \
             -f ref="$DIAGNOSTIC_REF" --jq .content | base64 --decode > "$diagnostic_dir/summary.mjs"
           node "$diagnostic_dir/summary.mjs"
+
+      - name: Isolate provider execution from the review plugin
+        if: ${{ failure() && steps.claude-review.outcome == 'failure' }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: >-
+            Reply with exactly REVIEW_PROVIDER_PROBE_OK. This is a provider
+            execution diagnostic, not a code review. Do not inspect repository
+            files, invoke tools, post comments, or change anything.
+          claude_args: '--tools "" --max-turns 1'
