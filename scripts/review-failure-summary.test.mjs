@@ -58,6 +58,19 @@ test('workflow runs safe diagnostics on review failure without bypassing it', ()
   const workflow = readFileSync(new URL('../.github/workflows/claude-code-review.yml', import.meta.url), 'utf8');
   assert.match(workflow, /node --test scripts\/review-failure-summary\.test\.mjs/);
   assert.match(workflow, /failure\(\) && steps\.claude-review\.outcome == 'failure'/);
-  assert.match(workflow, /node scripts\/review-failure-summary\.mjs/);
+  assert.match(workflow, /scripts\/review-failure-summary\.mjs/);
   assert.doesNotMatch(workflow, /continue-on-error:\s*true|show_full_output:\s*true/);
+});
+test('OIDC review job never runs the proposed checkout diagnostic code', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/claude-code-review.yml', import.meta.url), 'utf8');
+  const reviewJob = workflow.split('  claude-review:')[1];
+  assert.ok(reviewJob);
+  assert.doesNotMatch(reviewJob, /node --test scripts\/|run: node scripts\//);
+  assert.match(workflow, /diagnostic-tests:[\s\S]*?permissions:\s*\n\s+contents: read/);
+  assert.match(reviewJob, /DIAGNOSTIC_REF:.*github\.event\.repository\.default_branch/);
+  assert.match(reviewJob, /gh api --method GET/);
+  assert.match(reviewJob, /mktemp -d "\$RUNNER_TEMP\//);
+  assert.match(reviewJob, /node "\$diagnostic_dir\/summary\.mjs"/);
+  const testJob = workflow.split('  diagnostic-tests:')[1].split('  claude-review:')[0];
+  assert.doesNotMatch(testJob, /id-token|secrets\./);
 });
