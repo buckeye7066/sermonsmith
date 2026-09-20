@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import {ownerSubscription} from '../lib/ownerSubscription.js';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticateToken, requireAdmin, prisma } from '../middleware/auth.js';
@@ -139,6 +140,7 @@ const STREAM_TRAILER_NONCE_HEADER = 'X-Stream-Trailer-Nonce';
 // the SDK installed (e.g., in CI or in a deployment that has DISABLE_AI=1).
 let _openai = null;
 async function getOpenAI() {
+  if (process.env.DISABLE_AI !== "1" && ownerSubscription.isOwner()) return ownerSubscription.openAIClient({timeoutMs:AI_TIMEOUT_MS});
   if (!process.env.OPENAI_API_KEY) {
     throw Object.assign(new Error('OpenAI API key not configured'), { status: 503 });
   }
@@ -599,6 +601,10 @@ export async function callWithRetry(fn, { retries = AI_MAX_RETRIES, baseMs = 500
     try {
       return await fn();
     } catch (err) {
+      // The owner bridge has already enforced its job and response contract.
+      // Repeating its terminal failure can start another native inference on
+      // identical malformed output; it is not a transient provider HTTP 503.
+      if (err?.code === 'OWNER_SUBSCRIPTION_UNAVAILABLE') throw err;
       const status = err?.status ?? err?.response?.status;
       // An account with no credits also answers 429, but it is not transient:
       // retrying only delays the failure the user is about to see. Connection
@@ -850,6 +856,12 @@ async function handleInvoke(req, res, next) {
       AI_TIMEOUT_MS,
       '/ai/invoke',
     );
+    if (completion.billing_mode === 'subscription') {
+      auditBase.model = completion.model;
+      res.setHeader('X-AI-Billing-Mode', 'subscription');
+      res.setHeader('X-AI-Provider', completion.provider);
+      res.setHeader('X-AI-Model', completion.model);
+    }
     let content = completion.choices[0]?.message?.content || '';
     let finishReason = completion.choices[0]?.finish_reason;
 
@@ -1140,6 +1152,12 @@ async function handleStream(req, res, next) {
       { deadline: Date.now() + AI_TIMEOUT_MS },
     );
 
+    if (completion.billing_mode === 'subscription') {
+      auditBase.model = completion.model;
+      res.setHeader('X-AI-Billing-Mode', 'subscription');
+      res.setHeader('X-AI-Provider', completion.provider);
+      res.setHeader('X-AI-Model', completion.model);
+    }
     res.status(200);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');

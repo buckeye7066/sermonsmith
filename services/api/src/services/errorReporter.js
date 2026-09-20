@@ -1,3 +1,4 @@
+import {ownerSubscription} from '../lib/ownerSubscription.js';
 /**
  * Error reporter — when a non-admin user hits an error, capture it, analyze
  * the likely cause + fix with the LLM, and email the owner immediately.
@@ -96,6 +97,7 @@ function safeSubject(value) {
 // ---------------------------------------------------------------------------
 let _openai = null;
 async function getOpenAI() {
+  if (process.env.DISABLE_AI !== "1" && ownerSubscription.isOwner()) return ownerSubscription.openAIClient({timeoutMs:15000});
   if (!process.env.OPENAI_API_KEY || process.env.DISABLE_AI === '1') return null;
   if (!_openai) {
     const { default: OpenAI } = await import('openai');

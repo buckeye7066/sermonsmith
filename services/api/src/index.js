@@ -1,3 +1,4 @@
+import { AI_RESPONSE_HEADERS } from '@sermonsmith/shared/api';
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -11,6 +12,8 @@ import authRoutes from './routes/auth.js';
 import advertisementRoutes from './routes/advertisements.js';
 import entityRoutes from './routes/entities.js';
 import aiRoutes from './routes/ai.js';
+import ownerSubscriptionRoutes from './routes/ownerSubscription.js';
+import {ownerSubscription} from './lib/ownerSubscription.js';
 import functionRoutes from './routes/functions.js';
 import communityRoutes from './routes/community.js';
 import clientErrorRoutes from './routes/clientErrors.js';
@@ -32,6 +35,7 @@ function isSafeRequestId(value) {
 
 export function buildApp(opts = {}) {
   const app = express();
+  app.use((req,res,next)=>ownerSubscription.scope(res,next));
   const allowedOrigins = env.corsAllowList();
   const readinessProbe = opts.readinessProbe || (() => prisma.$queryRaw`SELECT 1`);
   // Optional shared rate-limit stores (Redis), resolved by the caller when
@@ -97,7 +101,7 @@ export function buildApp(opts = {}) {
 
   // Expose the per-stream trailer nonce so a cross-origin (Railway/Electron)
   // web client can read it to authenticate the /api/ai/stream validation trailer.
-  app.use(cors({ origin: allowedOrigins, credentials: true, exposedHeaders: ['X-Stream-Trailer-Nonce'] }));
+  app.use(cors({ origin: allowedOrigins, credentials: true, exposedHeaders: ['X-Stream-Trailer-Nonce', ...AI_RESPONSE_HEADERS] }));
   app.use(cookieParser(process.env.COOKIE_SECRET));
 
   // Origin-based CSRF guard for cookie-authenticated, state-changing
@@ -153,6 +157,7 @@ export function buildApp(opts = {}) {
     });
   });
 
+  app.use('/api/owner-ai',ownerSubscriptionRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/advertisements', advertisementRoutes);
   app.use('/api/entities', entityRoutes);

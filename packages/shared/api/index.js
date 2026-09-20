@@ -49,3 +49,56 @@ export function createReadinessClient(options = {}) {
 }
 
 export const READINESS_CLIENT_CONSTANTS = Object.freeze({ DEFAULT_TIMEOUT_MS });
+
+
+export const AI_RESPONSE_HEADERS = Object.freeze(['X-AI-Billing-Mode', 'X-AI-Provider', 'X-AI-Model']);
+export function readAiResponseMetadata(headers) {
+  const billing = headers?.get?.('X-AI-Billing-Mode');
+  const provider = headers?.get?.('X-AI-Provider');
+  const model = headers?.get?.('X-AI-Model');
+  if (billing !== 'subscription' || provider !== 'subscription:codex' || typeof model !== 'string' || !/^[a-zA-Z0-9._:-]{1,120}$/.test(model)) return null;
+  return { billing_mode: billing, provider, model };
+}
+
+// Leave room for the seven-character Bearer prefix in the server header limit.
+export const OWNER_WORKER_TOKEN_LIMITS = Object.freeze({ min: 32, max: 1017, headerMax: 1024 });
+
+/** Dedicated worker authentication through the shared API transport, never the public client session. */
+export function createOwnerWorkerClient({ baseUrl, token, fetchImpl = globalThis.fetch, timeoutMs = 5000 } = {}) {
+  const origin = new URL(baseUrl);
+  if (origin.protocol !== 'https:' || origin.username || origin.password || origin.search || origin.hash || origin.pathname !== '/' ||
+      typeof token !== 'string' || token.length < OWNER_WORKER_TOKEN_LIMITS.min || token.length > OWNER_WORKER_TOKEN_LIMITS.max || typeof fetchImpl !== 'function' ||
+      !Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30000) throw new Error('invalid_configuration');
+  const encoder = new TextEncoder();
+  return Object.freeze({
+    async post(route, body, signal) {
+      if (!['poll', 'result'].includes(route) || !body || typeof body !== 'object' || Array.isArray(body)) throw new Error('invalid_operation_or_request');
+      const wire = JSON.stringify(body);
+      if (encoder.encode(wire).byteLength > 2097152) throw new Error('invalid_operation_or_request');
+      signal?.throwIfAborted();
+      const combined = AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]);
+      const response = await fetchImpl(new URL('/api/owner-ai/worker/' + route, origin).href, {
+        method: 'POST', redirect: 'error', credentials: 'omit', cache: 'no-store', signal: combined,
+        headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: wire,
+      });
+      if (!response.ok) { await response.body?.cancel(); throw Object.assign(new Error('unavailable'), { status: response.status }); }
+      // A permitted 128 KiB prompt can expand sixfold when JSON escapes control characters.
+      const limit = 1048576; const reader = response.body?.getReader();
+      if (!reader) throw new Error('unavailable');
+      const decoder = new TextDecoder(); let bytes = 0; let raw = '';
+      try {
+        while (true) {
+          combined.throwIfAborted();
+          const part = await reader.read(); if (part.done) break;
+          bytes += part.value.byteLength;
+          if (bytes > limit) { await reader.cancel(); throw new Error('unavailable: response exceeds byte limit'); }
+          raw += decoder.decode(part.value, { stream: true });
+        }
+        raw += decoder.decode();
+      } finally { reader.releaseLock(); }
+      let value; try { value = JSON.parse(raw); } catch { throw new Error('unavailable'); }
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('unavailable');
+      return value;
+    },
+  });
+}
