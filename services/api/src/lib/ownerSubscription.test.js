@@ -9,7 +9,8 @@ test('only a verified owner identity can queue subscription inference',async()=>
  await assert.rejects(runtime.complete({prompt:'public',maxTokens:100,timeoutMs:1000}),/owner/i);
  await runtime.scope(new EventEmitter(),async()=>{
   runtime.identify({id:'other',email:'owner@example.test',role:'admin'});
-  assert.equal(runtime.isOwner(),false);
+  assert.throws(()=>runtime.isOwner(),{code:'OWNER_SUBSCRIPTION_UNAVAILABLE'});
+  await assert.rejects(runtime.complete({prompt:'conflicting identity'}),/configuration conflicts/);
   runtime.identify({id:'owner-id',email:'owner@example.test',role:'admin'});
   const answer=runtime.complete({prompt:'fixture',maxTokens:100,timeoutMs:1000});
   const {job}=runtime.poll({providers:{codex:'ready'}});
@@ -52,8 +53,9 @@ test('worker authentication and status never expose secrets or prompt text',()=>
 test('parallel customer and owner requests cannot share inference authority',async()=>{
  const runtime=createOwnerSubscription({env});runtime.poll({providers:{codex:'ready'}});
  const owner=runtime.scope(new EventEmitter(),async()=>{runtime.identify({id:'owner-id',email:'owner@example.test',role:'admin'});await new Promise(r=>setImmediate(r));assert.equal(runtime.isOwner(),true);});
- const customer=runtime.scope(new EventEmitter(),async()=>{runtime.identify({id:'customer-id',email:'owner@example.test',role:'admin'});await new Promise(r=>setImmediate(r));assert.equal(runtime.isOwner(),false);await assert.rejects(runtime.complete({prompt:'customer'}),/verified owner/);});
- await Promise.all([owner,customer]);assert.equal(runtime.status().pending,0);
+ const customer=runtime.scope(new EventEmitter(),async()=>{runtime.identify({id:'customer-id',email:'customer@example.test',role:'admin'});await new Promise(r=>setImmediate(r));assert.equal(runtime.isOwner(),false);await assert.rejects(runtime.complete({prompt:'customer'}),/verified owner/);});
+ const conflicting=runtime.scope(new EventEmitter(),async()=>{runtime.identify({id:'customer-id',email:'owner@example.test',role:'admin'});await new Promise(r=>setImmediate(r));assert.throws(()=>runtime.isOwner(),{code:'OWNER_SUBSCRIPTION_UNAVAILABLE'});await assert.rejects(runtime.complete({prompt:'conflicting identity'}),/configuration conflicts/);});
+ await Promise.all([owner,customer,conflicting]);assert.equal(runtime.status().pending,0);
 });
 test('OpenAI-compatible owner calls preserve validated JSON and buffered stream shapes',async()=>{
  const runtime=createOwnerSubscription({env});runtime.poll({providers:{codex:'ready'}});

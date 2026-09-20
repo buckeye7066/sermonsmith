@@ -8,7 +8,7 @@ test('the repository developer role is an owner role only with exact owner ident
  const bridge=createOwnerSubscription({env});
  bridge.scope(new EventEmitter(),()=>{
   bridge.identify({...identity,role:'dev'});assert.equal(bridge.isOwner(),true);
-  bridge.identify({...identity,id:'different'});assert.equal(bridge.isOwner(),false);
+  bridge.identify({...identity,id:'different'});assert.throws(()=>bridge.isOwner(),{code:'OWNER_SUBSCRIPTION_UNAVAILABLE'});
   bridge.identify({...identity,role:'user'});assert.equal(bridge.isOwner(),false);
  });
 });

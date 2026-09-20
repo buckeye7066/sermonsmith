@@ -17,11 +17,22 @@ export function createOwnerSubscription({env=process.env,now=Date.now}={}) {
     response?.once?.('close',close);response?.once?.('finish',close);
     return contexts.run({identity:null,signal:controller.signal},work);
   }
-  function identify(identity) {const current=contexts.getStore();if(current)current.identity=owner(identity)?{...identity}:null;}
+  function identify(identity) {
+    const current=contexts.getStore();
+    // Preserve verified identity fields so a conflicting owner configuration
+    // cannot silently erase the owner match and select the customer API route.
+    if(current)current.identity=identity?{id:identity.id,email:identity.email,role:identity.role}:null;
+  }
   const isOwner=()=>{
     if(env.OWNER_AI_BRIDGE_ENABLED==='true'&&(![env.OWNER_AI_USER_ID,env.OWNER_AI_EMAIL].every(value=>typeof value==='string'&&value.trim()&&value===value.trim())||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.OWNER_AI_EMAIL)))
       throw failure('Owner identity configuration is incomplete or invalid; no metered fallback was used');
-    return owner(contexts.getStore()?.identity);
+    const identity=contexts.getStore()?.identity;
+    if(env.OWNER_AI_BRIDGE_ENABLED==='true'&&identity){
+      const idMatches=identity.id===env.OWNER_AI_USER_ID;
+      const emailMatches=String(identity.email||'').toLowerCase()===env.OWNER_AI_EMAIL.toLowerCase();
+      if(idMatches!==emailMatches)throw failure('Owner identity configuration conflicts with the verified account; no metered fallback was used');
+    }
+    return owner(identity);
   };
   function authorized(header) {
     const token=env.OWNER_AI_BRIDGE_TOKEN;
