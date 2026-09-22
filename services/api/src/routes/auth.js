@@ -17,6 +17,7 @@ import {
 } from '../lib/entitlements.js';
 import { lockCommunityEntity } from '../lib/communityEntityLock.js';
 import { withoutPrivateCommunityMetadata } from '../lib/communityPrivacy.js';
+import { isOwnerEmail } from '../lib/ownerOnly.js';
 
 // Admin allowlist comes ONLY from the ADMIN_EMAILS env var. The previous
 // implementation hardcoded a personal email — that gave whoever owned that
@@ -355,6 +356,9 @@ router.post('/register', loginMaintenanceGuard, async (req, res, next) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
     const normalizedEmail = String(email).trim().toLowerCase();
+    if (!isOwnerEmail(normalizedEmail)) {
+      return res.status(403).json({ message: 'Access is restricted to the owner account.' });
+    }
     // Practical mailbox shape check — not full RFC coverage. Rejects empty local/domain
     // and missing TLD so accidental typos do not create undeliverable accounts.
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 254) {
@@ -417,7 +421,11 @@ router.post('/login', loginMaintenanceGuard, async (req, res, next) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!isOwnerEmail(normalizedEmail)) {
+      return res.status(403).json({ message: 'Access is restricted to the owner account.' });
+    }
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }

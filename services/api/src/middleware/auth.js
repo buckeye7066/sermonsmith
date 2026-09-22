@@ -6,6 +6,7 @@ import {
   entitlementsFor,
   requestHasEntitlement,
 } from '../lib/entitlements.js';
+import { isOwnerEmail } from '../lib/ownerOnly.js';
 
 // Singleton — avoids spawning multiple connection pools.
 const globalForPrisma = globalThis;
@@ -192,6 +193,9 @@ export async function authenticateToken(req, res, next, { optional = false } = {
     if (user.is_banned) {
       return res.status(403).json({ message: 'This account has been suspended.' });
     }
+    if (!isOwnerEmail(user.email)) {
+      return res.status(403).json({ message: 'Access is restricted to the owner account.' });
+    }
 
     // Session-revocation check. Any token issued before the latest
     // password change / reset / forced-logout encodes an older `tv` and is
@@ -229,7 +233,7 @@ export async function optionalAuth(req, _res, next) {
       // that a revoked identity may keep its former tier. Only attach identity
       // and Premium entitlements after the same active-user/token-version
       // checks used by authenticateToken.
-      if (user && !user.deletedAt && !user.is_banned && tokenVersionIsCurrent(decoded, user)) {
+      if (user && !user.deletedAt && !user.is_banned && tokenVersionIsCurrent(decoded, user) && isOwnerEmail(user.email)) {
         attachAuthenticatedUser(req, decoded.userId, user);
       }
     } catch {
