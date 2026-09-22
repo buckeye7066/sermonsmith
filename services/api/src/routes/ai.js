@@ -139,15 +139,20 @@ const STREAM_TRAILER_NONCE_HEADER = 'X-Stream-Trailer-Nonce';
 // the SDK installed (e.g., in CI or in a deployment that has DISABLE_AI=1).
 let _openai = null;
 async function getOpenAI() {
-  if (!process.env.OPENAI_API_KEY) {
-    throw Object.assign(new Error('OpenAI API key not configured'), { status: 503 });
-  }
   if (process.env.DISABLE_AI === '1') {
     throw Object.assign(new Error('AI features are disabled in this deployment'), { status: 503 });
   }
+  const localOnly = String(process.env.AI_LOCAL_ONLY ?? 'true').trim().toLowerCase() !== 'false';
+  const apiKey = localOnly ? (process.env.OLLAMA_API_KEY || 'ollama-local') : process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw Object.assign(new Error('AI provider is not configured'), { status: 503 });
+  }
   if (!_openai) {
     const { default: OpenAI } = await import('openai');
-    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const baseURL = localOnly
+      ? (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434/v1')
+      : process.env.OPENAI_BASE_URL;
+    _openai = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
   }
   return _openai;
 }
